@@ -117,15 +117,21 @@ export default function Review() {
       </div>
 
       <div className="stage-strip">
-        {artifacts.length > 0 && (
-          <>
-            <div className="ss-node done">
-              <span className="ss-dot"></span>
-              <span className="ss-tx"><b>Plan</b><span>{artifacts.map((a) => a.role).join(' + ')}</span></span>
-            </div>
-            <span className="ss-conn"></span>
-          </>
-        )}
+        {artifacts.length > 0 && (() => {
+          const allApproved = artifacts.every((a) => state.artifactApprovals[a.path])
+          return (
+            <>
+              <div className={'ss-node ' + (allApproved ? 'done' : 'active')}>
+                <span className="ss-dot"></span>
+                <span className="ss-tx">
+                  <b>{allApproved ? 'Plan' : 'Review the plan'}</b>
+                  <span>{allApproved ? 'approved' : `${artifacts.filter((a) => state.artifactApprovals[a.path]).length}/${artifacts.length} approved`}</span>
+                </span>
+              </div>
+              <span className={'ss-conn' + (allApproved ? '' : ' dashed')}></span>
+            </>
+          )
+        })()}
         <div className="ss-node done">
           <span className="ss-dot"></span>
           <span className="ss-tx"><b>Built</b><span className="mono">{shortSha(skeleton.headSha)}</span></span>
@@ -155,7 +161,10 @@ export default function Review() {
                     <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                     <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
                     <span className="art-meta">{a.title}</span>
-                    <I.chevR style={{ width: 11, height: 11, color: 'var(--muted)', transform: peek === a.path ? 'rotate(90deg)' : '', transition: '.15s', flex: '0 0 auto', marginLeft: 'auto' }} />
+                    {state.artifactApprovals[a.path] && (
+                      <span className="art-tick"><I.check style={{ width: 10, height: 10 }} />approved</span>
+                    )}
+                    <I.chevR style={{ width: 11, height: 11, color: 'var(--muted)', transform: peek === a.path ? 'rotate(90deg)' : '', transition: '.15s', flex: '0 0 auto', marginLeft: state.artifactApprovals[a.path] ? undefined : 'auto' }} />
                   </div>
                   {peek === a.path && (
                     <div className="art-peek">

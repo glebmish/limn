@@ -7,7 +7,7 @@ import { Composer, InlineThread } from './Threads'
 /** v3-style commentable document view for spec/plan artifacts.
  *  Every line is a hover-"+" spec-line; threads render inline under their line. */
 export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => void }) {
-  const { loaded, branch } = useStore()
+  const { loaded, branch, base, repo, reload } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
   const art = loaded?.artifacts.find((a) => a.path === path)
   const comments = (loaded?.state.comments ?? []).filter(
@@ -16,6 +16,12 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   if (!art) return null
 
   const deviations = loaded?.state.annotations?.planMap?.deviations ?? []
+  const approvedAt = loaded?.state.artifactApprovals[path]
+  const queuedHere = comments.filter((c) => c.status === 'queued').length
+  const approve = (): void => {
+    if (!repo) return
+    void window.api.approveArtifact(repo, branch, base, path).then(() => reload())
+  }
 
   const renderLine = (text: string, idx: number) => {
     const lineNo = idx + 1
@@ -68,11 +74,25 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
       <div className="plan-stage-banner">
         <span className="psb-ic">{art.role === 'plan' ? <I.spark style={{ width: 14, height: 14 }} /> : <I.doc style={{ width: 14, height: 14 }} />}</span>
         <span className="psb-tx">
-          {art.role === 'plan'
-            ? <><b>Plan — how this change was meant to be built.</b> Comment on any line; notes go to the agent with your next batch.</>
-            : <><b>Spec — the intent this change is judged against.</b> Comment on any line; notes go to the agent with your next batch.</>}
+          {approvedAt
+            ? <><b>{art.role === 'plan' ? 'Plan' : 'Spec'} — approved.</b> Comments still queue for the agent; re-approve if it changes.</>
+            : art.role === 'plan'
+              ? <><b>Plan — awaiting your approval.</b> Review how this change was meant to be built; comment on any line, then approve or send notes.</>
+              : <><b>Spec — the intent this change is judged against.</b> Comment on any line, then approve it as the bar for this branch.</>}
         </span>
-        <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={onClose}>
+        {approvedAt ? (
+          <span className="psb-stamp" style={{ marginLeft: 'auto' }}>
+            <I.check style={{ width: 12, height: 12 }} />Approved at {approvedAt.slice(0, 7)}
+          </span>
+        ) : (
+          <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} onClick={approve}>
+            <I.check style={{ width: 12, height: 12 }} />Approve {art.role}
+          </button>
+        )}
+        {!approvedAt && queuedHere > 0 && (
+          <span className="dim" style={{ fontSize: 10.5, whiteSpace: 'nowrap' }}>{queuedHere} note{queuedHere > 1 ? 's' : ''} queued</span>
+        )}
+        <button className="btn btn-sm" onClick={onClose}>
           <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />Back to changes
         </button>
       </div>

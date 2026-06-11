@@ -13,6 +13,7 @@ import { makeEngine } from './engines/index.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { reanchorComments } from './anchor.js'
 import { addRecent, loadConfig } from './config.js'
+import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
@@ -25,10 +26,10 @@ async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Pro
   for await (const event of events) send('op:event', { opId, event })
 }
 
-async function loadArtifactsFor(repo: string, branch: string, state: ReviewState): Promise<Artifact[]> {
+async function loadArtifactsFor(repo: string, branch: string, state: ReviewState, changedPaths: string[]): Promise<Artifact[]> {
   let refs = state.artifacts
   if (refs.length === 0) {
-    refs = await detectArtifacts(repo, branch)
+    refs = await detectArtifacts(repo, branch, changedPaths)
     state.artifacts = refs
   }
   const out: Artifact[] = []
@@ -45,7 +46,7 @@ async function loadArtifactsFor(repo: string, branch: string, state: ReviewState
 async function buildLoadedReview(repo: string, branch: string, base: string): Promise<LoadedReview> {
   const skeleton = await getDiff(repo, base, branch)
   const state = loadState(repo, branch, base)
-  const artifacts = await loadArtifactsFor(repo, branch, state)
+  const artifacts = await loadArtifactsFor(repo, branch, state, skeleton.files.map((f) => f.path))
   const commits = await log(repo, base, branch)
   let sinceTagged = false
   const baseline = state.approvedSha ?? state.reviewedAtSha
@@ -112,7 +113,7 @@ export function registerIpc(): void {
     try {
       const skeleton = await getDiff(repo, base, branch)
       const state = loadState(repo, branch, base)
-      const artifacts = await loadArtifactsFor(repo, branch, state)
+      const artifacts = await loadArtifactsFor(repo, branch, state, skeleton.files.map((f) => f.path))
       const engine = makeEngine(engineId)
       const run = engine.generateReview({ repo, branch, base, diff: skeleton, artifacts })
       activeOps.set(opId, run.cancel)
@@ -278,9 +279,13 @@ export function registerIpc(): void {
   handle('authStatus', async (engine: EngineId) => {
     const home = os.homedir()
     if (engine === 'claude') {
+      const bin = claudeBinaryPath()
+      if (!bin) return { ok: false, hint: 'Install Claude Code (`claude` not found on PATH)' }
       const ok = Boolean(process.env.ANTHROPIC_API_KEY) || fs.existsSync(path.join(home, '.claude'))
       return { ok, hint: ok ? 'Using Claude Code login or API key' : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
     }
+    const bin = codexBinaryPath()
+    if (!bin) return { ok: false, hint: 'Install Codex CLI (`codex` not found on PATH)' }
     const ok = Boolean(process.env.OPENAI_API_KEY) || fs.existsSync(path.join(home, '.codex', 'auth.json'))
     return { ok, hint: ok ? 'Using codex login or API key' : 'Run `codex login`, or set OPENAI_API_KEY' }
   })
