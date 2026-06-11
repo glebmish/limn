@@ -1,0 +1,81 @@
+import { useEffect, useRef } from 'react'
+import { newOpId, useStore } from '../store'
+import { I } from '../kit'
+import type { EngineId } from '../../shared/types'
+
+export function startGenerate(): void {
+  const { repo, branch, base, engine, startOp } = useStore.getState()
+  if (!repo) return
+  const opId = newOpId()
+  startOp('review', opId)
+  void window.api.generate(repo, branch, base, engine, opId)
+}
+
+/** CTA before annotations exist + live progress strip during any agent op. */
+export function GenPanel() {
+  const { loaded, gen, engine, setEngine } = useStore()
+  const logRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
+  }, [gen.log.length])
+
+  if (gen.running) {
+    const label = gen.kind === 'fix' ? 'Agent is applying your comments…' : gen.kind === 'review' ? 'Agent is exploring the branch…' : 'Agent is thinking…'
+    return (
+      <div className="gen-strip">
+        <div className="gs-head">
+          <span className="gen-spinner"></span>
+          <span className="gs-title">{label}</span>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => { if (gen.opId) void window.api.cancel(gen.opId); useStore.getState().finishOp('cancelled') }}
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="gs-log" ref={logRef}>
+          {gen.log.filter((e) => e.type === 'status' || e.type === 'tool').map((e, i) => (
+            <div key={i} className={'gs-line' + (e.type === 'tool' ? ' tool' : '')}>
+              {e.type === 'tool' ? '⌁ ' : '· '}{'text' in e ? e.text : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (gen.error && gen.error !== 'cancelled') {
+    return (
+      <div className="gen-strip err">
+        <div className="gs-head">
+          <I.flag style={{ width: 13, height: 13, color: 'var(--red)' }} />
+          <span className="gs-title">Agent run failed: {gen.error}</span>
+          <button className="btn btn-sm" onClick={startGenerate}>Retry</button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!loaded?.state.annotations) {
+    return (
+      <div className="gen-cta">
+        <span className="gc-tx">
+          <b>Generate a guided review.</b> The agent explores the repo — callers, tests, history, specs —
+          then groups this diff into narrated sections with risk flags.
+        </span>
+        <span className="seg seg-sm">
+          {(['claude', 'codex'] as EngineId[]).map((e) => (
+            <button key={e} className={engine === e ? 'on' : ''} onClick={() => setEngine(e)}>
+              {e === 'claude' ? 'Claude' : 'Codex'}
+            </button>
+          ))}
+        </span>
+        <button className="btn btn-primary" onClick={startGenerate}>
+          <I.spark style={{ width: 13, height: 13 }} />Generate guided review
+        </button>
+      </div>
+    )
+  }
+  return null
+}

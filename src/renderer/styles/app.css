@@ -1,0 +1,91 @@
+/* macOS app adaptations + screens not present in the wireframes,
+   written in the same visual language as wf.css/review.css. */
+
+html, body, #root { height: 100%; margin: 0; background: var(--paper); }
+
+.wf { height: 100vh; }
+
+/* real traffic lights live in the top-left; titlebar is a drag region */
+.wf-titlebar { padding-left: 86px; -webkit-app-region: drag; user-select: none; }
+.wf-titlebar button, .wf-titlebar .branch, .wf-titlebar .seg { -webkit-app-region: no-drag; }
+
+/* ---- welcome / setup screens ---- */
+.lr-center { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; padding: 40px; overflow-y: auto; }
+.lr-card { width: 520px; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px 30px; }
+.lr-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.lr-logo .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; }
+.lr-logo h1 { font-size: 19px; font-weight: 700; letter-spacing: -.3px; margin: 0; }
+.lr-lede { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: 0 0 18px; }
+.lr-recents { display: flex; flex-direction: column; gap: 2px; margin: 14px 0 6px; }
+.lr-recent { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: var(--r-md); cursor: pointer; border: 1px solid transparent; background: none; font-family: var(--sans); text-align: left; width: 100%; }
+.lr-recent:hover { background: var(--panel-2); border-color: var(--line); }
+.lr-recent .name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.lr-recent .path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-error { margin-top: 12px; padding: 9px 12px; border: 1px solid var(--red-line); background: var(--red-soft); color: var(--red); border-radius: var(--r-md); font-size: 12px; line-height: 1.45; }
+.lr-field { margin: 14px 0; }
+.lr-field label { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; margin-bottom: 6px; }
+.lr-field select { width: 100%; font-family: var(--mono); font-size: 12.5px; color: var(--ink); padding: 8px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); }
+.lr-actions { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+.lr-repo-path { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* engine picker */
+.lr-engines { display: flex; gap: 10px; }
+.lr-engine { flex: 1 1 0; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--panel); padding: 11px 12px; cursor: pointer; text-align: left; font-family: var(--sans); }
+.lr-engine:hover { border-color: var(--line-3); }
+.lr-engine.on { border-color: var(--accent); background: var(--accent-soft); }
+.lr-engine .en-name { font-size: 12.5px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 7px; }
+.lr-engine.on .en-name { color: var(--accent-ink); }
+.lr-engine .en-hint { font-size: 10.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.lr-engine .en-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-3); }
+.lr-engine .en-dot.ok { background: var(--accent); }
+.lr-engine .en-dot.bad { background: var(--red); }
+
+/* ---- tweaks panel (floating, bottom-right) ---- */
+.tweaks-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.tweaks-toggle:hover { color: var(--ink-2); }
+.tweaks-panel { position: fixed; right: 16px; bottom: 58px; z-index: 40; width: 250px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-lg); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 13px 14px; }
+.tweak-sec { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; margin: 10px 0 6px; }
+.tweak-sec:first-child { margin-top: 0; }
+.tweak-row { margin-bottom: 8px; }
+.tweak-row .tw-lab { font-size: 11px; font-weight: 600; color: var(--ink-2); margin-bottom: 4px; }
+.tweak-colors { display: flex; gap: 7px; }
+.tweak-color { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+.tweak-color.on { border-color: var(--ink); }
+
+/* ---- generation progress strip ---- */
+.gen-strip { margin: 14px 30px 0; border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: var(--r-md); padding: 11px 14px; }
+.gen-strip .gs-head { display: flex; align-items: center; gap: 9px; }
+.gen-strip .gs-title { font-size: 12.5px; font-weight: 700; color: var(--accent-ink); flex: 1 1 auto; }
+.gen-strip .gs-log { margin-top: 8px; max-height: 130px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.gen-strip .gs-line { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-strip .gs-line.tool { color: var(--muted); }
+.gen-strip.err { border-color: var(--red-line); background: var(--red-soft); }
+.gen-strip.err .gs-title { color: var(--red); }
+.gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: lr-spin .8s linear infinite; flex: 0 0 auto; }
+@keyframes lr-spin { to { transform: rotate(360deg); } }
+
+/* call-to-action band for generating the guided review */
+.gen-cta { margin: 14px 30px 0; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: var(--panel-2); padding: 13px 15px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.gen-cta .gc-tx { flex: 1 1 260px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+.gen-cta .gc-tx b { color: var(--ink); }
+.gen-cta .seg { flex: 0 0 auto; }
+
+/* empty diff state */
+.lr-empty { padding: 60px 30px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* line-comment "+" gutter: hidden until the line is hovered */
+.dline .lr-line-add { display: none; border: none; cursor: pointer; }
+.dline:hover .lr-line-add { display: flex; }
+
+/* ---- chat drawer ---- */
+.chat-drawer { width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.chat-head { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.chat-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
+.chat-hint { font-size: 12px; color: var(--muted); line-height: 1.5; border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 10px 12px; background: var(--panel-2); }
+.chat-msg { display: flex; gap: 8px; align-items: flex-start; }
+.chat-msg.user { flex-direction: row-reverse; }
+.chat-bubble { max-width: 85%; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }
+.chat-msg.user .chat-bubble { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+.chat-anchor { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+.chat-foot { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; padding: 10px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.chat-foot textarea { flex: 1 1 auto; resize: none; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); font-family: var(--sans); font-size: 12px; color: var(--ink); padding: 7px 9px; line-height: 1.45; }

@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
+import fs from 'node:fs'
 import { registerIpc } from './ipc.js'
 
 // GUI apps on macOS don't inherit the shell PATH; engines need git/node tools from it.
@@ -24,7 +25,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 14, y: 13 },
     backgroundColor: '#f4f3ef',
     webPreferences: {
-      preload: path.join(import.meta.dirname, '../preload/index.mjs'),
+      preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -34,6 +35,22 @@ function createWindow(): BrowserWindow {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     win.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
+  }
+
+  if (process.env.LR_SHOT || process.env.ELECTRON_RENDERER_URL) {
+    win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
+    })
+  }
+
+  // dev-only visual smoke: LR_SHOT=/path.png captures the window after load
+  const shot = process.env.LR_SHOT
+  if (shot) {
+    setTimeout(() => {
+      void win.webContents.capturePage().then((img) => {
+        fsWriteShot(shot, img.toPNG())
+      })
+    }, 9000)
   }
   return win
 }
@@ -50,3 +67,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   app.quit()
 })
+
+function fsWriteShot(p: string, buf: Buffer): void {
+  fs.writeFileSync(p, buf)
+}

@@ -20,3 +20,9 @@ api.onOpResult = (cb: (msg: OpResultMsg) => void) => {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+// dev-only: lets `LR_OPEN_REPO=… LR_OPEN_BRANCH=… npm run dev` skip the pickers
+contextBridge.exposeInMainWorld('lrDev', {
+  repo: process.env.LR_OPEN_REPO ?? null,
+  branch: process.env.LR_OPEN_BRANCH ?? null
+})
