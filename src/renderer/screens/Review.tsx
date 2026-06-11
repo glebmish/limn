@@ -34,6 +34,13 @@ export default function Review() {
       devFlowRan = true
       import('../components/GenPanel').then(({ startGenerate }) => startGenerate())
     }
+    if (window.lrDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
+      const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
+      if (ids.length > 0) {
+        devFlowRan = true
+        sendComments(ids)
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
 
