@@ -1,8 +1,8 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, Notification, dialog, ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { Api, LoadedReview, OpEventMsg, OpResultMsg } from '../shared/ipc.js'
+import type { Api, LoadedReview, OpEventMsg, OpResultMsg, RepoChangedMsg } from '../shared/ipc.js'
 import type { Artifact, Comment, EngineEvent, EngineId, ReviewState } from '../shared/types.js'
 import {
   currentBranch, defaultBase, diffSince, getDiff, headSha, isDirty, listBranches, log, markSince
@@ -18,8 +18,47 @@ import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
 
-function send(channel: 'op:event' | 'op:result', msg: OpEventMsg | OpResultMsg): void {
+// ── watch mode: poll the open review's branch head; push when it moves ──
+let watcher: { timer: NodeJS.Timeout; repo: string; branch: string; lastSha: string } | null = null
+
+function startWatch(repo: string, branch: string, sha: string): void {
+  if (watcher) clearInterval(watcher.timer)
+  const w = { repo, branch, lastSha: sha, timer: setInterval(() => void poll(), 2000) }
+  watcher = w
+  async function poll(): Promise<void> {
+    if (repoLocks.has(repo)) return // our own agent op — reload arrives via op:result
+    try {
+      const head = await headSha(repo, branch)
+      if (head !== w.lastSha) {
+        w.lastSha = head
+        send('repo:changed', { repo, branch, headSha: head })
+      }
+    } catch {
+      // branch deleted / repo gone — stop quietly
+      clearInterval(w.timer)
+      if (watcher === w) watcher = null
+    }
+  }
+}
+
+function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMsg | OpResultMsg | RepoChangedMsg): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, msg)
+}
+
+/** Notify when the user isn't looking at the app (agent runs take minutes). */
+function notifyIfUnfocused(title: string, body: string): void {
+  const focused = BrowserWindow.getAllWindows().some((w) => w.isFocused())
+  if (!focused && Notification.isSupported()) {
+    const n = new Notification({ title, body, silent: false })
+    n.on('click', () => {
+      const w = BrowserWindow.getAllWindows()[0]
+      if (w) {
+        w.show()
+        w.focus()
+      }
+    })
+    n.show()
+  }
 }
 
 async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Promise<void> {
@@ -105,7 +144,11 @@ export function registerIpc(): void {
     return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
   })
 
-  handle('loadReview', async (repo: string, branch: string, base: string) => buildLoadedReview(repo, branch, base))
+  handle('loadReview', async (repo: string, branch: string, base: string) => {
+    const loaded = await buildLoadedReview(repo, branch, base)
+    startWatch(repo, branch, loaded.skeleton.headSha)
+    return loaded
+  })
 
   handle('generate', async (repo: string, branch: string, base: string, engineId: EngineId, opId: string) => {
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
@@ -136,9 +179,15 @@ export function registerIpc(): void {
       state.iterations = [{ n: 1, engine: engineId, sessionId, endSha: skeleton.headSha, at: new Date().toISOString() }]
       saveState(state)
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
+      const flagged = annotations.sections.reduce((n, s) => n + s.flags.filter((f) => f.risk).length, 0)
+      notifyIfUnfocused(
+        'Guided review ready',
+        `${annotations.sections.length} sections${flagged ? `, ${flagged} flagged` : ''} — ${branch}`
+      )
     } catch (err) {
       console.error('[generate] failed:', err)
       send('op:result', { opId, kind: 'review', ok: false, error: String(err instanceof Error ? err.message : err) })
+      notifyIfUnfocused('Review generation failed', String(err instanceof Error ? err.message : err).slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
@@ -242,6 +291,12 @@ export function registerIpc(): void {
       })
       saveState(state)
       send('op:result', { opId, kind: 'fix', ok: true, reload: true })
+      const addressed = fix.resolutions.filter((r) => r.verdict !== 'skipped').length
+      const skipped = fix.resolutions.length - addressed
+      notifyIfUnfocused(
+        'Agent applied your comments',
+        `${addressed} addressed${skipped ? `, ${skipped} skipped` : ''} — ${branch}`
+      )
     } catch (err) {
       // roll back "sent" so comments aren't stuck
       const st = loadState(repo, branch, base)
@@ -254,6 +309,7 @@ export function registerIpc(): void {
       }
       if (changed) saveState(st)
       send('op:result', { opId, kind: 'fix', ok: false, error: String(err instanceof Error ? err.message : err) })
+      notifyIfUnfocused('Agent fix run failed', String(err instanceof Error ? err.message : err).slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)

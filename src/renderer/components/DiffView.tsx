@@ -1,13 +1,42 @@
-import { Fragment, useState } from 'react'
-import type { Comment, FileDiff } from '../../shared/types'
+import { Fragment, useMemo, useState } from 'react'
+import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I, Delta, ficonClass } from '../kit'
 import { useStore } from '../store'
 import { addComment, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
+import { highlightLine, langForPath } from '../lib/highlight'
 
 function splitPath(path: string): { dir: string; name: string } {
   const i = path.lastIndexOf('/')
   return i < 0 ? { dir: '', name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) }
+}
+
+/** tabs → spaces so ch-offset word marks align with the monospace text */
+function disp(text: string): string {
+  return text.replace(/\t/g, '  ')
+}
+
+function hunkWordMarks(lines: DiffLine[]): Map<number, CharRange[]> {
+  const marks = new Map<number, CharRange[]>()
+  for (const [d, a] of pairHunkLines(lines)) {
+    const r = wordDiffRanges(disp(lines[d].text), disp(lines[a].text))
+    if (r.old.length) marks.set(d, r.old)
+    if (r.new.length) marks.set(a, r.new)
+  }
+  return marks
+}
+
+function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; ranges?: CharRange[] }) {
+  const t = disp(text)
+  return (
+    <span className="code">
+      {ranges?.map((r, i) => (
+        <i key={i} className="wd" style={{ left: `${r.start}ch`, width: `${r.len}ch` }} />
+      ))}
+      <span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(t, lang) }} />
+    </span>
+  )
 }
 
 export type DiffMode = 'branch' | 'approved' | 'viewed'
@@ -38,6 +67,8 @@ export function DiffView({ f, plainNote }: {
     effectiveMode === 'approved' ? f.hunks.filter((h) => h.since)
     : effectiveMode === 'viewed' ? f.hunks.filter((h) => h.sinceViewed)
     : f.hunks
+  const lang = langForPath(f.path)
+  const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
 
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
     line == null
@@ -152,7 +183,7 @@ export function DiffView({ f, plainNote }: {
                     <div className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}>
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                      <span className="code">{l.text}</span>
+                      <CodeLine text={l.text} lang={lang} ranges={wordMarks[i]?.get(j)} />
                       <button
                         className="gutter-add lr-line-add"
                         title="Comment on this line"
