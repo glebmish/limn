@@ -1,13 +1,24 @@
 import { z } from 'zod'
+import type { FixResult, ReviewAnnotations } from '../../shared/types.js'
 
-export const sectionSchema = z.object({
+// Wire schemas: what the engines are asked to return. No tuples — the CLI-side
+// structured-output validator rejects schemas with prefixItems, so diagram nodes
+// travel as objects and are mapped to the DiagramNode tuples after parsing.
+
+const wireDiagramNode = z.object({
+  label: z.string(),
+  kind: z.enum(['', 'hi', 'new']),
+  sub: z.string()
+})
+
+const wireSection = z.object({
   id: z.string(),
   name: z.string(),
   desc: z.string(),
   what: z.string(),
   files: z.array(z.string()),
   order: z.number(),
-  diagram: z.array(z.tuple([z.string(), z.enum(['', 'hi', 'new']), z.string()])).optional(),
+  diagram: z.array(wireDiagramNode).optional(),
   insight: z.object({ caption: z.string() }).optional(),
   flags: z.array(z.object({
     file: z.string(),
@@ -15,11 +26,11 @@ export const sectionSchema = z.object({
     risk: z.boolean(),
     label: z.string(),
     text: z.string()
-  })).default([]),
+  })),
   plainNotes: z.record(z.string(), z.string()).optional()
 })
 
-export const planMapSchema = z.object({
+const wirePlanMap = z.object({
   acceptance: z.array(z.object({ text: z.string(), met: z.union([z.boolean(), z.literal('partial')]) })),
   steps: z.array(z.object({
     n: z.number(), text: z.string(), sectionId: z.string(),
@@ -28,16 +39,16 @@ export const planMapSchema = z.object({
   deviations: z.array(z.object({ text: z.string(), sectionId: z.string() }))
 })
 
-export const reviewAnnotationsSchema = z.object({
+export const reviewWireSchema = z.object({
   title: z.string(),
   summary: z.string(),
-  sections: z.array(sectionSchema),
-  planMap: planMapSchema.optional(),
-  questions: z.array(z.object({ id: z.string(), text: z.string(), context: z.string().optional() })).default([]),
+  sections: z.array(wireSection),
+  planMap: wirePlanMap.optional(),
+  questions: z.array(z.object({ id: z.string(), text: z.string(), context: z.string().optional() })),
   artifactPaths: z.array(z.string()).optional()
 })
 
-export const fixResultSchema = z.object({
+export const fixWireSchema = z.object({
   summary: z.string(),
   resolutions: z.array(z.object({
     commentId: z.string(),
@@ -46,6 +57,27 @@ export const fixResultSchema = z.object({
   }))
 })
 
+function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  const js = z.toJSONSchema(schema) as Record<string, unknown>
+  delete js.$schema
+  return js
+}
+
 // JSON Schemas for the SDKs' structured-output options
-export const reviewJsonSchema = z.toJSONSchema(reviewAnnotationsSchema)
-export const fixJsonSchema = z.toJSONSchema(fixResultSchema)
+export const reviewJsonSchema = toJsonSchema(reviewWireSchema)
+export const fixJsonSchema = toJsonSchema(fixWireSchema)
+
+export function parseReviewOutput(raw: unknown): ReviewAnnotations {
+  const wire = reviewWireSchema.parse(raw)
+  return {
+    ...wire,
+    sections: wire.sections.map((s) => ({
+      ...s,
+      diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as [string, '' | 'hi' | 'new', string])
+    }))
+  }
+}
+
+export function parseFixOutput(raw: unknown): FixResult {
+  return fixWireSchema.parse(raw)
+}

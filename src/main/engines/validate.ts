@@ -1,16 +1,14 @@
 import type { DiffSkeleton, ReviewAnnotations, Section } from '../../shared/types.js'
-import { reviewAnnotationsSchema } from './schema.js'
 
 export interface MergeResult {
   annotations: ReviewAnnotations
   warnings: string[]
 }
 
-/** Validate raw engine output against the skeleton: every referenced file must exist;
+/** Validate engine annotations against the skeleton: every referenced file must exist;
  *  every skeleton file ends up in exactly one section ("Other changes" catches strays). */
-export function mergeAnnotations(skeleton: DiffSkeleton, raw: unknown): MergeResult {
+export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotations): MergeResult {
   const warnings: string[] = []
-  const parsed = reviewAnnotationsSchema.parse(raw)
   const known = new Set(skeleton.files.map((f) => f.path))
   const assigned = new Set<string>()
 
