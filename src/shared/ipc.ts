@@ -36,9 +36,12 @@ export interface OpResultMsg {
   reload?: boolean
 }
 
+export interface RepoChangedMsg { repo: string; branch: string; headSha: string }
+
 export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void
   onOpResult(cb: (msg: OpResultMsg) => void): () => void
+  onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
 }
 
 export const API_CHANNELS: (keyof Api)[] = [

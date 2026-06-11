@@ -76,6 +76,25 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 /* slim regenerate row under the summary */
 .gen-cta.gen-regen { padding: 7px 15px; border-style: solid; background: transparent; border-color: var(--line); }
 
+/* ---- word-level diff marks (ch-offset overlays under the code text) ---- */
+.dline .code { position: relative; }
+.dline .code .wd { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; z-index: 0; pointer-events: none; }
+.dline.add .code .wd { background: #c2e2cc; }
+.dline.del .code .wd { background: #eccabd; }
+.dline .code .code-syn { position: relative; z-index: 1; }
+
+/* ---- syntax tokens: muted scheme in the wf palette ---- */
+.dline .hljs-keyword, .dline .hljs-literal, .dline .hljs-built_in, .dline .hljs-operator { color: #7d5193; }
+.dline .hljs-string, .dline .hljs-regexp, .dline .hljs-symbol { color: #2f6f44; }
+.dline .hljs-number { color: #9c5a2e; }
+.dline .hljs-comment, .dline .hljs-quote { color: #989284; font-style: italic; }
+.dline .hljs-title, .dline .hljs-function, .dline .hljs-section { color: #2b5680; }
+.dline .hljs-attr, .dline .hljs-property, .dline .hljs-variable, .dline .hljs-params { color: #6c4327; }
+.dline .hljs-type, .dline .hljs-class, .dline .hljs-name { color: #946716; }
+.dline .hljs-meta, .dline .hljs-punctuation { color: var(--ink-2); }
+/* keep add/del tint readable: tokens darken slightly, base colors still win on signs/gutters */
+.dline.del .code-syn { opacity: .92; }
+
 /* line-comment "+" gutter: hidden until the line is hovered */
 .dline .lr-line-add { display: none; border: none; cursor: pointer; }
 .dline:hover .lr-line-add { display: flex; }

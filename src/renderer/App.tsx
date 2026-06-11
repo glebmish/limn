@@ -17,9 +17,16 @@ export default function App() {
       st.finishOp(ok ? undefined : error ?? 'unknown error')
       if (ok || reload) void st.reload()
     })
+    // watch mode: the branch moved underneath us (e.g. a terminal agent committed)
+    const offChanged = window.api.onRepoChanged(({ repo, branch }) => {
+      const st = useStore.getState()
+      if (st.screen !== 'review' || st.gen.running) return
+      if (st.repo === repo && st.branch === branch) void st.reload()
+    })
     return () => {
       offEvent()
       offResult()
+      offChanged()
     }
   }, [])
 
