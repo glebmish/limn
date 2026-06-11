@@ -1,6 +1,6 @@
 // ── git ground truth ──────────────────────────────────────────
-export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean }
-export interface Hunk { range: string; header: string; lines: DiffLine[]; since?: boolean }
+export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean; sinceViewed?: boolean }
+export interface Hunk { range: string; header: string; lines: DiffLine[]; since?: boolean; sinceViewed?: boolean }
 export interface FileDiff { path: string; oldPath?: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; binary: boolean; add: number; del: number; hunks: Hunk[] }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
 export interface CommitInfo { sha: string; subject: string; author: string; date: string }
@@ -60,8 +60,13 @@ export interface ReviewState {
   repo: string; branch: string; base: string;
   engine?: EngineId; annotations?: ReviewAnnotations;
   comments: Comment[]; chat: ChatMessage[];
-  viewedFiles: string[]; reviewedSections: string[];
+  /** per-file: SHA of the branch head when the file was marked viewed */
+  viewedAt: Record<string, string>;
+  reviewedSections: string[];
+  /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;
+  /** per-artifact plan/spec approval: path → SHA at approval time */
+  artifactApprovals: Record<string, string>;
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }

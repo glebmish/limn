@@ -4,7 +4,7 @@ import { I, DiagramNodeBox, Flow } from '../kit'
 import { useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
-import { DiffView, type DiffMode } from './DiffView'
+import { DiffView } from './DiffView'
 
 export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   s: Section
@@ -15,7 +15,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   secRef: (el: HTMLDivElement | null) => void
 }) {
   const { reviewedSections, collapsed, guidance, markReviewed, openSection, loaded } = useStore()
-  const [mode, setMode] = useState<DiffMode>('parent')
   const [commenting, setCommenting] = useState(false)
   const comments = loaded?.state.comments ?? []
 
@@ -130,9 +129,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <DiffView
               key={f.path}
               f={f}
-              reReview={reReview}
-              mode={reReview ? mode : 'parent'}
-              setMode={setMode}
               plainNote={s.plainNotes?.[f.path] ?? s.plainNotes?.[f.path.split('/').pop() ?? '']}
             />
           ))}

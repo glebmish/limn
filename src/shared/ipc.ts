@@ -17,12 +17,13 @@ export interface Api {
   loadReview(repo: string, branch: string, base: string): Promise<LoadedReview>
   generate(repo: string, branch: string, base: string, engine: EngineId, opId: string): Promise<void>
   cancel(opId: string): Promise<void>
-  saveUiState(repo: string, branch: string, base: string, patch: Partial<Pick<ReviewState, 'viewedFiles' | 'reviewedSections' | 'engine'>>): Promise<void>
+  saveUiState(repo: string, branch: string, base: string, patch: Partial<Pick<ReviewState, 'viewedAt' | 'reviewedSections' | 'engine'>>): Promise<void>
   upsertComment(repo: string, branch: string, base: string, comment: Comment): Promise<ReviewState>
   deleteComment(repo: string, branch: string, base: string, id: string): Promise<ReviewState>
   chat(repo: string, branch: string, base: string, message: string, opId: string, anchor?: CommentAnchor): Promise<void>
   sendFeedback(repo: string, branch: string, base: string, commentIds: string[], steer: string | undefined, opId: string): Promise<void>
   approve(repo: string, branch: string, base: string): Promise<ReviewState>
+  approveArtifact(repo: string, branch: string, base: string, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
 }
 
@@ -42,5 +43,5 @@ export interface RendererApi extends Api {
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'loadReview', 'generate', 'cancel', 'saveUiState',
-  'upsertComment', 'deleteComment', 'chat', 'sendFeedback', 'approve', 'authStatus'
+  'upsertComment', 'deleteComment', 'chat', 'sendFeedback', 'approve', 'approveArtifact', 'authStatus'
 ]

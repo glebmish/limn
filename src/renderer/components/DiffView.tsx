@@ -10,19 +10,16 @@ function splitPath(path: string): { dir: string; name: string } {
   return i < 0 ? { dir: '', name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) }
 }
 
-export type DiffMode = 'parent' | 'approved'
+export type DiffMode = 'branch' | 'approved' | 'viewed'
 
-export function DiffView({ f, reReview, mode, setMode, plainNote }: {
+export function DiffView({ f, plainNote }: {
   f: FileDiff
-  reReview: boolean
-  mode: DiffMode
-  setMode: (m: DiffMode) => void
   plainNote?: string
 }) {
-  const { viewed, toggleViewed, guidance, loaded, gen } = useStore()
+  const { viewedAt, toggleViewed, guidance, loaded, gen } = useStore()
   const comments = loaded?.state.comments ?? []
-  const isViewed = viewed.has(f.path)
   const { dir, name } = splitPath(f.path)
+  const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [regenOpen, setRegenOpen] = useState(false)
   const [steer, setSteer] = useState('')
@@ -31,7 +28,16 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   const queuedHere = fileComments.filter((c) => c.status === 'queued')
   const hasSince = f.hunks.some((h) => h.since)
-  const hunks = mode === 'approved' ? f.hunks.filter((h) => h.since) : f.hunks
+  const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
+  const viewedSha = viewedAt[f.path]
+  // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself
+  const isViewed = Boolean(viewedSha) && !hasSinceViewed
+  const effectiveMode: DiffMode =
+    (mode === 'approved' && !hasSince) || (mode === 'viewed' && !hasSinceViewed) ? 'branch' : mode
+  const hunks =
+    effectiveMode === 'approved' ? f.hunks.filter((h) => h.since)
+    : effectiveMode === 'viewed' ? f.hunks.filter((h) => h.sinceViewed)
+    : f.hunks
 
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
     line == null
@@ -51,11 +57,13 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
         </span>
         <Delta add={f.add} del={f.del} />
         {!isViewed && hasSince && <span className="pill pill-amber"><I.changed />changed since approval</span>}
+        {!isViewed && !hasSince && hasSinceViewed && <span className="pill pill-amber"><I.eye />changed since viewed</span>}
         <span className="grow"></span>
-        {reReview && !isViewed && hasSince && (
+        {!isViewed && (hasSince || hasSinceViewed) && (
           <span className="seg seg-sm gfile-seg">
-            <button className={mode === 'parent' ? 'on' : ''} onClick={() => setMode('parent')}>Full diff</button>
-            <button className={mode === 'approved' ? 'on' : ''} onClick={() => setMode('approved')}>Since approved</button>
+            <button className={effectiveMode === 'branch' ? 'on' : ''} onClick={() => setMode('branch')}>Full diff</button>
+            {hasSince && <button className={effectiveMode === 'approved' ? 'on' : ''} onClick={() => setMode('approved')}>Since approved</button>}
+            {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
         {!isViewed && (
@@ -68,7 +76,7 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
           </button>
         )}
         <label className="file-viewed">
-          <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path)} />
+          <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path, isViewed)} />
           <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
           Viewed
         </label>
@@ -120,7 +128,11 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
         <div className="gfile-diff">
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
           {!f.binary && hunks.length === 0 && (
-            <div className="nodiff">{mode === 'approved' ? 'No changes since you approved.' : 'No textual changes.'}</div>
+            <div className="nodiff">
+              {effectiveMode === 'approved' ? 'No changes since you approved.'
+                : effectiveMode === 'viewed' ? 'No changes since you viewed.'
+                : 'No textual changes.'}
+            </div>
           )}
           {hunks.map((h, i) => (
             <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>
@@ -129,6 +141,7 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
                 {h.range}
                 {h.header && <span style={{ color: 'var(--muted-2)' }}>{h.header}</span>}
                 {h.since && <span style={{ color: 'var(--amber)' }}>· changed since approval</span>}
+                {!h.since && h.sinceViewed && <span style={{ color: 'var(--amber)' }}>· changed since viewed</span>}
               </div>
               {h.lines.map((l, j) => {
                 const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
@@ -136,7 +149,7 @@ export function DiffView({ f, reReview, mode, setMode, plainNote }: {
                 const threads = threadsFor(lineNo, side)
                 return (
                   <Fragment key={j}>
-                    <div className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since ? ' since' : '')}>
+                    <div className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}>
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
                       <span className="code">{l.text}</span>

@@ -52,10 +52,26 @@ async function buildLoadedReview(repo: string, branch: string, base: string): Pr
   if (baseline && baseline !== skeleton.headSha) {
     try {
       const since = await diffSince(repo, baseline, branch)
-      markSince(skeleton, since)
+      markSince(skeleton, since, 'since')
       sinceTagged = true
     } catch {
       // baseline sha no longer reachable (rebase) — show full diff without drift
+    }
+  }
+  // per-file "since viewed": group files by the SHA they were viewed at,
+  // one diffSince per distinct SHA, tag only that group's files
+  const byViewSha = new Map<string, Set<string>>()
+  for (const [file, sha] of Object.entries(state.viewedAt)) {
+    if (sha === skeleton.headSha) continue
+    byViewSha.set(sha, (byViewSha.get(sha) ?? new Set()).add(file))
+  }
+  for (const [sha, paths] of byViewSha) {
+    try {
+      const since = await diffSince(repo, sha, branch)
+      markSince(skeleton, since, 'sinceViewed', paths)
+    } catch {
+      // viewed sha gone (rebase) — drop the stale record
+      for (const p of paths) delete state.viewedAt[p]
     }
   }
   reanchorComments(state.comments, skeleton, artifacts)
@@ -248,6 +264,13 @@ export function registerIpc(): void {
     const sha = await headSha(repo, branch)
     state.approvedSha = sha
     state.reviewedAtSha = sha
+    saveState(state)
+    return state
+  })
+
+  handle('approveArtifact', async (repo: string, branch: string, base: string, artifactPath: string) => {
+    const state = loadState(repo, branch, base)
+    state.artifactApprovals[artifactPath] = await headSha(repo, branch)
     saveState(state)
     return state
   })

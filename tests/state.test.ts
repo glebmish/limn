@@ -19,13 +19,13 @@ describe('state store', () => {
 
   it('roundtrips and slugs branch names', () => {
     const st = defaultState(fx.dir, 'feat/x-1', 'main')
-    st.viewedFiles = ['src/a.ts']
+    st.viewedAt = { 'src/a.ts': 'abc1234' }
     saveState(st)
     const p = statePath(fx.dir, 'feat/x-1')
     expect(p.endsWith('review-feat-x-1.json')).toBe(true)
     expect(fs.existsSync(p)).toBe(true)
     const back = loadState(fx.dir, 'feat/x-1', 'main')
-    expect(back.viewedFiles).toEqual(['src/a.ts'])
+    expect(back.viewedAt).toEqual({ 'src/a.ts': 'abc1234' })
     // no temp leftovers
     const dir = path.dirname(p)
     expect(fs.readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([])
