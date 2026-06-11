@@ -3,6 +3,7 @@ import type { Comment, CommentAnchor, EngineEvent, FixResult, ReviewAnnotations 
 import { EventQueue, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { fixJsonSchema, parseFixOutput, parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildFixPrompt, buildReviewPrompt } from './prompts.js'
+import { codexBinaryPath } from './binaries.js'
 
 function toEvent(ev: ThreadEvent): EngineEvent | null {
   switch (ev.type) {
@@ -82,7 +83,7 @@ function parseJson(text: string): unknown {
 
 export class CodexEngine implements ReviewEngine {
   id = 'codex' as const
-  private codex = new Codex()
+  private codex = new Codex(codexBinaryPath() ? { codexPathOverride: codexBinaryPath() } : {})
 
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations> {
     const q = new EventQueue()

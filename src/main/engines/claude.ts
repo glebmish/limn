@@ -3,6 +3,7 @@ import type { Comment, CommentAnchor, EngineEvent, FixResult, ReviewAnnotations 
 import { EventQueue, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { fixJsonSchema, parseFixOutput, parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildFixPrompt, buildReviewPrompt } from './prompts.js'
+import { claudeBinaryPath } from './binaries.js'
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write']
@@ -44,7 +45,12 @@ function runQuery(prompt: string, options: Options, q: EventQueue): { outcome: P
     let structured: unknown
     let text = ''
     try {
-      for await (const msg of query({ prompt, options: { ...options, abortController: abort } })) {
+      const pathToClaudeCodeExecutable = claudeBinaryPath()
+      console.error(`[claude-engine] executable: ${pathToClaudeCodeExecutable ?? 'SDK default'}`)
+      for await (const msg of query({
+        prompt,
+        options: { ...options, abortController: abort, ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}) }
+      })) {
         if (msg.type === 'system' && msg.subtype === 'init') sessionId = msg.session_id
         const ev = toEvent(msg)
         if (ev) q.push(ev)

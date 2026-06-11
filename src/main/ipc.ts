@@ -120,6 +120,7 @@ export function registerIpc(): void {
       saveState(state)
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
     } catch (err) {
+      console.error('[generate] failed:', err)
       send('op:result', { opId, kind: 'review', ok: false, error: String(err instanceof Error ? err.message : err) })
     } finally {
       repoLocks.delete(repo)
