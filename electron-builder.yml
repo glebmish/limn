@@ -1,0 +1,21 @@
+appId: dev.glebmish.local-review
+productName: local-review
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - "!node_modules/electron/**"
+asarUnpack:
+  - "**/node_modules/@anthropic-ai/**"
+  - "**/node_modules/@openai/**"
+mac:
+  target:
+    - target: dir
+      arch: arm64
+    - target: zip
+      arch: arm64
+  identity: null
+  category: public.app-category.developer-tools
+npmRebuild: false

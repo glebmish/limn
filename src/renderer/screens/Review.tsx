@@ -3,7 +3,7 @@ import { effectiveSections, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
-import { GenPanel } from '../components/GenPanel'
+import { GenPanel, startGenerate } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
@@ -32,7 +32,7 @@ export default function Review() {
   useEffect(() => {
     if (window.lrDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
       devFlowRan = true
-      import('../components/GenPanel').then(({ startGenerate }) => startGenerate())
+      startGenerate()
     }
     if (window.lrDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)

@@ -50,7 +50,7 @@ function createWindow(): BrowserWindow {
       void win.webContents.capturePage().then((img) => {
         fsWriteShot(shot, img.toPNG())
       })
-    }, 9000)
+    }, parseInt(process.env.LR_SHOT_DELAY ?? '9000', 10))
   }
   return win
 }
