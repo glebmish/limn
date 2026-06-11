@@ -10,6 +10,8 @@ import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { queuedComments, sendComments } from '../lib/comments'
 
+let devFlowRan = false
+
 export default function Review() {
   const store = useStore()
   const { loaded, branch, base, reviewedSections, cur, gen, density, accent, guidance } = store
@@ -25,6 +27,15 @@ export default function Review() {
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
   const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
+
+  // dev-only scripted flow: LR_FLOW=generate auto-runs the engine once
+  useEffect(() => {
+    if (window.lrDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
+      devFlowRan = true
+      import('../components/GenPanel').then(({ startGenerate }) => startGenerate())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
 
   // scroll-sync current section
   useEffect(() => {
