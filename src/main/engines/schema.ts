@@ -1,9 +1,12 @@
 import { z } from 'zod'
 import type { FixResult, ReviewAnnotations } from '../../shared/types.js'
 
-// Wire schemas: what the engines are asked to return. No tuples — the CLI-side
-// structured-output validator rejects schemas with prefixItems, so diagram nodes
-// travel as objects and are mapped to the DiagramNode tuples after parsing.
+// Wire schemas: what the engines are asked to return. Constraints from the two
+// structured-output validators:
+//  - Claude CLI silently drops schemas containing prefixItems → no z.tuple;
+//    diagram nodes travel as objects and are mapped to DiagramNode tuples after parsing.
+//  - OpenAI strict mode requires every property in `required`, forbids records →
+//    optionals are modeled as nullable, plainNotes travels as an array of {file, note}.
 
 const wireDiagramNode = z.object({
   label: z.string(),
@@ -18,16 +21,16 @@ const wireSection = z.object({
   what: z.string(),
   files: z.array(z.string()),
   order: z.number(),
-  diagram: z.array(wireDiagramNode).optional(),
-  insight: z.object({ caption: z.string() }).optional(),
+  diagram: z.array(wireDiagramNode).nullable(),
+  insight: z.object({ caption: z.string() }).nullable(),
   flags: z.array(z.object({
     file: z.string(),
-    hunkRange: z.string().optional(),
+    hunkRange: z.string().nullable(),
     risk: z.boolean(),
     label: z.string(),
     text: z.string()
   })),
-  plainNotes: z.record(z.string(), z.string()).optional()
+  plainNotes: z.array(z.object({ file: z.string(), note: z.string() })).nullable()
 })
 
 const wirePlanMap = z.object({
@@ -43,9 +46,9 @@ export const reviewWireSchema = z.object({
   title: z.string(),
   summary: z.string(),
   sections: z.array(wireSection),
-  planMap: wirePlanMap.optional(),
-  questions: z.array(z.object({ id: z.string(), text: z.string(), context: z.string().optional() })),
-  artifactPaths: z.array(z.string()).optional()
+  planMap: wirePlanMap.nullable(),
+  questions: z.array(z.object({ id: z.string(), text: z.string(), context: z.string().nullable() })),
+  artifactPaths: z.array(z.string()).nullable()
 })
 
 export const fixWireSchema = z.object({
@@ -70,11 +73,23 @@ export const fixJsonSchema = toJsonSchema(fixWireSchema)
 export function parseReviewOutput(raw: unknown): ReviewAnnotations {
   const wire = reviewWireSchema.parse(raw)
   return {
-    ...wire,
+    title: wire.title,
+    summary: wire.summary,
     sections: wire.sections.map((s) => ({
-      ...s,
-      diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as [string, '' | 'hi' | 'new', string])
-    }))
+      id: s.id,
+      name: s.name,
+      desc: s.desc,
+      what: s.what,
+      files: s.files,
+      order: s.order,
+      diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as [string, '' | 'hi' | 'new', string]) ?? undefined,
+      insight: s.insight ?? undefined,
+      flags: s.flags.map((f) => ({ ...f, hunkRange: f.hunkRange ?? undefined })),
+      plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
+    })),
+    planMap: wire.planMap ?? undefined,
+    questions: wire.questions.map((q) => ({ ...q, context: q.context ?? undefined })),
+    artifactPaths: wire.artifactPaths ?? undefined
   }
 }
 
