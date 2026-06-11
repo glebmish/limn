@@ -23,6 +23,15 @@ describe('artifacts', () => {
     expect(found.find((a) => a.role === 'spec')?.path).toBe('docs/spec.md')
   })
 
+  it('prefers spec/plan markdown that is part of the branch diff', async () => {
+    fixtureWrite(fx.dir, 'notes/branch-spec.md', '# Branch spec\n\nWritten alongside this change.\n')
+    fixtureGit(fx.dir, 'add', '-A')
+    fixtureGit(fx.dir, 'commit', '-m', 'spec written on the branch')
+    // docs/spec.md mentions the branch (+3, name +2) = 5; the in-diff spec gets +6 +2 = 8
+    const found = await detectArtifacts(fx.dir, 'feature', ['notes/branch-spec.md', 'src/a.ts'])
+    expect(found.find((a) => a.role === 'spec')?.path).toBe('notes/branch-spec.md')
+  })
+
   it('loads artifact lines and title', () => {
     const art = loadArtifact(fx.dir, 'docs/spec.md', 'spec')
     expect(art.title).toBe('Rate limiting spec')

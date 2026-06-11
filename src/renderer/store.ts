@@ -59,7 +59,7 @@ interface AppStore {
   loaded: LoadedReview | null
   error: string | null
 
-  viewed: Set<string>
+  viewedAt: Record<string, string>
   reviewedSections: Set<string>
   collapsed: Set<string>
   cur: string | null
@@ -79,7 +79,7 @@ interface AppStore {
   startReview(): Promise<void>
   reload(): Promise<void>
   backToSetup(): void
-  toggleViewed(file: string): void
+  toggleViewed(file: string, currentlyViewed: boolean): void
   markReviewed(id: string): void
   openSection(id: string): void
   setCur(id: string): void
@@ -101,10 +101,10 @@ function loadTweak<T>(key: string, fallback: T): T {
 
 export const useStore = create<AppStore>((set, get) => {
   const persistUi = (): void => {
-    const { repo, branch, base, viewed, reviewedSections } = get()
+    const { repo, branch, base, viewedAt, reviewedSections } = get()
     if (!repo) return
     void window.api.saveUiState(repo, branch, base, {
-      viewedFiles: [...viewed],
+      viewedAt,
       reviewedSections: [...reviewedSections]
     })
   }
@@ -120,7 +120,7 @@ export const useStore = create<AppStore>((set, get) => {
     loaded: null,
     error: null,
 
-    viewed: new Set<string>(),
+    viewedAt: {},
     reviewedSections: new Set<string>(),
     collapsed: new Set<string>(),
     cur: null,
@@ -175,7 +175,7 @@ export const useStore = create<AppStore>((set, get) => {
         const loaded = await window.api.loadReview(repo, branch, base)
         set({
           loaded, error: null, screen: 'review',
-          viewed: new Set(loaded.state.viewedFiles),
+          viewedAt: loaded.state.viewedAt,
           reviewedSections: new Set(loaded.state.reviewedSections),
           collapsed: new Set<string>(),
           cur: null,
@@ -192,7 +192,7 @@ export const useStore = create<AppStore>((set, get) => {
       const loaded = await window.api.loadReview(repo, branch, base)
       set({
         loaded,
-        viewed: new Set(loaded.state.viewedFiles),
+        viewedAt: loaded.state.viewedAt,
         reviewedSections: new Set(loaded.state.reviewedSections)
       })
     },
@@ -201,11 +201,12 @@ export const useStore = create<AppStore>((set, get) => {
       set({ screen: 'setup', loaded: null })
     },
 
-    toggleViewed(file) {
-      const viewed = new Set(get().viewed)
-      if (viewed.has(file)) viewed.delete(file)
-      else viewed.add(file)
-      set({ viewed })
+    toggleViewed(file, currentlyViewed) {
+      const viewedAt = { ...get().viewedAt }
+      // unchecking removes the record; checking (or re-checking after drift) stamps the current head
+      if (currentlyViewed) delete viewedAt[file]
+      else viewedAt[file] = get().loaded?.skeleton.headSha ?? ''
+      set({ viewedAt })
       persistUi()
     },
 

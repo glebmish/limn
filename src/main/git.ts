@@ -141,10 +141,12 @@ export async function diffSince(dir: string, sinceSha: string, branch: string): 
   return { base: sinceSha, branch, mergeBase: sinceSha, headSha: tip, files: parseUnifiedDiff(raw) }
 }
 
-/** Tag hunks/lines in `full` that overlap changes present in `since` (mutates `full`). */
-export function markSince(full: DiffSkeleton, since: DiffSkeleton): void {
+/** Tag hunks/lines in `full` that overlap changes present in `since` (mutates `full`).
+ *  `key` selects which flag to set; `onlyPaths` restricts tagging to those files. */
+export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' | 'sinceViewed' = 'since', onlyPaths?: Set<string>): void {
   const sinceByPath = new Map(since.files.map((f) => [f.path, f]))
   for (const file of full.files) {
+    if (onlyPaths && !onlyPaths.has(file.path)) continue
     const sf = sinceByPath.get(file.path)
     if (!sf) continue
     const changedNew = new Set<number>()
@@ -165,11 +167,11 @@ export function markSince(full: DiffSkeleton, since: DiffSkeleton): void {
           (l.kind === 'add' && l.new != null && changedNew.has(l.new) && changedTexts.has(l.text)) ||
           (l.kind === 'del' && changedTexts.has(l.text) && sf.hunks.length > 0 && lineNearSince(l, sf))
         if (hit) {
-          l.since = true
+          l[key] = true
           any = true
         }
       }
-      if (any) h.since = true
+      if (any) h[key] = true
     }
     if (file.hunks.length === 0 && (sf.binary || sf.hunks.length > 0)) {
       // binary file changed since — nothing line-level to tag

@@ -111,4 +111,16 @@ describe('since tagging', () => {
     expect(taggedTexts).toContain('  return 43')
     expect(taggedTexts).not.toContain('export function b() {')
   })
+
+  it('sinceViewed key with path filter tags only the named files', async () => {
+    const full = await getDiff(fx.dir, 'main', 'feature')
+    const since = await diffSince(fx.dir, fx.shas.firstFeature, 'feature')
+    markSince(full, since, 'sinceViewed', new Set(['src/b.ts']))
+
+    const b = full.files.find((f) => f.path === 'src/b.ts')!
+    const c = full.files.find((f) => f.path === 'src/c.ts')!
+    expect(b.hunks.some((h) => h.sinceViewed)).toBe(true)
+    expect(b.hunks.some((h) => h.since)).toBe(false)        // other flag untouched
+    expect(c.hunks.some((h) => h.sinceViewed)).toBe(false)  // outside the filter
+  })
 })

@@ -14,7 +14,8 @@ export function defaultState(repo: string, branch: string, base: string): Review
   return {
     repo, branch, base,
     comments: [], chat: [],
-    viewedFiles: [], reviewedSections: [],
+    viewedAt: {}, reviewedSections: [],
+    artifactApprovals: {},
     iterations: [], artifacts: []
   }
 }

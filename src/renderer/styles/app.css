@@ -73,6 +73,9 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 /* empty diff state */
 .lr-empty { padding: 60px 30px; text-align: center; color: var(--muted); font-size: 13px; }
 
+/* slim regenerate row under the summary */
+.gen-cta.gen-regen { padding: 7px 15px; border-style: solid; background: transparent; border-color: var(--line); }
+
 /* line-comment "+" gutter: hidden until the line is hovered */
 .dline .lr-line-add { display: none; border: none; cursor: pointer; }
 .dline:hover .lr-line-add { display: flex; }

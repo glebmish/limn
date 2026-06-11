@@ -77,5 +77,24 @@ export function GenPanel() {
       </div>
     )
   }
-  return null
+
+  // review exists — slim regenerate control (switch engines or take a fresh pass);
+  // comments and viewed state survive, narration and agent session are replaced
+  return (
+    <div className="gen-cta gen-regen">
+      <span className="gc-tx dim" style={{ fontSize: 11.5 }}>
+        Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
+      </span>
+      <span className="seg seg-sm">
+        {(['claude', 'codex'] as EngineId[]).map((e) => (
+          <button key={e} className={engine === e ? 'on' : ''} onClick={() => setEngine(e)}>
+            {e === 'claude' ? 'Claude' : 'Codex'}
+          </button>
+        ))}
+      </span>
+      <button className="btn btn-sm" onClick={startGenerate}>
+        <I.changed style={{ width: 12, height: 12 }} />Regenerate review
+      </button>
+    </div>
+  )
 }
