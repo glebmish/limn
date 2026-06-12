@@ -131,6 +131,8 @@ export const useStore = create<AppStore>((set, get) => {
   }
 
   let compareTimer: ReturnType<typeof setTimeout> | null = null
+  let compareGen = 0
+  let rescanRunning = false
 
   /** Walk a dashboard's pin trees + recents into the flat list of repo paths. */
   const collectRepoPaths = (d: DashboardData): string[] => {
@@ -214,17 +216,23 @@ export const useStore = create<AppStore>((set, get) => {
         set({ dashboard, recents: dashboard.recents, error: null })
         if (dashboard.notices.length > 0) set({ error: dashboard.notices.join(' ') })
         void fillStatuses(collectRepoPaths(dashboard))
-        // spec: render instantly from cache, then refresh in the background
-        void (async () => {
-          try {
-            let latest = dashboard
-            for (const pin of dashboard.pins) latest = await window.api.rescanPin(pin.id)
-            if (latest !== dashboard) {
+        // spec: render instantly from cache, then refresh in the background.
+        // rescanPin returns the FULL dashboard each time; applying the last
+        // result covers every pin. One loop at a time — re-entry is dropped.
+        if (!rescanRunning && dashboard.pins.length > 0) {
+          rescanRunning = true
+          void (async () => {
+            try {
+              let latest = dashboard
+              for (const pin of dashboard.pins) latest = await window.api.rescanPin(pin.id)
               set({ dashboard: latest, recents: latest.recents })
               void fillStatuses(collectRepoPaths(latest))
+            } catch { /* background refresh is best-effort */
+            } finally {
+              rescanRunning = false
             }
-          } catch { /* background refresh is best-effort */ }
-        })()
+          })()
+        }
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
@@ -301,13 +309,16 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     async refreshCompare() {
+      const gen = ++compareGen
       const { repo, baseInput, compareInput } = get().compare
       if (!repo || !baseInput || !compareInput) return
       set({ compare: { ...get().compare, loading: true } })
       try {
         const data = await window.api.compareInfo(repo, baseInput, compareInput)
+        if (gen !== compareGen) return // superseded by a newer refresh
         set({ compare: { ...get().compare, data, loading: false } })
       } catch (err) {
+        if (gen !== compareGen) return
         set({ compare: { ...get().compare, loading: false }, error: err instanceof Error ? err.message : String(err) })
       }
     },
@@ -360,6 +371,8 @@ export const useStore = create<AppStore>((set, get) => {
       const { retargetSessionId, baseInput, compareInput } = get().compare
       if (retargetSessionId == null) return
       try {
+        // invariant: retargetSessionId is only ever seeded (backToCompare) when
+        // loaded.refMissing is set, so `loaded` is the session being retargeted
         const pair = get().loaded?.session.pair
         if (!pair || pair.base.symbol !== baseInput) {
           await window.api.retargetSession(retargetSessionId, 'base', baseInput)
@@ -375,6 +388,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     backToDashboard() {
+      if (compareTimer) { clearTimeout(compareTimer); compareTimer = null }
       set({
         screen: 'dashboard', loaded: null, sessionId: null,
         compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null }
