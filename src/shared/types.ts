@@ -97,3 +97,14 @@ export interface SessionMeta {
   createdAt: string
   updatedAt: string
 }
+
+// ── repo dashboard (pinned directory trees) ───────────────────
+export interface RepoStatus { branch: string; dirty: boolean }
+export interface PinNode {
+  name: string            // basename
+  relPath: string         // path relative to the pin root ('' for the root node)
+  kind: 'repo' | 'dir'
+  empty?: boolean         // dir whose subtree contains no repos (render dimmed, collapsed, childless)
+  error?: boolean         // unreadable (permissions) — render dimmed warning row
+  children: PinNode[]
+}
