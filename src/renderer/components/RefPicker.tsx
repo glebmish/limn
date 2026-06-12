@@ -21,7 +21,10 @@ export function RefPicker({ value, onChange, repo, relativeTo, label }: {
     const key = `${repo}\0${relativeTo}`
     if (loadedFor.current === key && opts) return
     loadedFor.current = key
-    void window.api.refOptions(repo, relativeTo).then(setOpts)
+    setOpts(null) // drop stale options immediately; the list shows fresh data only
+    let ignore = false
+    void window.api.refOptions(repo, relativeTo).then((r) => { if (!ignore) setOpts(r) })
+    return () => { ignore = true }
   }, [open, repo, relativeTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // close on outside click / Esc
