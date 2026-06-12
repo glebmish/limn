@@ -36,7 +36,7 @@ export function recentRepoPaths(db: DatabaseSync, limit: number): string[] {
 
 // ── sessions ──────────────────────────────────────────────────
 interface SessionDbRow {
-  id: number; repo_id: number; path: string
+  id: number; repo_id: number
   base_kind: 'branch' | 'commit'; base_symbol: string; base_anchor_sha: string
   compare_kind: 'branch' | 'commit'; compare_symbol: string; compare_anchor_sha: string
   engine: EngineId | null; title: string | null; summary: string | null
@@ -161,7 +161,7 @@ export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 
     }
     db.exec('COMMIT')
   } catch (err) {
-    db.exec('ROLLBACK')
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
     throw err
   }
 }
@@ -199,7 +199,7 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
     }
     db.exec('COMMIT')
   } catch (err) {
-    db.exec('ROLLBACK')
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
     throw err
   }
 }
@@ -210,7 +210,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   if (!row) throw new Error(`session ${sessionId} not found`)
   const meta = rowToMeta(row)
 
-  const comments = (db.prepare('SELECT json FROM comments WHERE session_id = ? ORDER BY created_at').all(sessionId) as
+  const comments = (db.prepare('SELECT json FROM comments WHERE session_id = ? ORDER BY created_at, id').all(sessionId) as
     { json: string }[]).map((r) => JSON.parse(r.json) as Comment)
 
   const chat = (db.prepare('SELECT role, text, at, anchor_json FROM chat_messages WHERE session_id = ? ORDER BY id')

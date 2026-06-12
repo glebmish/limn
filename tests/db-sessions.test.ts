@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/main/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
-  createSession, findSession, getSession, archiveSession,
+  createSession, findSession, getSession, archiveSession, retargetSession,
   loadReviewState, updateSessionMeta, replaceUiState,
   upsertComment, deleteComment, addChat, addIteration, setArtifacts,
   approveArtifact, unresolvedCount
@@ -121,5 +121,14 @@ describe('sessions DAO', () => {
     touchRepo(db, '/r1', '2026-06-12T10:00:00Z')
     touchRepo(db, '/r2', '2026-06-12T11:00:00Z')
     expect(recentRepoPaths(db, 8)).toEqual(['/r2', '/r1'])
+  })
+
+  it('retargetSession moves identity to the new side', () => {
+    const s = createSession(db, '/repo', pair)
+    retargetSession(db, s.id, 'compare', { kind: 'commit', symbol: 'HEAD~2', anchorSha: 'e'.repeat(40) })
+    expect(findSession(db, '/repo', pair)).toBeNull() // old identity gone
+    const moved: RefPair = { ...pair, compare: { kind: 'commit', symbol: 'HEAD~2', anchorSha: 'e'.repeat(40) } }
+    expect(findSession(db, '/repo', moved)?.id).toBe(s.id) // generated ident recomputed
+    expect(() => retargetSession(db, s.id, 'base', { kind: 'commit', symbol: 'x', anchorSha: '' })).toThrow(/no resolved sha/)
   })
 })
