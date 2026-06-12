@@ -8,7 +8,7 @@ import {
   ensureRepo, touchRepo, recentRepoPaths,
   createSession, findSession, getSession, archiveSession, retargetSession,
   loadReviewState, updateSessionMeta, replaceUiState,
-  upsertComment, deleteComment, addChat, addIteration, setArtifacts,
+  upsertComment, deleteComment, addChat, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount
 } from '../src/main/db/sessions'
 import type { Comment, RefPair } from '../src/shared/types'
@@ -121,6 +121,15 @@ describe('sessions DAO', () => {
     touchRepo(db, '/r1', '2026-06-12T10:00:00Z')
     touchRepo(db, '/r2', '2026-06-12T11:00:00Z')
     expect(recentRepoPaths(db, 8)).toEqual(['/r2', '/r1'])
+  })
+
+  it('resetIterations wipes history down to the fresh first iteration', () => {
+    const s = createSession(db, '/repo', pair)
+    addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'a'.repeat(40), at: 'T1' })
+    addIteration(db, s.id, { n: 2, engine: 'claude', sessionId: 'es-2', endSha: 'b'.repeat(40), at: 'T2' })
+    resetIterations(db, s.id, { n: 1, engine: 'codex', sessionId: 'es-3', endSha: 'c'.repeat(40), at: 'T3' })
+    const st = loadReviewState(db, s.id)
+    expect(st.iterations).toEqual([{ n: 1, engine: 'codex', sessionId: 'es-3', endSha: 'c'.repeat(40), at: 'T3' }])
   })
 
   it('retargetSession moves identity to the new side', () => {

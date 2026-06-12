@@ -248,7 +248,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
         engine: engineId, annotations, title: annotations.title, summary: annotations.summary,
         reviewedAtSha: skeleton.headSha
       })
-      dao.addIteration(db, sessionId, { n: 1, engine: engineId, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
+      dao.resetIterations(db, sessionId, { n: 1, engine: engineId, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
       const flagged = annotations.sections.reduce((n, s) => n + s.flags.filter((f) => f.risk).length, 0)
       notifyIfUnfocused('Guided review ready',

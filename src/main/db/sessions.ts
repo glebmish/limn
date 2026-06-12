@@ -152,6 +152,23 @@ export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration)
     .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at)
 }
 
+/** Reset iteration history to a single first iteration (regenerate semantics:
+ *  a fresh review starts a fresh agent thread; stale n>1 rows must not survive
+ *  or chat/fix would resume the wrong engine session). */
+export function resetIterations(db: DatabaseSync, sessionId: number, it: Iteration): void {
+  db.exec('BEGIN')
+  try {
+    db.prepare('DELETE FROM iterations WHERE session_id = ?').run(sessionId)
+    db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at)
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
 export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 'spec' | 'plan'; path: string }[]): void {
   db.exec('BEGIN')
   try {
