@@ -89,6 +89,7 @@ export default function Dashboard() {
         <input
           ref={filterRef}
           placeholder="Filter repositories…"
+          aria-label="Filter repositories"
           defaultValue={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
@@ -115,7 +116,7 @@ export default function Dashboard() {
               : <div className="dim" style={{ padding: 6 }}>scanning…</div>}
           </div>
         ))}
-        {dashboard && dashboard.recents.length > 0 && (
+        {dashboard && dashboard.recents.some((r) => indexOf(r) >= 0) && (
           <div className="lr-recent-sec">
             <div className="rs-h">Recent (outside pinned dirs)</div>
             {dashboard.recents.map((r) => {
