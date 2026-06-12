@@ -151,3 +151,54 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .chat-anchor { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 4px; }
 .chat-foot { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; padding: 10px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
 .chat-foot textarea { flex: 1 1 auto; resize: none; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); font-family: var(--sans); font-size: 12px; color: var(--ink); padding: 7px 9px; line-height: 1.45; }
+
+/* ---- compare screen ---- */
+.lr-cmp { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; height: 100vh; }
+.lr-cmp-repo { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-cmp-repo b { color: var(--ink-2); }
+
+.lr-cmp-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.lr-cmp-bar .cb-lab { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; }
+.lr-cmp-bar .cb-arrow { color: var(--faint); }
+.lr-cmp-summary { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
+.lr-cmp-summary .add { color: var(--accent); }
+.lr-cmp-summary .del { color: var(--red); }
+.lr-cmp-swap { border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); cursor: pointer; border-radius: var(--r-sm); padding: 4px 8px; font-size: 13px; line-height: 1; }
+.lr-cmp-swap:hover { color: var(--ink-2); background: var(--panel-2); }
+.lr-cmp-context { flex: 0 0 auto; display: flex; gap: 16px; padding: 7px 24px; border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: 11.5px; color: var(--muted); }
+.lr-cmp-context .ctx-err { color: var(--red); }
+
+.lr-cmp-body { flex: 1 1 auto; display: flex; min-height: 0; }
+.lr-cmp-main { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 16px 24px; }
+.lr-cmp-side { flex: 0 0 300px; border-left: 1px solid var(--line); overflow-y: auto; min-height: 0; padding: 16px; background: var(--panel-2); }
+
+/* commits list */
+.lr-commits { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; margin-bottom: 16px; background: var(--panel); }
+.lr-commits summary { list-style: none; cursor: pointer; padding: 9px 13px; font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--panel-2); }
+.lr-commits summary::-webkit-details-marker { display: none; }
+.lr-commit { display: flex; align-items: baseline; gap: 10px; padding: 6px 13px; border-top: 1px solid var(--line); font-size: 12px; }
+.lr-commit .c-sha { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
+.lr-commit .c-sub { flex: 1 1 auto; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-commit .c-age { font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
+
+/* read-only compare file */
+.lr-cmp-file { border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 12px; overflow: hidden; background: var(--panel); }
+.lr-cmp-file .cf-head { display: flex; align-items: center; gap: 9px; padding: 8px 13px; background: var(--panel-2); cursor: pointer; }
+.lr-cmp-file .cf-head .pth { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+.lr-cmp-file .cf-head .pth .dim { color: var(--muted); }
+.lr-cmp-placeholder { padding: 40px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+/* ref picker */
+.lr-refpick { position: relative; display: inline-block; }
+.lr-refpick-btn { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 5px 10px; cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-refpick-btn:hover { border-color: var(--line-3); }
+.lr-refpick-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; width: 300px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; }
+.lr-refpick-pop input { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); margin-bottom: 6px; }
+.lr-refpick-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 6px 4px 3px; }
+.lr-refpick-item { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; }
+.lr-refpick-item:hover { background: var(--accent-soft); }
+.lr-refpick-item .ri-name { font-family: var(--mono); color: var(--ink); }
+.lr-refpick-item .ri-tag { font-size: 10px; color: var(--accent-ink); }
+.lr-refpick-item .ri-sub { flex: 1 1 auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-refpick-item .ri-age { font-size: 10px; color: var(--muted); }
+.lr-refpick-list { max-height: 280px; overflow-y: auto; }
