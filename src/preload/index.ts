@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { API_CHANNELS } from '../shared/ipc.js'
-import type { OpEventMsg, OpResultMsg, RepoChangedMsg } from '../shared/ipc.js'
+import type { CliOpenMsg, OpEventMsg, OpResultMsg, RepoChangedMsg } from '../shared/ipc.js'
 
 const api: Record<string, unknown> = {}
 for (const ch of API_CHANNELS) {
@@ -23,6 +23,12 @@ api.onRepoChanged = (cb: (msg: RepoChangedMsg) => void) => {
   const fn = (_e: unknown, msg: RepoChangedMsg): void => cb(msg)
   ipcRenderer.on('repo:changed', fn)
   return () => ipcRenderer.removeListener('repo:changed', fn)
+}
+
+api.onCliOpen = (cb: (msg: CliOpenMsg) => void) => {
+  const fn = (_e: unknown, msg: CliOpenMsg): void => cb(msg)
+  ipcRenderer.on('cli:open', fn)
+  return () => ipcRenderer.removeListener('cli:open', fn)
 }
 
 contextBridge.exposeInMainWorld('api', api)

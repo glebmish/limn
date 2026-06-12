@@ -56,4 +56,11 @@ describe('pins DAO', () => {
     setScanCache(db, id, tree2)
     expect(getScanCache(db, id)!.tree).toEqual(tree2)
   })
+
+  it('corrupt cache JSON degrades to null instead of throwing', () => {
+    const id = addPin(db, '/work/a')
+    db.prepare('INSERT INTO scan_cache (pin_id, tree_json, scanned_at) VALUES (?, ?, ?)')
+      .run(id, '{ not json', new Date().toISOString())
+    expect(getScanCache(db, id)).toBeNull()
+  })
 })

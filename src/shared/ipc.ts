@@ -1,6 +1,6 @@
 import type {
   Artifact, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  RepoInfo, ReviewState, SessionMeta
+  FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
 } from './types.js'
 
 export interface LoadedReview {
@@ -17,6 +17,22 @@ export interface LoadedReview {
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
 }
+
+export interface PinData { id: number; path: string; tree: PinNode | null; scannedAt: string | null; repoCount: number }
+export interface DashboardData { pins: PinData[]; recents: string[]; notices: string[] }
+export interface RefSideInfo { kind: RefKind; symbol: string; sha: string; context: string }
+export interface CompareData {
+  base?: RefSideInfo
+  compare?: RefSideInfo
+  baseError?: string      // resolveRefInput failure message for that side
+  compareError?: string
+  commits: CommitInfo[]   // log base..compare (empty when either side errored)
+  files: FileDiff[]       // full diff skeleton files (empty when errored)
+  add: number; del: number  // totals across files
+  existingSession: { id: number; unresolved: number } | null  // unarchived session for this exact pair identity
+}
+export interface RefOptions { branches: string[]; defaultBase: string; commits: CommitInfo[] }  // commits = last 50 reachable from relativeTo
+export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; error?: string }
 
 export interface UiStatePatch {
   viewedAt?: Record<string, string>
@@ -44,6 +60,16 @@ export interface Api {
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
   getPrefs(): Promise<Record<string, string>>
   setPref(key: string, value: string): Promise<void>
+  dashboard(): Promise<DashboardData>
+  addPin(path: string): Promise<DashboardData>
+  removePin(id: number): Promise<DashboardData>
+  rescanPin(id: number): Promise<DashboardData>
+  repoStatus(repoPaths: string[]): Promise<Record<string, RepoStatus>>
+  compareInfo(repo: string, baseInput: string, compareInput: string): Promise<CompareData>
+  refOptions(repo: string, relativeTo: string): Promise<RefOptions>
+  retargetSession(sessionId: number, side: 'base' | 'compare', refInput: string): Promise<void>
+  installCli(): Promise<{ ok: boolean; message: string }>
+  takeCliOpen(): Promise<CliOpenMsg | null>
 }
 
 export interface OpEventMsg { opId: string; event: EngineEvent }
@@ -61,10 +87,13 @@ export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void
   onOpResult(cb: (msg: OpResultMsg) => void): () => void
   onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
+  onCliOpen(cb: (msg: CliOpenMsg) => void): () => void
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment', 'chat',
-  'sendFeedback', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref'
+  'sendFeedback', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',
+  'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

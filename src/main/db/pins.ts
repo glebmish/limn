@@ -34,7 +34,13 @@ export function getScanCache(db: DatabaseSync, pinId: number): { tree: PinNode; 
   const row = db.prepare('SELECT tree_json, scanned_at FROM scan_cache WHERE pin_id = ?')
     .get(pinId) as { tree_json: string; scanned_at: string } | undefined
   if (!row) return null
-  return { tree: JSON.parse(row.tree_json) as PinNode, scannedAt: row.scanned_at }
+  try {
+    return { tree: JSON.parse(row.tree_json) as PinNode, scannedAt: row.scanned_at }
+  } catch (err) {
+    // a corrupt cache row must degrade to a rescan, never crash the dashboard
+    console.warn(`[pins] corrupt scan cache for pin ${pinId}, ignoring:`, err)
+    return null
+  }
 }
 
 export function setScanCache(db: DatabaseSync, pinId: number, tree: PinNode): void {

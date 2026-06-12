@@ -3,15 +3,21 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
-import type { Api, LoadedReview, OpEventMsg, OpResultMsg, RepoChangedMsg, UiStatePatch } from '../shared/ipc.js'
-import type { Artifact, Comment, EngineEvent, EngineId, RefPair, SessionMeta } from '../shared/types.js'
+import type {
+  Api, DashboardData, LoadedReview, OpEventMsg, OpResultMsg, PinData, RefOptions,
+  RepoChangedMsg, UiStatePatch
+} from '../shared/ipc.js'
+import type { Artifact, Comment, EngineEvent, EngineId, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
-  listBranches, log, markSince, resolveRefInput
+  listBranches, log, markSince, recentCommits, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
+import * as pins from './db/pins.js'
+import { scanPin } from './scan.js'
+import { buildCompareData } from './compare.js'
 import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
@@ -157,6 +163,32 @@ function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   const s = dao.getSession(db, id)
   if (!s) throw new Error(`session ${id} not found`)
   return s
+}
+
+function repoCount(node: PinData['tree']): number {
+  if (!node) return 0
+  let n = node.kind === 'repo' ? 1 : 0
+  for (const c of node.children) n += repoCount(c)
+  return n
+}
+
+function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData {
+  const pinRows = pins.listPins(db)
+  const pinData: PinData[] = pinRows.map((p) => {
+    let cached = pins.getScanCache(db, p.id)
+    if (!cached) {
+      pins.setScanCache(db, p.id, scanPin(p.path))
+      cached = pins.getScanCache(db, p.id)
+    }
+    return { id: p.id, path: p.path, tree: cached?.tree ?? null, scannedAt: cached?.scannedAt ?? null,
+      repoCount: repoCount(cached?.tree ?? null) }
+  })
+  const pinPaths = pinRows.map((p) => p.path)
+  const recents = dao.recentRepoPaths(db, 8).filter((r) =>
+    fs.existsSync(r) &&
+    !pinPaths.some((pin) => r === pin || r.startsWith(pin + path.sep))
+  )
+  return { pins: pinData, recents, notices: bootNotices }
 }
 
 export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
@@ -416,4 +448,57 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
   })
+
+  handle('dashboard', async () => buildDashboard(db, bootNotices))
+
+  handle('addPin', async (dirPath: string) => {
+    const id = pins.addPin(db, dirPath)
+    pins.setScanCache(db, id, scanPin(dirPath))
+    return buildDashboard(db, bootNotices)
+  })
+
+  handle('removePin', async (id: number) => {
+    pins.removePin(db, id)
+    return buildDashboard(db, bootNotices)
+  })
+
+  handle('rescanPin', async (id: number) => {
+    const pin = pins.listPins(db).find((p) => p.id === id)
+    if (pin) pins.setScanCache(db, id, scanPin(pin.path))
+    return buildDashboard(db, bootNotices)
+  })
+
+  handle('repoStatus', async (repoPaths: string[]) => {
+    const out: Record<string, RepoStatus> = {}
+    const results = await Promise.allSettled(repoPaths.map(async (p) => {
+      const [branch, dirty] = await Promise.all([currentBranch(p), isDirty(p)])
+      return { path: p, status: { branch, dirty } satisfies RepoStatus }
+    }))
+    for (const r of results) {
+      if (r.status === 'fulfilled') out[r.value.path] = r.value.status
+    }
+    return out
+  })
+
+  handle('compareInfo', async (repo: string, baseInput: string, compareInput: string) =>
+    buildCompareData(db, repo, baseInput, compareInput))
+
+  handle('refOptions', async (repo: string, relativeTo: string) => {
+    const branches = await listBranches(repo)
+    const base = await defaultBase(repo)
+    // recentCommits throws on an unresolvable ref — an in-flight typed ref is normal here
+    const commits = await recentCommits(repo, relativeTo, 50).catch(() => [])
+    return { branches, defaultBase: base, commits } satisfies RefOptions
+  })
+
+  handle('retargetSession', async (sessionId: number, side: 'base' | 'compare', refInput: string) => {
+    const session = mustGetSession(db, sessionId)
+    const resolved = await resolveRefInput(session.repo, refInput)
+    const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }
+    dao.retargetSession(db, sessionId, side, refSide)
+  })
+
+  // implemented in the CLI task — typed stubs so the Api surface is complete
+  handle('installCli', async () => ({ ok: false, message: 'not yet implemented' }))
+  handle('takeCliOpen', async () => null)
 }
