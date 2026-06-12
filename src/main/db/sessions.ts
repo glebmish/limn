@@ -42,14 +42,15 @@ interface SessionDbRow {
   engine: EngineId | null; title: string | null; summary: string | null
   annotations_json: string | null; approved_sha: string | null; reviewed_at_sha: string | null
   created_at: string; updated_at: string
+  repo_path: string
 }
 
-const SESSION_SELECT = `SELECT s.*, r.path FROM sessions s JOIN repos r ON r.id = s.repo_id`
+const SESSION_SELECT = `SELECT s.*, r.path AS repo_path FROM sessions s JOIN repos r ON r.id = s.repo_id`
 
 function rowToMeta(row: SessionDbRow): SessionMeta {
   return {
     id: row.id,
-    repo: row.path,
+    repo: row.repo_path,
     pair: {
       base: { kind: row.base_kind, symbol: row.base_symbol, anchorSha: row.base_anchor_sha },
       compare: { kind: row.compare_kind, symbol: row.compare_symbol, anchorSha: row.compare_anchor_sha }
