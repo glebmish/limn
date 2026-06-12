@@ -3,6 +3,7 @@ import path from 'node:path'
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import { registerIpc } from './ipc.js'
+import { openDb } from './db/db.js'
 
 // GUI apps on macOS don't inherit the shell PATH; engines need git/node tools from it.
 function bootstrapPath(): void {
@@ -57,7 +58,11 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   bootstrapPath()
-  registerIpc()
+  const { db, recoveredFrom } = openDb(path.join(app.getPath('userData'), 'local-review.db'))
+  const notices = recoveredFrom
+    ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
+    : []
+  registerIpc(db, notices)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

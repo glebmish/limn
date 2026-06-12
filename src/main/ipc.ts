@@ -1,18 +1,22 @@
-import { BrowserWindow, Notification, dialog, ipcMain } from 'electron'
+import { BrowserWindow, Notification, app, dialog, ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { Api, LoadedReview, OpEventMsg, OpResultMsg, RepoChangedMsg } from '../shared/ipc.js'
-import type { Artifact, Comment, EngineEvent, EngineId, ReviewState } from '../shared/types.js'
+import type { DatabaseSync } from 'node:sqlite'
+import type { Api, LoadedReview, OpEventMsg, OpResultMsg, RepoChangedMsg, UiStatePatch } from '../shared/ipc.js'
+import type { Artifact, Comment, EngineEvent, EngineId, RefPair, SessionMeta } from '../shared/types.js'
+import { effectiveRef } from '../shared/types.js'
 import {
-  currentBranch, defaultBase, diffSince, getDiff, headSha, isDirty, listBranches, log, markSince
+  currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
+  listBranches, log, markSince, resolveRefInput
 } from './git.js'
-import { defaultState, loadState, saveState } from './state.js'
+import { execGit } from './exec.js'
+import * as dao from './db/sessions.js'
+import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { reanchorComments } from './anchor.js'
-import { addRecent, loadConfig } from './config.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 
 const activeOps = new Map<string, () => void>()
@@ -41,6 +45,10 @@ function startWatch(repo: string, branch: string, sha: string): void {
   }
 }
 
+function stopWatch(): void {
+  if (watcher) { clearInterval(watcher.timer); watcher = null }
+}
+
 function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMsg | OpResultMsg | RepoChangedMsg): void {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, msg)
 }
@@ -65,66 +73,95 @@ async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Pro
   for await (const event of events) send('op:event', { opId, event })
 }
 
-async function loadArtifactsFor(repo: string, branch: string, state: ReviewState, changedPaths: string[]): Promise<Artifact[]> {
-  let refs = state.artifacts
+async function loadArtifactsFor(
+  db: DatabaseSync, sessionId: number, repo: string, branch: string,
+  refs: { role: 'spec' | 'plan'; path: string }[], changedPaths: string[]
+): Promise<Artifact[]> {
   if (refs.length === 0) {
     refs = await detectArtifacts(repo, branch, changedPaths)
-    state.artifacts = refs
+    if (refs.length > 0) dao.setArtifacts(db, sessionId, refs)
   }
   const out: Artifact[] = []
   for (const r of refs) {
-    try {
-      out.push(loadArtifact(repo, r.path, r.role))
-    } catch {
-      // artifact file gone — skip
-    }
+    try { out.push(loadArtifact(repo, r.path, r.role)) } catch { /* artifact file gone — skip */ }
   }
   return out
 }
 
-async function buildLoadedReview(repo: string, branch: string, base: string): Promise<LoadedReview> {
-  const skeleton = await getDiff(repo, base, branch)
-  const state = loadState(repo, branch, base)
-  const artifacts = await loadArtifactsFor(repo, branch, state, skeleton.files.map((f) => f.path))
-  const commits = await log(repo, base, branch)
+async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promise<LoadedReview> {
+  const { repo, pair } = session
+  const state = dao.loadReviewState(db, session.id)
+  const baseEff = effectiveRef(pair.base)
+  const compareEff = effectiveRef(pair.compare)
+
+  // ref-missing guard: a deleted branch or GC'd sha must not crash the app
+  for (const [side, eff, symbol] of [['base', baseEff, pair.base.symbol], ['compare', compareEff, pair.compare.symbol]] as const) {
+    try {
+      await headSha(repo, eff)
+    } catch {
+      return {
+        sessionId: session.id, session, state,
+        baseContext: await describeSide(repo, pair.base),
+        compareContext: await describeSide(repo, pair.compare),
+        skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
+        artifacts: [], commits: [], sinceTagged: false,
+        refMissing: { side, symbol }
+      }
+    }
+  }
+
+  const skeleton = await getDiff(repo, baseEff, compareEff)
+  const artifacts = await loadArtifactsFor(db, session.id, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+  const commits = await log(repo, baseEff, compareEff)
   let sinceTagged = false
   const baseline = state.approvedSha ?? state.reviewedAtSha
   if (baseline && baseline !== skeleton.headSha) {
     try {
-      const since = await diffSince(repo, baseline, branch)
+      const since = await diffSince(repo, baseline, compareEff)
       markSince(skeleton, since, 'since')
       sinceTagged = true
-    } catch {
-      // baseline sha no longer reachable (rebase) — show full diff without drift
-    }
+    } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
-  // per-file "since viewed": group files by the SHA they were viewed at,
-  // one diffSince per distinct SHA, tag only that group's files
   const byViewSha = new Map<string, Set<string>>()
   for (const [file, sha] of Object.entries(state.viewedAt)) {
     if (sha === skeleton.headSha) continue
     byViewSha.set(sha, (byViewSha.get(sha) ?? new Set()).add(file))
   }
+  let viewedDropped = false
   for (const [sha, paths] of byViewSha) {
     try {
-      const since = await diffSince(repo, sha, branch)
+      const since = await diffSince(repo, sha, compareEff)
       markSince(skeleton, since, 'sinceViewed', paths)
     } catch {
-      // viewed sha gone (rebase) — drop the stale record
-      for (const p of paths) delete state.viewedAt[p]
+      for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
     }
   }
+  if (viewedDropped) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
   reanchorComments(state.comments, skeleton, artifacts)
-  saveState(state)
-  return { skeleton, state, artifacts, commits, sinceTagged }
+  for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
+  return {
+    sessionId: session.id, session,
+    baseContext: await describeSide(repo, pair.base),
+    compareContext: await describeSide(repo, pair.compare),
+    skeleton, state, artifacts, commits, sinceTagged
+  }
 }
 
-function lastSession(state: ReviewState): { engine: EngineId; sessionId: string } | null {
-  const it = state.iterations[state.iterations.length - 1]
+function lastEngineSession(db: DatabaseSync, sessionId: number): { engine: EngineId; sessionId: string } | null {
+  const st = dao.loadReviewState(db, sessionId)
+  const it = st.iterations[st.iterations.length - 1]
   return it ? { engine: it.engine, sessionId: it.sessionId } : null
 }
 
-export function registerIpc(): void {
+function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
+  const s = dao.getSession(db, id)
+  if (!s) throw new Error(`session ${id} not found`)
+  return s
+}
+
+export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
+  seedFromConfig(db, path.join(app.getPath('userData'), 'config.json'))
+
   const handle = <K extends keyof Api>(name: K, fn: Api[K]): void => {
     ipcMain.handle(name, (_ev, ...args) => (fn as (...a: unknown[]) => unknown)(...args))
   }
@@ -135,55 +172,87 @@ export function registerIpc(): void {
     return res.filePaths[0]
   })
 
-  handle('recentRepos', async () => loadConfig().recents.filter((r) => fs.existsSync(r)))
+  handle('recentRepos', async () => dao.recentRepoPaths(db, 8).filter((r) => fs.existsSync(r)))
 
   handle('openRepo', async (repo: string) => {
     if (!fs.existsSync(path.join(repo, '.git'))) throw new Error(`${repo} is not a git repository`)
-    addRecent(repo)
+    dao.touchRepo(db, repo)
+    await importLegacyRepoFiles(db, repo)
     const branches = await listBranches(repo)
     return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
   })
 
-  handle('loadReview', async (repo: string, branch: string, base: string) => {
-    const loaded = await buildLoadedReview(repo, branch, base)
-    startWatch(repo, branch, loaded.skeleton.headSha)
+  handle('startSession', async (repo: string, baseInput: string, compareInput: string, engine: EngineId) => {
+    await importLegacyRepoFiles(db, repo) // repos can be entered without openRepo (CLI, plan B)
+    const base = await resolveRefInput(repo, baseInput)
+    const compare = await resolveRefInput(repo, compareInput)
+    if (base.sha === compare.sha) throw new Error('base and compare point at the same commit')
+    const pair: RefPair = {
+      base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
+      compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
+    }
+    const existing = dao.findSession(db, repo, pair)
+    const session = existing ?? dao.createSession(db, repo, pair, engine)
+    if (!existing) {
+      try {
+        const sha = (await execGit(repo, ['rev-list', '--max-parents=0', '--max-count=1', 'HEAD'])).trim()
+        dao.ensureRepo(db, repo, sha)
+      } catch { /* identity hint is best-effort */ }
+    }
+    dao.touchRepo(db, repo)
+    return { sessionId: session.id }
+  })
+
+  handle('loadSession', async (sessionId: number) => {
+    const session = mustGetSession(db, sessionId)
+    const loaded = await buildLoadedReview(db, session)
+    if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
+      startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
+    } else {
+      stopWatch()
+    }
     return loaded
   })
 
-  handle('generate', async (repo: string, branch: string, base: string, engineId: EngineId, opId: string) => {
+  handle('archiveSession', async (sessionId: number) => dao.archiveSession(db, sessionId))
+
+  handle('generate', async (sessionId: number, engineId: EngineId, opId: string) => {
+    const session = mustGetSession(db, sessionId)
+    const repo = session.repo
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
-      const skeleton = await getDiff(repo, base, branch)
-      const state = loadState(repo, branch, base)
-      const artifacts = await loadArtifactsFor(repo, branch, state, skeleton.files.map((f) => f.path))
+      const baseEff = effectiveRef(session.pair.base)
+      const compareEff = effectiveRef(session.pair.compare)
+      const skeleton = await getDiff(repo, baseEff, compareEff)
+      const state = dao.loadReviewState(db, sessionId)
+      const artifacts = await loadArtifactsFor(db, sessionId, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
       const engine = makeEngine(engineId)
-      const run = engine.generateReview({ repo, branch, base, diff: skeleton, artifacts })
+      const run = engine.generateReview({ repo, branch: compareEff, base: baseEff, diff: skeleton, artifacts })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
-      const { value, sessionId } = await run.result
+      const { value, sessionId: engineSession } = await run.result
       await pump
       const { annotations, warnings } = mergeAnnotations(skeleton, value)
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
-      // agent may have identified artifacts we didn't detect
       if (annotations.artifactPaths) {
+        const refs = [...state.artifacts]
         for (const p of annotations.artifactPaths) {
-          if (!state.artifacts.some((a) => a.path === p) && fs.existsSync(path.join(repo, p))) {
-            state.artifacts.push({ role: state.artifacts.some((a) => a.role === 'spec') ? 'plan' : 'spec', path: p })
+          if (!refs.some((a) => a.path === p) && fs.existsSync(path.join(repo, p))) {
+            refs.push({ role: refs.some((a) => a.role === 'spec') ? 'plan' : 'spec', path: p })
           }
         }
+        dao.setArtifacts(db, sessionId, refs)
       }
-      state.annotations = annotations
-      state.engine = engineId
-      state.reviewedAtSha = skeleton.headSha
-      state.iterations = [{ n: 1, engine: engineId, sessionId, endSha: skeleton.headSha, at: new Date().toISOString() }]
-      saveState(state)
+      dao.updateSessionMeta(db, sessionId, {
+        engine: engineId, annotations, title: annotations.title, summary: annotations.summary,
+        reviewedAtSha: skeleton.headSha
+      })
+      dao.addIteration(db, sessionId, { n: 1, engine: engineId, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
       const flagged = annotations.sections.reduce((n, s) => n + s.flags.filter((f) => f.risk).length, 0)
-      notifyIfUnfocused(
-        'Guided review ready',
-        `${annotations.sections.length} sections${flagged ? `, ${flagged} flagged` : ''} — ${branch}`
-      )
+      notifyIfUnfocused('Guided review ready',
+        `${annotations.sections.length} sections${flagged ? `, ${flagged} flagged` : ''} — ${session.pair.compare.symbol}`)
     } catch (err) {
       console.error('[generate] failed:', err)
       send('op:result', { opId, kind: 'review', ok: false, error: String(err instanceof Error ? err.message : err) })
@@ -199,31 +268,24 @@ export function registerIpc(): void {
     activeOps.delete(opId)
   })
 
-  handle('saveUiState', async (repo: string, branch: string, base: string, patch) => {
-    const state = loadState(repo, branch, base)
-    Object.assign(state, patch)
-    saveState(state)
+  handle('saveUiState', async (sessionId: number, patch: UiStatePatch) => {
+    dao.replaceUiState(db, sessionId, patch)
   })
 
-  handle('upsertComment', async (repo: string, branch: string, base: string, comment: Comment) => {
-    const state = loadState(repo, branch, base)
-    const i = state.comments.findIndex((c) => c.id === comment.id)
-    if (i >= 0) state.comments[i] = comment
-    else state.comments.push(comment)
-    saveState(state)
-    return state
+  handle('upsertComment', async (sessionId: number, comment: Comment) => {
+    dao.upsertComment(db, sessionId, comment)
+    return dao.loadReviewState(db, sessionId)
   })
 
-  handle('deleteComment', async (repo: string, branch: string, base: string, id: string) => {
-    const state = loadState(repo, branch, base)
-    state.comments = state.comments.filter((c) => c.id !== id)
-    saveState(state)
-    return state
+  handle('deleteComment', async (sessionId: number, id: string) => {
+    dao.deleteComment(db, sessionId, id)
+    return dao.loadReviewState(db, sessionId)
   })
 
-  handle('chat', async (repo: string, branch: string, base: string, message: string, opId: string, anchor) => {
-    const state = loadState(repo, branch, base)
-    const sess = lastSession(state)
+  handle('chat', async (sessionId: number, message: string, opId: string, anchor) => {
+    const session = mustGetSession(db, sessionId)
+    const repo = session.repo
+    const sess = lastEngineSession(db, sessionId)
     if (!sess) throw new Error('Generate a review first — chat shares its session')
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
@@ -234,10 +296,9 @@ export function registerIpc(): void {
       const pump = pumpEvents(opId, run.events)
       const { value } = await run.result
       await pump
-      const now = new Date().toISOString()
-      state.chat.push({ role: 'user', text: message, at: now, anchor })
-      state.chat.push({ role: 'agent', text: value, at: now })
-      saveState(state)
+      const at = new Date().toISOString()
+      dao.addChat(db, sessionId, { role: 'user', text: message, at, anchor })
+      dao.addChat(db, sessionId, { role: 'agent', text: value, at })
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
       send('op:result', { opId, kind: 'chat', ok: false, error: String(err instanceof Error ? err.message : err) })
@@ -247,27 +308,30 @@ export function registerIpc(): void {
     }
   })
 
-  handle('sendFeedback', async (repo: string, branch: string, base: string, commentIds: string[], steer, opId: string) => {
-    const state = loadState(repo, branch, base)
-    const sess = lastSession(state)
+  handle('sendFeedback', async (sessionId: number, commentIds: string[], steer, opId: string) => {
+    const session = mustGetSession(db, sessionId)
+    const repo = session.repo
+    const sess = lastEngineSession(db, sessionId)
     if (!sess) throw new Error('Generate a review first')
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
+      if (session.pair.compare.kind !== 'branch') throw new Error('This session reviews a fixed commit — the agent cannot push fixes to it')
+      const branch = session.pair.compare.symbol
       if (await isDirty(repo)) throw new Error('Working tree is dirty — commit or stash before sending feedback')
       const cur = await currentBranch(repo)
       if (cur !== branch) throw new Error(`Repo is on ${cur}, not ${branch} — switch branches first`)
+      const state = dao.loadReviewState(db, sessionId)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
 
-      for (const c of comments) c.status = 'sent'
-      saveState(state)
+      for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sessionId, c) }
 
       const engine = makeEngine(sess.engine)
       const run = engine.applyFeedback(repo, sess.sessionId, comments, steer)
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
-      const { value: fix, sessionId } = await run.result
+      const { value: fix, sessionId: engineSession } = await run.result
       await pump
 
       const newHead = await headSha(repo, branch)
@@ -280,34 +344,26 @@ export function registerIpc(): void {
         } else {
           c.status = 'queued' // engine forgot it — keep queued so it isn't lost
         }
+        dao.upsertComment(db, sessionId, c)
       }
-      state.iterations.push({
-        n: state.iterations.length + 1,
-        engine: sess.engine,
-        sessionId,
-        endSha: newHead,
-        at: new Date().toISOString(),
-        summary: fix.summary
+      dao.addIteration(db, sessionId, {
+        n: state.iterations.length + 1, engine: sess.engine, sessionId: engineSession,
+        endSha: newHead, at: new Date().toISOString(), summary: fix.summary
       })
-      saveState(state)
       send('op:result', { opId, kind: 'fix', ok: true, reload: true })
       const addressed = fix.resolutions.filter((r) => r.verdict !== 'skipped').length
       const skipped = fix.resolutions.length - addressed
-      notifyIfUnfocused(
-        'Agent applied your comments',
-        `${addressed} addressed${skipped ? `, ${skipped} skipped` : ''} — ${branch}`
-      )
+      notifyIfUnfocused('Agent applied your comments',
+        `${addressed} addressed${skipped ? `, ${skipped} skipped` : ''} — ${branch}`)
     } catch (err) {
       // roll back "sent" so comments aren't stuck
-      const st = loadState(repo, branch, base)
-      let changed = false
+      const st = dao.loadReviewState(db, sessionId)
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') {
           c.status = 'queued'
-          changed = true
+          dao.upsertComment(db, sessionId, c)
         }
       }
-      if (changed) saveState(st)
       send('op:result', { opId, kind: 'fix', ok: false, error: String(err instanceof Error ? err.message : err) })
       notifyIfUnfocused('Agent fix run failed', String(err instanceof Error ? err.message : err).slice(0, 120))
     } finally {
@@ -316,20 +372,18 @@ export function registerIpc(): void {
     }
   })
 
-  handle('approve', async (repo: string, branch: string, base: string) => {
-    const state = loadState(repo, branch, base)
-    const sha = await headSha(repo, branch)
-    state.approvedSha = sha
-    state.reviewedAtSha = sha
-    saveState(state)
-    return state
+  handle('approve', async (sessionId: number) => {
+    const session = mustGetSession(db, sessionId)
+    const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
+    dao.updateSessionMeta(db, sessionId, { approvedSha: sha, reviewedAtSha: sha })
+    return dao.loadReviewState(db, sessionId)
   })
 
-  handle('approveArtifact', async (repo: string, branch: string, base: string, artifactPath: string) => {
-    const state = loadState(repo, branch, base)
-    state.artifactApprovals[artifactPath] = await headSha(repo, branch)
-    saveState(state)
-    return state
+  handle('approveArtifact', async (sessionId: number, artifactPath: string) => {
+    const session = mustGetSession(db, sessionId)
+    const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
+    dao.approveArtifact(db, sessionId, artifactPath, sha)
+    return dao.loadReviewState(db, sessionId)
   })
 
   handle('authStatus', async (engine: EngineId) => {
@@ -344,5 +398,19 @@ export function registerIpc(): void {
     if (!bin) return { ok: false, hint: 'Install Codex CLI (`codex` not found on PATH)' }
     const ok = Boolean(process.env.OPENAI_API_KEY) || fs.existsSync(path.join(home, '.codex', 'auth.json'))
     return { ok, hint: ok ? 'Using codex login or API key' : 'Run `codex login`, or set OPENAI_API_KEY' }
+  })
+
+  handle('getPrefs', async () => {
+    const out: Record<string, string> = {}
+    for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
+      out[r.key] = r.value
+    }
+    if (bootNotices.length > 0) out['boot-notices'] = JSON.stringify(bootNotices)
+    return out
+  })
+
+  handle('setPref', async (key: string, value: string) => {
+    db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
   })
 }
