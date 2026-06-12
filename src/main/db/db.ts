@@ -21,7 +21,12 @@ export function openDb(file: string): OpenResult {
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
     db = open(file)
   }
-  migrate(db) // throws on failure — caller decides; data stays intact
+  try {
+    migrate(db) // throws on failure; data stays intact
+  } catch (err) {
+    db.close()
+    throw err
+  }
   return { db, recoveredFrom }
 }
 

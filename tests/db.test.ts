@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -18,7 +19,7 @@ describe('openDb', () => {
       .map((r) => r.name)
     for (const t of ['repos', 'sessions', 'comments', 'chat_messages', 'iterations',
       'viewed_files', 'reviewed_sections', 'artifacts', 'artifact_approvals',
-      'pinned_dirs', 'scan_cache', 'prefs']) {
+      'pinned_dirs', 'scan_cache', 'prefs', 'meta']) {
       expect(tables).toContain(t)
     }
     db.close()
@@ -41,5 +42,21 @@ describe('openDb', () => {
     // fresh db is usable
     db.prepare(`INSERT INTO prefs (key, value) VALUES ('a', 'b')`).run()
     db.close()
+  })
+
+  it('migration failure on a healthy db throws and preserves data', () => {
+    const file = tmpFile()
+    const first = openDb(file)
+    first.db.prepare(`INSERT INTO prefs (key, value) VALUES ('keep', 'me')`).run()
+    // force migration 1 to re-run against the existing schema → CREATE TABLE collides → throws
+    first.db.prepare(`UPDATE meta SET value = '0' WHERE key = 'schema_version'`).run()
+    first.db.close()
+    expect(() => openDb(file)).toThrow()
+    // not treated as corruption: no backup-aside, the original file is left in place
+    expect(fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.corrupt-'))).toEqual([])
+    const again = new DatabaseSync(file)
+    const row = again.prepare(`SELECT value FROM prefs WHERE key = 'keep'`).get() as { value: string }
+    expect(row.value).toBe('me')
+    again.close()
   })
 })
