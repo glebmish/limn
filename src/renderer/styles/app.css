@@ -99,6 +99,46 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .dline .lr-line-add { display: none; border: none; cursor: pointer; }
 .dline:hover .lr-line-add { display: flex; }
 
+/* ---- repo dashboard ---- */
+.lr-dash { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; height: 100vh; }
+.lr-dash-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 14px 24px 10px; }
+.lr-dash-head h1 { font-size: 16px; font-weight: 700; letter-spacing: -.2px; margin: 0; flex: 0 0 auto; }
+.lr-dash-filter { margin: 0 24px 10px; display: flex; }
+.lr-dash-filter input { flex: 1 1 auto; font-family: var(--sans); font-size: 13px; color: var(--ink); padding: 8px 11px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); }
+.lr-dash-filter input:focus { outline: none; border-color: var(--accent-line); background: var(--panel); }
+.lr-dash-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 0 24px 24px; }
+
+.lr-pin { margin-bottom: 18px; }
+.lr-pin-head { display: flex; align-items: center; gap: 8px; padding: 8px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.lr-pin-head .pin-path { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-pin-head .pin-count { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.lr-pin-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 3px 6px; border-radius: var(--r-sm); font-size: 13px; line-height: 1; }
+.lr-pin-btn:hover { background: var(--panel-2); color: var(--ink-2); }
+
+/* tree rows */
+.lr-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; border: 1px solid transparent; }
+.lr-row:hover { background: var(--panel-2); }
+.lr-row.sel { background: var(--accent-soft); border-color: var(--accent-line); }
+.lr-row.dir { cursor: default; color: var(--muted); }
+.lr-row.dir:hover { background: transparent; }
+.lr-row.empty, .lr-row.errrow { color: var(--faint); cursor: default; }
+.lr-row.empty:hover, .lr-row.errrow:hover { background: transparent; }
+.lr-row .r-name { font-size: 12.5px; color: var(--ink); font-weight: 500; }
+.lr-row .r-parent { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.lr-row.dir .r-name, .lr-row.empty .r-name, .lr-row.errrow .r-name { font-weight: 500; color: inherit; font-family: var(--mono); font-size: 11.5px; }
+.lr-row .r-warn { color: var(--amber); font-size: 11px; }
+
+.lr-chip { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 20px; padding: 1px 8px; flex: 0 0 auto; }
+.lr-dirty { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.lr-dirty.on { background: var(--amber); }
+.lr-dirty.off { border: 1px solid var(--line-3); background: transparent; }
+
+.lr-recent-sec { margin-top: 8px; }
+.lr-recent-sec .rs-h { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 8px 0 6px; }
+
+.lr-foot-hint { flex: 0 0 auto; padding: 7px 24px; border-top: 1px solid var(--line); background: var(--panel-2); font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.lr-toast { margin: 0 24px 10px; }
+
 /* ---- chat drawer ---- */
 .chat-drawer { width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .chat-head { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
