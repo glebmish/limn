@@ -1,5 +1,5 @@
 import { execGit } from './exec.js'
-import type { CommitInfo, DiffLine, DiffSkeleton, FileDiff, Hunk } from '../shared/types.js'
+import type { CommitInfo, DiffLine, DiffSkeleton, FileDiff, Hunk, RefKind, RefSide } from '../shared/types.js'
 
 export async function listBranches(dir: string): Promise<string[]> {
   const out = await execGit(dir, ['branch', '--format=%(refname:short)'])
@@ -183,4 +183,63 @@ function lineNearSince(l: DiffLine, sf: FileDiff): boolean {
   // deletions have no new-line number; consider them "since" when their text
   // appears as a deletion in the since diff
   return sf.hunks.some((h) => h.lines.some((x) => x.kind === 'del' && x.text === l.text))
+}
+
+export interface ResolvedRef { kind: RefKind; symbol: string; sha: string }
+
+/** Classify user ref input: exact local branch name → live branch side;
+ *  anything else git can resolve to a commit (sha, HEAD~N, tag) → frozen commit side. */
+export async function resolveRefInput(dir: string, input: string): Promise<ResolvedRef> {
+  const ref = input.trim()
+  if (!ref) throw new Error('not a branch or commit: (empty)')
+  const branches = await listBranches(dir)
+  if (branches.includes(ref)) return { kind: 'branch', symbol: ref, sha: await headSha(dir, ref) }
+  try {
+    const sha = (await execGit(dir, ['rev-parse', '--verify', `${ref}^{commit}`])).trim()
+    return { kind: 'commit', symbol: ref, sha }
+  } catch {
+    throw new Error(`not a branch or commit: ${input}`)
+  }
+}
+
+export async function aheadCount(dir: string, from: string, to: string): Promise<number> {
+  return parseInt((await execGit(dir, ['rev-list', '--count', `${from}..${to}`])).trim(), 10)
+}
+
+export async function commitSubject(dir: string, sha: string): Promise<string> {
+  return (await execGit(dir, ['show', '-s', '--format=%s', sha])).trim()
+}
+
+export async function branchesContaining(dir: string, sha: string): Promise<string[]> {
+  const out = await execGit(dir, ['branch', '--format=%(refname:short)', '--contains', sha])
+  return out.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+/** Human context line for one session side (spec: precision underneath,
+ *  friendliness on top — commit sides are never shown as bare shas). */
+export async function describeSide(dir: string, side: RefSide): Promise<string> {
+  if (side.kind === 'branch') {
+    let drift = 0
+    try {
+      const tip = await headSha(dir, side.symbol)
+      if (tip !== side.anchorSha && side.anchorSha) drift = await aheadCount(dir, side.anchorSha, tip)
+    } catch {
+      return `${side.symbol} — branch missing`
+    }
+    return drift > 0
+      ? `${side.symbol} — branch tip, follows new commits (anchor ${side.anchorSha.slice(0, 7)}, +${drift} since)`
+      : `${side.symbol} — branch tip`
+  }
+  const short = side.anchorSha.slice(0, 7)
+  try {
+    const subject = await commitSubject(dir, side.anchorSha)
+    const containing = await branchesContaining(dir, side.anchorSha)
+    const cur = await currentBranch(dir)
+    const branch = containing.includes(cur) ? cur : containing[0]
+    if (!branch) return `${short} "${subject}"`
+    const behind = await aheadCount(dir, side.anchorSha, branch)
+    return `${short} "${subject}" — on ${branch}, ${behind} behind tip`
+  } catch {
+    return `${short} — commit missing`
+  }
 }
