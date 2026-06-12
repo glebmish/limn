@@ -56,6 +56,7 @@ interface AppStore {
   branch: string
   base: string
   engine: EngineId
+  sessionId: number | null
   loaded: LoadedReview | null
   error: string | null
 
@@ -90,23 +91,11 @@ interface AppStore {
   setComments(comments: Comment[]): void
 }
 
-function loadTweak<T>(key: string, fallback: T): T {
-  try {
-    const v = localStorage.getItem(`lr-${key}`)
-    return v ? (JSON.parse(v) as T) : fallback
-  } catch {
-    return fallback
-  }
-}
-
 export const useStore = create<AppStore>((set, get) => {
   const persistUi = (): void => {
-    const { repo, branch, base, viewedAt, reviewedSections } = get()
-    if (!repo) return
-    void window.api.saveUiState(repo, branch, base, {
-      viewedAt,
-      reviewedSections: [...reviewedSections]
-    })
+    const { sessionId, viewedAt, reviewedSections } = get()
+    if (sessionId == null) return
+    void window.api.saveUiState(sessionId, { viewedAt, reviewedSections: [...reviewedSections] })
   }
 
   return {
@@ -116,7 +105,8 @@ export const useStore = create<AppStore>((set, get) => {
     repoInfo: null,
     branch: '',
     base: '',
-    engine: loadTweak<EngineId>('engine', 'claude'),
+    engine: 'claude',
+    sessionId: null,
     loaded: null,
     error: null,
 
@@ -125,15 +115,33 @@ export const useStore = create<AppStore>((set, get) => {
     collapsed: new Set<string>(),
     cur: null,
 
-    density: loadTweak<Density>('density', 'comfortable'),
-    guidance: loadTweak<Guidance>('guidance', 'guided'),
-    accent: loadTweak<string[]>('accent', ACCENTS[0]),
+    density: 'comfortable',
+    guidance: 'guided',
+    accent: ACCENTS[0],
 
     gen: { running: false, opId: null, kind: null, log: [], error: null },
 
     async boot() {
       try {
-        set({ recents: await window.api.recentRepos() })
+        // one-time migration of localStorage tweaks into the db
+        if (!localStorage.getItem('lr-prefs-migrated')) {
+          for (const key of ['density', 'guidance', 'accent', 'engine']) {
+            const v = localStorage.getItem(`lr-${key}`)
+            if (v != null) await window.api.setPref(key, v)
+          }
+          localStorage.setItem('lr-prefs-migrated', '1')
+        }
+        const prefs = await window.api.getPrefs()
+        const parse = <T,>(k: string, fallback: T): T => {
+          try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
+        }
+        set({
+          recents: await window.api.recentRepos(),
+          density: parse<Density>('density', 'comfortable'),
+          guidance: parse<Guidance>('guidance', 'guided'),
+          accent: parse<string[]>('accent', ACCENTS[0]),
+          engine: prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : parse<EngineId>('engine', 'claude')
+        })
       } catch {
         set({ recents: [] })
       }
@@ -164,17 +172,18 @@ export const useStore = create<AppStore>((set, get) => {
       set({ base: b })
     },
     setEngine(e) {
-      localStorage.setItem('lr-engine', JSON.stringify(e))
+      void window.api.setPref('engine', JSON.stringify(e))
       set({ engine: e })
     },
 
     async startReview() {
-      const { repo, branch, base } = get()
+      const { repo, branch, base, engine } = get()
       if (!repo || !branch || !base) return
       try {
-        const loaded = await window.api.loadReview(repo, branch, base)
+        const { sessionId } = await window.api.startSession(repo, base, branch, engine)
+        const loaded = await window.api.loadSession(sessionId)
         set({
-          loaded, error: null, screen: 'review',
+          sessionId, loaded, error: null, screen: 'review',
           viewedAt: loaded.state.viewedAt,
           reviewedSections: new Set(loaded.state.reviewedSections),
           collapsed: new Set<string>(),
@@ -187,9 +196,9 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     async reload() {
-      const { repo, branch, base } = get()
-      if (!repo) return
-      const loaded = await window.api.loadReview(repo, branch, base)
+      const { sessionId } = get()
+      if (sessionId == null) return
+      const loaded = await window.api.loadSession(sessionId)
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
@@ -198,7 +207,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     backToSetup() {
-      set({ screen: 'setup', loaded: null })
+      set({ screen: 'setup', loaded: null, sessionId: null })
     },
 
     toggleViewed(file, currentlyViewed) {
@@ -231,7 +240,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     setTweak(key, value) {
-      localStorage.setItem(`lr-${key}`, JSON.stringify(value))
+      void window.api.setPref(key, JSON.stringify(value))
       set({ [key]: value } as Partial<AppStore>)
     },
 

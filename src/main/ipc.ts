@@ -214,7 +214,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return loaded
   })
 
-  handle('archiveSession', async (sessionId: number) => dao.archiveSession(db, sessionId))
+  handle('archiveSession', async (sessionId: number) => {
+    dao.archiveSession(db, sessionId)
+    stopWatch()
+  })
 
   handle('generate', async (sessionId: number, engineId: EngineId, opId: string) => {
     const session = mustGetSession(db, sessionId)

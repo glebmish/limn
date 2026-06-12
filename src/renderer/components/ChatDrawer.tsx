@@ -4,7 +4,7 @@ import { I, Ava } from '../kit'
 
 /** Chat with the engine session that produced the review. */
 export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { loaded, repo, branch, base, gen } = useStore()
+  const { loaded, sessionId, gen } = useStore()
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const transcript = loaded?.state.chat ?? []
@@ -22,11 +22,11 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
   const send = (): void => {
     const text = draft.trim()
-    if (!text || !repo || streaming) return
+    if (!text || sessionId == null || streaming) return
     const opId = newOpId()
     useStore.getState().startOp('chat', opId)
     setDraft('')
-    void window.api.chat(repo, branch, base, text, opId)
+    void window.api.chat(sessionId, text, opId)
   }
 
   return (

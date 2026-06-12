@@ -3,12 +3,16 @@ import { newOpId, useStore } from '../store'
 import { I } from '../kit'
 import type { EngineId } from '../../shared/types'
 
-export function startGenerate(): void {
-  const { repo, branch, base, engine, startOp } = useStore.getState()
-  if (!repo) return
-  const opId = newOpId()
-  startOp('review', opId)
-  void window.api.generate(repo, branch, base, engine, opId)
+export function startGenerate(sessionId: number, engine: EngineId, opId: string): void {
+  useStore.getState().startOp('review', opId)
+  void window.api.generate(sessionId, engine, opId)
+}
+
+/** Pull sessionId + engine from the store, guard null, then kick off a run. */
+export function startGenerateNow(): void {
+  const { sessionId, engine } = useStore.getState()
+  if (sessionId == null) return
+  startGenerate(sessionId, engine, newOpId())
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */
@@ -51,7 +55,7 @@ export function GenPanel() {
         <div className="gs-head">
           <I.flag style={{ width: 13, height: 13, color: 'var(--red)' }} />
           <span className="gs-title">Agent run failed: {gen.error}</span>
-          <button className="btn btn-sm" onClick={startGenerate}>Retry</button>
+          <button className="btn btn-sm" onClick={startGenerateNow}>Retry</button>
         </div>
       </div>
     )
@@ -71,7 +75,7 @@ export function GenPanel() {
             </button>
           ))}
         </span>
-        <button className="btn btn-primary" onClick={startGenerate}>
+        <button className="btn btn-primary" onClick={startGenerateNow}>
           <I.spark style={{ width: 13, height: 13 }} />Generate guided review
         </button>
       </div>
@@ -92,7 +96,7 @@ export function GenPanel() {
           </button>
         ))}
       </span>
-      <button className="btn btn-sm" onClick={startGenerate}>
+      <button className="btn btn-sm" onClick={startGenerateNow}>
         <I.changed style={{ width: 12, height: 12 }} />Regenerate review
       </button>
     </div>

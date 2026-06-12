@@ -3,7 +3,7 @@ import { effectiveSections, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
-import { GenPanel, startGenerate } from '../components/GenPanel'
+import { GenPanel, startGenerateNow } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
@@ -32,7 +32,7 @@ export default function Review() {
   useEffect(() => {
     if (window.lrDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
       devFlowRan = true
-      startGenerate()
+      startGenerateNow()
     }
     if (window.lrDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
@@ -115,6 +115,13 @@ export default function Review() {
           <span className="b-src">{branch}</span><span className="arrow">→</span><span className="b-base">{base}</span>
         </span>
       </div>
+
+      {loaded?.refMissing && (
+        <div className="lr-error" style={{ margin: '12px 24px' }}>
+          The {loaded.refMissing.side} ref “{loaded.refMissing.symbol}” no longer exists in this repository.
+          Review is read-only. <button className="btn btn-sm" onClick={() => useStore.setState({ screen: 'setup' })}>Pick a new ref</button>
+        </div>
+      )}
 
       <div className="stage-strip">
         {artifacts.length > 0 && (() => {
@@ -252,8 +259,8 @@ export default function Review() {
                 onClick={() => {
                   if (verdict === 'changes') {
                     if (queued.length > 0) sendComments(queued.map((c) => c.id))
-                  } else {
-                    void window.api.approve(store.repo!, branch, base).then(() => store.reload())
+                  } else if (store.sessionId != null) {
+                    void window.api.approve(store.sessionId).then(() => store.reload())
                   }
                 }}
               >

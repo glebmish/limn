@@ -7,7 +7,7 @@ import { Composer, InlineThread } from './Threads'
 /** v3-style commentable document view for spec/plan artifacts.
  *  Every line is a hover-"+" spec-line; threads render inline under their line. */
 export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => void }) {
-  const { loaded, branch, base, repo, reload } = useStore()
+  const { loaded, branch, sessionId, reload } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
   const art = loaded?.artifacts.find((a) => a.path === path)
   const comments = (loaded?.state.comments ?? []).filter(
@@ -19,8 +19,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   const approvedAt = loaded?.state.artifactApprovals[path]
   const queuedHere = comments.filter((c) => c.status === 'queued').length
   const approve = (): void => {
-    if (!repo) return
-    void window.api.approveArtifact(repo, branch, base, path).then(() => reload())
+    if (sessionId == null) return
+    void window.api.approveArtifact(sessionId, path).then(() => reload())
   }
 
   const renderLine = (text: string, idx: number) => {
