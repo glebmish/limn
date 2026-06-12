@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import type { LoadedReview } from '../shared/ipc'
-import type { Comment, EngineEvent, EngineId, FileDiff, RepoInfo, Section } from '../shared/types'
+import type { CompareData, DashboardData, LoadedReview } from '../shared/ipc'
+import type { Comment, EngineEvent, EngineId, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
@@ -49,16 +49,33 @@ export interface GenState {
 }
 
 interface AppStore {
-  screen: 'welcome' | 'setup' | 'review'
+  screen: 'dashboard' | 'compare' | 'review'
   recents: string[]
   repo: string | null
   repoInfo: RepoInfo | null
   branch: string
   base: string
   engine: EngineId
-  sessionId: number | null
   loaded: LoadedReview | null
+  sessionId: number | null
   error: string | null
+
+  // dashboard
+  dashboard: DashboardData | null
+  filter: string
+  sel: number
+  statuses: Record<string, RepoStatus>
+
+  // compare
+  compare: {
+    repo: string | null
+    repoInfo: RepoInfo | null
+    baseInput: string
+    compareInput: string
+    data: CompareData | null
+    loading: boolean
+    retargetSessionId: number | null
+  }
 
   viewedAt: Record<string, string>
   reviewedSections: Set<string>
@@ -72,14 +89,29 @@ interface AppStore {
   gen: GenState
 
   boot(): Promise<void>
-  pickRepo(): Promise<void>
-  openRepoPath(path: string): Promise<void>
-  setBranch(b: string): void
-  setBase(b: string): void
+  // dashboard
+  loadDashboard(): Promise<void>
+  setFilter(s: string): void
+  pinDirectory(): Promise<void>
+  openRepository(): Promise<void>
+  unpin(id: number): Promise<void>
+  rescan(id: number): Promise<void>
+  // compare
+  enterCompare(repoPath: string, refs?: { base?: string; compare?: string }, opts?: { retargetSessionId?: number | null }): Promise<void>
+  setBaseInput(s: string): void
+  setCompareInput(s: string): void
+  swapRefs(): void
+  refreshCompare(): Promise<void>
+  startFromCompare(): Promise<void>
+  resumeExisting(sessionId: number): Promise<void>
+  startFresh(sessionId: number): Promise<void>
+  applyRetarget(): Promise<void>
+  backToDashboard(): void
+  backToCompare(): void
+  retarget(side: 'base' | 'compare'): void
+  // review (unchanged from Plan A)
   setEngine(e: EngineId): void
-  startReview(): Promise<void>
   reload(): Promise<void>
-  backToSetup(): void
   toggleViewed(file: string, currentlyViewed: boolean): void
   markReviewed(id: string): void
   openSection(id: string): void
@@ -98,17 +130,47 @@ export const useStore = create<AppStore>((set, get) => {
     void window.api.saveUiState(sessionId, { viewedAt, reviewedSections: [...reviewedSections] })
   }
 
+  let compareTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Walk a dashboard's pin trees + recents into the flat list of repo paths. */
+  const collectRepoPaths = (d: DashboardData): string[] => {
+    const out: string[] = []
+    const walk = (pinPath: string, node: PinNode): void => {
+      if (node.kind === 'repo') out.push(node.relPath ? `${pinPath}/${node.relPath}` : pinPath)
+      node.children.forEach((c) => walk(pinPath, c))
+    }
+    for (const pin of d.pins) { if (pin.tree) walk(pin.path, pin.tree) }
+    for (const r of d.recents) out.push(r)
+    return [...new Set(out)]
+  }
+
+  /** Fill branch/dirty status in chunks of 8 without blocking render. */
+  const fillStatuses = async (paths: string[]): Promise<void> => {
+    for (let i = 0; i < paths.length; i += 8) {
+      const chunk = paths.slice(i, i + 8)
+      const got = await window.api.repoStatus(chunk)
+      set({ statuses: { ...get().statuses, ...got } })
+    }
+  }
+
   return {
-    screen: 'welcome',
+    screen: 'dashboard',
     recents: [],
     repo: null,
     repoInfo: null,
     branch: '',
     base: '',
     engine: 'claude',
-    sessionId: null,
     loaded: null,
+    sessionId: null,
     error: null,
+
+    dashboard: null,
+    filter: '',
+    sel: 0,
+    statuses: {},
+
+    compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null },
 
     viewedAt: {},
     reviewedSections: new Set<string>(),
@@ -143,59 +205,203 @@ export const useStore = create<AppStore>((set, get) => {
           engine: prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : parse<EngineId>('engine', 'claude')
         })
       } catch { /* prefs unavailable — visual defaults stand */ }
+      await get().loadDashboard()
+    },
+
+    async loadDashboard() {
       try {
-        set({ recents: await window.api.recentRepos() })
-      } catch {
-        set({ recents: [] })
+        const dashboard = await window.api.dashboard()
+        set({ dashboard, recents: dashboard.recents, error: null })
+        if (dashboard.notices.length > 0) set({ error: dashboard.notices.join(' ') })
+        void fillStatuses(collectRepoPaths(dashboard))
+        // spec: render instantly from cache, then refresh in the background
+        void (async () => {
+          try {
+            let latest = dashboard
+            for (const pin of dashboard.pins) latest = await window.api.rescanPin(pin.id)
+            if (latest !== dashboard) {
+              set({ dashboard: latest, recents: latest.recents })
+              void fillStatuses(collectRepoPaths(latest))
+            }
+          } catch { /* background refresh is best-effort */ }
+        })()
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
       }
     },
 
-    async pickRepo() {
-      const path = await window.api.pickRepo()
-      if (path) await get().openRepoPath(path)
+    setFilter(s) {
+      set({ filter: s, sel: 0 })
     },
 
-    async openRepoPath(path) {
+    async openRepository() {
+      // escape hatch: open a one-off repo without pinning; openRepo (inside
+      // enterCompare) records it, so it shows up under Recent afterwards
+      const dir = await window.api.pickRepo()
+      if (dir) await get().enterCompare(dir)
+    },
+
+    async pinDirectory() {
+      const dir = await window.api.pickRepo()
+      if (!dir) return
       try {
-        const info = await window.api.openRepo(path)
+        const dashboard = await window.api.addPin(dir)
+        set({ dashboard, recents: dashboard.recents, error: null })
+        void fillStatuses(collectRepoPaths(dashboard))
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    async unpin(id) {
+      const dashboard = await window.api.removePin(id)
+      set({ dashboard, recents: dashboard.recents })
+      void fillStatuses(collectRepoPaths(dashboard))
+    },
+
+    async rescan(id) {
+      const dashboard = await window.api.rescanPin(id)
+      set({ dashboard, recents: dashboard.recents })
+      void fillStatuses(collectRepoPaths(dashboard))
+    },
+
+    async enterCompare(repoPath, refs, opts) {
+      set({
+        screen: 'compare',
+        compare: { repo: repoPath, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: true, retargetSessionId: opts?.retargetSessionId ?? null },
+        error: null
+      })
+      try {
+        const info = await window.api.openRepo(repoPath)
+        const baseInput = refs?.base ?? info.defaultBase
+        const compareInput = refs?.compare ?? (info.current !== 'HEAD' ? info.current : info.branches[0] ?? '')
+        set({ compare: { ...get().compare, repoInfo: info, baseInput, compareInput } })
+        await get().refreshCompare()
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err), compare: { ...get().compare, loading: false } })
+      }
+    },
+
+    setBaseInput(s) {
+      set({ compare: { ...get().compare, baseInput: s } })
+      if (compareTimer) clearTimeout(compareTimer)
+      compareTimer = setTimeout(() => { void get().refreshCompare() }, 300)
+    },
+
+    setCompareInput(s) {
+      set({ compare: { ...get().compare, compareInput: s } })
+      if (compareTimer) clearTimeout(compareTimer)
+      compareTimer = setTimeout(() => { void get().refreshCompare() }, 300)
+    },
+
+    swapRefs() {
+      const { baseInput, compareInput } = get().compare
+      set({ compare: { ...get().compare, baseInput: compareInput, compareInput: baseInput } })
+      void get().refreshCompare()
+    },
+
+    async refreshCompare() {
+      const { repo, baseInput, compareInput } = get().compare
+      if (!repo || !baseInput || !compareInput) return
+      set({ compare: { ...get().compare, loading: true } })
+      try {
+        const data = await window.api.compareInfo(repo, baseInput, compareInput)
+        set({ compare: { ...get().compare, data, loading: false } })
+      } catch (err) {
+        set({ compare: { ...get().compare, loading: false }, error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    async startFromCompare() {
+      const { repo, baseInput, compareInput } = get().compare
+      const engine = get().engine
+      if (!repo || !baseInput || !compareInput) return
+      try {
+        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, engine)
+        const loaded = await window.api.loadSession(sessionId)
         set({
-          repo: path, repoInfo: info, error: null, screen: 'setup',
-          branch: info.current !== 'HEAD' ? info.current : info.branches[0] ?? '',
-          base: info.defaultBase
+          sessionId, loaded, error: null, screen: 'review',
+          repo, branch: loaded.state.branch, base: loaded.state.base,
+          viewedAt: loaded.state.viewedAt,
+          reviewedSections: new Set(loaded.state.reviewedSections),
+          collapsed: new Set<string>(), cur: null,
+          engine: loaded.state.engine ?? engine
         })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
     },
 
-    setBranch(b) {
-      set({ branch: b })
-    },
-    setBase(b) {
-      set({ base: b })
-    },
-    setEngine(e) {
-      void window.api.setPref('engine', JSON.stringify(e))
-      set({ engine: e })
-    },
-
-    async startReview() {
-      const { repo, branch, base, engine } = get()
-      if (!repo || !branch || !base) return
+    async resumeExisting(sessionId) {
       try {
-        const { sessionId } = await window.api.startSession(repo, base, branch, engine)
         const loaded = await window.api.loadSession(sessionId)
         set({
           sessionId, loaded, error: null, screen: 'review',
+          repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           reviewedSections: new Set(loaded.state.reviewedSections),
-          collapsed: new Set<string>(),
-          cur: null,
+          collapsed: new Set<string>(), cur: null,
           engine: loaded.state.engine ?? get().engine
         })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
+    },
+
+    async startFresh(sessionId) {
+      await window.api.archiveSession(sessionId)
+      await get().startFromCompare()
+    },
+
+    /** Apply the corrected pair to the session being retargeted (set when the
+     *  user arrived from the ref-missing banner), then resume it — review
+     *  state (comments, chat, iterations) is preserved, unlike start-fresh. */
+    async applyRetarget() {
+      const { retargetSessionId, baseInput, compareInput } = get().compare
+      if (retargetSessionId == null) return
+      try {
+        const pair = get().loaded?.session.pair
+        if (!pair || pair.base.symbol !== baseInput) {
+          await window.api.retargetSession(retargetSessionId, 'base', baseInput)
+        }
+        if (!pair || pair.compare.symbol !== compareInput) {
+          await window.api.retargetSession(retargetSessionId, 'compare', compareInput)
+        }
+        await get().resumeExisting(retargetSessionId)
+      } catch (err) {
+        // e.g. invalid ref, or the corrected pair collides with another live session
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    backToDashboard() {
+      set({
+        screen: 'dashboard', loaded: null, sessionId: null,
+        compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null }
+      })
+      void get().loadDashboard()
+    },
+
+    backToCompare() {
+      const loaded = get().loaded
+      const repo = loaded?.state.repo ?? get().compare.repo
+      if (!repo) { get().backToDashboard(); return }
+      const baseSym = loaded?.session.pair.base.symbol ?? get().compare.baseInput
+      const compareSym = loaded?.session.pair.compare.symbol ?? get().compare.compareInput
+      void get().enterCompare(repo, { base: baseSym, compare: compareSym }, { retargetSessionId: loaded?.refMissing ? get().sessionId : null })
+    },
+
+    retarget(_side) {
+      // navigate to Compare seeded from the loaded session's symbols; backToCompare
+      // sets compare.retargetSessionId, so the start panel shows "Retarget
+      // session #N", and that button applies the corrected pair in place via
+      // applyRetarget (api.retargetSession + resume — review state preserved).
+      get().backToCompare()
+    },
+
+    setEngine(e) {
+      void window.api.setPref('engine', JSON.stringify(e))
+      set({ engine: e })
     },
 
     async reload() {
@@ -207,10 +413,6 @@ export const useStore = create<AppStore>((set, get) => {
         viewedAt: loaded.state.viewedAt,
         reviewedSections: new Set(loaded.state.reviewedSections)
       })
-    },
-
-    backToSetup() {
-      set({ screen: 'setup', loaded: null, sessionId: null })
     },
 
     toggleViewed(file, currentlyViewed) {

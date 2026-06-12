@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useStore } from './store'
-import Welcome from './screens/Welcome'
-import Setup from './screens/Setup'
+import Dashboard from './screens/Dashboard'
+import Compare from './screens/Compare'
 import Review from './screens/Review'
 
 export default function App() {
@@ -17,16 +17,27 @@ export default function App() {
       st.finishOp(ok ? undefined : error ?? 'unknown error')
       if (ok || reload) void st.reload()
     })
-    // watch mode: the branch moved underneath us (e.g. a terminal agent committed)
     const offChanged = window.api.onRepoChanged(({ repo, branch }) => {
       const st = useStore.getState()
       if (st.screen !== 'review' || st.gen.running) return
       if (st.repo === repo && st.branch === branch) void st.reload()
     })
+    // CLI: open a repo on Compare (or surface an error on the dashboard).
+    // Subscribe BEFORE takeCliOpen — the main process marks the renderer ready
+    // on the first takeCliOpen call and direct-sends from then on.
+    const applyCliOpen = (msg: { repo?: string; baseInput?: string; compareInput?: string; error?: string }): void => {
+      if (msg.error) { useStore.setState({ error: msg.error }); return }
+      if (msg.repo) {
+        void useStore.getState().enterCompare(msg.repo, { base: msg.baseInput, compare: msg.compareInput })
+      }
+    }
+    const offCli = window.api.onCliOpen(applyCliOpen)
+    void window.api.takeCliOpen().then((msg) => { if (msg) applyCliOpen(msg) })
     return () => {
       offEvent()
       offResult()
       offChanged()
+      offCli()
     }
   }, [])
 
@@ -38,7 +49,7 @@ export default function App() {
 
   return (
     <div className={`wf dz-${density}`} style={rootStyle}>
-      {screen === 'welcome' ? <Welcome /> : <Setup />}
+      {screen === 'compare' ? <Compare /> : <Dashboard />}
     </div>
   )
 }

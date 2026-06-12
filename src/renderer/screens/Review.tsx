@@ -107,7 +107,7 @@ export default function Review() {
         <button className="btn btn-sm btn-ghost" onClick={() => setChatOpen((o) => !o)} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => store.backToSetup()}>
+        <button className="btn btn-sm btn-ghost" onClick={() => store.backToCompare()}>
           <I.branch style={{ width: 12, height: 12 }} />Switch
         </button>
         <span className="branch">
@@ -119,7 +119,7 @@ export default function Review() {
       {loaded?.refMissing && (
         <div className="lr-error" style={{ margin: '12px 24px' }}>
           The {loaded.refMissing.side} ref "{loaded.refMissing.symbol}" no longer exists in this repository.
-          Review is read-only. <button className="btn btn-sm" onClick={() => store.backToSetup()}>Pick a new ref</button>
+          Review is read-only. <button className="btn btn-sm" onClick={() => store.retarget(loaded.refMissing!.side)}>Pick a new ref</button>
         </div>
       )}
 
