@@ -16,7 +16,8 @@ function isRepo(dir: string): boolean {
  *  - hidden ('.') and IGNORED child names are skipped;
  *  - a dir whose visible subtree contains no repos collapses to empty:true with
  *    no children; an unreadable dir becomes error:true with no children;
- *  - children sort repos-first then dirs, alphabetical within each group. */
+ *  - children sort repos-first then dirs, alphabetical within each group;
+ *  - symlinked directories are followed (cycle-safe: recursion is bounded by maxDepth). */
 export function scanPin(root: string, maxDepth = 4): PinNode {
   return scanDir(root, path.basename(root), '', 0, maxDepth)
 }
@@ -39,7 +40,11 @@ function scanDir(abs: string, name: string, relPath: string, depth: number, maxD
 
   const children: PinNode[] = []
   for (const ent of entries) {
-    if (!ent.isDirectory()) continue
+    let isDir = ent.isDirectory()
+    if (!isDir && ent.isSymbolicLink()) {
+      try { isDir = fs.statSync(path.join(abs, ent.name)).isDirectory() } catch { /* broken link — skip */ }
+    }
+    if (!isDir) continue
     if (ent.name.startsWith('.')) continue
     if (IGNORED.has(ent.name)) continue
     const childRel = relPath ? `${relPath}/${ent.name}` : ent.name
@@ -50,11 +55,10 @@ function scanDir(abs: string, name: string, relPath: string, depth: number, maxD
   // Empty non-root dirs collapse to children:[] (render dimmed/collapsed in UI).
   // The root (depth===0) always retains its direct children so the UI can show
   // them even when the whole pin contains no repos yet.
-  children.sort(compareNodes)
   const hasAny = children.some(hasRepoOrError)
   if (!hasAny && depth > 0) return { name, relPath, kind: 'dir', empty: true, children: [] }
-  if (!hasAny) return { name, relPath, kind: 'dir', empty: true, children: children }
-  return { name, relPath, kind: 'dir', children: children }
+  if (!hasAny) return { name, relPath, kind: 'dir', empty: true, children: children.sort(compareNodes) }
+  return { name, relPath, kind: 'dir', children: children.sort(compareNodes) }
 }
 
 function hasRepoOrError(node: PinNode): boolean {

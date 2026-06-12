@@ -122,4 +122,20 @@ describe('scanPin', () => {
       expect(node.children).toEqual([])
     }
   )
+
+  it('orders a repo before a dir sibling regardless of alphabet', () => {
+    mkrepo('zebra-repo')
+    mkrepo('apps/inner')
+    const tree = scanPin(root)
+    expect(tree.children.map((c) => `${c.kind}:${c.name}`)).toEqual(['repo:zebra-repo', 'dir:apps'])
+  })
+
+  it.runIf(process.platform !== 'win32')('follows symlinked directories to find repos', () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-scan-target-'))
+    fs.mkdirSync(path.join(target, 'linked-repo', '.git'), { recursive: true })
+    fs.symlinkSync(target, path.join(root, 'link'))
+    const tree = scanPin(root)
+    expect(allRepoPaths(tree)).toEqual(['link/linked-repo'])
+    fs.rmSync(target, { recursive: true, force: true })
+  })
 })
