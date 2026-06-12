@@ -202,6 +202,25 @@ export async function resolveRefInput(dir: string, input: string): Promise<Resol
   }
 }
 
+/** Last `limit` commits reachable from `ref`, newest first (for the ref picker). */
+export async function recentCommits(dir: string, ref: string, limit: number): Promise<CommitInfo[]> {
+  const out = await execGit(dir, ['log', '--format=%H%x00%s%x00%an%x00%aI', '-n', String(limit), ref])
+  return out.split('\n').filter(Boolean).map((line) => {
+    const [sha, subject, author, date] = line.split('\0')
+    return { sha, subject, author, date }
+  })
+}
+
+/** Top-level directory of the git repo enclosing `dir`, or null if `dir` is
+ *  not inside a git repository. */
+export async function repoRoot(dir: string): Promise<string | null> {
+  try {
+    return (await execGit(dir, ['rev-parse', '--show-toplevel'])).trim()
+  } catch {
+    return null
+  }
+}
+
 export async function aheadCount(dir: string, from: string, to: string): Promise<number> {
   return parseInt((await execGit(dir, ['rev-list', '--count', `${from}..${to}`])).trim(), 10)
 }
