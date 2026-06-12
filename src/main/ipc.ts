@@ -172,6 +172,8 @@ function repoCount(node: PinData['tree']): number {
   return n
 }
 
+/** Blocking by design: scanPin is a sync depth-capped walk and results are
+ *  cached — do not async-ify without preserving the cache contract. */
 function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData {
   const pinRows = pins.listPins(db)
   const pinData: PinData[] = pinRows.map((p) => {
@@ -495,7 +497,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     const session = mustGetSession(db, sessionId)
     const resolved = await resolveRefInput(session.repo, refInput)
     const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }
-    dao.retargetSession(db, sessionId, side, refSide)
+    try {
+      dao.retargetSession(db, sessionId, side, refSide)
+    } catch (err) {
+      if (String(err).includes('UNIQUE')) throw new Error('A live session for that exact ref pair already exists — resume it instead')
+      throw err
+    }
   })
 
   // implemented in the CLI task — typed stubs so the Api surface is complete
