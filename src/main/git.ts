@@ -212,7 +212,7 @@ export async function commitSubject(dir: string, sha: string): Promise<string> {
 
 export async function branchesContaining(dir: string, sha: string): Promise<string[]> {
   const out = await execGit(dir, ['branch', '--format=%(refname:short)', '--contains', sha])
-  return out.split('\n').map((s) => s.trim()).filter(Boolean)
+  return out.split('\n').map((s) => s.trim()).filter((s) => Boolean(s) && !s.startsWith('('))
 }
 
 /** Human context line for one session side (spec: precision underneath,
@@ -238,7 +238,9 @@ export async function describeSide(dir: string, side: RefSide): Promise<string> 
     const branch = containing.includes(cur) ? cur : containing[0]
     if (!branch) return `${short} "${subject}"`
     const behind = await aheadCount(dir, side.anchorSha, branch)
-    return `${short} "${subject}" — on ${branch}, ${behind} behind tip`
+    return behind > 0
+      ? `${short} "${subject}" — on ${branch}, ${behind} behind tip`
+      : `${short} "${subject}" — on ${branch}, at tip`
   } catch {
     return `${short} — commit missing`
   }

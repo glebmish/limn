@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import fs from 'node:fs'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 import { resolveRefInput, describeSide, headSha } from '../src/main/git'
 
 let fx: FixtureRepo
 beforeAll(() => { fx = makeFixtureRepo() })
+afterAll(() => { fs.rmSync(fx.dir, { recursive: true, force: true }) })
 
 describe('resolveRefInput', () => {
   it('resolves a branch name to kind=branch with tip sha', async () => {
@@ -55,5 +57,11 @@ describe('describeSide', () => {
     const sha = await headSha(fx.dir, 'feature~1')
     const text = await describeSide(fx.dir, { kind: 'commit', symbol: 'feature~1', anchorSha: sha })
     expect(text).toMatch(/^[0-9a-f]{7} ".+" — on \S+, 1 behind tip$/)
+  })
+
+  it('commit side at branch tip: says at tip, not 0 behind', async () => {
+    const sha = await headSha(fx.dir, 'feature')
+    const text = await describeSide(fx.dir, { kind: 'commit', symbol: sha, anchorSha: sha })
+    expect(text).toMatch(/^[0-9a-f]{7} ".+" — on feature, at tip$/)
   })
 })
