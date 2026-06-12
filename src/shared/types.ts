@@ -70,3 +70,30 @@ export interface ReviewState {
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
+
+// ── ref pairs (sessions) ──────────────────────────────────────
+export type RefKind = 'branch' | 'commit'
+/** One side of a review session. Branch sides follow the tip (anchorSha
+ *  records where the tip was at session start, for drift display).
+ *  Commit sides are frozen at anchorSha; symbol keeps what the user typed. */
+export interface RefSide { kind: RefKind; symbol: string; anchorSha: string }
+export interface RefPair { base: RefSide; compare: RefSide }
+
+/** Stable identity for session keying: branches by name, commits by sha. */
+export function refIdentity(side: RefSide): string {
+  return side.kind === 'branch' ? `b:${side.symbol}` : `c:${side.anchorSha}`
+}
+
+/** The git rev to actually diff/log against right now. */
+export function effectiveRef(side: RefSide): string {
+  return side.kind === 'branch' ? side.symbol : side.anchorSha
+}
+
+export interface SessionMeta {
+  id: number
+  repo: string
+  pair: RefPair
+  engine?: EngineId
+  createdAt: string
+  updatedAt: string
+}
