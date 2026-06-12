@@ -45,20 +45,29 @@ async function importLegacyState(db: DatabaseSync, repoPath: string, st: ReviewS
   if (findSession(db, repoPath, pair)) return // already imported (re-run edge)
 
   const s = createSession(db, repoPath, pair, st.engine)
-  updateSessionMeta(db, s.id, {
-    ...(st.engine !== undefined ? { engine: st.engine } : {}),
-    ...(st.annotations !== undefined ? { annotations: st.annotations } : {}),
-    ...(st.annotations?.title !== undefined ? { title: st.annotations.title } : {}),
-    ...(st.annotations?.summary !== undefined ? { summary: st.annotations.summary } : {}),
-    ...(st.approvedSha !== undefined ? { approvedSha: st.approvedSha } : {}),
-    ...(st.reviewedAtSha !== undefined ? { reviewedAtSha: st.reviewedAtSha } : {})
-  })
-  for (const c of st.comments ?? []) upsertComment(db, s.id, c)
-  for (const m of st.chat ?? []) addChat(db, s.id, m)
-  for (const it of st.iterations ?? []) addIteration(db, s.id, it)
-  setArtifacts(db, s.id, st.artifacts ?? [])
-  for (const [p, sha] of Object.entries(st.artifactApprovals ?? {})) approveArtifact(db, s.id, p, sha)
-  replaceUiState(db, s.id, { viewedAt: st.viewedAt ?? {}, reviewedSections: st.reviewedSections ?? [] })
+  try {
+    // title/summary are denormalized copies of annotations fields — kept as
+    // dedicated columns for cheap list queries
+    updateSessionMeta(db, s.id, {
+      ...(st.engine !== undefined ? { engine: st.engine } : {}),
+      ...(st.annotations !== undefined ? { annotations: st.annotations } : {}),
+      ...(st.annotations?.title !== undefined ? { title: st.annotations.title } : {}),
+      ...(st.annotations?.summary !== undefined ? { summary: st.annotations.summary } : {}),
+      ...(st.approvedSha !== undefined ? { approvedSha: st.approvedSha } : {}),
+      ...(st.reviewedAtSha !== undefined ? { reviewedAtSha: st.reviewedAtSha } : {})
+    })
+    for (const c of st.comments ?? []) upsertComment(db, s.id, c)
+    for (const m of st.chat ?? []) addChat(db, s.id, m)
+    for (const it of st.iterations ?? []) addIteration(db, s.id, it)
+    setArtifacts(db, s.id, st.artifacts ?? [])
+    for (const [p, sha] of Object.entries(st.artifactApprovals ?? {})) approveArtifact(db, s.id, p, sha)
+    replaceUiState(db, s.id, { viewedAt: st.viewedAt ?? {}, reviewedSections: st.reviewedSections ?? [] })
+  } catch (err) {
+    // a half-imported session must not survive: a re-run's findSession would
+    // treat it as complete and the source file's children would be lost
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(s.id) // CASCADE drops children
+    throw err
+  }
 }
 
 /** One-time seed from the legacy Electron config.json ({recents, lastEngine}). */

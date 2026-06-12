@@ -65,10 +65,35 @@ describe('legacy import', () => {
   it('second import is a no-op (session exists, no file left to import)', async () => {
     writeLegacy(fx.dir, 'review-feature.json', {
       repo: fx.dir, branch: 'feature', base: 'main',
-      comments: [], chat: [], viewedAt: {}, reviewedSections: [], artifactApprovals: [], iterations: [], artifacts: []
+      comments: [], chat: [], viewedAt: {}, reviewedSections: [], artifactApprovals: {}, iterations: [], artifacts: []
     })
     await importLegacyRepoFiles(db, fx.dir)
     expect(await importLegacyRepoFiles(db, fx.dir)).toEqual([])
+  })
+
+  it('failed import cleans up the partial session so a repaired re-run imports fully', async () => {
+    const p = writeLegacy(fx.dir, 'review-feature.json', {
+      repo: fx.dir, branch: 'feature', base: 'main',
+      comments: [{
+        id: 'c1', author: 'user', text: 'x', status: 'BOGUS', replies: [], iteration: 1,
+        createdAt: '2026-06-01T00:00:00Z', anchor: { kind: 'summary' }
+      }],
+      chat: [], viewedAt: {}, reviewedSections: [], artifactApprovals: {}, iterations: [], artifacts: []
+    })
+    const probe = {
+      base: { kind: 'branch' as const, symbol: 'main', anchorSha: '' },
+      compare: { kind: 'branch' as const, symbol: 'feature', anchorSha: '' }
+    }
+    expect(await importLegacyRepoFiles(db, fx.dir)).toEqual([]) // skipped (CHECK constraint threw)
+    expect(fs.existsSync(p)).toBe(true)                          // source preserved
+    expect(findSession(db, fx.dir, probe)).toBeNull()            // no orphaned partial session
+    // repair the file and re-run — the full import now succeeds
+    const st = JSON.parse(fs.readFileSync(p, 'utf8'))
+    st.comments[0].status = 'queued'
+    fs.writeFileSync(p, JSON.stringify(st))
+    expect(await importLegacyRepoFiles(db, fx.dir)).toEqual(['review-feature.json'])
+    const ok = findSession(db, fx.dir, probe)
+    expect(loadReviewState(db, ok!.id).comments).toHaveLength(1)
   })
 
   it('unparseable file is left untouched and skipped', async () => {
