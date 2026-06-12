@@ -1,4 +1,5 @@
 import { BrowserWindow, Notification, app, dialog, ipcMain } from 'electron'
+import { installCli, takeCliOpen } from './cli.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -505,7 +506,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     }
   })
 
-  // implemented in the CLI task — typed stubs so the Api surface is complete
-  handle('installCli', async () => ({ ok: false, message: 'not yet implemented' }))
-  handle('takeCliOpen', async () => null)
+  handle('installCli', async () => installCli())
+  handle('takeCliOpen', async () => takeCliOpen())
 }

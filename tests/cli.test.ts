@@ -1,0 +1,29 @@
+import { describe, it, expect } from 'vitest'
+import { parseCliArgs } from '../src/main/cli'
+
+describe('parseCliArgs', () => {
+  it('returns null without --cli', () => {
+    expect(parseCliArgs(['node', 'app'])).toBeNull()
+    expect(parseCliArgs(['node', 'app', '--dir', '/x'])).toBeNull()
+  })
+
+  it('parses --dir, --base, --compare after --cli', () => {
+    const a = parseCliArgs(['node', 'app', '--cli', '--dir', '/repo', '--base', 'main', '--compare', 'feature'])
+    expect(a).toEqual({ dir: '/repo', base: 'main', compare: 'feature' })
+  })
+
+  it('defaults dir to cwd when --dir is absent', () => {
+    const a = parseCliArgs(['node', 'app', '--cli', '--compare', 'feature'])
+    expect(a).toEqual({ dir: process.cwd(), compare: 'feature' })
+  })
+
+  it('base/compare are optional', () => {
+    expect(parseCliArgs(['node', 'app', '--cli', '--dir', '/repo'])).toEqual({ dir: '/repo' })
+  })
+
+  it('ignores unknown flags and tolerates flag order', () => {
+    const a = parseCliArgs(['/Applications/local-review.app/Contents/MacOS/local-review',
+      '--cli', '--compare', 'feature', '--dir', '/repo', '--unknown', 'x'])
+    expect(a).toEqual({ dir: '/repo', compare: 'feature' })
+  })
+})

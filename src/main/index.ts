@@ -1,9 +1,12 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import { registerIpc } from './ipc.js'
 import { openDb } from './db/db.js'
+import { parseCliArgs, handleCliArgs, installCliWithDialog } from './cli.js'
+import type { CliArgs } from './cli.js'
 
 // GUI apps on macOS don't inherit the shell PATH; engines need git/node tools from it.
 function bootstrapPath(): void {
@@ -16,7 +19,14 @@ function bootstrapPath(): void {
   }
 }
 
-function createWindow(): BrowserWindow {
+let mainWindow: BrowserWindow | null = null
+
+function getWindow(): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
+  return null
+}
+
+function createWindow(): void {
   const win = new BrowserWindow({
     width: 1320,
     height: 860,
@@ -31,6 +41,9 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false
     }
   })
+
+  mainWindow = win
+  win.on('closed', () => { mainWindow = null })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -53,21 +66,70 @@ function createWindow(): BrowserWindow {
       })
     }, parseInt(process.env.LR_SHOT_DELAY ?? '9000', 10))
   }
-  return win
 }
 
-app.whenReady().then(() => {
-  bootstrapPath()
-  const { db, recoveredFrom } = openDb(path.join(app.getPath('userData'), 'local-review.db'))
-  const notices = recoveredFrom
-    ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
-    : []
-  registerIpc(db, notices)
-  createWindow()
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+function devCliArgs(): CliArgs | null {
+  if (process.env.LR_OPEN_REPO) {
+    return { dir: process.env.LR_OPEN_REPO, compare: process.env.LR_OPEN_BRANCH || undefined }
+  }
+  return null
+}
+
+function buildMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      role: 'appMenu',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Install Command-Line Tool…', click: () => { installCliWithDialog() } },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const win = getWindow()
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+    const args = parseCliArgs(argv)
+    if (args) void handleCliArgs(args, getWindow)
   })
-})
+
+  app.whenReady().then(() => {
+    bootstrapPath()
+    const { db, recoveredFrom } = openDb(path.join(app.getPath('userData'), 'local-review.db'))
+    const notices = recoveredFrom
+      ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
+      : []
+    registerIpc(db, notices)
+    buildMenu()
+    createWindow()
+    const args = parseCliArgs(process.argv) ?? devCliArgs()
+    if (args) void handleCliArgs(args, getWindow)
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   app.quit()
