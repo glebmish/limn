@@ -118,8 +118,8 @@ export default function Review() {
 
       {loaded?.refMissing && (
         <div className="lr-error" style={{ margin: '12px 24px' }}>
-          The {loaded.refMissing.side} ref “{loaded.refMissing.symbol}” no longer exists in this repository.
-          Review is read-only. <button className="btn btn-sm" onClick={() => useStore.setState({ screen: 'setup' })}>Pick a new ref</button>
+          The {loaded.refMissing.side} ref "{loaded.refMissing.symbol}" no longer exists in this repository.
+          Review is read-only. <button className="btn btn-sm" onClick={() => store.backToSetup()}>Pick a new ref</button>
         </div>
       )}
 
@@ -255,7 +255,7 @@ export default function Review() {
             <div className={'split-cta ' + (verdict === 'changes' ? 'changes' : 'approve')}>
               <button
                 className="sc-main"
-                disabled={gen.running}
+                disabled={gen.running || store.sessionId == null}
                 onClick={() => {
                   if (verdict === 'changes') {
                     if (queued.length > 0) sendComments(queued.map((c) => c.id))

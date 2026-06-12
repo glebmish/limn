@@ -136,12 +136,15 @@ export const useStore = create<AppStore>((set, get) => {
           try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
         }
         set({
-          recents: await window.api.recentRepos(),
           density: parse<Density>('density', 'comfortable'),
           guidance: parse<Guidance>('guidance', 'guided'),
           accent: parse<string[]>('accent', ACCENTS[0]),
+          // legacy formats: bare 'codex' (seeded from old config.json) or JSON '"codex"' (localStorage migration)
           engine: prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : parse<EngineId>('engine', 'claude')
         })
+      } catch { /* prefs unavailable — visual defaults stand */ }
+      try {
+        set({ recents: await window.api.recentRepos() })
       } catch {
         set({ recents: [] })
       }
