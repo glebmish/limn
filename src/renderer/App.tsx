@@ -23,16 +23,11 @@ export default function App() {
       if (st.repo === repo && st.branch === branch) void st.reload()
     })
     // CLI: open a repo on Compare (or surface an error on the dashboard).
-    // Subscribe BEFORE takeCliOpen — the main process marks the renderer ready
-    // on the first takeCliOpen call and direct-sends from then on.
-    const applyCliOpen = (msg: { repo?: string; baseInput?: string; compareInput?: string; error?: string }): void => {
-      if (msg.error) { useStore.setState({ error: msg.error }); return }
-      if (msg.repo) {
-        void useStore.getState().enterCompare(msg.repo, { base: msg.baseInput, compare: msg.compareInput })
-      }
-    }
-    const offCli = window.api.onCliOpen(applyCliOpen)
-    void window.api.takeCliOpen().then((msg) => { if (msg) applyCliOpen(msg) })
+    // The initial pending open is consumed by store.boot() AFTER the dashboard
+    // loads (so its error toast survives loadDashboard's reset) — boot's
+    // takeCliOpen also marks the renderer ready. We subscribe here so later
+    // second-instance forwards are delivered live.
+    const offCli = window.api.onCliOpen((msg) => useStore.getState().applyCliOpen(msg))
     return () => {
       offEvent()
       offResult()

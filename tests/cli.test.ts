@@ -26,4 +26,18 @@ describe('parseCliArgs', () => {
       '--cli', '--compare', 'feature', '--dir', '/repo', '--unknown', 'x'])
     expect(a).toEqual({ dir: '/repo', compare: 'feature' })
   })
+
+  it('does not consume a following flag as the value (forwarded argv is reordered)', () => {
+    // Chromium canonicalizes a forwarded second-instance argv: bare positionals
+    // (the repo path) move to the end, so the token after --dir is an unrelated
+    // switch. We must not treat that switch as the directory.
+    const a = parseCliArgs(['app', '--cli', '--dir', '--allow-file-access-from-files', '/real/repo'])
+    expect(a?.dir).toBe(process.cwd())   // falls back to cwd, never the switch
+    expect(a?.dir).not.toBe('--allow-file-access-from-files')
+  })
+
+  it('accepts attached --name=value forms (survive argv canonicalization)', () => {
+    const a = parseCliArgs(['app', '--cli', '--dir=/repo', '--base=main', '--compare=feature'])
+    expect(a).toEqual({ dir: '/repo', base: 'main', compare: 'feature' })
+  })
 })

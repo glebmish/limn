@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CompareData, DashboardData, LoadedReview } from '../shared/ipc'
+import type { CliOpenMsg, CompareData, DashboardData, LoadedReview } from '../shared/ipc'
 import type { Comment, EngineEvent, EngineId, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -89,6 +89,7 @@ interface AppStore {
   gen: GenState
 
   boot(): Promise<void>
+  applyCliOpen(msg: CliOpenMsg): void
   // dashboard
   loadDashboard(): Promise<void>
   setFilter(s: string): void
@@ -208,6 +209,20 @@ export const useStore = create<AppStore>((set, get) => {
         })
       } catch { /* prefs unavailable — visual defaults stand */ }
       await get().loadDashboard()
+      // Apply a pending CLI open AFTER the dashboard has loaded — otherwise its
+      // error toast (e.g. "<dir> is not inside a git repository") races with,
+      // and is clobbered by, loadDashboard's `error: null` reset. takeCliOpen
+      // also marks the renderer ready, so later second-instance forwards arrive
+      // live via onCliOpen (wired in App.tsx).
+      try {
+        const cli = await window.api.takeCliOpen()
+        if (cli) get().applyCliOpen(cli)
+      } catch { /* no pending cli open */ }
+    },
+
+    applyCliOpen(msg) {
+      if (msg.error) { set({ error: msg.error }); return }
+      if (msg.repo) void get().enterCompare(msg.repo, { base: msg.baseInput, compare: msg.compareInput })
     },
 
     async loadDashboard() {
