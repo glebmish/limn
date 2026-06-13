@@ -29,26 +29,51 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 ## Using it
 
-1. **Open a repository** (native dialog; recents are remembered).
-2. **Pick branch + base** (defaults: current branch vs `main`) and an engine.
-3. **Generate guided review** — watch the agent explore live; cancel anytime. Without AI you still get a full review UI grouped by directory.
-4. **Review**: mark files viewed, mark sections reviewed, comment on any diff line via the hover **+**, on section narration, on agent questions, or on spec/plan lines (sidebar → *Open & comment*).
-5. **Chat** (titlebar) shares the agent's session — ask "why did this change?" with full context.
-6. **Send N changes to agent** — it edits, commits on your branch (`local-review: …`), and reports per-comment resolutions (✓ addressed / ↻ reworked / ✗ skipped). Sections that drifted since your approval turn amber with a *Since approved* filter.
-7. **Approve** records the reviewed SHA.
+1. **Pin a directory** (📌 *Pin directory…*) — the app scans it recursively for git
+   repos and shows them as a tree on the **Dashboard**; pinned dirs persist across
+   launches and rescan on demand (⟳). *Open repository…* opens a one-off repo via the
+   native dialog; it lands under **Recent**.
+2. On the Dashboard: type to filter, ↑/↓ to move, ⏎ (or click) to open a repo.
+   Each repo row shows its current branch and a dot when the working tree is dirty.
+3. **Compare** (GitHub-compare-style) opens preselected — compare = current branch,
+   base = default base (`main` → `master` → first branch) — with the diff already
+   loading. Change either side with the ref picker (branches, recent commits, or a
+   typed SHA / `HEAD~N` / tag), swap sides with ⇄, and read the commit list and
+   per-file diffs before any session exists.
+4. Pick an engine and **Start review** — or **Resume review** if a session already
+   exists for the exact (base, compare) pair (with a *Start fresh* option that
+   archives the old one).
+5. **Review**: mark files viewed, mark sections reviewed, comment on any diff line,
+   section, agent question, or spec/plan line; **Chat** shares the agent's session.
+6. **Send N changes to agent** — it edits, commits on your branch, and reports
+   per-comment resolutions. **Approve** records the reviewed SHA.
+
+### Command-line tool
+
+Install the `lr` shim from the app menu (**local-review → Install Command-Line Tool…**).
+Then, from any git repo:
+
+```bash
+lr                            # open Compare for the repo containing the cwd
+lr --base main --compare wip  # preselect both sides
+lr /path/to/repo              # open a specific repo
+```
+
+`lr` reuses the running app (focusing and navigating it) or launches it. Outside a git
+repo, the app opens on the Dashboard with an explanatory toast.
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), the drift banner and "since you reviewed" diffs update live, and you get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
-Review state (comments, chat, approvals) lives in `<repo>/.local-review/` (auto-excluded from git).
+Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData; legacy `.local-review/*.json` files are imported once on open and left renamed `*.imported`.
 
 ## Development
 
 ```bash
 npm run dev        # live-reload app
-npm test           # vitest: diff parser, state, anchoring, engine contract
+npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO, CLI args, anchoring, engine contract
 npm run typecheck
 ```
 
-Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (skip pickers), `LR_FLOW=generate|fix` (auto-run a flow), `LR_SHOT=/path.png` (capture window). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to Compare for a repo/branch — these now map onto the `lr` CLI open path), `LR_FLOW=generate|fix` (auto-run a flow), `LR_SHOT=/path.png` (capture window). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
 
 Design source: the Guided Review wireframes in `docs/superpowers/specs/` (see the design spec for architecture and decisions).

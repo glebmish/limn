@@ -34,10 +34,7 @@ api.onCliOpen = (cb: (msg: CliOpenMsg) => void) => {
 contextBridge.exposeInMainWorld('api', api)
 
 // dev-only: LR_OPEN_REPO/LR_OPEN_BRANCH now flow through the CLI path (devCliArgs in main);
-// only LR_FLOW is forwarded here. repo/branch are exposed as null literals so Welcome.tsx
-// property reads remain type-safe without modifying that file.
+// only LR_FLOW is forwarded here.
 contextBridge.exposeInMainWorld('lrDev', {
-  repo: null,
-  branch: null,
   flow: process.env.LR_FLOW ?? null
 })
