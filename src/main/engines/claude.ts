@@ -1,8 +1,8 @@
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { Comment, CommentAnchor, EngineEvent, FixResult, ReviewAnnotations } from '../../shared/types.js'
-import { EventQueue, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
+import type { Comment, EngineEvent, FixResult, ReviewAnnotations } from '../../shared/types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { fixJsonSchema, parseFixOutput, parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildChatPrompt, buildFixPrompt, buildReviewPrompt } from './prompts.js'
+import { buildChatPrompt, buildFixPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
@@ -86,6 +86,7 @@ export class ClaudeEngine implements ReviewEngine {
       buildReviewPrompt(req),
       {
         cwd: req.repo,
+        ...modelOpt(req.model),
         allowedTools: READ_TOOLS,
         permissionMode: 'default',
         outputFormat: { type: 'json_schema', schema: reviewJsonSchema as Record<string, unknown> }
@@ -102,13 +103,17 @@ export class ClaudeEngine implements ReviewEngine {
     }
   }
 
-  chat(repo: string, sessionId: string, message: string, anchor?: CommentAnchor): EngineRun<string> {
+  chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
+    const prompt = turn.engineSessionId
+      ? buildChatPrompt(turn.message, turn.anchor)
+      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
     const { outcome, abort } = runQuery(
-      buildChatPrompt(message, anchor),
+      prompt,
       {
-        cwd: repo,
-        resume: sessionId,
+        cwd: turn.repo,
+        ...(turn.engineSessionId ? { resume: turn.engineSessionId } : {}),
+        ...modelOpt(turn.model),
         allowedTools: READ_TOOLS,
         disallowedTools: ['Edit', 'Write'],
         permissionMode: 'default'
@@ -122,7 +127,7 @@ export class ClaudeEngine implements ReviewEngine {
     }
   }
 
-  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string): EngineRun<FixResult> {
+  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string, model?: string): EngineRun<FixResult> {
     const q = new EventQueue()
     q.push({ type: 'status', text: 'Claude is applying your comments…' })
     const { outcome, abort } = runQuery(
@@ -130,6 +135,7 @@ export class ClaudeEngine implements ReviewEngine {
       {
         cwd: repo,
         resume: sessionId,
+        ...modelOpt(model),
         allowedTools: WRITE_TOOLS,
         permissionMode: 'acceptEdits',
         outputFormat: { type: 'json_schema', schema: fixJsonSchema as Record<string, unknown> }
@@ -145,4 +151,10 @@ export class ClaudeEngine implements ReviewEngine {
       cancel: () => abort.abort()
     }
   }
+}
+
+/** Claude's model is a plain string option; undefined = CLI default. The
+ *  reasoningEffort knob is Codex-only, so it never reaches this engine. */
+function modelOpt(model?: string): Partial<Options> {
+  return model ? { model } : {}
 }

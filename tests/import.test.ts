@@ -55,7 +55,8 @@ describe('legacy import', () => {
     expect(found!.pair.compare.anchorSha).toBe('deadbee') // last iteration endSha wins as anchor
     const st = loadReviewState(db, found!.id)
     expect(st.comments).toHaveLength(1)
-    expect(st.chat).toHaveLength(1)
+    // legacy flat chat is folded into the review thread; the empty default user chat is also present
+    expect(st.chats.find((c) => c.kind === 'review')?.messages).toHaveLength(1)
     expect(st.iterations).toHaveLength(1)
     expect(st.viewedAt).toEqual({ 'a.ts': 'deadbee' })
     expect(st.reviewedSections).toEqual(['s1'])

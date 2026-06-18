@@ -1,5 +1,5 @@
 import type {
-  Artifact, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
+  AgentRef, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
   FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
 } from './types.js'
 
@@ -45,15 +45,20 @@ export interface Api {
   recentRepos(): Promise<string[]>
   openRepo(path: string): Promise<RepoInfo>
   /** Resolve both refs, find-or-create the session for the pair, return its id. */
-  startSession(repo: string, baseInput: string, compareInput: string, engine: EngineId): Promise<{ sessionId: number }>
+  startSession(repo: string, baseInput: string, compareInput: string, agent: AgentRef): Promise<{ sessionId: number }>
   loadSession(sessionId: number): Promise<LoadedReview>
   archiveSession(sessionId: number): Promise<void>
-  generate(sessionId: number, engine: EngineId, opId: string): Promise<void>
+  generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
   cancel(opId: string): Promise<void>
   saveUiState(sessionId: number, patch: UiStatePatch): Promise<void>
   upsertComment(sessionId: number, comment: Comment): Promise<ReviewState>
   deleteComment(sessionId: number, id: string): Promise<ReviewState>
-  chat(sessionId: number, message: string, opId: string, anchor?: CommentAnchor): Promise<void>
+  // ── multi-chat ──
+  /** Send a message in a chat thread; the thread carries its own agent. */
+  sendChat(threadId: number, message: string, opId: string, anchor?: CommentAnchor): Promise<void>
+  createChat(sessionId: number, agent: AgentRef): Promise<ChatThread[]>
+  setChatAgent(threadId: number, agent: AgentRef): Promise<ChatThread[]>
+  deleteChat(threadId: number): Promise<ChatThread[]>
   sendFeedback(sessionId: number, commentIds: string[], steer: string | undefined, opId: string): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
@@ -92,7 +97,8 @@ export interface RendererApi extends Api {
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
-  'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment', 'chat',
+  'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment',
+  'sendChat', 'createChat', 'setChatAgent', 'deleteChat',
   'sendFeedback', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'

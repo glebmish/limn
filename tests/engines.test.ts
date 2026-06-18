@@ -76,12 +76,23 @@ describe('FakeEngine contract', () => {
     expect(sinceTexts).toContain('// addressed by fake engine')
   })
 
-  it('chat returns text', async () => {
+  it('chat returns streamed text and echoes the question', async () => {
     const engine = new FakeEngine()
-    const run = engine.chat(fx.dir, 'sess', 'why?')
+    const run = engine.chat({ repo: fx.dir, engineSessionId: 'sess', message: 'why?' })
     const events = await drain(run.events)
     expect(events.some((e) => e.type === 'text')).toBe(true)
-    const { value } = await run.result
+    const { value, sessionId } = await run.result
     expect(value).toContain('why?')
+    expect(sessionId).toBe('sess') // resumes the given session
+  })
+
+  it('chat without a session id mints a fresh engine session', async () => {
+    const engine = new FakeEngine()
+    const run = engine.chat({ repo: fx.dir, message: 'hi', model: 'opus', context: { base: 'main', branch: 'feature' } })
+    await drain(run.events)
+    const { value, sessionId } = await run.result
+    expect(sessionId).toBeTruthy()
+    expect(sessionId).not.toBe('sess')
+    expect(value).toContain('opus') // model surfaced in the demo answer
   })
 })

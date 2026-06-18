@@ -1,12 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type { RefPair, ReviewState } from '../../shared/types.js'
+import type { ChatMessage, RefPair, ReviewState } from '../../shared/types.js'
 import { headSha } from '../git.js'
 import {
-  addChat, addIteration, approveArtifact, createSession, findSession, replaceUiState,
-  setArtifacts, touchRepo, updateSessionMeta, upsertComment
+  addChatMessage, addIteration, approveArtifact, createChatThread, createSession, findSession,
+  listChatThreads, reconcileChats, replaceUiState, setArtifacts, touchRepo, updateSessionMeta, upsertComment
 } from './sessions.js'
+
+/** v1 review JSON carried a flat `chat: ChatMessage[]`; the current model uses
+ *  chat threads, so the on-disk shape is read through this legacy view. */
+type LegacyReviewState = Omit<ReviewState, 'chats'> & { chat?: ChatMessage[] }
 
 /** Import all v1 `.local-review/review-*.json` files for a repo into the db,
  *  renaming each source to `<file>.imported`. Unreadable files are skipped and
@@ -19,7 +23,7 @@ export async function importLegacyRepoFiles(db: DatabaseSync, repoPath: string):
     if (!/^review-.+\.json$/.test(name)) continue
     const p = path.join(dir, name)
     try {
-      const st = JSON.parse(fs.readFileSync(p, 'utf8')) as ReviewState
+      const st = JSON.parse(fs.readFileSync(p, 'utf8')) as LegacyReviewState
       if (!st.branch || !st.base) throw new Error('missing branch/base')
       await importLegacyState(db, repoPath, st)
       fs.renameSync(p, `${p}.imported`)
@@ -31,7 +35,7 @@ export async function importLegacyRepoFiles(db: DatabaseSync, repoPath: string):
   return imported
 }
 
-async function importLegacyState(db: DatabaseSync, repoPath: string, st: ReviewState): Promise<void> {
+async function importLegacyState(db: DatabaseSync, repoPath: string, st: LegacyReviewState): Promise<void> {
   // v1 sessions are always branch-vs-branch. Anchors: spec says iteration
   // history where available, else current tips (best effort, '' if branch gone).
   const tipOf = async (branch: string): Promise<string> => {
@@ -44,7 +48,7 @@ async function importLegacyState(db: DatabaseSync, repoPath: string, st: ReviewS
   }
   if (findSession(db, repoPath, pair)) return // already imported (re-run edge)
 
-  const s = createSession(db, repoPath, pair, st.engine)
+  const s = createSession(db, repoPath, pair, st.engine ? { engine: st.engine } : undefined)
   try {
     // title/summary are denormalized copies of annotations fields — kept as
     // dedicated columns for cheap list queries
@@ -57,8 +61,15 @@ async function importLegacyState(db: DatabaseSync, repoPath: string, st: ReviewS
       ...(st.reviewedAtSha !== undefined ? { reviewedAtSha: st.reviewedAtSha } : {})
     })
     for (const c of st.comments ?? []) upsertComment(db, s.id, c)
-    for (const m of st.chat ?? []) addChat(db, s.id, m)
     for (const it of st.iterations ?? []) addIteration(db, s.id, it)
+    // create the default chat threads, then fold legacy flat chat into the review thread
+    reconcileChats(db, s.id)
+    const legacyChat = st.chat ?? []
+    if (legacyChat.length > 0) {
+      const review = listChatThreads(db, s.id).find((t) => t.kind === 'review')
+        ?? createChatThread(db, s.id, { kind: 'review', agent: { engine: st.engine ?? 'claude' }, title: 'Review agent' })
+      for (const m of legacyChat) addChatMessage(db, review.id, m)
+    }
     setArtifacts(db, s.id, st.artifacts ?? [])
     for (const [p, sha] of Object.entries(st.artifactApprovals ?? {})) approveArtifact(db, s.id, p, sha)
     replaceUiState(db, s.id, { viewedAt: st.viewedAt ?? {}, reviewedSections: st.reviewedSections ?? [] })

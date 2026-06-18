@@ -8,8 +8,10 @@ import {
   ensureRepo, touchRepo, recentRepoPaths,
   createSession, findSession, getSession, archiveSession, retargetSession,
   loadReviewState, updateSessionMeta, replaceUiState,
-  upsertComment, deleteComment, addChat, addIteration, resetIterations, setArtifacts,
-  approveArtifact, unresolvedCount
+  upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
+  approveArtifact, unresolvedCount,
+  createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
+  deleteChatThread, threadIsEmpty, reconcileChats
 } from '../src/main/db/sessions'
 import type { Comment, RefPair } from '../src/shared/types'
 
@@ -37,7 +39,7 @@ function mkComment(id: string): Comment {
 
 describe('sessions DAO', () => {
   it('creates and finds a session by pair identity', () => {
-    const s = createSession(db, '/repo', pair, 'claude')
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
     expect(s.id).toBeGreaterThan(0)
     expect(findSession(db, '/repo', pair)?.id).toBe(s.id)
     expect(getSession(db, s.id)?.pair.compare.symbol).toBe('feature')
@@ -68,9 +70,10 @@ describe('sessions DAO', () => {
   })
 
   it('assembles ReviewState with effective refs and all children', () => {
-    const s = createSession(db, '/repo', commitPair, 'claude')
+    const s = createSession(db, '/repo', commitPair, { engine: 'claude' })
     upsertComment(db, s.id, mkComment('c1'))
-    addChat(db, s.id, { role: 'user', text: 'q', at: 'T1' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    addChatMessage(db, t.id, { role: 'user', text: 'q', at: 'T1' })
     addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'd'.repeat(40), at: 'T2' })
     setArtifacts(db, s.id, [{ role: 'spec', path: 'docs/spec.md' }])
     approveArtifact(db, s.id, 'docs/spec.md', 'd'.repeat(40))
@@ -82,13 +85,15 @@ describe('sessions DAO', () => {
     expect(st.branch).toBe('main')          // branch side → live name
     expect(st.comments).toHaveLength(1)
     expect(st.comments[0].id).toBe('c1')
-    expect(st.chat).toEqual([{ role: 'user', text: 'q', at: 'T1' }])
+    expect(st.chats).toHaveLength(1)
+    expect(st.chats[0].messages).toEqual([{ role: 'user', text: 'q', at: 'T1' }])
     expect(st.iterations).toEqual([{ n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'd'.repeat(40), at: 'T2' }])
     expect(st.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
     expect(st.artifactApprovals).toEqual({ 'docs/spec.md': 'd'.repeat(40) })
     expect(st.viewedAt).toEqual({ 'a.ts': 'd'.repeat(40) })
     expect(st.reviewedSections).toEqual(['s1'])
     expect(st.engine).toBe('claude')
+    expect(st.agent).toEqual({ engine: 'claude' })
   })
 
   it('comment upsert updates in place; delete removes; unresolvedCount counts queued+sent', () => {
@@ -139,5 +144,61 @@ describe('sessions DAO', () => {
     const moved: RefPair = { ...pair, compare: { kind: 'commit', symbol: 'HEAD~2', anchorSha: 'e'.repeat(40) } }
     expect(findSession(db, '/repo', moved)?.id).toBe(s.id) // generated ident recomputed
     expect(() => retargetSession(db, s.id, 'base', { kind: 'commit', symbol: 'x', anchorSha: '' })).toThrow(/no resolved sha/)
+  })
+})
+
+describe('chat threads DAO', () => {
+  const sha = 'a'.repeat(40)
+
+  it('reconcileChats creates the review + empty user chat once a review exists, idempotently', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude', model: 'opus' })
+    reconcileChats(db, s.id)
+    expect(listChatThreads(db, s.id)).toHaveLength(0) // no iteration yet → no chats
+
+    addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: sha, at: 'T1' })
+    reconcileChats(db, s.id)
+    let chats = listChatThreads(db, s.id)
+    expect(chats.map((c) => c.kind)).toEqual(['review', 'user'])
+    const review = chats.find((c) => c.kind === 'review')!
+    expect(review.engineSessionId).toBe('es-1')        // bound to the review-gen session
+    expect(review.agent).toEqual({ engine: 'claude', model: 'opus' })
+
+    reconcileChats(db, s.id)                            // idempotent — no duplicate chats
+    expect(listChatThreads(db, s.id)).toHaveLength(2)
+
+    // regenerate → review chat re-syncs to the new engine session
+    resetIterations(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-2', endSha: sha, at: 'T2' })
+    reconcileChats(db, s.id)
+    chats = listChatThreads(db, s.id)
+    expect(chats).toHaveLength(2)
+    expect(chats.find((c) => c.kind === 'review')!.engineSessionId).toBe('es-2')
+  })
+
+  it('threadIsEmpty: review chat (bound session) is never empty; fresh user chat is until a message lands', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const reviewChat = createChatThread(db, s.id, { kind: 'review', agent: { engine: 'claude' }, engineSessionId: 'es-1' })
+    const userChat = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    expect(threadIsEmpty(db, reviewChat.id)).toBe(false) // has an engine session
+    expect(threadIsEmpty(db, userChat.id)).toBe(true)
+    addChatMessage(db, userChat.id, { role: 'user', text: 'hi', at: 'T1' })
+    expect(threadIsEmpty(db, userChat.id)).toBe(false)
+  })
+
+  it('setThreadAgent retargets a chat in place; delete + session cascade clean up', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    setThreadAgent(db, t.id, { engine: 'codex', model: 'gpt-5-codex', reasoningEffort: 'high' })
+    expect(getChatThread(db, t.id)!.agent).toEqual({ engine: 'codex', model: 'gpt-5-codex', reasoningEffort: 'high' })
+
+    addChatMessage(db, t.id, { role: 'user', text: 'q', at: 'T1' })
+    deleteChatThread(db, t.id)
+    expect(getChatThread(db, t.id)).toBeNull()
+
+    const t2 = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    addChatMessage(db, t2.id, { role: 'user', text: 'q', at: 'T2' })
+    archiveSession(db, s.id)
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(s.id) // CASCADE → threads → messages
+    expect(getChatThread(db, t2.id)).toBeNull()
+    expect((db.prepare('SELECT COUNT(*) AS n FROM chat_messages').get() as { n: number }).n).toBe(0)
   })
 })

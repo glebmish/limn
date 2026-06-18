@@ -45,6 +45,8 @@ export const MIGRATIONS: Migration[] = [
           compare_ident TEXT GENERATED ALWAYS AS
             (CASE compare_kind WHEN 'branch' THEN 'b:' || compare_symbol ELSE 'c:' || compare_anchor_sha END) STORED,
           engine TEXT,
+          model TEXT,
+          reasoning_effort TEXT,
           title TEXT,
           summary TEXT,
           annotations_json TEXT,
@@ -66,9 +68,21 @@ export const MIGRATIONS: Migration[] = [
           PRIMARY KEY (session_id, id)
         );
 
-        CREATE TABLE chat_messages (
+        CREATE TABLE chat_threads (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('review','user')),
+          engine TEXT NOT NULL,
+          model TEXT,
+          reasoning_effort TEXT,
+          engine_session_id TEXT,
+          title TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE chat_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          thread_id INTEGER NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
           role TEXT NOT NULL CHECK (role IN ('user','agent')),
           text TEXT NOT NULL,
           at TEXT NOT NULL,

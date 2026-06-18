@@ -43,6 +43,11 @@ export interface Comment {
 
 // ── engines ───────────────────────────────────────────────────
 export type EngineId = 'claude' | 'codex'
+/** Codex-only knob; ignored by Claude. */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+/** A selectable agent = an engine + an optional model/effort. `model`
+ *  undefined means "Auto" — let the CLI pick its default (today's behavior). */
+export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
 export type EngineEvent =
   | { type: 'status'; text: string }
   | { type: 'tool'; text: string }
@@ -55,11 +60,24 @@ export interface FixResult { summary: string; resolutions: CommentResolution[] }
 // ── artifacts / chat / state ─────────────────────────────────
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; path: string; title: string; lines: string[] }
 export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor }
+/** A conversation thread inside a review. 'review' is the auto-created thread
+ *  bound to the engine session that produced the review; 'user' threads are
+ *  started by the reviewer and may target any agent. */
+export interface ChatThread {
+  id: number
+  kind: 'review' | 'user'
+  agent: AgentRef
+  /** engine session to resume; undefined until a 'user' thread's first turn */
+  engineSessionId?: string
+  messages: ChatMessage[]
+  title?: string
+  createdAt: string
+}
 export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string }
 export interface ReviewState {
   repo: string; branch: string; base: string;
-  engine?: EngineId; annotations?: ReviewAnnotations;
-  comments: Comment[]; chat: ChatMessage[];
+  engine?: EngineId; agent?: AgentRef; annotations?: ReviewAnnotations;
+  comments: Comment[]; chats: ChatThread[];
   /** per-file: SHA of the branch head when the file was marked viewed */
   viewedAt: Record<string, string>;
   reviewedSections: string[];
@@ -94,6 +112,8 @@ export interface SessionMeta {
   repo: string
   pair: RefPair
   engine?: EngineId
+  /** review agent (engine + model/effort); engine mirrors agent.engine */
+  agent?: AgentRef
   createdAt: string
   updatedAt: string
 }

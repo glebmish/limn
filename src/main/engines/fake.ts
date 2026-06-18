@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import type { Comment, CommentAnchor, FixResult, ReviewAnnotations } from '../../shared/types.js'
-import { EventQueue, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 
 /** Deterministic engine for contract tests and demo mode (LR_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
@@ -52,14 +52,33 @@ export class FakeEngine implements ReviewEngine {
     return { events: q.iterable(), result, cancel: () => q.close() }
   }
 
-  chat(_repo: string, _sessionId: string, message: string, _anchor?: CommentAnchor): EngineRun<string> {
+  chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
-    const text = `Demo answer to: ${message}`
+    const modelTag = turn.model ? ` using **${turn.model}**` : ''
+    const text = [
+      `Looking at your question${modelTag}:`,
+      '',
+      `> ${turn.message}`,
+      '',
+      `The change touches \`src/a.ts\` and adds the new branch you flagged. A few notes:`,
+      '',
+      '- The early return keeps the happy path readable.',
+      '- `parseRefInput` is the only caller, so the blast radius is small.',
+      '',
+      '```ts',
+      'if (!input) return null // guard added in this branch',
+      '```',
+      '',
+      'Want me to check the tests next?'
+    ].join('\n')
     const result = (async () => {
-      q.push({ type: 'text', text })
+      q.push({ type: 'status', text: 'Reading src/a.ts…' })
+      q.push({ type: 'tool', text: 'Grep parseRefInput' })
+      // stream the answer in chunks so the panel shows live tokens
+      for (const chunk of text.match(/[\s\S]{1,48}/g) ?? [text]) q.push({ type: 'text', text: chunk })
       q.push({ type: 'done' })
       q.close()
-      return { value: text, sessionId: _sessionId }
+      return { value: text, sessionId: turn.engineSessionId || `fake-chat-${Date.now()}` }
     })()
     return { events: q.iterable(), result, cancel: () => q.close() }
   }

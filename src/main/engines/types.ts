@@ -1,5 +1,6 @@
 import type {
-  Artifact, Comment, CommentAnchor, DiffSkeleton, EngineEvent, EngineId, FixResult, ReviewAnnotations
+  Artifact, Comment, CommentAnchor, DiffSkeleton, EngineEvent, EngineId, FixResult,
+  ReasoningEffort, ReviewAnnotations
 } from '../../shared/types.js'
 
 export interface ReviewRequest {
@@ -8,6 +9,23 @@ export interface ReviewRequest {
   base: string
   diff: DiffSkeleton
   artifacts: Artifact[]
+  model?: string
+  reasoningEffort?: ReasoningEffort
+}
+
+/** Brief review context used to seed a fresh chat session when the chat agent
+ *  differs from the review agent (no shared engine session to resume). */
+export interface ChatContext { base: string; branch: string; summary?: string }
+
+export interface ChatTurn {
+  repo: string
+  /** resume this engine session if set; otherwise start a fresh seeded session */
+  engineSessionId?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  message: string
+  anchor?: CommentAnchor
+  context?: ChatContext
 }
 
 export interface EngineRun<T> {
@@ -19,8 +37,12 @@ export interface EngineRun<T> {
 export interface ReviewEngine {
   id: EngineId
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
-  chat(repo: string, sessionId: string, message: string, anchor?: CommentAnchor): EngineRun<string>
-  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string): EngineRun<FixResult>
+  /** result.sessionId is the engine session id (new when seeded, else resumed). */
+  chat(turn: ChatTurn): EngineRun<string>
+  applyFeedback(
+    repo: string, sessionId: string, comments: Comment[], steer?: string,
+    model?: string, reasoningEffort?: ReasoningEffort
+  ): EngineRun<FixResult>
 }
 
 /** Async queue bridging push-style SDK callbacks to a pull-style AsyncIterable. */

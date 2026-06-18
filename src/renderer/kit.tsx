@@ -22,7 +22,8 @@ export const I = {
   doc: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><path d="M3.5 1.5h5L11 4v8.5H3.5z" /><path d="M8 1.5V4h2.5M5 7h4M5 9.5h4" /></svg>,
   branch: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><circle cx="3.5" cy="3" r="1.5" /><circle cx="3.5" cy="11" r="1.5" /><circle cx="10.5" cy="4.5" r="1.5" /><path d="M3.5 4.5v5M3.5 8.5C3.5 6 10.5 7 10.5 6" /></svg>,
   gear: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" {...p}><circle cx="7" cy="7" r="2" /><path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2M3.1 3.1l1.4 1.4M9.5 9.5l1.4 1.4M10.9 3.1L9.5 4.5M4.5 9.5l-1.4 1.4" /></svg>,
-  x: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" {...p}><path d="M3.5 3.5l7 7M10.5 3.5l-7 7" /></svg>
+  x: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" {...p}><path d="M3.5 3.5l7 7M10.5 3.5l-7 7" /></svg>,
+  trash: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M2.5 3.5h9M5.5 3.5V2.3h3v1.2M3.5 3.5l.6 8h5.8l.6-8M6 6v3.5M8 6v3.5" /></svg>
 }
 
 export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {

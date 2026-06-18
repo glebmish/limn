@@ -8,7 +8,7 @@ import type {
   Api, DashboardData, LoadedReview, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { Artifact, Comment, EngineEvent, EngineId, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
@@ -97,6 +97,7 @@ async function loadArtifactsFor(
 
 async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promise<LoadedReview> {
   const { repo, pair } = session
+  dao.reconcileChats(db, session.id) // ensure default chats exist + review chat tracks latest iteration
   const state = dao.loadReviewState(db, session.id)
   const baseEff = effectiveRef(pair.base)
   const compareEff = effectiveRef(pair.compare)
@@ -217,7 +218,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
   })
 
-  handle('startSession', async (repo: string, baseInput: string, compareInput: string, engine: EngineId) => {
+  handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) => {
     await importLegacyRepoFiles(db, repo) // repos can be entered without openRepo (CLI, plan B)
     const base = await resolveRefInput(repo, baseInput)
     const compare = await resolveRefInput(repo, compareInput)
@@ -227,7 +228,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
     }
     const existing = dao.findSession(db, repo, pair)
-    const session = existing ?? dao.createSession(db, repo, pair, engine)
+    const session = existing ?? dao.createSession(db, repo, pair, agent)
     if (!existing) {
       try {
         const sha = (await execGit(repo, ['rev-list', '--max-parents=0', '--max-count=1', 'HEAD'])).trim()
@@ -254,7 +255,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     stopWatch()
   })
 
-  handle('generate', async (sessionId: number, engineId: EngineId, opId: string) => {
+  handle('generate', async (sessionId: number, agent: AgentRef, opId: string) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
@@ -265,8 +266,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const skeleton = await getDiff(repo, baseEff, compareEff)
       const state = dao.loadReviewState(db, sessionId)
       const artifacts = await loadArtifactsFor(db, sessionId, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
-      const engine = makeEngine(engineId)
-      const run = engine.generateReview({ repo, branch: compareEff, base: baseEff, diff: skeleton, artifacts })
+      const engine = makeEngine(agent.engine)
+      const run = engine.generateReview({
+        repo, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
+        model: agent.model, reasoningEffort: agent.reasoningEffort
+      })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
@@ -283,10 +287,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
         dao.setArtifacts(db, sessionId, refs)
       }
       dao.updateSessionMeta(db, sessionId, {
-        engine: engineId, annotations, title: annotations.title, summary: annotations.summary,
+        engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
+        annotations, title: annotations.title, summary: annotations.summary,
         reviewedAtSha: skeleton.headSha
       })
-      dao.resetIterations(db, sessionId, { n: 1, engine: engineId, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
+      dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
+      dao.reconcileChats(db, sessionId) // create default chats / resync review chat to the new engine session
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
       const flagged = annotations.sections.reduce((n, s) => n + s.flags.filter((f) => f.risk).length, 0)
       notifyIfUnfocused('Guided review ready',
@@ -320,23 +326,39 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return dao.loadReviewState(db, sessionId)
   })
 
-  handle('chat', async (sessionId: number, message: string, opId: string, anchor) => {
-    const session = mustGetSession(db, sessionId)
+  handle('sendChat', async (threadId: number, message: string, opId: string, anchor?: CommentAnchor) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    const thread = dao.getChatThread(db, threadId)
+    if (sid == null || !thread) throw new Error('chat thread not found')
+    const session = mustGetSession(db, sid)
     const repo = session.repo
-    const sess = lastEngineSession(db, sessionId)
-    if (!sess) throw new Error('Generate a review first — chat shares its session')
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
-      const engine = makeEngine(sess.engine)
-      const run = engine.chat(repo, sess.sessionId, message, anchor)
+      const state = dao.loadReviewState(db, sid)
+      const engine = makeEngine(thread.agent.engine)
+      // resume the thread's engine session if it has one; otherwise seed a fresh
+      // session with review context (a chat agent that didn't write the review
+      // has nothing to resume).
+      const run = engine.chat({
+        repo,
+        engineSessionId: thread.engineSessionId,
+        model: thread.agent.model,
+        reasoningEffort: thread.agent.reasoningEffort,
+        message,
+        anchor,
+        context: thread.engineSessionId
+          ? undefined
+          : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
+      })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
-      const { value } = await run.result
+      const { value, sessionId: engineSession } = await run.result
       await pump
       const at = new Date().toISOString()
-      dao.addChat(db, sessionId, { role: 'user', text: message, at, anchor })
-      dao.addChat(db, sessionId, { role: 'agent', text: value, at })
+      dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at })
+      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
       send('op:result', { opId, kind: 'chat', ok: false, error: String(err instanceof Error ? err.message : err) })
@@ -344,6 +366,25 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       repoLocks.delete(repo)
       activeOps.delete(opId)
     }
+  })
+
+  handle('createChat', async (sessionId: number, agent: AgentRef) => {
+    dao.createChatThread(db, sessionId, { kind: 'user', agent, title: 'New chat' })
+    return dao.listChatThreads(db, sessionId)
+  })
+
+  handle('setChatAgent', async (threadId: number, agent: AgentRef) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    if (sid == null) throw new Error('chat thread not found')
+    dao.setThreadAgent(db, threadId, agent)
+    return dao.listChatThreads(db, sid)
+  })
+
+  handle('deleteChat', async (threadId: number) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    if (sid == null) throw new Error('chat thread not found')
+    dao.deleteChatThread(db, threadId)
+    return dao.listChatThreads(db, sid)
   })
 
   handle('sendFeedback', async (sessionId: number, commentIds: string[], steer, opId: string) => {
@@ -366,7 +407,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sessionId, c) }
 
       const engine = makeEngine(sess.engine)
-      const run = engine.applyFeedback(repo, sess.sessionId, comments, steer)
+      const run = engine.applyFeedback(repo, sess.sessionId, comments, steer, session.agent?.model, session.agent?.reasoningEffort)
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value: fix, sessionId: engineSession } = await run.result

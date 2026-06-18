@@ -34,7 +34,8 @@ api.onCliOpen = (cb: (msg: CliOpenMsg) => void) => {
 contextBridge.exposeInMainWorld('api', api)
 
 // dev-only: LR_OPEN_REPO/LR_OPEN_BRANCH now flow through the CLI path (devCliArgs in main);
-// only LR_FLOW is forwarded here.
+// LR_FLOW + LR_OPEN_SESSION (auto-resume a seeded session) are forwarded here.
 contextBridge.exposeInMainWorld('lrDev', {
-  flow: process.env.LR_FLOW ?? null
+  flow: process.env.LR_FLOW ?? null,
+  openSession: process.env.LR_OPEN_SESSION ?? null
 })

@@ -22,7 +22,7 @@ export default function Review() {
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
   const [docOpen, setDocOpen] = useState<string | null>(null)
   const [peek, setPeek] = useState<string | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(window.lrDev?.flow === 'chat')
 
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])

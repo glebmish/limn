@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { I, ago, shortSha } from '../kit'
-import type { EngineId } from '../../shared/types'
+import type { EngineId, ReasoningEffort } from '../../shared/types'
+import { modelsFor } from '../../shared/agents'
 import { RefPicker } from '../components/RefPicker'
 import { CompareDiff } from '../components/CompareDiff'
 
 export default function Compare() {
-  const { compare, engine, error, setEngine, setBaseInput, setCompareInput, swapRefs, startFromCompare, resumeExisting, startFresh, applyRetarget, backToDashboard } = useStore()
+  const { compare, agent, error, setAgent, setBaseInput, setCompareInput, swapRefs, startFromCompare, resumeExisting, startFresh, applyRetarget, backToDashboard } = useStore()
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
   const [starting, setStarting] = useState(false)
+  const selModel = modelsFor(agent.engine).find((m) => m.id === agent.model)
 
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
@@ -87,7 +89,7 @@ export default function Compare() {
           <div className="tweak-sec">Review agent</div>
           <div className="lr-engines">
             {(['claude', 'codex'] as EngineId[]).map((e) => (
-              <button key={e} className={'lr-engine' + (engine === e ? ' on' : '')} onClick={() => setEngine(e)}>
+              <button key={e} className={'lr-engine' + (agent.engine === e ? ' on' : '')} onClick={() => setAgent({ engine: e })}>
                 <span className="en-name">
                   <span className={'en-dot ' + (auth[e] ? (auth[e]!.ok ? 'ok' : 'bad') : '')} />
                   {e === 'claude' ? 'Claude' : 'Codex'}
@@ -95,6 +97,22 @@ export default function Compare() {
                 <div className="en-hint">{auth[e]?.hint ?? 'checking…'}</div>
               </button>
             ))}
+          </div>
+
+          <div className="lr-model-row">
+            <span className="dim lm-lab">Model</span>
+            <select className="agent-sel" aria-label="model" value={agent.model ?? ''}
+              onChange={(e) => setAgent({ engine: agent.engine, model: e.target.value || undefined })}>
+              <option value="">Auto</option>
+              {modelsFor(agent.engine).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            {selModel?.reasoningEfforts && (
+              <select className="agent-sel" aria-label="reasoning effort" value={agent.reasoningEffort ?? ''}
+                onChange={(e) => setAgent({ ...agent, reasoningEffort: (e.target.value || undefined) as ReasoningEffort | undefined })}>
+                <option value="">effort: auto</option>
+                {selModel.reasoningEfforts.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            )}
           </div>
 
           <div style={{ marginTop: 16 }}>

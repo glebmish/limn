@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, CompareData, DashboardData, LoadedReview } from '../shared/ipc'
-import type { Comment, EngineEvent, EngineId, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
+import type { AgentRef, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
+import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
@@ -44,8 +45,24 @@ export interface GenState {
   running: boolean
   opId: string | null
   kind: 'review' | 'chat' | 'fix' | null
+  /** for chat ops: which thread the streamed tokens belong to */
+  threadId: number | null
   log: EngineEvent[]
   error: string | null
+}
+
+/** The active chat thread (or a sensible default) within the loaded review. */
+export function activeChat(loaded: LoadedReview | null, activeChatId: number | null): ChatThread | null {
+  const chats = loaded?.state.chats ?? []
+  return chats.find((c) => c.id === activeChatId) ?? null
+}
+
+/** Keep the current chat if still present; else default to the empty user chat
+ *  (the second default chat), else the last chat, else none. */
+function pickActiveChat(chats: ChatThread[], current: number | null): number | null {
+  if (current != null && chats.some((c) => c.id === current)) return current
+  const emptyUser = [...chats].reverse().find((c) => c.kind === 'user' && c.messages.length === 0 && !c.engineSessionId)
+  return (emptyUser ?? chats[chats.length - 1])?.id ?? null
 }
 
 interface AppStore {
@@ -55,9 +72,11 @@ interface AppStore {
   repoInfo: RepoInfo | null
   branch: string
   base: string
-  engine: EngineId
+  /** the agent selected for creating / regenerating a review */
+  agent: AgentRef
   loaded: LoadedReview | null
   sessionId: number | null
+  activeChatId: number | null
   error: string | null
 
   // dashboard
@@ -110,18 +129,24 @@ interface AppStore {
   backToDashboard(): void
   backToCompare(): void
   retarget(side: 'base' | 'compare'): void
-  // review (unchanged from Plan A)
-  setEngine(e: EngineId): void
+  // review
+  setAgent(a: AgentRef): void
   reload(): Promise<void>
   toggleViewed(file: string, currentlyViewed: boolean): void
   markReviewed(id: string): void
   openSection(id: string): void
   setCur(id: string): void
   setTweak(key: 'density' | 'guidance' | 'accent', value: unknown): void
-  startOp(kind: 'review' | 'chat' | 'fix', opId: string): void
+  startOp(kind: 'review' | 'chat' | 'fix', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
   finishOp(error?: string): void
   setComments(comments: Comment[]): void
+  // chat
+  switchChat(id: number): void
+  newChat(): Promise<void>
+  setActiveChatAgent(a: AgentRef): Promise<void>
+  sendChat(text: string, anchor?: CommentAnchor): void
+  deleteChat(id: number): Promise<void>
 }
 
 export const useStore = create<AppStore>((set, get) => {
@@ -129,6 +154,12 @@ export const useStore = create<AppStore>((set, get) => {
     const { sessionId, viewedAt, reviewedSections } = get()
     if (sessionId == null) return
     void window.api.saveUiState(sessionId, { viewedAt, reviewedSections: [...reviewedSections] })
+  }
+
+  /** Splice an updated chat-thread list into the loaded review. */
+  const setChats = (chats: ChatThread[]): void => {
+    const loaded = get().loaded
+    if (loaded) set({ loaded: { ...loaded, state: { ...loaded.state, chats } } })
   }
 
   let compareTimer: ReturnType<typeof setTimeout> | null = null
@@ -163,9 +194,10 @@ export const useStore = create<AppStore>((set, get) => {
     repoInfo: null,
     branch: '',
     base: '',
-    engine: 'claude',
+    agent: defaultAgent('claude'),
     loaded: null,
     sessionId: null,
+    activeChatId: null,
     error: null,
 
     dashboard: null,
@@ -184,7 +216,7 @@ export const useStore = create<AppStore>((set, get) => {
     guidance: 'guided',
     accent: ACCENTS[0],
 
-    gen: { running: false, opId: null, kind: null, log: [], error: null },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null },
 
     async boot() {
       try {
@@ -200,12 +232,13 @@ export const useStore = create<AppStore>((set, get) => {
         const parse = <T,>(k: string, fallback: T): T => {
           try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
         }
+        // legacy formats: bare 'codex' (seeded from old config.json) or JSON '"codex"' (localStorage migration)
+        const legacyEngine: EngineId = prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : 'claude'
         set({
           density: parse<Density>('density', 'comfortable'),
           guidance: parse<Guidance>('guidance', 'guided'),
           accent: parse<string[]>('accent', ACCENTS[0]),
-          // legacy formats: bare 'codex' (seeded from old config.json) or JSON '"codex"' (localStorage migration)
-          engine: prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : parse<EngineId>('engine', 'claude')
+          agent: parse<AgentRef>('agent', defaultAgent(legacyEngine))
         })
       } catch { /* prefs unavailable — visual defaults stand */ }
       await get().loadDashboard()
@@ -218,6 +251,9 @@ export const useStore = create<AppStore>((set, get) => {
         const cli = await window.api.takeCliOpen()
         if (cli) get().applyCliOpen(cli)
       } catch { /* no pending cli open */ }
+      // dev/screenshot: LR_OPEN_SESSION auto-resumes a seeded session onto Review
+      const openSession = window.lrDev?.openSession
+      if (openSession) await get().resumeExisting(Number(openSession))
     },
 
     applyCliOpen(msg) {
@@ -340,10 +376,10 @@ export const useStore = create<AppStore>((set, get) => {
 
     async startFromCompare() {
       const { repo, baseInput, compareInput } = get().compare
-      const engine = get().engine
+      const agent = get().agent
       if (!repo || !baseInput || !compareInput) return
       try {
-        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, engine)
+        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, agent)
         const loaded = await window.api.loadSession(sessionId)
         set({
           sessionId, loaded, error: null, screen: 'review',
@@ -351,7 +387,8 @@ export const useStore = create<AppStore>((set, get) => {
           viewedAt: loaded.state.viewedAt,
           reviewedSections: new Set(loaded.state.reviewedSections),
           collapsed: new Set<string>(), cur: null,
-          engine: loaded.state.engine ?? engine
+          agent: loaded.state.agent ?? agent,
+          activeChatId: pickActiveChat(loaded.state.chats, null)
         })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
@@ -367,7 +404,8 @@ export const useStore = create<AppStore>((set, get) => {
           viewedAt: loaded.state.viewedAt,
           reviewedSections: new Set(loaded.state.reviewedSections),
           collapsed: new Set<string>(), cur: null,
-          engine: loaded.state.engine ?? get().engine
+          agent: loaded.state.agent ?? get().agent,
+          activeChatId: pickActiveChat(loaded.state.chats, null)
         })
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
@@ -428,9 +466,9 @@ export const useStore = create<AppStore>((set, get) => {
       get().backToCompare()
     },
 
-    setEngine(e) {
-      void window.api.setPref('engine', JSON.stringify(e))
-      set({ engine: e })
+    setAgent(a) {
+      void window.api.setPref('agent', JSON.stringify(a))
+      set({ agent: a })
     },
 
     async reload() {
@@ -440,7 +478,8 @@ export const useStore = create<AppStore>((set, get) => {
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
-        reviewedSections: new Set(loaded.state.reviewedSections)
+        reviewedSections: new Set(loaded.state.reviewedSections),
+        activeChatId: pickActiveChat(loaded.state.chats, get().activeChatId)
       })
     },
 
@@ -478,8 +517,8 @@ export const useStore = create<AppStore>((set, get) => {
       set({ [key]: value } as Partial<AppStore>)
     },
 
-    startOp(kind, opId) {
-      set({ gen: { running: true, opId, kind, log: [], error: null } })
+    startOp(kind, opId, threadId) {
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null } })
     },
 
     pushOpEvent(ev) {
@@ -497,6 +536,66 @@ export const useStore = create<AppStore>((set, get) => {
       const loaded = get().loaded
       if (!loaded) return
       set({ loaded: { ...loaded, state: { ...loaded.state, comments } } })
+    },
+
+    // ── chat ──────────────────────────────────────────────────
+    switchChat(id) {
+      set({ activeChatId: id })
+    },
+
+    async newChat() {
+      const { sessionId, loaded, agent } = get()
+      if (sessionId == null) return
+      const active = activeChat(loaded, get().activeChatId)
+      const a = active?.agent ?? loaded?.state.agent ?? agent
+      try {
+        const chats = await window.api.createChat(sessionId, a)
+        setChats(chats)
+        set({ activeChatId: chats[chats.length - 1]?.id ?? null })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    /** Change the active chat's agent. Empty chat → retarget in place; a chat
+     *  that already has messages or a bound session → fork a new chat. */
+    async setActiveChatAgent(a) {
+      const { sessionId, loaded } = get()
+      const active = activeChat(loaded, get().activeChatId)
+      if (sessionId == null || !active) return
+      const isEmpty = active.messages.length === 0 && !active.engineSessionId
+      try {
+        if (isEmpty) {
+          setChats(await window.api.setChatAgent(active.id, a))
+        } else {
+          const chats = await window.api.createChat(sessionId, a)
+          setChats(chats)
+          set({ activeChatId: chats[chats.length - 1]?.id ?? null })
+        }
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    sendChat(text, anchor) {
+      const active = activeChat(get().loaded, get().activeChatId)
+      const body = text.trim()
+      if (!active || !body || get().gen.running) return
+      const opId = newOpId()
+      get().startOp('chat', opId, active.id)
+      void window.api.sendChat(active.id, body, opId, anchor)
+    },
+
+    async deleteChat(id) {
+      const { sessionId } = get()
+      if (sessionId == null) return
+      try {
+        const chats = await window.api.deleteChat(id)
+        setChats(chats)
+        if (get().activeChatId === id) set({ activeChatId: pickActiveChat(chats, null) })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
     }
   }
 })

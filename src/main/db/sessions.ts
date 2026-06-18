@@ -1,10 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  ChatMessage, Comment, EngineId, Iteration, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionMeta
+  AgentRef, ChatMessage, ChatThread, Comment, EngineId, Iteration, ReasoningEffort,
+  RefPair, RefSide, ReviewAnnotations, ReviewState, SessionMeta
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
 
 function now(): string { return new Date().toISOString() }
+
+/** Build an AgentRef from the denormalized engine/model/effort columns. */
+function rowToAgent(engine: EngineId | null, model: string | null, effort: string | null): AgentRef | undefined {
+  if (!engine) return undefined
+  return {
+    engine,
+    ...(model ? { model } : {}),
+    ...(effort ? { reasoningEffort: effort as ReasoningEffort } : {})
+  }
+}
 
 /** A commit side must always carry its resolved sha — '' would collapse all
  *  unresolved commit sides onto one identity ('c:'). */
@@ -39,7 +50,8 @@ interface SessionDbRow {
   id: number; repo_id: number
   base_kind: 'branch' | 'commit'; base_symbol: string; base_anchor_sha: string
   compare_kind: 'branch' | 'commit'; compare_symbol: string; compare_anchor_sha: string
-  engine: EngineId | null; title: string | null; summary: string | null
+  engine: EngineId | null; model: string | null; reasoning_effort: string | null
+  title: string | null; summary: string | null
   annotations_json: string | null; approved_sha: string | null; reviewed_at_sha: string | null
   created_at: string; updated_at: string
   repo_path: string
@@ -56,22 +68,24 @@ function rowToMeta(row: SessionDbRow): SessionMeta {
       compare: { kind: row.compare_kind, symbol: row.compare_symbol, anchorSha: row.compare_anchor_sha }
     },
     engine: row.engine ?? undefined,
+    agent: rowToAgent(row.engine, row.model, row.reasoning_effort),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
 }
 
-export function createSession(db: DatabaseSync, repoPath: string, pair: RefPair, engine?: EngineId): SessionMeta {
+export function createSession(db: DatabaseSync, repoPath: string, pair: RefPair, agent?: AgentRef): SessionMeta {
   assertResolved(pair.base)
   assertResolved(pair.compare)
   const repoId = ensureRepo(db, repoPath)
   const t = now()
   const res = db.prepare(`INSERT INTO sessions
     (repo_id, base_kind, base_symbol, base_anchor_sha, compare_kind, compare_symbol, compare_anchor_sha,
-     engine, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+     engine, model, reasoning_effort, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(repoId, pair.base.kind, pair.base.symbol, pair.base.anchorSha,
-      pair.compare.kind, pair.compare.symbol, pair.compare.anchorSha, engine ?? null, t, t)
+      pair.compare.kind, pair.compare.symbol, pair.compare.anchorSha,
+      agent?.engine ?? null, agent?.model ?? null, agent?.reasoningEffort ?? null, t, t)
   return getSession(db, Number(res.lastInsertRowid))!
 }
 
@@ -99,6 +113,8 @@ export function retargetSession(db: DatabaseSync, id: number, which: 'base' | 'c
 
 export interface SessionMetaPatch {
   engine?: EngineId
+  model?: string | null
+  reasoningEffort?: ReasoningEffort | null
   title?: string
   summary?: string
   annotations?: ReviewAnnotations
@@ -110,6 +126,8 @@ export function updateSessionMeta(db: DatabaseSync, id: number, patch: SessionMe
   const cols: string[] = []
   const vals: unknown[] = []
   if (patch.engine !== undefined) { cols.push('engine = ?'); vals.push(patch.engine) }
+  if (patch.model !== undefined) { cols.push('model = ?'); vals.push(patch.model) }
+  if (patch.reasoningEffort !== undefined) { cols.push('reasoning_effort = ?'); vals.push(patch.reasoningEffort) }
   if (patch.title !== undefined) { cols.push('title = ?'); vals.push(patch.title) }
   if (patch.summary !== undefined) { cols.push('summary = ?'); vals.push(patch.summary) }
   if (patch.annotations !== undefined) { cols.push('annotations_json = ?'); vals.push(JSON.stringify(patch.annotations)) }
@@ -138,9 +156,102 @@ export function unresolvedCount(db: DatabaseSync, sessionId: number): number {
   return row.n
 }
 
-export function addChat(db: DatabaseSync, sessionId: number, m: ChatMessage): void {
-  db.prepare('INSERT INTO chat_messages (session_id, role, text, at, anchor_json) VALUES (?, ?, ?, ?, ?)')
-    .run(sessionId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null)
+// ── chat threads ──────────────────────────────────────────────
+// (object-type alias, not interface, so node:sqlite's Record row casts cleanly)
+type ChatThreadRow = {
+  id: number; kind: 'review' | 'user'; engine: EngineId
+  model: string | null; reasoning_effort: string | null
+  engine_session_id: string | null; title: string | null; created_at: string
+}
+
+const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at'
+
+function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
+  const messages = (db.prepare('SELECT role, text, at, anchor_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
+    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null }[])
+    .map((r) => ({ role: r.role, text: r.text, at: r.at, ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}) }))
+  return {
+    id: row.id,
+    kind: row.kind,
+    agent: rowToAgent(row.engine, row.model, row.reasoning_effort)!,
+    engineSessionId: row.engine_session_id ?? undefined,
+    messages,
+    title: row.title ?? undefined,
+    createdAt: row.created_at
+  }
+}
+
+export interface NewChatThread { kind: 'review' | 'user'; agent: AgentRef; engineSessionId?: string; title?: string }
+
+export function createChatThread(db: DatabaseSync, sessionId: number, t: NewChatThread): ChatThread {
+  const res = db.prepare(`INSERT INTO chat_threads
+    (session_id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(sessionId, t.kind, t.agent.engine, t.agent.model ?? null, t.agent.reasoningEffort ?? null,
+      t.engineSessionId ?? null, t.title ?? null, now())
+  return getChatThread(db, Number(res.lastInsertRowid))!
+}
+
+export function getChatThread(db: DatabaseSync, threadId: number): ChatThread | null {
+  const row = db.prepare(`SELECT ${THREAD_COLS} FROM chat_threads WHERE id = ?`).get(threadId) as ChatThreadRow | undefined
+  return row ? rowToThread(db, row) : null
+}
+
+/** The session a chat thread belongs to (for IPC handlers that take a threadId). */
+export function chatThreadSessionId(db: DatabaseSync, threadId: number): number | null {
+  const row = db.prepare('SELECT session_id FROM chat_threads WHERE id = ?').get(threadId) as { session_id: number } | undefined
+  return row ? row.session_id : null
+}
+
+export function listChatThreads(db: DatabaseSync, sessionId: number): ChatThread[] {
+  const rows = db.prepare(`SELECT ${THREAD_COLS} FROM chat_threads WHERE session_id = ? ORDER BY id`).all(sessionId) as ChatThreadRow[]
+  return rows.map((r) => rowToThread(db, r))
+}
+
+export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessage): void {
+  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json) VALUES (?, ?, ?, ?, ?)')
+    .run(threadId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null)
+}
+
+export function setThreadEngineSession(db: DatabaseSync, threadId: number, engineSessionId: string): void {
+  db.prepare('UPDATE chat_threads SET engine_session_id = ? WHERE id = ?').run(engineSessionId, threadId)
+}
+
+export function setThreadAgent(db: DatabaseSync, threadId: number, agent: AgentRef): void {
+  db.prepare('UPDATE chat_threads SET engine = ?, model = ?, reasoning_effort = ? WHERE id = ?')
+    .run(agent.engine, agent.model ?? null, agent.reasoningEffort ?? null, threadId)
+}
+
+export function deleteChatThread(db: DatabaseSync, threadId: number): void {
+  db.prepare('DELETE FROM chat_threads WHERE id = ?').run(threadId)
+}
+
+/** A thread is "empty" when it has no messages and no bound engine session.
+ *  The 'review' chat is never empty (it carries the review-generation session),
+ *  so changing its agent always forks rather than orphaning the binding. */
+export function threadIsEmpty(db: DatabaseSync, threadId: number): boolean {
+  const t = getChatThread(db, threadId)
+  return Boolean(t) && t!.messages.length === 0 && !t!.engineSessionId
+}
+
+/** Once a review exists, guarantee the two default chats and keep the 'review'
+ *  chat pointed at the latest iteration's engine session (resync on regenerate).
+ *  Idempotent — safe to call on every load. */
+export function reconcileChats(db: DatabaseSync, sessionId: number): void {
+  const meta = getSession(db, sessionId)
+  if (!meta) return
+  const last = db.prepare('SELECT engine, engine_session_id FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1')
+    .get(sessionId) as { engine: EngineId; engine_session_id: string } | undefined
+  if (!last) return // no review generated yet → no chats
+  const reviewAgent: AgentRef = meta.agent ?? { engine: last.engine }
+  const existing = db.prepare(`SELECT id FROM chat_threads WHERE session_id = ? AND kind = 'review'`)
+    .get(sessionId) as { id: number } | undefined
+  if (existing) {
+    setThreadEngineSession(db, existing.id, last.engine_session_id)
+  } else {
+    createChatThread(db, sessionId, { kind: 'review', agent: reviewAgent, engineSessionId: last.engine_session_id, title: 'Review agent' })
+    createChatThread(db, sessionId, { kind: 'user', agent: reviewAgent, title: 'New chat' })
+  }
 }
 
 export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration): void {
@@ -230,9 +341,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   const comments = (db.prepare('SELECT json FROM comments WHERE session_id = ? ORDER BY created_at, id').all(sessionId) as
     { json: string }[]).map((r) => JSON.parse(r.json) as Comment)
 
-  const chat = (db.prepare('SELECT role, text, at, anchor_json FROM chat_messages WHERE session_id = ? ORDER BY id')
-    .all(sessionId) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null }[])
-    .map((r) => ({ role: r.role, text: r.text, at: r.at, ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}) }))
+  const chats = listChatThreads(db, sessionId)
 
   const iterations = (db.prepare(
     'SELECT n, engine, engine_session_id, end_sha, summary, at FROM iterations WHERE session_id = ? ORDER BY n'
@@ -260,8 +369,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     branch: effectiveRef(meta.pair.compare),
     base: effectiveRef(meta.pair.base),
     engine: meta.engine,
+    agent: meta.agent,
     annotations: row.annotations_json ? (JSON.parse(row.annotations_json) as ReviewAnnotations) : undefined,
-    comments, chat, viewedAt, reviewedSections,
+    comments, chats, viewedAt, reviewedSections,
     approvedSha: row.approved_sha ?? undefined,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
     artifactApprovals, iterations, artifacts

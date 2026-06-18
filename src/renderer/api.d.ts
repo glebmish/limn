@@ -3,7 +3,7 @@ import type { RendererApi } from '../shared/ipc'
 declare global {
   interface Window {
     api: RendererApi
-    lrDev?: { flow: string | null }
+    lrDev?: { flow: string | null; openSession?: string | null }
   }
 }
 

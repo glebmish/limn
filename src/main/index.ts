@@ -58,11 +58,13 @@ function createWindow(): void {
   }
 
   // dev-only visual smoke: LR_SHOT=/path.png captures the window after load
+  // (and quits, so a harness can take several shots sequentially).
   const shot = process.env.LR_SHOT
   if (shot) {
     setTimeout(() => {
       void win.webContents.capturePage().then((img) => {
         fsWriteShot(shot, img.toPNG())
+        if (process.env.LR_SHOT_QUIT) setTimeout(() => app.quit(), 200)
       })
     }, parseInt(process.env.LR_SHOT_DELAY ?? '9000', 10))
   }
@@ -116,7 +118,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     bootstrapPath()
-    const { db, recoveredFrom } = openDb(path.join(app.getPath('userData'), 'local-review.db'))
+    // LR_DB (dev/screenshot only) points the app at a pre-seeded database.
+    const { db, recoveredFrom } = openDb(process.env.LR_DB || path.join(app.getPath('userData'), 'local-review.db'))
     const notices = recoveredFrom
       ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
       : []

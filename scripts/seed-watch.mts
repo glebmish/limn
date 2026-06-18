@@ -25,7 +25,7 @@ const pair: RefPair = {
 
 const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-seed-')), 'local-review.db')
 const { db } = openDb(dbFile)
-const session = createSession(db, fx.dir, pair, 'claude')
+const session = createSession(db, fx.dir, pair, { engine: 'claude' })
 updateSessionMeta(db, session.id, {
   engine: 'claude', annotations, title: annotations.title, summary: annotations.summary,
   reviewedAtSha: fx.shas.head, approvedSha: fx.shas.head // approved at current head — no drift yet

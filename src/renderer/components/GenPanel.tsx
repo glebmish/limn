@@ -1,23 +1,26 @@
 import { useEffect, useRef } from 'react'
 import { newOpId, useStore } from '../store'
 import { I } from '../kit'
-import type { EngineId } from '../../shared/types'
+import { agentLabel } from '../../shared/agents'
+import type { AgentRef } from '../../shared/types'
 
-export function startGenerate(sessionId: number, engine: EngineId, opId: string): void {
+export function startGenerate(sessionId: number, agent: AgentRef, opId: string): void {
   useStore.getState().startOp('review', opId)
-  void window.api.generate(sessionId, engine, opId)
+  void window.api.generate(sessionId, agent, opId)
 }
 
-/** Pull sessionId + engine from the store, guard null, then kick off a run. */
+/** Pull sessionId + the review agent from the store, guard null, then run.
+ *  The agent is chosen on the Compare screen and stored on the session. */
 export function startGenerateNow(): void {
-  const { sessionId, engine } = useStore.getState()
+  const { sessionId, loaded, agent } = useStore.getState()
   if (sessionId == null) return
-  startGenerate(sessionId, engine, newOpId())
+  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId())
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */
 export function GenPanel() {
-  const { loaded, gen, engine, setEngine } = useStore()
+  const { loaded, gen, agent } = useStore()
+  const reviewAgent = loaded?.state.agent ?? agent
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -68,12 +71,8 @@ export function GenPanel() {
           <b>Generate a guided review.</b> The agent explores the repo — callers, tests, history, specs —
           then groups this diff into narrated sections with risk flags.
         </span>
-        <span className="seg seg-sm">
-          {(['claude', 'codex'] as EngineId[]).map((e) => (
-            <button key={e} className={engine === e ? 'on' : ''} onClick={() => setEngine(e)}>
-              {e === 'claude' ? 'Claude' : 'Codex'}
-            </button>
-          ))}
+        <span className="gc-agent" title="Chosen on the compare screen">
+          <I.spark style={{ width: 11, height: 11, color: 'var(--accent)' }} />{agentLabel(reviewAgent)}
         </span>
         <button className="btn btn-primary" onClick={startGenerateNow}>
           <I.spark style={{ width: 13, height: 13 }} />Generate guided review
@@ -82,19 +81,15 @@ export function GenPanel() {
     )
   }
 
-  // review exists — slim regenerate control (switch engines or take a fresh pass);
+  // review exists — slim regenerate control (fresh pass with the same agent);
   // comments and viewed state survive, narration and agent session are replaced
   return (
     <div className="gen-cta gen-regen">
       <span className="gc-tx dim" style={{ fontSize: 11.5 }}>
         Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
       </span>
-      <span className="seg seg-sm">
-        {(['claude', 'codex'] as EngineId[]).map((e) => (
-          <button key={e} className={engine === e ? 'on' : ''} onClick={() => setEngine(e)}>
-            {e === 'claude' ? 'Claude' : 'Codex'}
-          </button>
-        ))}
+      <span className="gc-agent" title="The agent that generated this review">
+        <I.spark style={{ width: 11, height: 11, color: 'var(--accent)' }} />{agentLabel(reviewAgent)}
       </span>
       <button className="btn btn-sm" onClick={startGenerateNow}>
         <I.changed style={{ width: 12, height: 12 }} />Regenerate review

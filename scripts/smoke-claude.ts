@@ -15,7 +15,7 @@ console.log('sessionId:', sessionId)
 console.log(JSON.stringify(value, null, 2).slice(0, 3000))
 
 console.log('\n--- chat follow-up ---')
-const chat = engine.chat(fx.dir, sessionId, 'In one sentence: what is the riskiest change?')
+const chat = engine.chat({ repo: fx.dir, engineSessionId: sessionId, message: 'In one sentence: what is the riskiest change?' })
 for await (const ev of chat.events) if (ev.type === 'text') console.log('[chat]', ev.text)
 const { value: answer } = await chat.result
 console.log('answer:', answer)

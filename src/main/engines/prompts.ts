@@ -1,5 +1,5 @@
 import type { Comment, CommentAnchor } from '../../shared/types.js'
-import type { ReviewRequest } from './types.js'
+import type { ChatContext, ReviewRequest } from './types.js'
 
 function describeAnchor(a: CommentAnchor): string {
   switch (a.kind) {
@@ -54,6 +54,21 @@ export function buildChatPrompt(message: string, anchor?: CommentAnchor): string
   return `${message}${ctx}
 
 Answer the question conversationally and concisely (this is a chat panel next to the code review). You may read files and run read-only git commands to check your answer. Do NOT modify any files.`
+}
+
+/** First turn of a fresh chat whose agent did NOT produce the review, so there's
+ *  no engine session to resume — orient it from scratch with read access. */
+export function buildSeededChatPrompt(ctx: ChatContext, message: string, anchor?: CommentAnchor): string {
+  const summary = ctx.summary ? `\nReview summary so far:\n${ctx.summary}\n` : ''
+  const aCtx = anchor ? `\n\nContext — the user is asking about ${describeAnchor(anchor)}.` : ''
+  return `You are joining as a fresh assistant to discuss an in-progress local code review of branch \`${ctx.branch}\` against \`${ctx.base}\` in the repository at your working directory.
+${summary}
+You have full read access: read the changed files, grep for callers/tests, and use \`git log ${ctx.base}..${ctx.branch}\` / \`git show\` to ground your answer. Do NOT modify any files.
+
+The reviewer asks:
+${message}${aCtx}
+
+Answer conversationally and concisely.`
 }
 
 export function buildFixPrompt(comments: Comment[], steer?: string): string {

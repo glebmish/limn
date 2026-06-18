@@ -1,9 +1,17 @@
-import { Codex, type Thread, type ThreadEvent } from '@openai/codex-sdk'
-import type { Comment, CommentAnchor, EngineEvent, FixResult, ReviewAnnotations } from '../../shared/types.js'
-import { EventQueue, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
+import { Codex, type Thread, type ThreadEvent, type ThreadOptions } from '@openai/codex-sdk'
+import type { Comment, EngineEvent, FixResult, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { fixJsonSchema, parseFixOutput, parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildChatPrompt, buildFixPrompt, buildReviewPrompt } from './prompts.js'
+import { buildChatPrompt, buildFixPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { codexBinaryPath } from './binaries.js'
+
+/** Per-thread model overrides; undefined model = Codex CLI default. */
+function modelOpts(model?: string, reasoningEffort?: ReasoningEffort): Partial<ThreadOptions> {
+  return {
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
+  }
+}
 
 function toEvent(ev: ThreadEvent): EngineEvent | null {
   switch (ev.type) {
@@ -91,7 +99,8 @@ export class CodexEngine implements ReviewEngine {
     const thread = this.codex.startThread({
       workingDirectory: req.repo,
       sandboxMode: 'read-only',
-      approvalPolicy: 'never'
+      approvalPolicy: 'never',
+      ...modelOpts(req.model, req.reasoningEffort)
     })
     const { outcome, abort } = runTurn(thread, buildReviewPrompt(req), reviewJsonSchema, q)
     return {
@@ -104,28 +113,37 @@ export class CodexEngine implements ReviewEngine {
     }
   }
 
-  chat(repo: string, sessionId: string, message: string, anchor?: CommentAnchor): EngineRun<string> {
+  chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
-    const thread = this.codex.resumeThread(sessionId, {
-      workingDirectory: repo,
+    const opts: ThreadOptions = {
+      workingDirectory: turn.repo,
       sandboxMode: 'read-only',
-      approvalPolicy: 'never'
-    })
-    const { outcome, abort } = runTurn(thread, buildChatPrompt(message, anchor), undefined, q)
+      approvalPolicy: 'never',
+      ...modelOpts(turn.model, turn.reasoningEffort)
+    }
+    // resume the existing session, else open a fresh one seeded with context
+    const thread = turn.engineSessionId
+      ? this.codex.resumeThread(turn.engineSessionId, opts)
+      : this.codex.startThread(opts)
+    const prompt = turn.engineSessionId
+      ? buildChatPrompt(turn.message, turn.anchor)
+      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
+    const { outcome, abort } = runTurn(thread, prompt, undefined, q)
     return {
       events: q.iterable(),
-      result: outcome.then(({ threadId, finalText }) => ({ value: finalText, sessionId: threadId || sessionId })),
+      result: outcome.then(({ threadId, finalText }) => ({ value: finalText, sessionId: threadId || turn.engineSessionId || '' })),
       cancel: () => abort.abort()
     }
   }
 
-  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string): EngineRun<FixResult> {
+  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string, model?: string, reasoningEffort?: ReasoningEffort): EngineRun<FixResult> {
     const q = new EventQueue()
     q.push({ type: 'status', text: 'Codex is applying your comments…' })
     const thread = this.codex.resumeThread(sessionId, {
       workingDirectory: repo,
       sandboxMode: 'workspace-write',
-      approvalPolicy: 'never'
+      approvalPolicy: 'never',
+      ...modelOpts(model, reasoningEffort)
     })
     const { outcome, abort } = runTurn(thread, buildFixPrompt(comments, steer), fixJsonSchema, q)
     return {

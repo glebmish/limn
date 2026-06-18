@@ -60,7 +60,7 @@ describe('buildCompareData', () => {
       base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
       compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
     }
-    const s = createSession(db, fx.dir, pair, 'claude')
+    const s = createSession(db, fx.dir, pair, { engine: 'claude' })
     upsertComment(db, s.id, mkComment('c1'))
     upsertComment(db, s.id, { ...mkComment('c2'), status: 'sent' })
     upsertComment(db, s.id, { ...mkComment('c3'), status: 'resolved' })
