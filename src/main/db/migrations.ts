@@ -136,5 +136,13 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE chat_messages ADD COLUMN actions_json TEXT;')
     }
+  },
+  {
+    // The tool-call log (wf-D) persisted on the authoring chat message, so the
+    // expandable read/grep/edit rows survive the turn and rebuild on reload.
+    version: 3,
+    up(db) {
+      db.exec('ALTER TABLE chat_messages ADD COLUMN tools_json TEXT;')
+    }
   }
 ]

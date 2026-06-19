@@ -23,6 +23,7 @@ import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
+import { reduceToolCalls } from '../shared/toolcalls.js'
 import { buildBatchPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
@@ -79,8 +80,12 @@ function notifyIfUnfocused(title: string, body: string): void {
   }
 }
 
-async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Promise<void> {
-  for await (const event of events) send('op:event', { opId, event })
+/** Forward engine events to the renderer and collect them, so the caller can fold
+ *  the tool-call lifecycle into the persisted ChatMessage (wf-D). */
+async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Promise<EngineEvent[]> {
+  const collected: EngineEvent[] = []
+  for await (const event of events) { collected.push(event); send('op:event', { opId, event }) }
+  return collected
 }
 
 async function loadArtifactsFor(
@@ -358,11 +363,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
-      await pump
+      const events = await pump
       const at = new Date().toISOString()
       const actions = tools.collected()
+      const toolCalls = reduceToolCalls(events)
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}) })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
@@ -429,7 +435,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
-      await pump
+      const events = await pump
 
       // statuses now reflect the agent's resolve/commit tool calls; anything left
       // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
@@ -439,11 +445,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       }
       const at = new Date().toISOString()
       const actions = tools.collected()
+      const toolCalls = reduceToolCalls(events)
       dao.addChatMessage(db, threadId, {
         role: 'user', at,
         text: steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
       })
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}) })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true, reload: true })
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length

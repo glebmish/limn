@@ -13,7 +13,7 @@ import {
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, reconcileChats
 } from '../src/main/db/sessions'
-import type { AgentAction, Comment, RefPair } from '../src/shared/types'
+import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
 let db: DatabaseSync
 beforeEach(() => {
@@ -215,5 +215,20 @@ describe('chat threads DAO', () => {
     const msgs = getChatThread(db, t.id)!.messages
     expect(msgs[0].actions).toEqual(actions)
     expect(msgs[1].actions).toBeUndefined() // no actions → no key, not []
+  })
+
+  it('round-trips agent message tools through tools_json', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const tools: ToolCall[] = [
+      { id: 'a', verb: 'grep', name: 'Grep', arg: 'x', state: 'ok', meta: '3 hits', out: 'a\nb' },
+      { id: 'b', verb: 'edit', name: 'Edit', state: 'err', out: 'boom' },
+    ]
+    addChatMessage(db, t.id, { role: 'agent', text: 'done', at: 'T1', tools })
+    addChatMessage(db, t.id, { role: 'user', text: 'thanks', at: 'T2' })
+
+    const msgs = getChatThread(db, t.id)!.messages
+    expect(msgs[0].tools).toEqual(tools)
+    expect(msgs[1].tools).toBeUndefined() // no tools → no key, not []
   })
 })
