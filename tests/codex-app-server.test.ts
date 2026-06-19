@@ -29,9 +29,13 @@ describe('classifyMessage', () => {
 })
 
 describe('approval routing + decision mapping', () => {
-  it('treats approval methods as approvals, not requestUserInput/elicitation', () => {
-    expect(isApprovalMethod('item/autoApprovalReview/exec')).toBe(true)
-    expect(isApprovalMethod('item/requestApproval')).toBe(true)
+  it('recognizes the real approval methods; auto-denies the unsupported surfaces', () => {
+    // verified against `codex app-server generate-ts` (0.135.0)
+    expect(isApprovalMethod('execCommandApproval')).toBe(true)
+    expect(isApprovalMethod('applyPatchApproval')).toBe(true)
+    expect(isApprovalMethod('item/commandExecution/requestApproval')).toBe(true)
+    expect(isApprovalMethod('item/fileChange/requestApproval')).toBe(true)
+    expect(isApprovalMethod('item/permissions/requestApproval')).toBe(false) // unsupported → auto-deny
     expect(isApprovalMethod('item/tool/requestUserInput')).toBe(false)
     expect(isApprovalMethod('mcpServer/elicitation/request')).toBe(false)
   })
@@ -48,32 +52,36 @@ describe('executionPolicy → app-server params', () => {
   })
   it('maps sandbox per tier + write guard', () => {
     expect(sandboxPolicyFor('ask', '/repo', false)).toEqual({ type: 'readOnly', networkAccess: false })
-    expect(sandboxPolicyFor('edits', '/repo', true)).toEqual({ type: 'workspaceWrite', writableRoots: ['/repo'], networkAccess: false })
+    expect(sandboxPolicyFor('edits', '/repo', true)).toEqual({ type: 'workspaceWrite', writableRoots: ['/repo'], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false })
     expect(sandboxPolicyFor('edits', '/repo', false)).toEqual({ type: 'readOnly', networkAccess: false }) // guard: no write → read-only
     expect(sandboxPolicyFor('full', '/repo', true)).toEqual({ type: 'dangerFullAccess' })
   })
 })
 
 describe('approvalRequestFromParams', () => {
-  it('reads a command', () => {
+  it('reads a command (string or array) + cwd', () => {
     expect(approvalRequestFromParams('1', { command: 'npm test', cwd: '/r' }))
       .toMatchObject({ kind: 'command', summary: 'Run `npm test`', detail: { command: 'npm test', cwd: '/r' } })
+    expect(approvalRequestFromParams('1b', { command: ['rm', '-rf', 'x'] }))
+      .toMatchObject({ kind: 'command', summary: 'Run `rm -rf x`' })
   })
-  it('reads a patch (changes[].path)', () => {
-    expect(approvalRequestFromParams('2', { changes: [{ path: 'a.ts' }, { path: 'b.ts' }] }))
+  it('reads a patch from fileChanges (object keyed by path)', () => {
+    expect(approvalRequestFromParams('2', { fileChanges: { 'a.ts': { add: {} }, 'b.ts': { update: {} } } }))
       .toMatchObject({ kind: 'patch', detail: { files: ['a.ts', 'b.ts'] } })
   })
-  it('falls back to mcp_tool', () => {
-    expect(approvalRequestFromParams('3', { reason: 'fetch url' })).toMatchObject({ kind: 'mcp_tool', summary: 'fetch url' })
+  it('falls back to file_change with the reason', () => {
+    expect(approvalRequestFromParams('3', { reason: 'extra write access' }))
+      .toMatchObject({ kind: 'file_change', summary: 'extra write access' })
   })
 })
 
 describe('appServerNotifToEvent', () => {
-  it('maps agent_message → text and reasoning → status', () => {
-    expect(appServerNotifToEvent('item/updated', { item: { type: 'agent_message', text: 'hi' } })).toEqual({ type: 'text', text: 'hi' })
-    expect(appServerNotifToEvent('item/updated', { item: { type: 'reasoning', text: 'thinking' } })).toEqual({ type: 'status', text: 'thinking' })
+  it('maps agentMessage delta → text and reasoning delta → status (by method)', () => {
+    expect(appServerNotifToEvent('item/agentMessage/delta', { delta: 'hi' })).toEqual({ type: 'text', text: 'hi' })
+    expect(appServerNotifToEvent('item/reasoning/textDelta', { delta: 'thinking' })).toEqual({ type: 'status', text: 'thinking' })
   })
-  it('ignores unmapped items', () => {
-    expect(appServerNotifToEvent('item/updated', { item: { type: 'todo_list' } })).toBeNull()
+  it('ignores unmapped notifications', () => {
+    expect(appServerNotifToEvent('item/completed', { item: { type: 'agent_message' } })).toBeNull()
+    expect(appServerNotifToEvent('turn/started', {})).toBeNull()
   })
 })

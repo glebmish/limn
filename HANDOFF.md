@@ -145,9 +145,14 @@ What landed (196 tests):
   `allowDangerouslySkipPermissions`. Unit-tested.
 - **Codex adapter:** `src/main/engines/codexAppServer.ts` — full JSON-RPC-over-stdio client
   behind **`LR_CODEX_APP_SERVER=1`** (codex exec stays the default fallback). Pure helpers
-  (framing/routing/decision/policy/notif-map) unit-tested. ⚠️ **NOT live-verified** (no Codex
-  CLI/auth/network here) — pin method/param names via `codex app-server generate-ts` against
-  the installed binary before flipping the default on.
+  unit-tested. ✅ **LIVE-VERIFIED against codex-cli 0.135.0 (2026-06-20):** full turn
+  lifecycle (initialize→thread/start→turn/start→agentMessage deltas→turn/completed) **and a
+  real approval round-trip** (a sandbox-blocked write surfaced `execCommandApproval` → `deny`
+  routed back → file not written). Protocol pinned from `codex app-server generate-ts`; key
+  facts: `turn/start` needs **`approvalsReviewer:'user'`** (the guardian auto-deny unblock),
+  threadId at `result.thread.id`, text via `item/agentMessage/delta`. **Still unexercised:**
+  `thread/resume` + the localreview **MCP-tool path under app-server** — validate those before
+  flipping the default on.
 - **Decision reversal (user, 2026-06-19):** the **Full access** tier ships `danger-full-access`
   (sandbox off) via the app-server `sandboxPolicy` param — reversing the earlier "no sandbox
   bypass" rule — but **never** via `--dangerously-bypass-approvals-and-sandbox` (that flag
@@ -223,10 +228,11 @@ Verified against the installed SDKs and the codebase:
 2. ~~**interactive approvals for both engines**~~ ✅ **IMPLEMENTED** (see §3.2). Claude
    path + mode ladder + approval card are verified; the **Codex `app-server` path is
    live-unverified** behind `LR_CODEX_APP_SERVER`.
-3. **NOW: validate + flip the Codex app-server path.** On a machine with the Codex CLI +
-   auth: pin bindings (`codex app-server generate-ts`), confirm the method/param names and
-   notification shapes in `src/main/engines/codexAppServer.ts`, exercise a real approval
-   round-trip, then default `LR_CODEX_APP_SERVER` on (keep `codex exec` fallback one release).
+3. **Flip the Codex app-server path on (mostly verified).** Core turn + approval round-trip
+   are live-verified (§3.2). Remaining before defaulting `LR_CODEX_APP_SERVER` on: exercise
+   `thread/resume` (multi-turn chat) + the localreview **MCP-tool path under app-server**
+   (`-c mcp_servers.localreview.url=…` → tool calls + `commit_changes`), then flip the default
+   (keep `codex exec` fallback one release).
 4. Lower priority: **before/after narration** for `edit_review` (wf-G).
 
 Verify each step with `npm run typecheck`, `npx vitest run`, `npm run build`, and a
