@@ -63,10 +63,19 @@ export function classifyMessage(msg: unknown): FrameKind {
   return 'unknown'
 }
 
-/** Is a server→client request an approval prompt (vs an unsupported surface like
- *  requestUserInput / elicitation, which we auto-deny)? */
+/** The server→client approval requests we answer (verified against `codex
+ *  app-server generate-ts`, 0.135.0): legacy `execCommandApproval`/`applyPatchApproval`
+ *  + the v2 `item/.../requestApproval` pair. Everything else (requestUserInput,
+ *  elicitation, item/permissions/requestApproval, item/tool/call) is an unsupported
+ *  surface we auto-deny so the turn never wedges. */
+const APPROVAL_METHODS = new Set([
+  'execCommandApproval',
+  'applyPatchApproval',
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+])
 export function isApprovalMethod(method: string): boolean {
-  return /approv/i.test(method) && !/userinput|elicit/i.test(method)
+  return APPROVAL_METHODS.has(method)
 }
 
 /** Map our decision to the app-server's approval result value. Some binaries use
@@ -86,35 +95,41 @@ export function approvalPolicyFor(mode: ExecutionMode): string {
 export function sandboxPolicyFor(mode: ExecutionMode, repo: string, writeEnabled: boolean): Record<string, unknown> {
   const sandbox = executionPolicy(mode).codexSandbox
   if (sandbox === 'danger-full-access') return { type: 'dangerFullAccess' }
-  if (sandbox === 'workspace-write' && writeEnabled) return { type: 'workspaceWrite', writableRoots: [repo], networkAccess: false }
+  if (sandbox === 'workspace-write' && writeEnabled) {
+    return { type: 'workspaceWrite', writableRoots: [repo], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
+  }
   return { type: 'readOnly', networkAccess: false }
 }
 
 /** Build an ApprovalRequest from an app-server approval server-request's params.
- *  Shapes vary by method; we read the common fields leniently. */
+ *  Handles the legacy shapes (`command: string[]` + `cwd`; `fileChanges: {[path]}`)
+ *  and the v2 shapes (`command: string` + `cwd`; fileChange carries only `itemId`/
+ *  `reason`). Read leniently — params differ across the 4 approval methods. */
 export function approvalRequestFromParams(id: string, params: unknown): ApprovalRequest {
   const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
   const command = typeof p.command === 'string' ? p.command
     : Array.isArray(p.command) ? (p.command as unknown[]).join(' ') : undefined
-  const files = Array.isArray(p.changes)
-    ? (p.changes as { path?: string }[]).map((c) => String(c.path ?? '')).filter(Boolean)
-    : Array.isArray(p.files) ? (p.files as unknown[]).map(String) : undefined
   const cwd = typeof p.cwd === 'string' ? p.cwd : undefined
-  if (command) return { id, engine: 'codex', kind: 'command', summary: `Run \`${command}\``, detail: { command, cwd } }
-  if (files && files.length) return { id, engine: 'codex', kind: 'patch', summary: `Apply changes to ${files.length} file(s)`, detail: { files } }
-  const reason = typeof p.reason === 'string' ? p.reason : 'tool call'
-  return { id, engine: 'codex', kind: 'mcp_tool', summary: reason, detail: { reason } }
+  const files = p.fileChanges && typeof p.fileChanges === 'object'
+    ? Object.keys(p.fileChanges as Record<string, unknown>)
+    : Array.isArray(p.files) ? (p.files as unknown[]).map(String) : undefined
+  const reason = typeof p.reason === 'string' ? p.reason : undefined
+  if (command) return { id, engine: 'codex', kind: 'command', summary: `Run \`${command}\``, detail: { command, ...(cwd ? { cwd } : {}), ...(reason ? { reason } : {}) } }
+  if (files && files.length) return { id, engine: 'codex', kind: 'patch', summary: `Apply changes to ${files.length} file(s)`, detail: { files, ...(reason ? { reason } : {}) } }
+  return { id, engine: 'codex', kind: 'file_change', summary: reason ?? 'Apply file changes', detail: { ...(reason ? { reason } : {}) } }
 }
 
-/** Map an app-server item notification to an EngineEvent (parallels codex.ts
- *  `toEvent`). Lenient over the documented item shapes. Returns null to ignore. */
+/** Map an app-server notification to an EngineEvent (keyed by method, per the
+ *  verified protocol). Text streams as `item/agentMessage/delta`; reasoning as
+ *  the reasoning delta notifications. Returns null to ignore. */
 export function appServerNotifToEvent(method: string, params: unknown): EngineEvent | null {
   const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
-  const item = (p.item && typeof p.item === 'object' ? p.item : p) as Record<string, unknown>
-  const type = String(item.type ?? '')
-  if (/agent_message|assistant_message/.test(type) && typeof item.text === 'string') return { type: 'text', text: item.text }
-  if (/reasoning/.test(type) && typeof item.text === 'string') return { type: 'status', text: String(item.text).slice(0, 160) }
-  if (/error/.test(type) && typeof item.message === 'string') return { type: 'status', text: `note: ${item.message}` }
+  if (method === 'item/agentMessage/delta') {
+    return typeof p.delta === 'string' ? { type: 'text', text: p.delta } : null
+  }
+  if (method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
+    return typeof p.delta === 'string' ? { type: 'status', text: p.delta.slice(0, 160) } : null
+  }
   return null
 }
 
@@ -205,7 +220,9 @@ export class AppServerConn {
     const res = resumeThreadId
       ? await this.request('thread/resume', { threadId: resumeThreadId })
       : await this.request('thread/start', {})
-    this.threadId = String((res as { threadId?: string })?.threadId ?? resumeThreadId ?? '')
+    // thread/start returns { thread: { id, sessionId, … } } (verified, 0.135.0).
+    const r = res as { thread?: { id?: string }; threadId?: string }
+    this.threadId = String(r.thread?.id ?? r.threadId ?? resumeThreadId ?? '')
   }
 
   dispose(): void {
@@ -267,9 +284,12 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
       await conn.request('turn/start', {
         threadId: conn.threadId,
         input: [{ type: 'text', text: prompt, text_elements: [] }],
-        approvalPolicy: approvalPolicyFor(mode),
-        sandboxPolicy: sandboxPolicyFor(mode, turn.repo, write),
         cwd: turn.repo,
+        approvalPolicy: approvalPolicyFor(mode),
+        // route approvals to US (the reviewer), not the guardian subagent that
+        // auto-denies untrusted MCP/exec in headless mode — the core unblock.
+        approvalsReviewer: 'user',
+        sandboxPolicy: sandboxPolicyFor(mode, turn.repo, write),
         ...modelEffort(turn.model, turn.reasoningEffort)
       })
       await turnDone
