@@ -20,6 +20,8 @@ declare global {
       runChat?: string | null
       /** force tool-call log rows open by index: "all" or a comma list like "1,4" */
       expandTool?: string | null
+      /** force the execution-mode dropdown open for a static capture */
+      openMode?: boolean
     }
   }
 }

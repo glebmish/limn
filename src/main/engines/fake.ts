@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ReviewAnnotations } from '../../shared/types.js'
+import type { ApprovalRequest, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
+import { awaitDecision } from './approvals.js'
 
 /** Deterministic engine for contract tests and demo mode (LR_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
@@ -104,6 +105,16 @@ export class FakeEngine implements ReviewEngine {
         // tool-enabled read-only chat: exercise the focus + suggest action pipe
         await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })
         await turn.tools.call('suggest_mark_viewed', { files: ['src/a.ts'], note: 'covered above' })
+      }
+      // interactive approval round-trip (demo via LR_FAKE_APPROVAL=1 / test via the
+      // '[approve]' token): park on a command approval, reflect the decision.
+      if (turn.opId && (process.env.LR_FAKE_APPROVAL === '1' || turn.message.includes('[approve]'))) {
+        const request: ApprovalRequest = {
+          id: 'fake-1', engine: 'claude', kind: 'command',
+          summary: 'Run `npm test`', detail: { command: 'npm test', cwd: turn.repo }, risk: 'low'
+        }
+        const decision = await awaitDecision(turn.opId, request, (e) => q.push(e))
+        q.push({ type: 'status', text: decision === 'allow' ? 'note: approved — ran npm test' : 'note: denied npm test' })
       }
       // stream the answer in chunks so the panel shows live tokens
       for (const chunk of text.match(/[\s\S]{1,48}/g) ?? [text]) q.push({ type: 'text', text: chunk })

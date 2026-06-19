@@ -1,6 +1,6 @@
 import type {
-  AgentRef, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
+  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
+  ExecutionMode, FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
 } from './types.js'
 
 export interface LoadedReview {
@@ -50,6 +50,8 @@ export interface Api {
   archiveSession(sessionId: number): Promise<void>
   generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
   cancel(opId: string): Promise<void>
+  /** Answer a pending approval request (routes to the parked engine-side promise). */
+  respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>
   saveUiState(sessionId: number, patch: UiStatePatch): Promise<void>
   upsertComment(sessionId: number, comment: Comment): Promise<ReviewState>
   deleteComment(sessionId: number, id: string): Promise<ReviewState>
@@ -58,6 +60,8 @@ export interface Api {
   sendChat(threadId: number, message: string, opId: string, anchor?: CommentAnchor): Promise<void>
   createChat(sessionId: number, agent: AgentRef): Promise<ChatThread[]>
   setChatAgent(threadId: number, agent: AgentRef): Promise<ChatThread[]>
+  /** Set the per-chat execution mode (approvals ladder tier). */
+  setChatMode(threadId: number, mode: ExecutionMode): Promise<ChatThread[]>
   deleteChat(threadId: number): Promise<ChatThread[]>
   /** The unified batch turn: send queued comments to a chat thread's agent, which
    *  handles them with its tools (edit+commit code, resolve, or reply). */
@@ -99,8 +103,8 @@ export interface RendererApi extends Api {
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
-  'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment',
-  'sendChat', 'createChat', 'setChatAgent', 'deleteChat',
+  'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
+  'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'

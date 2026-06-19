@@ -144,5 +144,13 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE chat_messages ADD COLUMN tools_json TEXT;')
     }
+  },
+  {
+    // Per-chat execution mode (approvals ladder): ask | edits | auto | full.
+    // NULL = legacy thread → treated as the default 'ask' on load.
+    version: 4,
+    up(db) {
+      db.exec('ALTER TABLE chat_threads ADD COLUMN execution_mode TEXT;')
+    }
   }
 ]

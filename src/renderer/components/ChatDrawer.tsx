@@ -7,6 +7,8 @@ import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
 import { ToolCallLog } from './ToolCallLog'
+import { ModeSelector } from './ModeSelector'
+import { ApprovalCard } from './ApprovalCard'
 import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
 import { reduceToolCalls } from '../../shared/toolcalls'
@@ -36,6 +38,12 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     : undefined
   const liveActions: AgentAction[] = streaming
     ? gen.log.flatMap((e) => (e.type === 'action' ? [e.action] : []))
+    : []
+  // pending approvals: derived from the log, minus any answered this op
+  const [answered, setAnswered] = useState<Set<string>>(new Set())
+  useEffect(() => { setAnswered(new Set()) }, [gen.opId])
+  const pendingApprovals = streaming
+    ? gen.log.flatMap((e) => (e.type === 'approval_request' ? [e.request] : [])).filter((r) => !answered.has(r.id))
     : []
 
   useEffect(() => {
@@ -138,6 +146,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             )}
           </div>
 
+          {pendingApprovals.length > 0 && (
+            <ApprovalCard
+              request={pendingApprovals[0]}
+              index={0}
+              total={pendingApprovals.length}
+              onDecide={(d) => { store.respondApproval(pendingApprovals[0].id, d); setAnswered((s) => new Set(s).add(pendingApprovals[0].id)) }}
+              onStop={() => store.cancelOp()}
+            />
+          )}
+
           {active && queued.length > 0 && !streaming && (
             <div className="chat-batch">
               <button
@@ -154,6 +172,14 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 onChange={(e) => setSteer(e.target.value)}
               />
             </div>
+          )}
+
+          {active && (
+            <ModeSelector
+              mode={active.executionMode}
+              disabled={streaming}
+              onChange={(m) => void store.setChatMode(active.id, m)}
+            />
           )}
 
           <div className="chat-foot">

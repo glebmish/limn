@@ -11,7 +11,7 @@ import {
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
-  deleteChatThread, threadIsEmpty, reconcileChats
+  deleteChatThread, threadIsEmpty, reconcileChats, setThreadMode
 } from '../src/main/db/sessions'
 import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
@@ -215,6 +215,15 @@ describe('chat threads DAO', () => {
     const msgs = getChatThread(db, t.id)!.messages
     expect(msgs[0].actions).toEqual(actions)
     expect(msgs[1].actions).toBeUndefined() // no actions → no key, not []
+  })
+
+  it('defaults executionMode to ask and round-trips setThreadMode', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    expect(getChatThread(db, t.id)!.executionMode).toBe('ask')
+    setThreadMode(db, t.id, 'full')
+    expect(getChatThread(db, t.id)!.executionMode).toBe('full')
+    expect(listChatThreads(db, s.id).find((c) => c.id === t.id)!.executionMode).toBe('full')
   })
 
   it('round-trips agent message tools through tools_json', () => {

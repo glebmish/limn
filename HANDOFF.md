@@ -126,28 +126,36 @@ no grouping** in v1; `meta` best-effort. Spec `2026-06-19-tool-call-log-design.m
 `2026-06-19-tool-call-log.md`. Screenshot-verified (collapsed / running / expanded /
 error) via new `LR_RUN_CHAT` + `LR_HOLD_STREAM` + `LR_EXPAND_TOOL` dev hooks. 164 tests.
 
-**2. THEN — Interactive approvals for BOTH engines (the specced task).** ⭐ NEXT. The
-spec was **revised** (2026-06-19) to fold in the wireframe's **execution-mode ladder**
-(section J): a per-chat mode pill — **Ask for approval · Accept edits · Auto mode · Full
-access** — one product vocabulary mapped internally to each engine's permissionMode +
-sandbox (`executionPolicy(mode)`). **Decision reversal locked with the user:** the **Full
-access** tier *is* shipped and sets `danger-full-access` (sandbox off) via the app-server
-`sandboxPolicy` param — reversing the earlier "no sandbox bypass" rule — guarded (red,
-never default, explicit confirm). Mode is per-chat persisted (**migration v4**
-`chat_threads.execution_mode`, default `ask`) and **never locked** (the `writeEnabled`
-guard still fences `commit_changes` at execution). The reactive approve/deny card +
-Claude `canUseTool` + Codex `app-server` machinery is unchanged; the mode now drives it.
-See the spec at
-[`docs/superpowers/specs/2026-06-19-agent-approvals.md`](docs/superpowers/specs/2026-06-19-agent-approvals.md)
-(written separately — confirm it exists before starting). Why this exists: the Codex MCP
-transport is verified working end-to-end, but Codex's **guardian / auto-approval-review**
-auto-denies untrusted MCP tools in headless mode, and the `@openai/codex-sdk` (`codex exec`)
-has **no approval-response channel**, so escalations auto-cancel. The fix is a unified
-approval flow — Claude via the SDK's `canUseTool` callback, Codex via the bidirectional
-**`codex app-server`** protocol (reference impl: `a reference implementation`
-`the adapter layer`) — surfacing approvals into the chat UI
-with a decision sent back. `--dangerously-bypass-approvals-and-sandbox` is **forbidden**
-(it disables the sandbox). The spec has the full design + staged build order.
+**2. THEN — Interactive approvals for BOTH engines. ✅ IMPLEMENTED (Claude + UI + model
+verified; Codex app-server live-unverified).** Spec
+[`docs/superpowers/specs/2026-06-19-agent-approvals.md`](docs/superpowers/specs/2026-06-19-agent-approvals.md).
+What landed (196 tests):
+- **Execution-mode ladder** (wireframe J): `ExecutionMode = ask|edits|auto|full` +
+  `src/shared/executionMode.ts` `executionPolicy(mode)` → `{claudePermissionMode,
+  codexApprovalPolicy, codexSandbox}`. Per-chat persisted (**migration v4**
+  `chat_threads.execution_mode`, default `ask`) + `setChatMode` IPC. `ModeSelector.tsx`
+  pill+dropdown in the composer (screenshot-verified); `full` needs a confirming 2nd click.
+- **Reactive approvals:** `ApprovalRequest`/`ApprovalDecision` + `EngineEvent.approval_request`;
+  `src/main/engines/approvals.ts` registry (`awaitDecision`/`resolveDecision`/`clearPending`
+  keyed by `(opId,requestId)`, no timeout); `respondApproval` IPC; `clearPending` on
+  cancel/turn-end. `ApprovalCard.tsx` blocking card in `ChatDrawer` (screenshot-verified).
+  `ChatTurn` now carries `opId` + `executionMode`.
+- **Claude adapter:** `makeCanUseTool` (auto-allow localreview + read-safe; park Bash/Edit/Write);
+  `permissionMode` from `executionPolicy`; `full` → `bypassPermissions` +
+  `allowDangerouslySkipPermissions`. Unit-tested.
+- **Codex adapter:** `src/main/engines/codexAppServer.ts` — full JSON-RPC-over-stdio client
+  behind **`LR_CODEX_APP_SERVER=1`** (codex exec stays the default fallback). Pure helpers
+  (framing/routing/decision/policy/notif-map) unit-tested. ⚠️ **NOT live-verified** (no Codex
+  CLI/auth/network here) — pin method/param names via `codex app-server generate-ts` against
+  the installed binary before flipping the default on.
+- **Decision reversal (user, 2026-06-19):** the **Full access** tier ships `danger-full-access`
+  (sandbox off) via the app-server `sandboxPolicy` param — reversing the earlier "no sandbox
+  bypass" rule — but **never** via `--dangerously-bypass-approvals-and-sandbox` (that flag
+  stays unused). `writeEnabled` still fences `commit_changes` regardless of tier.
+
+**Remaining to flip Codex on:** validate the app-server path against a real binary (pin
+bindings; confirm method names + notification shapes), then default `LR_CODEX_APP_SERVER` on
+(spec build step 10).
 
 **Other / lower priority:**
 - **Before/after narration for `edit_review`** (wf-G) — would need the action to carry the
@@ -212,11 +220,14 @@ Verified against the installed SDKs and the codebase:
 ## 6. Suggested next move — do these in this order (see §3 "Deferred")
 
 1. ~~**FIRST: the full wf-D tool-call log**~~ ✅ **DONE** — merged to `main` (see §3.1).
-2. **NOW: interactive approvals for both engines** — implement the **revised** spec at
-   [`docs/superpowers/specs/2026-06-19-agent-approvals.md`](docs/superpowers/specs/2026-06-19-agent-approvals.md)
-   (Claude `canUseTool` + Codex `app-server`; reference `a reference implementation`). This is
-   what unblocks Codex MCP tools on guardian-enabled machines. **Not** the bypass flag.
-3. Lower priority: **before/after narration** for `edit_review` (wf-G).
+2. ~~**interactive approvals for both engines**~~ ✅ **IMPLEMENTED** (see §3.2). Claude
+   path + mode ladder + approval card are verified; the **Codex `app-server` path is
+   live-unverified** behind `LR_CODEX_APP_SERVER`.
+3. **NOW: validate + flip the Codex app-server path.** On a machine with the Codex CLI +
+   auth: pin bindings (`codex app-server generate-ts`), confirm the method/param names and
+   notification shapes in `src/main/engines/codexAppServer.ts`, exercise a real approval
+   round-trip, then default `LR_CODEX_APP_SERVER` on (keep `codex exec` fallback one release).
+4. Lower priority: **before/after narration** for `edit_review` (wf-G).
 
 Verify each step with `npm run typecheck`, `npx vitest run`, `npm run build`, and a
 screenshot via `scripts/shot.sh <out.png> [LR_* env...]` (wraps §5's harness).
