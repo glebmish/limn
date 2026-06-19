@@ -6,8 +6,10 @@ import type { CommentAnchor } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
+import { ToolCallLog } from './ToolCallLog'
 import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
+import { reduceToolCalls } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 
 /** Right-sidebar multi-chat panel: a list of chats tied to the review, each with
@@ -28,7 +30,10 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const partial = streaming
     ? gen.log.filter((e) => e.type === 'text').map((e) => ('text' in e ? e.text : '')).join('')
     : ''
-  const activity = streaming ? gen.log.filter((e) => e.type === 'tool' || e.type === 'status') : []
+  const liveCalls = streaming ? reduceToolCalls(gen.log) : []
+  const statusLine = streaming
+    ? [...gen.log].reverse().find((e) => e.type === 'status')
+    : undefined
   const liveActions: AgentAction[] = streaming
     ? gen.log.flatMap((e) => (e.type === 'action' ? [e.action] : []))
     : []
@@ -104,6 +109,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 <Ava ai={m.role === 'agent'}>{m.role === 'agent' ? 'AI' : 'me'}</Ava>
                 <div className="chat-bubble">
                   {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
+                  {m.role === 'agent' && m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
                   {m.role === 'agent' ? <Markdown text={m.text} /> : m.text}
                   {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} />}
                 </div>
@@ -113,16 +119,10 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <div className="chat-msg agent">
                 <Ava ai>AI</Ava>
                 <div className="chat-bubble">
-                  {activity.length > 0 && (
-                    <div className="chat-activity">
-                      {activity.slice(-4).map((e, i) => (
-                        <div key={i} className={'ca-line' + (e.type === 'tool' ? ' tool' : '')}>
-                          {e.type === 'tool' ? '⌁ ' : '· '}{'text' in e ? e.text : ''}
-                        </div>
-                      ))}
-                    </div>
+                  <ToolCallLog calls={liveCalls} />
+                  {partial ? <Markdown text={partial} /> : (
+                    <div className="tstatus"><span className="lr-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
-                  {partial ? <Markdown text={partial} /> : <span className="dim">thinking…</span>}
                   {liveActions.length > 0 && <ActionChips actions={liveActions} />}
                 </div>
               </div>

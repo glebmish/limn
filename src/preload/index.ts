@@ -45,5 +45,7 @@ contextBridge.exposeInMainWorld('lrDev', {
   openChatList: process.env.LR_OPEN_CHATLIST === '1',
   focus: process.env.LR_FOCUS ?? null,
   holdFocus: process.env.LR_HOLD_FOCUS === '1',
-  runBatch: process.env.LR_RUN_BATCH === '1'
+  runBatch: process.env.LR_RUN_BATCH === '1',
+  runChat: process.env.LR_RUN_CHAT ?? null,
+  expandTool: process.env.LR_EXPAND_TOOL ?? null
 })

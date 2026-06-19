@@ -16,6 +16,10 @@ declare global {
       holdFocus?: boolean
       /** run the unified batch over all queued comments once the review mounts */
       runBatch?: boolean
+      /** auto-send one chat message once the chat drawer mounts (screenshot the tool-call log) */
+      runChat?: string | null
+      /** force tool-call log rows open by index: "all" or a comma list like "1,4" */
+      expandTool?: string | null
     }
   }
 }
