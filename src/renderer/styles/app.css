@@ -116,6 +116,24 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .mode-opt .mo-chk { margin-left: auto; color: var(--accent); flex: 0 0 auto; align-self: center; opacity: 0; }
 .mode-opt.on .mo-chk { opacity: 1; }
 
+/* ── pending-approval card (blocks the turn until answered) ──── */
+.approval-card { margin: 8px 9px 0; border: 1px solid var(--amber-line); background: var(--amber-soft); border-radius: var(--r-md); padding: 10px 11px; }
+.approval-card .ac-head { display: flex; align-items: center; gap: 7px; }
+.approval-card .ac-ico { width: 14px; height: 14px; color: var(--amber); flex: 0 0 auto; }
+.approval-card .ac-kind { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; }
+.approval-card .ac-risk { font-family: var(--mono); font-size: 9px; font-weight: 700; text-transform: uppercase; border-radius: 3px; padding: 1px 5px; }
+.approval-card .ac-risk.low { color: var(--accent-ink); background: var(--accent-soft); }
+.approval-card .ac-risk.medium { color: var(--amber); background: var(--panel); border: 1px solid var(--amber-line); }
+.approval-card .ac-risk.high { color: var(--red); background: var(--panel); border: 1px solid var(--red-line); }
+.approval-card .ac-count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.approval-card .ac-summary { font-size: 12px; font-weight: 600; color: var(--ink); margin-top: 6px; }
+.approval-card .ac-detail { margin-top: 6px; }
+.approval-card .ac-cmd { font-family: var(--mono); font-size: 11px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 7px; display: block; white-space: pre-wrap; }
+.approval-card .ac-cwd { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; }
+.approval-card .ac-files { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: pre-wrap; }
+.approval-card .ac-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+.approval-card .ac-deny { border-color: var(--red-line); color: var(--red); }
+
 /* call-to-action band for generating the guided review */
 .gen-cta { margin: 14px 30px 0; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: var(--panel-2); padding: 13px 15px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .gen-cta .gc-tx { flex: 1 1 260px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }

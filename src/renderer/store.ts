@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, CompareData, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -155,6 +155,10 @@ interface AppStore {
   newChat(): Promise<void>
   setActiveChatAgent(a: AgentRef): Promise<void>
   setChatMode(threadId: number, mode: ExecutionMode): Promise<void>
+  /** answer a pending approval for the running op. */
+  respondApproval(requestId: string, decision: ApprovalDecision): void
+  /** stop the running op (also auto-denies any parked approvals in main). */
+  cancelOp(): void
   sendChat(text: string, anchor?: CommentAnchor): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
   sendBatch(threadId: number, commentIds: string[], steer?: string): void
@@ -609,6 +613,16 @@ export const useStore = create<AppStore>((set, get) => {
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
+    },
+
+    respondApproval(requestId, decision) {
+      const opId = get().gen.opId
+      if (opId) void window.api.respondApproval(opId, requestId, decision)
+    },
+
+    cancelOp() {
+      const opId = get().gen.opId
+      if (opId) void window.api.cancel(opId)
     },
 
     sendChat(text, anchor) {
