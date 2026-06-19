@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  AgentRef, ChatMessage, ChatThread, Comment, EngineId, Iteration, ReasoningEffort,
+  AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
   RefPair, RefSide, ReviewAnnotations, ReviewState, SessionMeta
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
+import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
 
@@ -162,9 +163,10 @@ type ChatThreadRow = {
   id: number; kind: 'review' | 'user'; engine: EngineId
   model: string | null; reasoning_effort: string | null
   engine_session_id: string | null; title: string | null; created_at: string
+  execution_mode: string | null
 }
 
-const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at'
+const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode'
 
 function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
   const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
@@ -182,18 +184,19 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
     engineSessionId: row.engine_session_id ?? undefined,
     messages,
     title: row.title ?? undefined,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    executionMode: isExecutionMode(row.execution_mode) ? row.execution_mode : DEFAULT_EXECUTION_MODE
   }
 }
 
-export interface NewChatThread { kind: 'review' | 'user'; agent: AgentRef; engineSessionId?: string; title?: string }
+export interface NewChatThread { kind: 'review' | 'user'; agent: AgentRef; engineSessionId?: string; title?: string; executionMode?: ExecutionMode }
 
 export function createChatThread(db: DatabaseSync, sessionId: number, t: NewChatThread): ChatThread {
   const res = db.prepare(`INSERT INTO chat_threads
-    (session_id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    (session_id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(sessionId, t.kind, t.agent.engine, t.agent.model ?? null, t.agent.reasoningEffort ?? null,
-      t.engineSessionId ?? null, t.title ?? null, now())
+      t.engineSessionId ?? null, t.title ?? null, now(), t.executionMode ?? DEFAULT_EXECUTION_MODE)
   return getChatThread(db, Number(res.lastInsertRowid))!
 }
 
@@ -227,6 +230,10 @@ export function setThreadEngineSession(db: DatabaseSync, threadId: number, engin
 export function setThreadAgent(db: DatabaseSync, threadId: number, agent: AgentRef): void {
   db.prepare('UPDATE chat_threads SET engine = ?, model = ?, reasoning_effort = ? WHERE id = ?')
     .run(agent.engine, agent.model ?? null, agent.reasoningEffort ?? null, threadId)
+}
+
+export function setThreadMode(db: DatabaseSync, threadId: number, mode: ExecutionMode): void {
+  db.prepare('UPDATE chat_threads SET execution_mode = ? WHERE id = ?').run(mode, threadId)
 }
 
 export function deleteChatThread(db: DatabaseSync, threadId: number): void {

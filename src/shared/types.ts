@@ -80,6 +80,18 @@ export interface ToolCall {
   outMore?: string
 }
 
+// ── execution mode (approvals ladder) ─────────────────────────
+/** The per-chat autonomy tier the reviewer picks. One product vocabulary across
+ *  engines; `executionPolicy(mode)` maps it to each engine's permission mode +
+ *  sandbox. Persisted on the chat thread; defaults to 'ask'. */
+export type ExecutionMode = 'ask' | 'edits' | 'auto' | 'full'
+export interface ExecutionTier {
+  key: ExecutionMode
+  /** what the reviewer sees: 'Ask for approval' | 'Accept edits' | 'Auto mode' | 'Full access' */
+  label: string
+  desc: string
+}
+
 // ── engines ───────────────────────────────────────────────────
 export type EngineId = 'claude' | 'codex'
 /** Reasoning-effort knob. Both engines accept it now: Codex spans
@@ -112,6 +124,8 @@ export interface ChatThread {
   messages: ChatMessage[]
   title?: string
   createdAt: string
+  /** the autonomy tier for this chat's turns; defaults to 'ask'. */
+  executionMode: ExecutionMode
 }
 export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string }
 export interface ReviewState {

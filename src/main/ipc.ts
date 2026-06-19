@@ -8,7 +8,7 @@ import type {
   Api, DashboardData, LoadedReview, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
@@ -388,6 +388,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     const sid = dao.chatThreadSessionId(db, threadId)
     if (sid == null) throw new Error('chat thread not found')
     dao.setThreadAgent(db, threadId, agent)
+    return dao.listChatThreads(db, sid)
+  })
+
+  handle('setChatMode', async (threadId: number, mode: ExecutionMode) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    if (sid == null) throw new Error('chat thread not found')
+    dao.setThreadMode(db, threadId, mode)
     return dao.listChatThreads(db, sid)
   })
 
