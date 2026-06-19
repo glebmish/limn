@@ -8,13 +8,20 @@ import type { AgentRef, EngineId, ReasoningEffort } from './types.js'
 export interface ModelOption { id: string; label: string; reasoningEfforts?: ReasoningEffort[] }
 export interface EngineCatalog { engine: EngineId; label: string; models: ModelOption[] }
 
+// Per-model reasoning ladders. Claude Opus/Sonnet expose low→max via the agent
+// SDK's `effort` option; Haiku does not support effort (the SDK errors), so it
+// declares none. Codex spans low→xhigh ("Extra high"); `minimal` exists in the
+// type but isn't offered in the UI.
+const CLAUDE_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const CODEX_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
+
 export const AGENT_CATALOG: EngineCatalog[] = [
   {
     engine: 'claude',
     label: 'Claude',
     models: [
-      { id: 'opus', label: 'Opus' },
-      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'opus', label: 'Opus', reasoningEfforts: CLAUDE_EFFORTS },
+      { id: 'sonnet', label: 'Sonnet', reasoningEfforts: CLAUDE_EFFORTS },
       { id: 'haiku', label: 'Haiku' }
     ]
   },
@@ -22,8 +29,9 @@ export const AGENT_CATALOG: EngineCatalog[] = [
     engine: 'codex',
     label: 'Codex',
     models: [
-      { id: 'gpt-5-codex', label: 'GPT-5 Codex', reasoningEfforts: ['low', 'medium', 'high'] },
-      { id: 'gpt-5', label: 'GPT-5', reasoningEfforts: ['low', 'medium', 'high'] }
+      { id: 'gpt-5.5', label: 'GPT-5.5', reasoningEfforts: CODEX_EFFORTS },
+      { id: 'gpt-5.4', label: 'GPT-5.4', reasoningEfforts: CODEX_EFFORTS },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', reasoningEfforts: CODEX_EFFORTS }
     ]
   }
 ]

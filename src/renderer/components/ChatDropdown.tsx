@@ -1,0 +1,68 @@
+import { useEffect, useRef, useState } from 'react'
+import { I } from '../kit'
+import { engineLabel } from '../../shared/agents'
+import type { ChatThread } from '../../shared/types'
+
+/** Chat selector as a dropdown listing every chat (replaces the tab strip so it
+ *  doesn't crowd as chats pile up). Trigger shows the active chat; the menu lists
+ *  all chats + a "New chat" row. */
+export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
+  chats: ChatThread[]
+  activeId: number | null
+  onSwitch: (id: number) => void
+  onNew: () => void
+}) {
+  const [open, setOpen] = useState(Boolean(window.lrDev?.openChatList))
+  const wrap = useRef<HTMLDivElement>(null)
+  const active = chats.find((c) => c.id === activeId) ?? null
+
+  useEffect(() => {
+    if (!open) return
+    const off = (e: PointerEvent): void => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', off, true)
+    return () => document.removeEventListener('pointerdown', off, true)
+  }, [open])
+
+  const pick = (id: number): void => { onSwitch(id); setOpen(false) }
+
+  return (
+    <div className="chatdd" ref={wrap}>
+      <button className="chatdd-trig" onClick={() => setOpen((o) => !o)}>
+        <span className={'cd-dot ' + (active?.kind ?? 'user')} />
+        <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
+        <span className="cd-sub">{active ? agentSub(active) : ''}</span>
+        <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevD style={{ width: 13, height: 13, transform: 'rotate(-90deg)' }} />}</span>
+      </button>
+      {open && (
+        <div className="chatdd-menu">
+          {chats.map((c) => (
+            <div key={c.id} className={'chatdd-opt' + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}>
+              <span className={'cd-dot ' + c.kind} />
+              <span className="cd-name">{chatName(c, chats)}</span>
+              <span className="cd-sub">{agentSub(c)}</span>
+            </div>
+          ))}
+          <div className="chatdd-new" onClick={() => { onNew(); setOpen(false) }}>
+            <I.plus style={{ width: 12, height: 12 }} />New chat
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function chatName(c: ChatThread, all: ChatThread[]): string {
+  if (c.kind === 'review') return 'Review'
+  if (c.title) return c.title
+  const userChats = all.filter((x) => x.kind === 'user')
+  const n = userChats.findIndex((x) => x.id === c.id)
+  return `Chat ${n + 2}` // review is chat 1
+}
+
+function agentSub(c: ChatThread): string {
+  const model = c.agent.model ?? 'Auto'
+  const effort = c.agent.reasoningEffort ? ` · ${c.agent.reasoningEffort}` : ''
+  return `${engineLabel(c.agent.engine)} · ${model}${effort}`
+}

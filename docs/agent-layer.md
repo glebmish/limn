@@ -17,7 +17,7 @@ interface ReviewEngine {
   id: EngineId  // 'claude' | 'codex'
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
   chat(repo, sessionId, message, anchor?): EngineRun<string>
-  applyFeedback(repo, sessionId, comments, steer?): EngineRun<FixResult>
+  applyFeedback(repo, sessionId, comments, steer?, model?, reasoningEffort?): EngineRun<FixResult>
 }
 ```
 
@@ -60,6 +60,7 @@ A fresh engine instance is constructed per operation. `LR_DEMO=1` overrides ever
 - **Working dir:** the user's repo (`cwd: repo`).
 - **Structured output:** `outputFormat: { type: 'json_schema', schema }`; the terminal `result` message carries `structured_output` (first-class).
 - **Sessions:** the Claude session id is captured from `system/init` and the terminal `result`. `chat`/`applyFeedback` pass `resume: sessionId` to continue the review's conversation.
+- **Model & effort:** `modelOpt(model, effort)` sets the SDK `model` and `effort` options (`low → max`; the Codex-only `minimal` is dropped). See *Model & reasoning effort*.
 
 ## Codex engine (`codex.ts`)
 
@@ -67,9 +68,16 @@ A fresh engine instance is constructed per operation. `LR_DEMO=1` overrides ever
 - **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
 - **Sandbox (the permission analogue):** `sandboxMode: 'read-only'` for review/chat, `'workspace-write'` for fixes; `approvalPolicy: 'never'` throughout. `workingDirectory: repo`.
 - **Sessions:** the thread id is the session id (`startThread` for generate, `resumeThread` for chat/fix).
+- **Model & effort:** `modelOpts(model, reasoningEffort)` sets `model` and `modelReasoningEffort` on `ThreadOptions` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
 - **Key difference from Claude:** Codex returns its result as the final `agent_message` **text**, not a structured field. The engine runs it through `parseJson()`, which tries `JSON.parse` and, on failure, strips a ```` ```json ```` fence and retries before throwing. This fence-stripping is the only robustness net for schema-constrained output occasionally arriving fenced.
 
-> Neither engine sets a **model** — model is whatever the installed CLI/SDK defaults to. There is no model selection in code.
+## Model & reasoning effort
+
+The agent for a review — and for each chat thread — is an `AgentRef` = `{ engine, model?, reasoningEffort? }` (`shared/types.ts`), chosen from a curated catalog (`shared/agents.ts`). `model`/`reasoningEffort` left undefined means **Auto**: let the CLI pick its default (the original behavior).
+
+- **Catalog** (`AGENT_CATALOG`) — Claude offers `opus`/`sonnet` with reasoning effort `low → max`, and `haiku` with **no effort** (the agent SDK errors on Haiku effort). Codex offers `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`, all `low → xhigh`. Model ids pass straight to each SDK's `model` option, so the lists are tuned here with no schema/IPC change.
+- **Plumbing** — `model` and `reasoningEffort` ride on `ReviewRequest` / `ChatTurn` / `applyFeedback` and reach the SDK two ways: Claude → the agent SDK's `effort` option (via `modelOpt`, which drops the Codex-only `minimal`); Codex → `modelReasoningEffort` on `ThreadOptions` (via `modelOpts`, which drops the Claude-only `max`). The shared `ReasoningEffort` union spans both ladders (`minimal | low | medium | high | xhigh | max`); each model's `reasoningEfforts` gates which values the UI offers.
+- **Selection UI** — `AgentPicker` (a single trigger opening a structured popover: engine + auth, model guidance, a segmented effort control) in the chat agent bar, plus the engine cards + model/effort controls on the Compare "Review agent" rail. The chosen `AgentRef` is persisted on the session, seeds chat 1, and each chat thread can retarget its own agent.
 
 ## Binary resolution (`binaries.ts`)
 

@@ -40,9 +40,10 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
    loading. Change either side with the ref picker (branches, recent commits, or a
    typed SHA / `HEAD~N` / tag), swap sides with ⇄, and read the commit list and
    per-file diffs before any session exists.
-4. Pick an engine and **Start review** — or **Resume review** if a session already
-   exists for the exact (base, compare) pair (with a *Start fresh* option that
-   archives the old one).
+4. Pick an engine — and optionally a model and reasoning effort (Claude Opus/Sonnet
+   `low→max`, Codex GPT-5.x `low→xhigh`; *Auto* uses the CLI default) — then
+   **Start review** — or **Resume review** if a session already exists for the exact
+   (base, compare) pair (with a *Start fresh* option that archives the old one).
 5. **Review**: mark files viewed, mark sections reviewed, comment on any diff line,
    section, agent question, or spec/plan line; **Chat** shares the agent's session.
 6. **Send N changes to agent** — it edits, commits on your branch, and reports
@@ -74,6 +75,8 @@ npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO,
 npm run typecheck
 ```
 
-Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to Compare for a repo/branch — these now map onto the `lr` CLI open path), `LR_FLOW=generate|fix` (auto-run a flow), `LR_SHOT=/path.png` (capture window). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to Compare for a repo/branch — these now map onto the `lr` CLI open path), `LR_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LR_SHOT=/path.png` (capture the window, with `LR_SHOT_DELAY` / `LR_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+
+**Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LR_DB` / `LR_OPEN_SESSION` + the dev hooks `LR_ACTIVE_CHAT=<id>` (activate a chat), `LR_OPEN_PICKER=1` (open the agent popover), `LR_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 
 Design source: the Guided Review wireframes in `docs/superpowers/specs/` (see the design spec for architecture and decisions).
