@@ -363,6 +363,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
         message,
         anchor,
         tools,
+        opId,
+        executionMode: thread.executionMode,
         context: thread.engineSessionId
           ? undefined
           : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
@@ -445,7 +447,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const run = engine.chat({
         repo, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
-        tools, writeEnabled
+        tools, writeEnabled, opId, executionMode: thread.executionMode
       })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)

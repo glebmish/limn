@@ -7,6 +7,7 @@ import { getDiff, diffSince, markSince, headSha } from '../src/main/git'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { FakeEngine } from '../src/main/engines/fake'
 import { toEvents } from '../src/main/engines/claude'
+import { resolveDecision } from '../src/main/engines/approvals'
 import { createToolHost } from '../src/main/engines/tools'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState } from '../src/main/db/sessions'
@@ -117,6 +118,40 @@ describe('FakeEngine contract', () => {
     expect(sessionId).toBeTruthy()
     expect(sessionId).not.toBe('sess')
     expect(value).toContain('opus') // model surfaced in the demo answer
+  })
+})
+
+describe('FakeEngine approval round-trip', () => {
+  it('parks on an approval_request and resumes when the decision arrives', async () => {
+    const run = new FakeEngine().chat({ repo: '/r', message: 'fix it [approve]', opId: 'opF' })
+    const iter = run.events[Symbol.asyncIterator]()
+    const seen: EngineEvent[] = []
+    for (;;) {
+      const { value, done } = await iter.next()
+      if (done) break
+      seen.push(value)
+      if (value.type === 'approval_request') {
+        expect(value.request).toMatchObject({ id: 'fake-1', kind: 'command', summary: 'Run `npm test`' })
+        resolveDecision('opF', value.request.id, 'allow')
+      }
+    }
+    await run.result
+    expect(seen.some((e) => e.type === 'approval_request')).toBe(true)
+    expect(seen.some((e) => e.type === 'status' && e.text.includes('approved'))).toBe(true)
+  })
+
+  it('reflects a deny decision', async () => {
+    const run = new FakeEngine().chat({ repo: '/r', message: 'fix it [approve]', opId: 'opD' })
+    const iter = run.events[Symbol.asyncIterator]()
+    const seen: EngineEvent[] = []
+    for (;;) {
+      const { value, done } = await iter.next()
+      if (done) break
+      seen.push(value)
+      if (value.type === 'approval_request') resolveDecision('opD', value.request.id, 'deny')
+    }
+    await run.result
+    expect(seen.some((e) => e.type === 'status' && e.text.includes('denied'))).toBe(true)
   })
 })
 

@@ -1,6 +1,6 @@
 import type {
   Artifact, CommentAnchor, DiffSkeleton, EngineEvent, EngineId,
-  ReasoningEffort, ReviewAnnotations
+  ExecutionMode, ReasoningEffort, ReviewAnnotations
 } from '../../shared/types.js'
 import type { AgentToolHost } from './tools.js'
 
@@ -31,6 +31,10 @@ export interface ChatTurn {
   tools?: AgentToolHost
   /** allow code-editing tools this turn (branch + clean tree preconditions met). */
   writeEnabled?: boolean
+  /** op id for this turn — keys the approval registry (`awaitDecision`). */
+  opId?: string
+  /** the chat's autonomy tier; the adapter maps it via `executionPolicy`. */
+  executionMode?: ExecutionMode
 }
 
 export interface EngineRun<T> {
