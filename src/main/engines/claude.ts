@@ -1,14 +1,51 @@
-import { createSdkMcpServer, query, tool, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { EngineEvent, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
+import { createSdkMcpServer, query, tool, type CanUseTool, type Options, type PermissionResult, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { ApprovalKind, ApprovalRequest, EngineEvent, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
 import { LR_TOOLS, lrAllowedToolNames, type AgentToolHost } from './tools.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
+import { executionPolicy, DEFAULT_EXECUTION_MODE } from '../../shared/executionMode.js'
+import { awaitDecision } from './approvals.js'
+
+/** Tools auto-allowed without prompting (read-only, safe). Everything else
+ *  (Bash/Edit/Write) is left out of `allowedTools` so the permission mode + the
+ *  `canUseTool` callback gate it. */
+const READ_SAFE = ['Read', 'Grep', 'Glob']
+let approvalSeq = 0
+
+/** Build an engine-agnostic ApprovalRequest from a Claude tool call. */
+export function toApprovalRequest(engine: string, toolName: string, input: Record<string, unknown>, id: string): ApprovalRequest {
+  let kind: ApprovalKind = 'tool_use'
+  const detail: ApprovalRequest['detail'] = {}
+  let summary = toolName
+  if (toolName === 'Bash') {
+    kind = 'command'; detail.command = String(input.command ?? ''); summary = `Run \`${detail.command}\``
+  } else if (toolName === 'Edit' || toolName === 'Write' || toolName === 'MultiEdit') {
+    kind = 'file_change'; detail.files = [String(input.file_path ?? input.path ?? '')]; summary = `${toolName} ${detail.files[0]}`
+  } else {
+    detail.toolName = toolName
+  }
+  return { id, engine: engine as ApprovalRequest['engine'], kind, summary, detail }
+}
+
+/** The SDK permission callback: our own tools + read-safe tools auto-allow; write/
+ *  shell tools park on a reviewer approval and route the decision back. */
+export function makeCanUseTool(opId: string, emit: (e: EngineEvent) => void): CanUseTool {
+  return async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
+    if (toolName.startsWith('mcp__localreview__') || READ_SAFE.includes(toolName)) {
+      return { behavior: 'allow' }
+    }
+    const request = toApprovalRequest('claude', toolName, input, `lr-approval-${++approvalSeq}`)
+    const decision = await awaitDecision(opId, request, emit)
+    return decision === 'deny'
+      ? { behavior: 'deny', message: 'Reviewer denied this action.' }
+      : { behavior: 'allow' }
+  }
+}
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
-const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write']
 
 /** Host the engine-agnostic LR_TOOLS as an in-process MCP server bound to this
  *  turn's tool host. The handler runs in main: it performs the side effect, emits
@@ -162,14 +199,20 @@ export class ClaudeEngine implements ReviewEngine {
         ? buildChatPrompt(turn.message, turn.anchor)
         : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
     const lr = turn.tools ? localReviewMcp(turn.tools, write) : undefined
+    const permissionMode = executionPolicy(turn.executionMode ?? DEFAULT_EXECUTION_MODE).claudePermissionMode
+    // Read-safe tools auto-allow; Bash/Edit/Write are left out of allowedTools so the
+    // mode + canUseTool gate them. The reviewer's tier (executionMode) sets the mode.
+    const canUseTool = turn.opId ? makeCanUseTool(turn.opId, (e) => q.push(e)) : undefined
     const { outcome, abort } = runQuery(
       prompt,
       {
         cwd: turn.repo,
         ...(turn.engineSessionId ? { resume: turn.engineSessionId } : {}),
         ...modelOpt(turn.model, turn.reasoningEffort),
-        allowedTools: [...(write ? WRITE_TOOLS : READ_TOOLS), ...(lr?.allowedTools ?? [])],
-        permissionMode: 'auto',
+        allowedTools: [...READ_SAFE, ...(lr?.allowedTools ?? [])],
+        permissionMode,
+        ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+        ...(canUseTool ? { canUseTool } : {}),
         ...(write ? {} : { disallowedTools: ['Edit', 'Write'] }),
         ...(lr ? { mcpServers: lr.mcpServers } : {})
       },
