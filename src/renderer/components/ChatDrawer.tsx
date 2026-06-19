@@ -7,6 +7,7 @@ import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
 import { ToolCallLog } from './ToolCallLog'
+import { ModeSelector } from './ModeSelector'
 import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
 import { reduceToolCalls } from '../../shared/toolcalls'
@@ -154,6 +155,14 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 onChange={(e) => setSteer(e.target.value)}
               />
             </div>
+          )}
+
+          {active && (
+            <ModeSelector
+              mode={active.executionMode}
+              disabled={streaming}
+              onChange={(m) => void store.setChatMode(active.id, m)}
+            />
           )}
 
           <div className="chat-foot">

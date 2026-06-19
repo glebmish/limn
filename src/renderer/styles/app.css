@@ -90,6 +90,32 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .tcall-more { font-size: 10px; color: var(--muted); font-family: var(--mono); padding: 5px 10px 0; }
 .tstatus { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); font-style: italic; padding: 1px 0; }
 
+/* ── execution-mode selector (approvals ladder; wireframe J1) ── */
+.modebar { position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 9px 0; }
+.mode-trig { display: inline-flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 11px 4px 9px; cursor: pointer; font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.mode-trig:hover { border-color: var(--accent-line); }
+.mode-trig:disabled { opacity: .55; cursor: default; }
+.mode-trig .mt-ico { width: 13px; height: 13px; flex: 0 0 auto; color: var(--muted-2); }
+.mode-trig .mt-car { color: var(--muted); display: inline-flex; margin-left: 1px; }
+.mode-trig.edits .mt-ico { color: var(--accent); }
+.mode-trig.auto { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.mode-trig.auto .mt-ico { color: var(--amber); }
+.mode-trig.full { border-color: var(--red-line); background: var(--red-soft); color: var(--red); }
+.mode-trig.full .mt-ico { color: var(--red); }
+.mode-menu { position: absolute; bottom: calc(100% + 6px); left: 9px; width: 290px; z-index: 24; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 10px 28px rgba(40,40,40,.16); overflow: hidden; }
+.mode-menu .mm-hd { padding: 8px 12px; font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; border-bottom: 1px solid var(--line); }
+.mode-opt { display: flex; gap: 10px; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.mode-opt:last-child { border-bottom: none; }
+.mode-opt:hover { background: var(--panel-2); }
+.mode-opt.on { background: var(--accent-soft); }
+.mode-opt .mo-ico { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; color: var(--muted-2); }
+.mode-opt.on .mo-ico { color: var(--accent); }
+.mode-opt .mo-ico.full { color: var(--red); }
+.mode-opt .mo-tier { font-size: 12px; font-weight: 700; color: var(--ink); }
+.mode-opt .mo-desc { font-size: 10.5px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
+.mode-opt .mo-chk { margin-left: auto; color: var(--accent); flex: 0 0 auto; align-self: center; opacity: 0; }
+.mode-opt.on .mo-chk { opacity: 1; }
+
 /* call-to-action band for generating the guided review */
 .gen-cta { margin: 14px 30px 0; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: var(--panel-2); padding: 13px 15px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .gen-cta .gc-tx { flex: 1 1 260px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
