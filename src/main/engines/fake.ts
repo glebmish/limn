@@ -11,7 +11,8 @@ export class FakeEngine implements ReviewEngine {
     const q = new EventQueue()
     const result = (async () => {
       q.push({ type: 'status', text: 'Exploring the repository…' })
-      q.push({ type: 'tool', text: `git log ${req.base}..${req.branch}` })
+      q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'run' } })
+      q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'ok', meta: '12 commits' } })
       const byDir = new Map<string, string[]>()
       for (const f of req.diff.files) {
         const dir = f.path.includes('/') ? f.path.split('/')[0] : '(root)'
@@ -75,7 +76,14 @@ export class FakeEngine implements ReviewEngine {
     const text = batch ? batchText : chatText
     const result = (async () => {
       q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
-      q.push({ type: 'tool', text: 'Grep parseRefInput' })
+      // structured tool-call lifecycle for the activity log (wf-D): a settled grep,
+      // an expandable read with a diff, and an errored grep.
+      q.push({ type: 'tool', call: { id: 't1', verb: 'grep', name: 'Grep', arg: 'parseRefInput', state: 'run' } })
+      q.push({ type: 'tool', call: { id: 't1', verb: 'grep', name: 'Grep', arg: 'parseRefInput', state: 'ok', meta: '3 hits', out: 'src/a.ts:12\nsrc/a.ts:48\nsrc/parse.ts:5' } })
+      q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'run' } })
+      q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'ok', meta: '40 lines', out: 'export function parseRefInput(input) {\n-  if (input == null) throw new Error()\n+  if (!input) return null // guard added in this branch\n  return resolve(input)\n}', outMore: 'show 31 more lines' } })
+      q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", kv: [['pattern', "require('child_process')"]], state: 'run' } })
+      q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", state: 'err', out: 'Error: ripgrep exited 2 — invalid regex at offset 8 (unbalanced parenthesis)' } })
       if (batch && turn.tools) {
         // unified batch: resolve the sent comments + commit via the tools
         const listed = await turn.tools.call('list_comments', { status: 'sent' })
