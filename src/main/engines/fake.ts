@@ -83,6 +83,12 @@ export class FakeEngine implements ReviewEngine {
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'run' } })
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'ok', meta: '40 lines', out: 'export function parseRefInput(input) {\n-  if (input == null) throw new Error()\n+  if (!input) return null // guard added in this branch\n  return resolve(input)\n}', outMore: 'show 31 more lines' } })
       q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", kv: [['pattern', "require('child_process')"]], state: 'run' } })
+      // dev-only: LR_HOLD_STREAM leaves t3 running + the stream open, for a static
+      // capture of the live running state (electron is killed by LR_SHOT_QUIT).
+      if (process.env.LR_HOLD_STREAM === '1') {
+        q.push({ type: 'status', text: 'Reading reconcile.ts…' })
+        return { value: '', sessionId: turn.engineSessionId || 'fake-chat-hold' }
+      }
       q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", state: 'err', out: 'Error: ripgrep exited 2 — invalid regex at offset 8 (unbalanced parenthesis)' } })
       if (batch && turn.tools) {
         // unified batch: resolve the sent comments + commit via the tools

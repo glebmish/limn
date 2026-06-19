@@ -51,6 +51,15 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     store.switchChat(want)
   }, [chats, store])
 
+  // dev-only: LR_RUN_CHAT=<text> auto-sends one chat turn (screenshot the tool-call log)
+  const ranChat = useRef(false)
+  useEffect(() => {
+    const text = window.lrDev?.runChat
+    if (ranChat.current || !text || !active || gen.running) return
+    ranChat.current = true
+    setTimeout(() => store.sendChat(text), 400)
+  }, [active, gen.running, store])
+
   if (!open) return null
 
   const send = (): void => {
