@@ -14,12 +14,14 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   forceOpen?: boolean
   secRef: (el: HTMLDivElement | null) => void
 }) {
-  const { reviewedSections, collapsed, guidance, markReviewed, openSection, loaded } = useStore()
+  const { reviewedSections, collapsed, guidance, markReviewed, openSection, loaded, focusTarget } = useStore()
   const [commenting, setCommenting] = useState(false)
   const comments = loaded?.state.comments ?? []
 
+  const focused = focusTarget?.sectionId === s.id
   const done = reviewedSections.has(s.id)
-  const open = forceOpen || (!done && !collapsed.has(s.id))
+  // focus force-shows a reviewed/collapsed section without clearing its reviewed state
+  const open = forceOpen || focused || (!done && !collapsed.has(s.id))
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
   const reReview = hasSince
   const showCtx = guidance !== 'minimal'
@@ -29,7 +31,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const cls = 'gsec ' + (done ? 'done ' : reReview ? 'amber ' : '') + (open ? '' : 'collapsed')
 
   return (
-    <div className={cls} ref={secRef}>
+    <div className={cls} ref={secRef} data-lr-section={s.id}>
       <div className="gsec-head" onClick={() => { if (!open) openSection(s.id) }} style={{ cursor: open ? 'default' : 'pointer' }}>
         <span className="gsec-no">{done ? <I.check style={{ width: 13, height: 13 }} /> : n}</span>
         <div className="gsec-h">

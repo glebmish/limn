@@ -9,8 +9,11 @@ import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { queuedComments, sendComments } from '../lib/comments'
+import { focusAnchor } from '../lib/focus'
 
 let devFlowRan = false
+let devFocusRan = false
+let devBatchRan = false
 
 export default function Review() {
   const store = useStore()
@@ -22,7 +25,7 @@ export default function Review() {
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
   const [docOpen, setDocOpen] = useState<string | null>(null)
   const [peek, setPeek] = useState<string | null>(null)
-  const [chatOpen, setChatOpen] = useState(window.lrDev?.flow === 'chat')
+  const chatOpen = store.chatOpen
 
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
@@ -40,6 +43,16 @@ export default function Review() {
         devFlowRan = true
         sendComments(ids)
       }
+    }
+    // dev-only: LR_FOCUS=<json FocusTarget> focuses once after the review mounts
+    if (window.lrDev?.focus && !devFocusRan && loaded) {
+      devFocusRan = true
+      try { setTimeout(() => focusAnchor(JSON.parse(window.lrDev!.focus!)), 600) } catch { /* bad json */ }
+    }
+    // dev-only: LR_RUN_BATCH runs the unified batch over all queued comments once
+    if (window.lrDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
+      const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
+      if (ids.length > 0) { devBatchRan = true; setTimeout(() => sendComments(ids), 400) }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
@@ -104,7 +117,7 @@ export default function Review() {
             <span className="ctnode"><span className="cdot dot-amber"></span><span className="csha">{shortSha(skeleton.headSha)}</span><span className="clab">current</span></span>
           </span>
         )}
-        <button className="btn btn-sm btn-ghost" onClick={() => setChatOpen((o) => !o)} title="Chat with the agent">
+        <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
         <button className="btn btn-sm btn-ghost" onClick={() => store.backToCompare()}>
@@ -304,7 +317,7 @@ export default function Review() {
               <GenPanel />
 
               {annotations && (sinceTagged && lastIteration?.summary ? (
-                <div className="rr-summary">
+                <div className="rr-summary" data-lr-summary>
                   <span className="rr-ic"><I.spark style={{ width: 14, height: 14 }} /></span>
                   <span className="rr-tx">
                     <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
@@ -317,7 +330,7 @@ export default function Review() {
                   </span>
                 </div>
               ) : (
-                <div className="rr-summary" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+                <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
                   <span className="rr-ic" style={{ background: 'var(--accent)' }}><I.spark style={{ width: 14, height: 14 }} /></span>
                   <span className="rr-tx">{annotations.summary}</span>
                 </div>
@@ -344,7 +357,7 @@ export default function Review() {
           )}
         </div>
 
-        <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
+        <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
 
       <Tweaks />

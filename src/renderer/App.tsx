@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from './store'
+import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
 import Compare from './screens/Compare'
 import Review from './screens/Review'
@@ -9,7 +10,10 @@ export default function App() {
 
   useEffect(() => {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
-      if (useStore.getState().gen.opId === opId) useStore.getState().pushOpEvent(event)
+      if (useStore.getState().gen.opId !== opId) return
+      useStore.getState().pushOpEvent(event)
+      // focus runs live — scroll + flash the review the moment the agent calls it
+      if (event.type === 'action' && event.action.kind === 'focus') focusAnchor(event.action.anchor)
     })
     const offResult = window.api.onOpResult(({ opId, ok, error, reload }) => {
       const st = useStore.getState()

@@ -1,20 +1,35 @@
 import { useState } from 'react'
-import type { Comment } from '../../shared/types'
+import type { AgentRef, Comment } from '../../shared/types'
 import { I, Ava } from '../kit'
+import { agentLabel } from '../../shared/agents'
+import { useStore } from '../store'
 import { deleteComment, editComment, sendComments } from '../lib/comments'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
 
+/** Clickable agent-identity chip — opens that agent's chat thread. */
+function AgentId({ agentRef, threadId }: { agentRef?: AgentRef; threadId?: number }) {
+  const openChat = useStore((s) => s.openChat)
+  if (!agentRef) return <><Ava ai>AI</Ava><b>Agent</b></>
+  return (
+    <button className="lr-agentid" title="Open this agent's chat" onClick={() => openChat(threadId)}>
+      <Ava ai>AI</Ava><b>{agentLabel(agentRef)}</b><I.chevR style={{ width: 10, height: 10 }} />
+    </button>
+  )
+}
+
 export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(c.text)
+  const isAgent = c.author === 'agent'
 
   return (
     <div className="dthread">
-      <div className="box">
+      <div className={'box' + (isAgent ? ' agent' : '')}>
         <div className="bh">
-          <Ava>me</Ava><b>You</b><span className="dim">{locLabel}</span>
-          {c.status === 'queued' && (
+          {isAgent ? <AgentId agentRef={c.agentRef} threadId={c.threadId} /> : <><Ava>me</Ava><b>You</b></>}
+          <span className="dim">{locLabel}</span>
+          {!isAgent && c.status === 'queued' && (
             <>
               <span className="agentq"><I.spark style={{ width: 11, height: 11 }} />queued for agent</span>
               <button className="send-now" onClick={() => sendComments([c.id])}>
@@ -22,8 +37,8 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               </button>
             </>
           )}
-          {c.status === 'sent' && <span className="agentq"><I.changed style={{ width: 11, height: 11 }} />with agent…</span>}
-          {c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
+          {!isAgent && c.status === 'sent' && <span className="agentq"><I.changed style={{ width: 11, height: 11 }} />with agent…</span>}
+          {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
           {c.status === 'resolved' && c.resolution && (
             <span
               className="agentq"
@@ -59,11 +74,23 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             {c.resolution.note}
           </div>
         )}
-        {!editing && c.status !== 'sent' && (
+        {c.replies.map((r, i) => (
+          <div key={i} className="dreply">
+            <div className="bh">
+              {r.author === 'agent' ? <AgentId agentRef={r.agentRef} threadId={r.threadId} /> : <><Ava>me</Ava><b>You</b></>}
+              <span className="dim">replied</span>
+            </div>
+            <div className="bb">{r.text}</div>
+          </div>
+        ))}
+        {!editing && !isAgent && c.status !== 'sent' && (
           <div className="bf">
             {c.status !== 'resolved' && <button onClick={() => setEditing(true)}>Edit</button>}
             <button onClick={() => void deleteComment(c.id)}>Delete</button>
           </div>
+        )}
+        {!editing && isAgent && (
+          <div className="bf"><button onClick={() => void deleteComment(c.id)}>Delete</button></div>
         )}
       </div>
     </div>

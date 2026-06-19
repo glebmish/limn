@@ -37,5 +37,13 @@ contextBridge.exposeInMainWorld('api', api)
 // LR_FLOW + LR_OPEN_SESSION (auto-resume a seeded session) are forwarded here.
 contextBridge.exposeInMainWorld('lrDev', {
   flow: process.env.LR_FLOW ?? null,
-  openSession: process.env.LR_OPEN_SESSION ?? null
+  openSession: process.env.LR_OPEN_SESSION ?? null,
+  // dev-only screenshot hooks: activate a specific chat, force the agent
+  // picker / chat-list dropdown open so a static capture shows them.
+  activeChat: process.env.LR_ACTIVE_CHAT ? Number(process.env.LR_ACTIVE_CHAT) : null,
+  openPicker: process.env.LR_OPEN_PICKER === '1',
+  openChatList: process.env.LR_OPEN_CHATLIST === '1',
+  focus: process.env.LR_FOCUS ?? null,
+  holdFocus: process.env.LR_HOLD_FOCUS === '1',
+  runBatch: process.env.LR_RUN_BATCH === '1'
 })

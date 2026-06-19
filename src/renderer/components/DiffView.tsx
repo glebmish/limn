@@ -45,9 +45,10 @@ export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, guidance, loaded, gen } = useStore()
+  const { viewedAt, toggleViewed, guidance, loaded, gen, focusTarget } = useStore()
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
+  const focused = focusTarget?.file === f.path
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [regenOpen, setRegenOpen] = useState(false)
@@ -61,6 +62,8 @@ export function DiffView({ f, plainNote }: {
   const viewedSha = viewedAt[f.path]
   // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself
   const isViewed = Boolean(viewedSha) && !hasSinceViewed
+  // a focus on a viewed file force-shows its diff body without clearing the viewed tick
+  const showBody = !isViewed || focused
   const effectiveMode: DiffMode =
     (mode === 'approved' && !hasSince) || (mode === 'viewed' && !hasSinceViewed) ? 'branch' : mode
   const hunks =
@@ -78,8 +81,8 @@ export function DiffView({ f, plainNote }: {
         )
 
   return (
-    <div className={'gfile' + (isViewed ? ' viewed' : '')}>
-      <div className="gfile-head">
+    <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
+      <div className="gfile-head" data-lr-file={f.path}>
         <span className="pth">
           <span className={'ficon ' + ficonClass(f.path)}></span>
           <span><span className="dim">{dir}</span>{name}</span>
@@ -155,7 +158,7 @@ export function DiffView({ f, plainNote }: {
         </div>
       )}
 
-      {!isViewed && (
+      {showBody && (
         <div className="gfile-diff">
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
           {!f.binary && hunks.length === 0 && (
@@ -180,7 +183,10 @@ export function DiffView({ f, plainNote }: {
                 const threads = threadsFor(lineNo, side)
                 return (
                   <Fragment key={j}>
-                    <div className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}>
+                    <div
+                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}
+                      data-lr-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
+                    >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
                       <CodeLine text={l.text} lang={lang} ranges={wordMarks[i]?.get(j)} />

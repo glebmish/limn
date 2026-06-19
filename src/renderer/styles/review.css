@@ -319,3 +319,33 @@
 .wf.dz-spacious .gsec-h .d{font-size:13.5px;margin-top:7px}
 .wf.dz-spacious .page-head h1{font-size:23px}
 .wf.dz-spacious .dthread{padding:12px 20px 14px 66px}
+
+/* ---- agent focus: transient cross-surface highlight ---- */
+@keyframes lr-flash {
+  0%   { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+  70%  { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent-line); }
+  100% { background: transparent;        box-shadow: inset 0 0 0 2px transparent; }
+}
+.lr-flash { animation: lr-flash 1.5s ease-out; border-radius: 6px; }
+.lr-flash-hold { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); border-radius: 6px; }
+.dline.lr-flash-hold { box-shadow: inset 3px 0 0 0 var(--accent); background: var(--accent-soft); border-radius: 0; }
+.lr-focus-badge {
+  position: fixed; z-index: 60; font-family: var(--mono); font-size: 9px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: #fff; background: var(--accent);
+  border-radius: 10px; padding: 1px 7px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.18);
+}
+
+/* ---- agent-authored comments: identity chip + replies ---- */
+.dthread .box.agent { border-color: var(--accent-line); }
+.lr-agentid { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; padding: 0; font: inherit; color: var(--accent-ink); }
+.lr-agentid b { font-weight: 700; }
+.lr-agentid:hover { color: var(--accent); }
+.dthread .dreply { border-top: 1px solid var(--line); padding: 7px 12px 9px; background: var(--accent-soft); }
+.dthread .dreply .bh { border: none; padding: 0 0 5px; }
+.dthread .dreply .bb { padding: 0; }
+
+/* verdict badge inside a resolved chip */
+.lr-verdict { margin-left: 5px; font-weight: 700; }
+.lr-verdict.addressed { color: var(--accent-ink); }
+.lr-verdict.reworked { color: var(--amber); }
+.lr-verdict.skipped { color: var(--red); }

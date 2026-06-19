@@ -1,4 +1,4 @@
-import { newOpId, useStore } from '../store'
+import { useStore } from '../store'
 import type { Comment, CommentAnchor } from '../../shared/types'
 
 export async function addComment(anchor: CommentAnchor, text: string): Promise<void> {
@@ -32,12 +32,14 @@ export async function deleteComment(id: string): Promise<void> {
   useStore.getState().setComments(state.comments)
 }
 
+/** Send queued comments to the review agent's chat as one unified batch turn. The
+ *  agent edits & commits code, resolves, or replies via its tools; the chat drawer
+ *  opens to show the rollup + commit chip (wf-H). */
 export function sendComments(ids: string[], steer?: string): void {
-  const { sessionId } = useStore.getState()
-  if (sessionId == null) return
-  const opId = newOpId()
-  useStore.getState().startOp('fix', opId)
-  void window.api.sendFeedback(sessionId, ids, steer, opId)
+  const { loaded } = useStore.getState()
+  const target = loaded?.state.chats.find((c) => c.kind === 'review') ?? loaded?.state.chats[0]
+  if (!target) return
+  useStore.getState().sendBatch(target.id, ids, steer)
 }
 
 export function queuedComments(): Comment[] {

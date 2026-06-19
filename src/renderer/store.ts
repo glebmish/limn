@@ -77,6 +77,9 @@ interface AppStore {
   loaded: LoadedReview | null
   sessionId: number | null
   activeChatId: number | null
+  /** whether the chat drawer is open (lifted here so an agent-identity click in
+   *  the review can open a specific chat). */
+  chatOpen: boolean
   error: string | null
 
   // dashboard
@@ -100,6 +103,9 @@ interface AppStore {
   reviewedSections: Set<string>
   collapsed: Set<string>
   cur: string | null
+  /** transient: force-render a focus target (a viewed file / reviewed section)
+   *  without mutating viewedAt/reviewedSections. Set by focusAnchor. */
+  focusTarget: { file?: string; sectionId?: string } | null
 
   density: Density
   guidance: Guidance
@@ -136,6 +142,7 @@ interface AppStore {
   markReviewed(id: string): void
   openSection(id: string): void
   setCur(id: string): void
+  setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   setTweak(key: 'density' | 'guidance' | 'accent', value: unknown): void
   startOp(kind: 'review' | 'chat' | 'fix', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
@@ -143,9 +150,13 @@ interface AppStore {
   setComments(comments: Comment[]): void
   // chat
   switchChat(id: number): void
+  openChat(threadId?: number): void
+  closeChat(): void
   newChat(): Promise<void>
   setActiveChatAgent(a: AgentRef): Promise<void>
   sendChat(text: string, anchor?: CommentAnchor): void
+  /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
+  sendBatch(threadId: number, commentIds: string[], steer?: string): void
   deleteChat(id: number): Promise<void>
 }
 
@@ -198,6 +209,7 @@ export const useStore = create<AppStore>((set, get) => {
     loaded: null,
     sessionId: null,
     activeChatId: null,
+    chatOpen: typeof window !== 'undefined' && window.lrDev?.flow === 'chat',
     error: null,
 
     dashboard: null,
@@ -211,6 +223,7 @@ export const useStore = create<AppStore>((set, get) => {
     reviewedSections: new Set<string>(),
     collapsed: new Set<string>(),
     cur: null,
+    focusTarget: null,
 
     density: 'comfortable',
     guidance: 'guided',
@@ -512,6 +525,10 @@ export const useStore = create<AppStore>((set, get) => {
       if (get().cur !== id) set({ cur: id })
     },
 
+    setFocusTarget(t) {
+      set({ focusTarget: t })
+    },
+
     setTweak(key, value) {
       void window.api.setPref(key, JSON.stringify(value))
       set({ [key]: value } as Partial<AppStore>)
@@ -541,6 +558,14 @@ export const useStore = create<AppStore>((set, get) => {
     // ── chat ──────────────────────────────────────────────────
     switchChat(id) {
       set({ activeChatId: id })
+    },
+
+    openChat(threadId) {
+      set(threadId != null ? { chatOpen: true, activeChatId: threadId } : { chatOpen: true })
+    },
+
+    closeChat() {
+      set({ chatOpen: false })
     },
 
     async newChat() {
@@ -584,6 +609,16 @@ export const useStore = create<AppStore>((set, get) => {
       const opId = newOpId()
       get().startOp('chat', opId, active.id)
       void window.api.sendChat(active.id, body, opId, anchor)
+    },
+
+    sendBatch(threadId, commentIds, steer) {
+      if (get().gen.running) return
+      const trimmed = steer?.trim() || undefined
+      if (commentIds.length === 0 && !trimmed) return
+      const opId = newOpId()
+      get().openChat(threadId)            // surface the batch in chat (wf-H)
+      get().startOp('chat', opId, threadId)
+      void window.api.sendBatch(threadId, commentIds, trimmed, opId)
     },
 
     async deleteChat(id) {
