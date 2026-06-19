@@ -101,11 +101,35 @@ export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 
 /** A selectable agent = an engine + an optional model/effort. `model`
  *  undefined means "Auto" — let the CLI pick its default (today's behavior). */
 export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
+// ── interactive approvals ─────────────────────────────────────
+export type ApprovalKind = 'command' | 'file_change' | 'patch' | 'tool_use' | 'mcp_tool'
+/** An agent wants to do something that needs the reviewer's go-ahead. Emitted as an
+ *  EngineEvent and surfaced as a blocking card in chat; the decision routes back to
+ *  the engine. Transient (per-turn) — not persisted as state. */
+export interface ApprovalRequest {
+  id: string                 // unique within the op; correlation key for respondApproval
+  engine: EngineId
+  kind: ApprovalKind
+  summary: string            // one-line human summary, e.g. "Run `npm test`"
+  detail?: {
+    command?: string
+    cwd?: string
+    files?: string[]
+    toolName?: string
+    reason?: string
+    [k: string]: unknown
+  }
+  risk?: 'low' | 'medium' | 'high'   // engine-supplied hint (Codex guardian) if available
+}
+/** Per-operation only — no "approve for session". */
+export type ApprovalDecision = 'allow' | 'deny'
+
 export type EngineEvent =
   | { type: 'status'; text: string }
   | { type: 'tool'; call: ToolCall }          // structured tool-call lifecycle (wf-D)
   | { type: 'text'; text: string }            // streamed assistant text (chat)
   | { type: 'action'; action: AgentAction }   // agent tool call (focus, suggest, …)
+  | { type: 'approval_request'; request: ApprovalRequest }  // needs reviewer go-ahead
   | { type: 'done' }
   | { type: 'error'; message: string }
 

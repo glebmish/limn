@@ -1,5 +1,5 @@
 import type {
-  AgentRef, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
+  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
   ExecutionMode, FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
 } from './types.js'
 
@@ -50,6 +50,8 @@ export interface Api {
   archiveSession(sessionId: number): Promise<void>
   generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
   cancel(opId: string): Promise<void>
+  /** Answer a pending approval request (routes to the parked engine-side promise). */
+  respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>
   saveUiState(sessionId: number, patch: UiStatePatch): Promise<void>
   upsertComment(sessionId: number, comment: Comment): Promise<ReviewState>
   deleteComment(sessionId: number, id: string): Promise<ReviewState>
@@ -101,7 +103,7 @@ export interface RendererApi extends Api {
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
-  'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment',
+  'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',

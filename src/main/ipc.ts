@@ -8,7 +8,7 @@ import type {
   Api, DashboardData, LoadedReview, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, ApprovalDecision, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
@@ -24,6 +24,7 @@ import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls } from '../shared/toolcalls.js'
+import { clearPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
@@ -306,12 +307,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 
   handle('cancel', async (opId: string) => {
     activeOps.get(opId)?.()
     activeOps.delete(opId)
+    clearPending(opId)   // auto-deny any parked approvals so no promise leaks
+  })
+
+  handle('respondApproval', async (opId: string, requestId: string, decision: ApprovalDecision) => {
+    resolveDecision(opId, requestId, decision)
   })
 
   handle('saveUiState', async (sessionId: number, patch: UiStatePatch) => {
@@ -376,6 +383,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 
@@ -473,6 +481,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 
