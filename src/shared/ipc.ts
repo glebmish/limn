@@ -59,7 +59,9 @@ export interface Api {
   createChat(sessionId: number, agent: AgentRef): Promise<ChatThread[]>
   setChatAgent(threadId: number, agent: AgentRef): Promise<ChatThread[]>
   deleteChat(threadId: number): Promise<ChatThread[]>
-  sendFeedback(sessionId: number, commentIds: string[], steer: string | undefined, opId: string): Promise<void>
+  /** The unified batch turn: send queued comments to a chat thread's agent, which
+   *  handles them with its tools (edit+commit code, resolve, or reply). */
+  sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
@@ -99,7 +101,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'deleteChat',
-  'sendFeedback', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

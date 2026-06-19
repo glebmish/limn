@@ -13,7 +13,7 @@ import {
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, reconcileChats
 } from '../src/main/db/sessions'
-import type { Comment, RefPair } from '../src/shared/types'
+import type { AgentAction, Comment, RefPair } from '../src/shared/types'
 
 let db: DatabaseSync
 beforeEach(() => {
@@ -200,5 +200,20 @@ describe('chat threads DAO', () => {
     db.prepare('DELETE FROM sessions WHERE id = ?').run(s.id) // CASCADE → threads → messages
     expect(getChatThread(db, t2.id)).toBeNull()
     expect((db.prepare('SELECT COUNT(*) AS n FROM chat_messages').get() as { n: number }).n).toBe(0)
+  })
+
+  it('round-trips agent message actions through actions_json', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const actions: AgentAction[] = [
+      { kind: 'focus', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+      { kind: 'suggest_viewed', files: ['src/a.ts'], note: 'covered' }
+    ]
+    addChatMessage(db, t.id, { role: 'agent', text: 'done', at: 'T1', actions })
+    addChatMessage(db, t.id, { role: 'user', text: 'thanks', at: 'T2' })
+
+    const msgs = getChatThread(db, t.id)!.messages
+    expect(msgs[0].actions).toEqual(actions)
+    expect(msgs[1].actions).toBeUndefined() // no actions → no key, not []
   })
 })

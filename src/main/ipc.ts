@@ -22,6 +22,9 @@ import { buildCompareData } from './compare.js'
 import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
+import { createToolHost } from './engines/tools.js'
+import { buildBatchPrompt } from './engines/prompts.js'
+import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { reanchorComments } from './anchor.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
@@ -153,12 +156,6 @@ async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promis
     compareContext: await describeSide(repo, pair.compare),
     skeleton, state, artifacts, commits, sinceTagged
   }
-}
-
-function lastEngineSession(db: DatabaseSync, sessionId: number): { engine: EngineId; sessionId: string } | null {
-  const st = dao.loadReviewState(db, sessionId)
-  const it = st.iterations[st.iterations.length - 1]
-  return it ? { engine: it.engine, sessionId: it.sessionId } : null
 }
 
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
@@ -337,6 +334,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     try {
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
+      // the localreview tool layer for this turn: focus/suggest run live (read-only
+      // on code in interactive chat); actions emit straight to the renderer.
+      const tools = createToolHost({
+        db, sessionId: sid, threadId, opId, repo, agent: thread.agent, writeEnabled: false,
+        emit: (event) => send('op:event', { opId, event })
+      })
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume).
@@ -347,6 +350,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
         reasoningEffort: thread.agent.reasoningEffort,
         message,
         anchor,
+        tools,
         context: thread.engineSessionId
           ? undefined
           : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
@@ -356,8 +360,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const { value, sessionId: engineSession } = await run.result
       await pump
       const at = new Date().toISOString()
+      const actions = tools.collected()
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
@@ -387,64 +392,70 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return dao.listChatThreads(db, sid)
   })
 
-  handle('sendFeedback', async (sessionId: number, commentIds: string[], steer, opId: string) => {
-    const session = mustGetSession(db, sessionId)
+  // The unified batch turn: hand a thread's agent the queued comments; it edits &
+  // commits code, resolves, or replies via its tools. Replaces the old fix flow.
+  handle('sendBatch', async (threadId: number, commentIds: string[], steer, opId: string) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    const thread = dao.getChatThread(db, threadId)
+    if (sid == null || !thread) throw new Error('chat thread not found')
+    const session = mustGetSession(db, sid)
     const repo = session.repo
-    const sess = lastEngineSession(db, sessionId)
-    if (!sess) throw new Error('Generate a review first')
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
-      if (session.pair.compare.kind !== 'branch') throw new Error('This session reviews a fixed commit — the agent cannot push fixes to it')
-      const branch = session.pair.compare.symbol
-      if (await isDirty(repo)) throw new Error('Working tree is dirty — commit or stash before sending feedback')
-      const cur = await currentBranch(repo)
-      if (cur !== branch) throw new Error(`Repo is on ${cur}, not ${branch} — switch branches first`)
-      const state = dao.loadReviewState(db, sessionId)
+      // write guards (same preconditions the old fix flow enforced): the compare
+      // side is a branch, the tree is clean, and the repo is on that branch. When
+      // unmet, the agent runs write-disabled (review/comment-only) rather than failing.
+      let writeEnabled = false
+      if (session.pair.compare.kind === 'branch') {
+        const branch = session.pair.compare.symbol
+        writeEnabled = !(await isDirty(repo)) && (await currentBranch(repo)) === branch
+      }
+      const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
+      for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
 
-      for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sessionId, c) }
-
-      const engine = makeEngine(sess.engine)
-      const run = engine.applyFeedback(repo, sess.sessionId, comments, steer, session.agent?.model, session.agent?.reasoningEffort)
+      const engine = makeEngine(thread.agent.engine)
+      const tools = createToolHost({
+        db, sessionId: sid, threadId, opId, repo, agent: thread.agent, writeEnabled,
+        engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
+      })
+      const run = engine.chat({
+        repo, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+        message: buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
+        tools, writeEnabled
+      })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
-      const { value: fix, sessionId: engineSession } = await run.result
+      const { value, sessionId: engineSession } = await run.result
       await pump
 
-      const newHead = await headSha(repo, branch)
-      const resolutionsById = new Map(fix.resolutions.map((r) => [r.commentId, r]))
-      for (const c of comments) {
-        const r = resolutionsById.get(c.id)
-        if (r) {
-          c.status = 'resolved'
-          c.resolution = { verdict: r.verdict, note: r.note, commit: newHead.slice(0, 7) }
-        } else {
-          c.status = 'queued' // engine forgot it — keep queued so it isn't lost
-        }
-        dao.upsertComment(db, sessionId, c)
+      // statuses now reflect the agent's resolve/commit tool calls; anything left
+      // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
+      const after = dao.loadReviewState(db, sid)
+      for (const c of after.comments) {
+        if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      dao.addIteration(db, sessionId, {
-        n: state.iterations.length + 1, engine: sess.engine, sessionId: engineSession,
-        endSha: newHead, at: new Date().toISOString(), summary: fix.summary
+      const at = new Date().toISOString()
+      const actions = tools.collected()
+      dao.addChatMessage(db, threadId, {
+        role: 'user', at,
+        text: steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
       })
-      send('op:result', { opId, kind: 'fix', ok: true, reload: true })
-      const addressed = fix.resolutions.filter((r) => r.verdict !== 'skipped').length
-      const skipped = fix.resolutions.length - addressed
-      notifyIfUnfocused('Agent applied your comments',
-        `${addressed} addressed${skipped ? `, ${skipped} skipped` : ''} — ${branch}`)
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}) })
+      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
+      send('op:result', { opId, kind: 'chat', ok: true, reload: true })
+      const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
+      notifyIfUnfocused('Agent handled your comments', `${resolved}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
     } catch (err) {
       // roll back "sent" so comments aren't stuck
-      const st = dao.loadReviewState(db, sessionId)
+      const st = dao.loadReviewState(db, sid)
       for (const c of st.comments) {
-        if (commentIds.includes(c.id) && c.status === 'sent') {
-          c.status = 'queued'
-          dao.upsertComment(db, sessionId, c)
-        }
+        if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      send('op:result', { opId, kind: 'fix', ok: false, error: String(err instanceof Error ? err.message : err) })
-      notifyIfUnfocused('Agent fix run failed', String(err instanceof Error ? err.message : err).slice(0, 120))
+      send('op:result', { opId, kind: 'chat', ok: false, error: String(err instanceof Error ? err.message : err) })
+      notifyIfUnfocused('Agent batch run failed', String(err instanceof Error ? err.message : err).slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)

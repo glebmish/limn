@@ -1,25 +1,37 @@
-import { Codex, type Thread, type ThreadEvent, type ThreadOptions } from '@openai/codex-sdk'
-import type { Comment, EngineEvent, FixResult, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
+import { Codex, type CodexOptions, type Thread, type ThreadEvent, type ThreadOptions } from '@openai/codex-sdk'
+import type { EngineEvent, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
-import { fixJsonSchema, parseFixOutput, parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildChatPrompt, buildFixPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
+import { parseReviewOutput, reviewJsonSchema } from './schema.js'
+import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { codexBinaryPath } from './binaries.js'
+import { registerCodexTurn } from './codexMcp.js'
 
-/** Per-thread model overrides; undefined model = Codex CLI default. */
+/** Per-thread model overrides; undefined model = Codex CLI default. `max` is a
+ *  Claude-only effort with no Codex equivalent, so it's dropped here. */
 function modelOpts(model?: string, reasoningEffort?: ReasoningEffort): Partial<ThreadOptions> {
   return {
     ...(model ? { model } : {}),
-    ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {})
+    ...(reasoningEffort && reasoningEffort !== 'max' ? { modelReasoningEffort: reasoningEffort } : {})
   }
 }
 
-function toEvent(ev: ThreadEvent): EngineEvent | null {
+export function toEvent(ev: ThreadEvent): EngineEvent | null {
   switch (ev.type) {
     case 'turn.started':
       return { type: 'status', text: 'Codex is working…' }
     case 'item.started':
+    case 'item.updated':
     case 'item.completed': {
       const item = ev.item
+      // localreview MCP tool calls: surface as tool activity (started/in-progress)
+      // and report failures; the AgentActions themselves flow via the host's emit.
+      if (item.type === 'mcp_tool_call') {
+        if (ev.type === 'item.completed' && item.status === 'failed') {
+          return { type: 'status', text: `note: ${item.error?.message ?? `${item.tool} failed`}` }
+        }
+        if (ev.type === 'item.started') return { type: 'tool', text: item.tool }
+        return null
+      }
       if (item.type === 'command_execution' && ev.type === 'item.started') {
         return { type: 'tool', text: item.command.slice(0, 120) }
       }
@@ -89,9 +101,15 @@ function parseJson(text: string): unknown {
   }
 }
 
+// The approval policy behind the "Auto" mode preset: the reviewer auto-approves safe
+// requests (incl. our localreview MCP tools) instead of `never`, which a guardian /
+// auto-approval-review treats as auto-deny.
+const AUTO_APPROVAL = 'on-request' as const
+
 export class CodexEngine implements ReviewEngine {
   id = 'codex' as const
-  private codex = new Codex(codexBinaryPath() ? { codexPathOverride: codexBinaryPath() } : {})
+  private base: CodexOptions = codexBinaryPath() ? { codexPathOverride: codexBinaryPath() } : {}
+  private codex = new Codex(this.base)
 
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations> {
     const q = new EventQueue()
@@ -99,7 +117,7 @@ export class CodexEngine implements ReviewEngine {
     const thread = this.codex.startThread({
       workingDirectory: req.repo,
       sandboxMode: 'read-only',
-      approvalPolicy: 'never',
+      approvalPolicy: AUTO_APPROVAL,
       ...modelOpts(req.model, req.reasoningEffort)
     })
     const { outcome, abort } = runTurn(thread, buildReviewPrompt(req), reviewJsonSchema, q)
@@ -115,44 +133,56 @@ export class CodexEngine implements ReviewEngine {
 
   chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
-    const opts: ThreadOptions = {
-      workingDirectory: turn.repo,
-      sandboxMode: 'read-only',
-      approvalPolicy: 'never',
-      ...modelOpts(turn.model, turn.reasoningEffort)
-    }
-    // resume the existing session, else open a fresh one seeded with context
-    const thread = turn.engineSessionId
-      ? this.codex.resumeThread(turn.engineSessionId, opts)
-      : this.codex.startThread(opts)
-    const prompt = turn.engineSessionId
-      ? buildChatPrompt(turn.message, turn.anchor)
-      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
-    const { outcome, abort } = runTurn(thread, prompt, undefined, q)
-    return {
-      events: q.iterable(),
-      result: outcome.then(({ threadId, finalText }) => ({ value: finalText, sessionId: threadId || turn.engineSessionId || '' })),
-      cancel: () => abort.abort()
-    }
-  }
+    const abort = new AbortController()
+    const write = Boolean(turn.writeEnabled)
+    // a write-enabled (batch) turn carries its own fully-built prompt; a read-only
+    // chat turn gets the conversational wrapper.
+    const prompt = write
+      ? turn.message
+      : turn.engineSessionId
+        ? buildChatPrompt(turn.message, turn.anchor)
+        : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
 
-  applyFeedback(repo: string, sessionId: string, comments: Comment[], steer?: string, model?: string, reasoningEffort?: ReasoningEffort): EngineRun<FixResult> {
-    const q = new EventQueue()
-    q.push({ type: 'status', text: 'Codex is applying your comments…' })
-    const thread = this.codex.resumeThread(sessionId, {
-      workingDirectory: repo,
-      sandboxMode: 'workspace-write',
-      approvalPolicy: 'never',
-      ...modelOpts(model, reasoningEffort)
-    })
-    const { outcome, abort } = runTurn(thread, buildFixPrompt(comments, steer), fixJsonSchema, q)
-    return {
-      events: q.iterable(),
-      result: outcome.then(({ threadId, finalText }) => ({
-        value: parseFixOutput(parseJson(finalText)),
-        sessionId: threadId || sessionId
-      })),
-      cancel: () => abort.abort()
-    }
+    const result = (async (): Promise<{ value: string; sessionId: string }> => {
+      let release: (() => Promise<void>) | null = null
+      try {
+        // tool-enabled turns get a per-turn Codex pointed at this turn's localhost
+        // MCP server (config is constructor-scoped, so a fresh Codex per turn).
+        let codex = this.codex
+        if (turn.tools) {
+          const mcp = await registerCodexTurn(turn.tools)
+          release = mcp.release
+          codex = new Codex({ ...this.base, config: { mcp_servers: { localreview: { url: mcp.url } } } })
+        }
+        const opts: ThreadOptions = {
+          workingDirectory: turn.repo,
+          sandboxMode: write ? 'workspace-write' : 'read-only',
+          approvalPolicy: AUTO_APPROVAL,
+          ...modelOpts(turn.model, turn.reasoningEffort)
+        }
+        const thread = turn.engineSessionId ? codex.resumeThread(turn.engineSessionId, opts) : codex.startThread(opts)
+        let finalText = ''
+        let failed: string | null = null
+        const { events } = await thread.runStreamed(prompt, { signal: abort.signal })
+        for await (const ev of events) {
+          const mapped = toEvent(ev)
+          if (mapped) q.push(mapped)
+          if (ev.type === 'item.completed' && ev.item.type === 'agent_message') finalText = ev.item.text
+          if (ev.type === 'turn.failed') failed = ev.error.message
+          if (ev.type === 'error') failed = ev.message
+        }
+        if (failed) throw new Error(`Codex run failed: ${failed}`)
+        q.push({ type: 'done' })
+        return { value: finalText, sessionId: thread.id || turn.engineSessionId || '' }
+      } catch (err) {
+        q.push({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+        throw err
+      } finally {
+        q.close()
+        if (release) await release()
+      }
+    })()
+
+    return { events: q.iterable(), result, cancel: () => abort.abort() }
   }
 }

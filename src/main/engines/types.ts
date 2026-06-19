@@ -1,7 +1,8 @@
 import type {
-  Artifact, Comment, CommentAnchor, DiffSkeleton, EngineEvent, EngineId, FixResult,
+  Artifact, CommentAnchor, DiffSkeleton, EngineEvent, EngineId,
   ReasoningEffort, ReviewAnnotations
 } from '../../shared/types.js'
+import type { AgentToolHost } from './tools.js'
 
 export interface ReviewRequest {
   repo: string
@@ -26,6 +27,10 @@ export interface ChatTurn {
   message: string
   anchor?: CommentAnchor
   context?: ChatContext
+  /** when set, the turn gets the localreview tool layer (focus/suggest/…). */
+  tools?: AgentToolHost
+  /** allow code-editing tools this turn (branch + clean tree preconditions met). */
+  writeEnabled?: boolean
 }
 
 export interface EngineRun<T> {
@@ -37,12 +42,9 @@ export interface EngineRun<T> {
 export interface ReviewEngine {
   id: EngineId
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
-  /** result.sessionId is the engine session id (new when seeded, else resumed). */
+  /** result.sessionId is the engine session id (new when seeded, else resumed).
+   *  Tool-enabled turns (incl. the unified batch) flow through here via turn.tools. */
   chat(turn: ChatTurn): EngineRun<string>
-  applyFeedback(
-    repo: string, sessionId: string, comments: Comment[], steer?: string,
-    model?: string, reasoningEffort?: ReasoningEffort
-  ): EngineRun<FixResult>
 }
 
 /** Async queue bridging push-style SDK callbacks to a pull-style AsyncIterable. */

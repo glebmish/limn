@@ -33,18 +33,41 @@ export type CommentAnchor =
   | { kind: 'summary' }
   | { kind: 'file'; file: string }
   | { kind: 'question'; questionId: string }
-export interface CommentReply { author: 'user' | 'agent'; text: string; at: string }
+export interface CommentReply { author: 'user' | 'agent'; text: string; at: string; agentRef?: AgentRef; threadId?: number }
 export interface Comment {
-  id: string; anchor: CommentAnchor; author: 'user'; text: string;
+  id: string; anchor: CommentAnchor; author: 'user' | 'agent'; text: string;
+  /** agent-authored comments/replies carry which agent + which chat thread, for
+   *  the identity chip + click-through (JSON blob — no column migration). */
+  agentRef?: AgentRef; threadId?: number;
   status: 'queued' | 'sent' | 'resolved' | 'outdated';
   resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string };
   replies: CommentReply[]; createdAt: string; iteration: number;
 }
 
+// ── agent tool actions ────────────────────────────────────────
+/** The reviewable spots a `focus` tool call can scroll+highlight. A subset of
+ *  CommentAnchor (no parallel type) so a focus chip and a comment chip share the
+ *  same `focusAnchor` renderer. */
+export type FocusTarget = Extract<CommentAnchor, { kind: 'summary' } | { kind: 'section' } | { kind: 'file' } | { kind: 'diff' }>
+/** A side effect (or suggestion) an agent performed during a chat turn. Emitted
+ *  live as an `EngineEvent` and persisted on the agent ChatMessage so chips rebuild
+ *  on reload. Phase 1 ships `focus` + `suggest_viewed`; the rest land with the
+ *  comment/review/commit tools. */
+export type AgentAction =
+  | { kind: 'focus'; anchor: FocusTarget }
+  | { kind: 'suggest_viewed'; files?: string[]; sectionIds?: string[]; note?: string }
+  | { kind: 'comment_added'; comment: Comment }
+  | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
+  | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
+  | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.what' | 'section.desc'; sectionId?: string }
+  | { kind: 'code_committed'; sha: string; files: string[]; message: string }
+
 // ── engines ───────────────────────────────────────────────────
 export type EngineId = 'claude' | 'codex'
-/** Codex-only knob; ignored by Claude. */
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+/** Reasoning-effort knob. Both engines accept it now: Codex spans
+ *  minimal→xhigh, Claude (Opus/Sonnet) spans low→max. Which values are offered
+ *  per model is gated by the catalog's `reasoningEfforts`. */
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 /** A selectable agent = an engine + an optional model/effort. `model`
  *  undefined means "Auto" — let the CLI pick its default (today's behavior). */
 export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
@@ -52,14 +75,13 @@ export type EngineEvent =
   | { type: 'status'; text: string }
   | { type: 'tool'; text: string }
   | { type: 'text'; text: string }            // streamed assistant text (chat)
+  | { type: 'action'; action: AgentAction }   // agent tool call (focus, suggest, …)
   | { type: 'done' }
   | { type: 'error'; message: string }
-export interface CommentResolution { commentId: string; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
-export interface FixResult { summary: string; resolutions: CommentResolution[] }
 
 // ── artifacts / chat / state ─────────────────────────────────
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; path: string; title: string; lines: string[] }
-export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor }
+export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are
  *  started by the reviewer and may target any agent. */

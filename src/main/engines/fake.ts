@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
-import type { Comment, CommentAnchor, FixResult, ReviewAnnotations } from '../../shared/types.js'
+import type { ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 
 /** Deterministic engine for contract tests and demo mode (LR_DEMO=1). */
@@ -54,8 +53,9 @@ export class FakeEngine implements ReviewEngine {
 
   chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
+    const batch = Boolean(turn.tools && turn.writeEnabled)
     const modelTag = turn.model ? ` using **${turn.model}**` : ''
-    const text = [
+    const chatText = [
       `Looking at your question${modelTag}:`,
       '',
       `> ${turn.message}`,
@@ -71,41 +71,31 @@ export class FakeEngine implements ReviewEngine {
       '',
       'Want me to check the tests next?'
     ].join('\n')
+    const batchText = 'Handled your comments: made the edit, committed it on the branch, and resolved each one. See the rollup below.'
+    const text = batch ? batchText : chatText
     const result = (async () => {
-      q.push({ type: 'status', text: 'Reading src/a.ts…' })
+      q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
       q.push({ type: 'tool', text: 'Grep parseRefInput' })
+      if (batch && turn.tools) {
+        // unified batch: resolve the sent comments + commit via the tools
+        const listed = await turn.tools.call('list_comments', { status: 'sent' })
+        let ids: string[] = []
+        try { ids = (JSON.parse(listed.result) as { id: string }[]).map((c) => c.id) } catch { /* none */ }
+        try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
+        await turn.tools.call('commit_changes', {
+          message: 'local-review: batch fixes',
+          resolutions: ids.map((id) => ({ commentId: id, verdict: 'addressed' as const, note: 'Done (demo).' }))
+        })
+      } else if (turn.tools) {
+        // tool-enabled read-only chat: exercise the focus + suggest action pipe
+        await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })
+        await turn.tools.call('suggest_mark_viewed', { files: ['src/a.ts'], note: 'covered above' })
+      }
       // stream the answer in chunks so the panel shows live tokens
       for (const chunk of text.match(/[\s\S]{1,48}/g) ?? [text]) q.push({ type: 'text', text: chunk })
       q.push({ type: 'done' })
       q.close()
       return { value: text, sessionId: turn.engineSessionId || `fake-chat-${Date.now()}` }
-    })()
-    return { events: q.iterable(), result, cancel: () => q.close() }
-  }
-
-  applyFeedback(repo: string, sessionId: string, comments: Comment[]): EngineRun<FixResult> {
-    const q = new EventQueue()
-    const result = (async () => {
-      q.push({ type: 'status', text: 'Applying comments…' })
-      // touch the first diff-anchored file (or any file) and commit
-      const target = comments.map((c) => c.anchor).find((a): a is Extract<CommentAnchor, { kind: 'diff' }> => a.kind === 'diff')
-      const rel = target?.file ?? 'FAKE_ENGINE.md'
-      const p = path.join(repo, rel)
-      fs.appendFileSync(p, '\n// addressed by fake engine\n')
-      execFileSync('git', ['add', '-A'], { cwd: repo })
-      execFileSync('git', ['commit', '-m', 'local-review: fake engine fixes'], {
-        cwd: repo,
-        env: { ...process.env, GIT_AUTHOR_NAME: 'Fake', GIT_AUTHOR_EMAIL: 'f@x', GIT_COMMITTER_NAME: 'Fake', GIT_COMMITTER_EMAIL: 'f@x' }
-      })
-      q.push({ type: 'done' })
-      q.close()
-      return {
-        value: {
-          summary: `Applied ${comments.length} comment(s).`,
-          resolutions: comments.map((c) => ({ commentId: c.id, verdict: 'addressed' as const, note: 'Done (demo).' }))
-        },
-        sessionId
-      }
     })()
     return { events: q.iterable(), result, cancel: () => q.close() }
   }

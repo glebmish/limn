@@ -71,25 +71,28 @@ ${message}${aCtx}
 Answer conversationally and concisely.`
 }
 
-export function buildFixPrompt(comments: Comment[], steer?: string): string {
+/** The unified batch turn: the agent handles queued comments with its tools —
+ *  editing & committing code, resolving, or replying — rather than returning a
+ *  structured FixResult. When the thread has no engine session to resume,
+ *  `context` seeds the review framing. */
+export function buildBatchPrompt(comments: Comment[], steer?: string, context?: ChatContext): string {
   const list = comments
     .map((c, i) => `${i + 1}. [id: ${c.id}] on ${describeAnchor(c.anchor)}:\n   "${c.text}"${c.replies.length ? `\n   thread: ${c.replies.map((r) => `${r.author}: ${r.text}`).join(' | ')}` : ''}`)
     .join('\n')
   const steerBlock = steer ? `\nSteer from the reviewer (overall direction): ${steer}\n` : ''
+  const seed = context
+    ? `You are reviewing branch ${context.branch} against ${context.base}.${context.summary ? ` Review summary: ${context.summary}` : ''}\n\n`
+    : ''
 
-  return `The reviewer finished a pass and is sending you their comments to address. Apply each one to the code on the current branch.
+  return `${seed}The reviewer is sending you ${comments.length} comment(s) to handle on the current branch.
 ${steerBlock}
 Comments:
 ${list}
 
-Instructions:
-- Address every comment, or explicitly skip it with a reason if it should not be done.
-- Make the edits, keep the existing code style, and run a quick sanity check (typecheck/tests) if the repo has one configured.
-- Commit your work on the current branch. Use one or more commits; message format: "local-review: <short description>".
-- Answers to your earlier open questions (anchor "your open question …") are decisions, not code comments — apply what they decide.
-
-Return the structured result: "summary" (2-3 sentences on what you did) and one resolution per comment id with verdict:
-- "addressed" — done as asked
-- "reworked" — done, but differently than suggested (explain in note)
-- "skipped" — not done (explain why in note)`
+Handle them using your tools:
+- Address each comment by editing the code, or answer it with reply_to_comment if no change is needed.
+- When you edit code, commit it with commit_changes — pass a short message ("local-review: …") and the resolutions for the comments that commit addresses (each: commentId, verdict, note). Verdicts: "addressed" (done as asked), "reworked" (done differently — explain), "skipped" (not done — explain). commit_changes records the iteration.
+- For comments handled without a code change, call resolve_comment with the verdict and note.
+- Keep the existing code style. Answers to your earlier open questions are decisions, not code comments.
+- Finish with a 2-3 sentence summary of what you did.`
 }

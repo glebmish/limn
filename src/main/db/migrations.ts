@@ -128,5 +128,13 @@ export const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Agent tool actions persisted on the authoring chat message, so the action
+    // chips (focus, suggest, …) rebuild on reload.
+    version: 2,
+    up(db) {
+      db.exec('ALTER TABLE chat_messages ADD COLUMN actions_json TEXT;')
+    }
   }
 ]

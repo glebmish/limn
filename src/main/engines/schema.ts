@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { FixResult, ReviewAnnotations } from '../../shared/types.js'
+import type { ReviewAnnotations } from '../../shared/types.js'
 
 // Wire schemas: what the engines are asked to return. Constraints from the two
 // structured-output validators:
@@ -51,24 +51,14 @@ export const reviewWireSchema = z.object({
   artifactPaths: z.array(z.string()).nullable()
 })
 
-export const fixWireSchema = z.object({
-  summary: z.string(),
-  resolutions: z.array(z.object({
-    commentId: z.string(),
-    verdict: z.enum(['addressed', 'reworked', 'skipped']),
-    note: z.string()
-  }))
-})
-
 function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
   const js = z.toJSONSchema(schema) as Record<string, unknown>
   delete js.$schema
   return js
 }
 
-// JSON Schemas for the SDKs' structured-output options
+// JSON Schema for the SDKs' structured-output options
 export const reviewJsonSchema = toJsonSchema(reviewWireSchema)
-export const fixJsonSchema = toJsonSchema(fixWireSchema)
 
 export function parseReviewOutput(raw: unknown): ReviewAnnotations {
   const wire = reviewWireSchema.parse(raw)
@@ -91,8 +81,4 @@ export function parseReviewOutput(raw: unknown): ReviewAnnotations {
     questions: wire.questions.map((q) => ({ ...q, context: q.context ?? undefined })),
     artifactPaths: wire.artifactPaths ?? undefined
   }
-}
-
-export function parseFixOutput(raw: unknown): FixResult {
-  return fixWireSchema.parse(raw)
 }

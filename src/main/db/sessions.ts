@@ -167,9 +167,13 @@ type ChatThreadRow = {
 const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at'
 
 function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
-  const messages = (db.prepare('SELECT role, text, at, anchor_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
-    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null }[])
-    .map((r) => ({ role: r.role, text: r.text, at: r.at, ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}) }))
+  const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
+    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null }[])
+    .map((r) => ({
+      role: r.role, text: r.text, at: r.at,
+      ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}),
+      ...(r.actions_json ? { actions: JSON.parse(r.actions_json) } : {})
+    }))
   return {
     id: row.id,
     kind: row.kind,
@@ -209,8 +213,9 @@ export function listChatThreads(db: DatabaseSync, sessionId: number): ChatThread
 }
 
 export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessage): void {
-  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json) VALUES (?, ?, ?, ?, ?)')
-    .run(threadId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null)
+  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json, actions_json) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(threadId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null,
+      m.actions && m.actions.length ? JSON.stringify(m.actions) : null)
 }
 
 export function setThreadEngineSession(db: DatabaseSync, threadId: number, engineSessionId: string): void {

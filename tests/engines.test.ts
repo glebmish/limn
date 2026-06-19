@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 import { getDiff, diffSince, markSince, headSha } from '../src/main/git'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { FakeEngine } from '../src/main/engines/fake'
-import type { Comment, EngineEvent } from '../src/shared/types'
+import { createToolHost } from '../src/main/engines/tools'
+import { openDb } from '../src/main/db/db'
+import { createSession, createChatThread, upsertComment, loadReviewState } from '../src/main/db/sessions'
+import type { Comment, EngineEvent, RefPair } from '../src/shared/types'
 
 let fx: FixtureRepo
 beforeAll(() => {
@@ -37,7 +43,7 @@ describe('mergeAnnotations', () => {
 })
 
 describe('FakeEngine contract', () => {
-  it('full cycle: review → comment → fix → since-tagging', async () => {
+  it('full cycle: review → comment → batch turn → since-tagging', async () => {
     const engine = new FakeEngine()
     const sk = await getDiff(fx.dir, 'main', 'feature')
     const reviewedAt = sk.headSha
@@ -52,16 +58,32 @@ describe('FakeEngine contract', () => {
     const all = annotations.sections.flatMap((s) => s.files).sort()
     expect(all).toEqual(sk.files.map((f) => f.path).sort())
 
-    // comment on a diff line of src/a.ts
+    // a queued comment on a diff line of src/a.ts, sent into the unified batch turn
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-batch-')), 'db')).db
+    const branchPair: RefPair = {
+      base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
+      compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
+    }
+    const s = createSession(db, fx.dir, branchPair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     const comment: Comment = {
       id: 'c1',
       anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '@@ -1,4 +1,5 @@', lineContent: '  return 2' },
-      author: 'user', text: 'Please log this', status: 'queued', replies: [], createdAt: 'now', iteration: 1
+      author: 'user', text: 'Please log this', status: 'sent', replies: [], createdAt: 'now', iteration: 1
     }
-    const fixRun = engine.applyFeedback(fx.dir, sessionId, [comment])
-    await drain(fixRun.events)
-    const { value: fix } = await fixRun.result
-    expect(fix.resolutions.map((r) => r.commentId)).toEqual(['c1'])
+    upsertComment(db, s.id, comment)
+    const host = createToolHost({
+      db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
+      agent: { engine: 'claude' }, writeEnabled: true, engineSessionId: 'e1', emit: () => {}
+    })
+    const batch = engine.chat({ repo: fx.dir, message: 'handle the comments', tools: host, writeEnabled: true })
+    await drain(batch.events)
+    await batch.result
+
+    // the agent resolved the comment + recorded an iteration via commit_changes
+    const st = loadReviewState(db, s.id)
+    expect(st.comments.find((c) => c.id === 'c1')!.status).toBe('resolved')
+    expect(st.iterations.length).toBeGreaterThan(0)
 
     // a new commit exists on the branch
     const newHead = await headSha(fx.dir, 'feature')
@@ -73,7 +95,7 @@ describe('FakeEngine contract', () => {
     markSince(full2, since)
     const a2 = full2.files.find((f) => f.path === 'src/a.ts')!
     const sinceTexts = a2.hunks.flatMap((h) => h.lines.filter((l) => l.since).map((l) => l.text))
-    expect(sinceTexts).toContain('// addressed by fake engine')
+    expect(sinceTexts).toContain('// addressed by agent')
   })
 
   it('chat returns streamed text and echoes the question', async () => {
