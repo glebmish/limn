@@ -6,6 +6,7 @@ import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './pro
 import { codexBinaryPath } from './binaries.js'
 import { registerCodexTurn } from './codexMcp.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
+import { appServerEnabled, chatViaAppServer } from './codexAppServer.js'
 
 /** Codex tool arguments -> kv pairs for the expanded tool-call row. */
 function kvOf(args: unknown): [string, string][] {
@@ -159,6 +160,10 @@ export class CodexEngine implements ReviewEngine {
   }
 
   chat(turn: ChatTurn): EngineRun<string> {
+    // Opt-in: route through the bidirectional app-server (interactive approvals).
+    // Default stays the one-shot `codex exec` path below (the verified fallback).
+    if (appServerEnabled()) return chatViaAppServer(turn)
+
     const q = new EventQueue()
     const abort = new AbortController()
     const write = Boolean(turn.writeEnabled)
