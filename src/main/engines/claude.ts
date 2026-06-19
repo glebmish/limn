@@ -5,6 +5,7 @@ import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
 import { LR_TOOLS, lrAllowedToolNames, type AgentToolHost } from './tools.js'
+import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 const WRITE_TOOLS = [...READ_TOOLS, 'Edit', 'Write']
@@ -31,28 +32,59 @@ interface RunOutcome {
   text: string
 }
 
-function toEvent(msg: SDKMessage): EngineEvent | null {
+/** Primary display arg + the structured kv pairs for a tool_use input. */
+function primaryArg(input: Record<string, unknown>): { arg?: string; kv: [string, string][] } {
+  const kv = Object.entries(input)
+    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
+    .map(([k, v]) => [k, String(v)] as [string, string])
+  const raw = input.file_path ?? input.path ?? input.pattern ?? input.command ?? input.query
+  return { arg: raw != null ? String(raw) : undefined, kv }
+}
+
+/** Flatten a tool_result block's content (string or content-block array) to text. */
+function resultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : ''))
+      .join('')
+  }
+  return ''
+}
+
+/** Map one SDK message to zero or more EngineEvents. A single assistant message
+ *  can carry several content blocks (text + multiple tool_use); tool results
+ *  arrive on subsequent `user` messages and settle the matching running call by id. */
+export function toEvents(msg: SDKMessage): EngineEvent[] {
+  const out: EngineEvent[] = []
   if (msg.type === 'assistant') {
     const blocks = msg.message.content
     if (Array.isArray(blocks)) {
       for (const b of blocks) {
         if (b.type === 'tool_use') {
-          const input = b.input as Record<string, unknown>
-          const detail =
-            (input.file_path as string) ?? (input.command as string) ?? (input.pattern as string) ?? ''
-          return { type: 'tool', text: `${b.name} ${String(detail).slice(0, 120)}`.trim() }
-        }
-        if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
-          return { type: 'text', text: b.text }
+          const { arg, kv } = primaryArg(b.input as Record<string, unknown>)
+          out.push({ type: 'tool', call: { id: b.id, verb: deriveVerb(b.name), name: b.name, ...(arg ? { arg } : {}), ...(kv.length ? { kv } : {}), state: 'run' } })
+        } else if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
+          out.push({ type: 'text', text: b.text })
         }
       }
     }
-    return null
+    return out
   }
-  if (msg.type === 'system' && msg.subtype === 'init') {
-    return { type: 'status', text: 'Agent session started' }
+  if (msg.type === 'user') {
+    const blocks = (msg.message as { content?: unknown }).content
+    if (Array.isArray(blocks)) {
+      for (const b of blocks as { type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }[]) {
+        if (b.type === 'tool_result' && b.tool_use_id) {
+          const { out: clamped, outMore } = clampOut(resultText(b.content))
+          out.push({ type: 'tool', call: { id: b.tool_use_id, verb: 'other', name: '', state: b.is_error ? 'err' : 'ok', ...(clamped ? { out: clamped } : {}), ...(outMore ? { outMore } : {}) } })
+        }
+      }
+    }
+    return out
   }
-  return null
+  if (msg.type === 'system' && msg.subtype === 'init') return [{ type: 'status', text: 'Agent session started' }]
+  return out
 }
 
 function runQuery(prompt: string, options: Options, q: EventQueue): { outcome: Promise<RunOutcome>; abort: AbortController } {
@@ -69,8 +101,7 @@ function runQuery(prompt: string, options: Options, q: EventQueue): { outcome: P
         options: { ...options, abortController: abort, ...(pathToClaudeCodeExecutable ? { pathToClaudeCodeExecutable } : {}) }
       })) {
         if (msg.type === 'system' && msg.subtype === 'init') sessionId = msg.session_id
-        const ev = toEvent(msg)
-        if (ev) q.push(ev)
+        for (const ev of toEvents(msg)) q.push(ev)
         if (msg.type === 'result') {
           sessionId = msg.session_id || sessionId
           if (msg.subtype === 'success') {

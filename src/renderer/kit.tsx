@@ -23,7 +23,13 @@ export const I = {
   branch: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" {...p}><circle cx="3.5" cy="3" r="1.5" /><circle cx="3.5" cy="11" r="1.5" /><circle cx="10.5" cy="4.5" r="1.5" /><path d="M3.5 4.5v5M3.5 8.5C3.5 6 10.5 7 10.5 6" /></svg>,
   gear: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" {...p}><circle cx="7" cy="7" r="2" /><path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2M3.1 3.1l1.4 1.4M9.5 9.5l1.4 1.4M10.9 3.1L9.5 4.5M4.5 9.5l-1.4 1.4" /></svg>,
   x: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" {...p}><path d="M3.5 3.5l7 7M10.5 3.5l-7 7" /></svg>,
-  trash: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M2.5 3.5h9M5.5 3.5V2.3h3v1.2M3.5 3.5l.6 8h5.8l.6-8M6 6v3.5M8 6v3.5" /></svg>
+  trash: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M2.5 3.5h9M5.5 3.5V2.3h3v1.2M3.5 3.5l.6 8h5.8l.6-8M6 6v3.5M8 6v3.5" /></svg>,
+  // tool-call verbs (wf-D), ported from the wireframe A.* set
+  search: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" {...p}><circle cx="6" cy="6" r="3.5" /><path d="M8.7 8.7L12 12" /></svg>,
+  edit: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><path d="M9.5 2.5l2 2L5 11l-2.5.5L3 9z" /><path d="M8.5 3.5l2 2" /></svg>,
+  term: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="1.5" y="2.5" width="11" height="9" rx="1.3" /><path d="M4 6l2 1.5L4 9M7.5 9.5h3" /></svg>,
+  list: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" {...p}><path d="M5 4h7M5 7h7M5 10h7M2.3 4h.01M2.3 7h.01M2.3 10h.01" /></svg>,
+  warn: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M7 1.8l5.5 9.7H1.5z" /><path d="M7 5.7v2.6M7 10h.01" /></svg>
 }
 
 export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {

@@ -6,6 +6,7 @@ import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 import { getDiff, diffSince, markSince, headSha } from '../src/main/git'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { FakeEngine } from '../src/main/engines/fake'
+import { toEvents } from '../src/main/engines/claude'
 import { createToolHost } from '../src/main/engines/tools'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState } from '../src/main/db/sessions'
@@ -116,5 +117,55 @@ describe('FakeEngine contract', () => {
     expect(sessionId).toBeTruthy()
     expect(sessionId).not.toBe('sess')
     expect(value).toContain('opus') // model surfaced in the demo answer
+  })
+})
+
+describe('claude toEvents — tool lifecycle', () => {
+  it('maps a tool_use block to a running ToolCall', () => {
+    const msg = { type: 'assistant', message: { content: [
+      { type: 'tool_use', id: 'tu_1', name: 'Read', input: { file_path: 'src/a.ts' } },
+    ] } } as never
+    expect(toEvents(msg)).toEqual([
+      { type: 'tool', call: { id: 'tu_1', verb: 'read', name: 'Read', arg: 'src/a.ts', kv: [['file_path', 'src/a.ts']], state: 'run' } },
+    ])
+  })
+
+  it('maps a tool_result user message to ok with out', () => {
+    const msg = { type: 'user', message: { content: [
+      { type: 'tool_result', tool_use_id: 'tu_1', content: 'line1\nline2\nline3', is_error: false },
+    ] } } as never
+    expect(toEvents(msg)).toEqual([
+      { type: 'tool', call: { id: 'tu_1', verb: 'other', name: '', state: 'ok', out: 'line1\nline2\nline3' } },
+    ])
+  })
+
+  it('marks an errored tool_result as err', () => {
+    const msg = { type: 'user', message: { content: [
+      { type: 'tool_result', tool_use_id: 'tu_2', content: 'boom', is_error: true },
+    ] } } as never
+    expect(toEvents(msg)[0]).toMatchObject({ type: 'tool', call: { id: 'tu_2', state: 'err', out: 'boom' } })
+  })
+
+  it('handles array-form tool_result content', () => {
+    const msg = { type: 'user', message: { content: [
+      { type: 'tool_result', tool_use_id: 'tu_3', content: [{ type: 'text', text: 'hello' }] },
+    ] } } as never
+    expect(toEvents(msg)[0]).toMatchObject({ type: 'tool', call: { id: 'tu_3', state: 'ok', out: 'hello' } })
+  })
+
+  it('emits assistant text and [] for unrelated messages', () => {
+    expect(toEvents({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } } as never)).toEqual([{ type: 'text', text: 'hi' }])
+    expect(toEvents({ type: 'system', subtype: 'other' } as never)).toEqual([])
+  })
+
+  it('emits multiple events from one assistant message (text + tool_use)', () => {
+    const msg = { type: 'assistant', message: { content: [
+      { type: 'text', text: 'looking' },
+      { type: 'tool_use', id: 'tu_9', name: 'Grep', input: { pattern: 'foo' } },
+    ] } } as never
+    expect(toEvents(msg)).toEqual([
+      { type: 'text', text: 'looking' },
+      { type: 'tool', call: { id: 'tu_9', verb: 'grep', name: 'Grep', arg: 'foo', kv: [['pattern', 'foo']], state: 'run' } },
+    ])
   })
 })

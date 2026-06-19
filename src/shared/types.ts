@@ -62,6 +62,24 @@ export type AgentAction =
   | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.what' | 'section.desc'; sectionId?: string }
   | { kind: 'code_committed'; sha: string; files: string[]; message: string }
 
+// ── tool-call log (wf-D) ──────────────────────────────────────
+/** Verb drives the row icon + label; derived from the engine's raw tool name. */
+export type ToolVerb = 'read' | 'grep' | 'edit' | 'bash' | 'list' | 'other'
+/** A single tool invocation in the activity log. Emitted on the `tool` EngineEvent
+ *  twice per call — `run` on start, `ok`/`err` on completion (same `id`) — folded by
+ *  `reduceToolCalls`. Persisted (settled) on the agent ChatMessage. */
+export interface ToolCall {
+  id: string
+  verb: ToolVerb
+  name: string
+  arg?: string
+  kv?: [string, string][]
+  state: 'run' | 'ok' | 'err'
+  meta?: string
+  out?: string
+  outMore?: string
+}
+
 // ── engines ───────────────────────────────────────────────────
 export type EngineId = 'claude' | 'codex'
 /** Reasoning-effort knob. Both engines accept it now: Codex spans
@@ -73,7 +91,7 @@ export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 
 export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
 export type EngineEvent =
   | { type: 'status'; text: string }
-  | { type: 'tool'; text: string }
+  | { type: 'tool'; call: ToolCall }          // structured tool-call lifecycle (wf-D)
   | { type: 'text'; text: string }            // streamed assistant text (chat)
   | { type: 'action'; action: AgentAction }   // agent tool call (focus, suggest, …)
   | { type: 'done' }
@@ -81,7 +99,7 @@ export type EngineEvent =
 
 // ── artifacts / chat / state ─────────────────────────────────
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; path: string; title: string; lines: string[] }
-export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[] }
+export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are
  *  started by the reviewer and may target any agent. */

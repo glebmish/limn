@@ -64,6 +64,32 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: lr-spin .8s linear infinite; flex: 0 0 auto; }
 @keyframes lr-spin { to { transform: rotate(360deg); } }
 
+/* ── agent tool-call log (wf-D) — ported from the wireframe ─── */
+.lr-spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--amber-line); border-top-color: var(--amber); animation: lr-spin .8s linear infinite; flex: 0 0 auto; }
+.tlog { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 6px; }
+.tcall { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); overflow: hidden; }
+.tcall.run { border-color: var(--amber-line); }
+.tcall.err { border-color: var(--red-line); }
+.tcall-head { display: flex; align-items: center; gap: 8px; padding: 6px 9px; cursor: pointer; }
+.tcall-head:hover { background: rgba(0,0,0,.015); }
+.tcall-ico { width: 13px; height: 13px; color: var(--accent); flex: 0 0 auto; }
+.tcall.run .tcall-ico { color: var(--amber); }
+.tcall.err .tcall-ico { color: var(--red); }
+.tcall-verb { font-family: var(--mono); font-weight: 600; color: var(--ink-2); font-size: 11px; flex: 0 0 auto; }
+.tcall-arg { font-family: var(--mono); color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.tcall-stat { font-size: 10px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); }
+.tcall-stat.ok { color: var(--accent-ink); }
+.tcall-stat.run { color: var(--amber); }
+.tcall-stat.err { color: var(--red); }
+.tcall-cv { color: var(--faint); flex: 0 0 auto; width: 12px; height: 12px; }
+.tcall-body { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 10px; }
+.tcall-kv { font-family: var(--mono); font-size: 10.5px; line-height: 1.7; color: var(--ink-2); }
+.tcall-kv .tk { color: var(--muted); }
+.tcall-out { margin-top: 7px; border-top: 1px dashed var(--line); padding-top: 7px; font-family: var(--mono); font-size: 10.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; max-height: 130px; overflow: hidden; position: relative; }
+.tcall-out .to-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(transparent, var(--panel)); }
+.tcall-more { font-size: 10px; color: var(--muted); font-family: var(--mono); padding: 5px 10px 0; }
+.tstatus { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); font-style: italic; padding: 1px 0; }
+
 /* call-to-action band for generating the guided review */
 .gen-cta { margin: 14px 30px 0; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: var(--panel-2); padding: 13px 15px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .gen-cta .gc-tx { flex: 1 1 260px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
