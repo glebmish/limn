@@ -116,14 +116,28 @@ in the old fix flow); previous-work-first (done). All five capabilities — **fo
 
 ### Deferred — DO THESE IN ORDER
 
-**1. FIRST — Full wf-D tool-call log to parity.** The streaming activity log still shows
-only the **last 4** lines (`ChatDrawer.tsx`), not the expandable args+result / grouped-runs
-/ inline-error card from wf-D. Self-contained renderer work (touches `ChatDrawer.tsx`,
-maybe a new `ToolCallLog.tsx`, styles). **Must land before the approvals task** — both touch
-`ChatDrawer`'s streaming block, so doing wf-D first avoids a collision. The action chips +
-commit chip already cover the *settled* artifacts; this is the *live* activity view.
+**1. FIRST — Full wf-D tool-call log to parity. ✅ DONE (merged to main).** Now a
+persisted, flat, expandable tool-call log (`src/renderer/components/ToolCallLog.tsx` +
+`src/shared/toolcalls.ts` `reduceToolCalls`) replacing the last-4-lines summary. The
+`tool` `EngineEvent` now carries a structured `ToolCall` (`run`→`ok`/`err` lifecycle,
+keyed by call-id); both engines emit start+completion; persisted on `ChatMessage.tools`
+(**migration v3** `tools_json`). Decisions: **persisted** transcript log; **flat list,
+no grouping** in v1; `meta` best-effort. Spec `2026-06-19-tool-call-log-design.md`, plan
+`2026-06-19-tool-call-log.md`. Screenshot-verified (collapsed / running / expanded /
+error) via new `LR_RUN_CHAT` + `LR_HOLD_STREAM` + `LR_EXPAND_TOOL` dev hooks. 164 tests.
 
-**2. THEN — Interactive approvals for BOTH engines (the specced task).** See the spec at
+**2. THEN — Interactive approvals for BOTH engines (the specced task).** ⭐ NEXT. The
+spec was **revised** (2026-06-19) to fold in the wireframe's **execution-mode ladder**
+(section J): a per-chat mode pill — **Ask for approval · Accept edits · Auto mode · Full
+access** — one product vocabulary mapped internally to each engine's permissionMode +
+sandbox (`executionPolicy(mode)`). **Decision reversal locked with the user:** the **Full
+access** tier *is* shipped and sets `danger-full-access` (sandbox off) via the app-server
+`sandboxPolicy` param — reversing the earlier "no sandbox bypass" rule — guarded (red,
+never default, explicit confirm). Mode is per-chat persisted (**migration v4**
+`chat_threads.execution_mode`, default `ask`) and **never locked** (the `writeEnabled`
+guard still fences `commit_changes` at execution). The reactive approve/deny card +
+Claude `canUseTool` + Codex `app-server` machinery is unchanged; the mode now drives it.
+See the spec at
 [`docs/superpowers/specs/2026-06-19-agent-approvals.md`](docs/superpowers/specs/2026-06-19-agent-approvals.md)
 (written separately — confirm it exists before starting). Why this exists: the Codex MCP
 transport is verified working end-to-end, but Codex's **guardian / auto-approval-review**
@@ -181,10 +195,12 @@ Verified against the installed SDKs and the codebase:
 ## 5. Wireframes & screenshots
 
 - **Wireframes:** `the wireframes (sibling project)`
-  (sibling project; a pan/zoom canvas, sections A–I). A–C = the picker/multi-chat (done in
-  the previous-work track); **D–I = the tool layer** (tool-call log, action chips,
-  focus/suggest cross-surface pairs, comment/identity, unified batch, storyboard). The
-  `Mini` panes are a stand-in for the **real** review surface — don't build a literal "Mini".
+  (sibling project; a pan/zoom canvas, sections A–J). A–C = the picker/multi-chat (done in
+  the previous-work track); **D–I = the tool layer** (tool-call log ✅, action chips,
+  focus/suggest cross-surface pairs, comment/identity, unified batch, storyboard);
+  **J = execution mode** (`frames-mode.jsx`, J1–J3) — the approvals ladder, folded into
+  the approvals spec (§3.2). The `Mini` panes are a stand-in for the **real** review
+  surface — don't build a literal "Mini".
 - **Screenshot harness:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints
   `{ repo, db, sessionId, reviewChat, userChat }`; then launch Electron with `LR_DB` /
   `LR_OPEN_SESSION` / `LR_FLOW=chat` + `LR_SHOT=/path.png LR_SHOT_DELAY LR_SHOT_QUIT=1` and
@@ -195,11 +211,8 @@ Verified against the installed SDKs and the codebase:
 
 ## 6. Suggested next move — do these in this order (see §3 "Deferred")
 
-1. **FIRST: the full wf-D tool-call log** — make `ChatDrawer.tsx`'s streaming activity
-   expandable (args+result, grouped runs, inline error card) instead of the last-4-lines
-   summary. Self-contained renderer work; TDD the grouping helper; screenshot the expanded
-   log. Land this **before** the approvals task — they share `ChatDrawer`'s streaming block.
-2. **THEN: interactive approvals for both engines** — implement the spec at
+1. ~~**FIRST: the full wf-D tool-call log**~~ ✅ **DONE** — merged to `main` (see §3.1).
+2. **NOW: interactive approvals for both engines** — implement the **revised** spec at
    [`docs/superpowers/specs/2026-06-19-agent-approvals.md`](docs/superpowers/specs/2026-06-19-agent-approvals.md)
    (Claude `canUseTool` + Codex `app-server`; reference `a reference implementation`). This is
    what unblocks Codex MCP tools on guardian-enabled machines. **Not** the bypass flag.
