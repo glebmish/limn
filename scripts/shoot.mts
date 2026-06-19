@@ -12,7 +12,7 @@ import { mergeAnnotations } from '../src/main/engines/validate'
 import { openDb } from '../src/main/db/db'
 import {
   createSession, updateSessionMeta, addIteration, reconcileChats,
-  listChatThreads, addChatMessage, setThreadAgent, setThreadEngineSession
+  listChatThreads, addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment
 } from '../src/main/db/sessions'
 import type { RefPair } from '../src/shared/types'
 
@@ -62,11 +62,22 @@ addChatMessage(db, reviewChat.id, {
     '```',
     '',
     'Only `parseRefInput` calls it today, and it already null-checks, so this is safe.'
-  ].join('\n')
+  ].join('\n'),
+  // tool actions: focus + suggest + a comment it left + a comment it resolved
+  actions: [
+    { kind: 'focus', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+    { kind: 'comment_added', comment: {
+      id: 'agent-c1', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' },
+      author: 'agent', text: 'guard note', status: 'resolved', replies: [], createdAt: 'now', iteration: 1
+    } },
+    { kind: 'comment_resolved', commentId: 'user-c1', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 5, hunkRange: '', lineContent: '' }, verdict: 'addressed', note: 'Confirmed and wired a first use.' },
+    { kind: 'review_edited', field: 'summary' },
+    { kind: 'suggest_viewed', files: ['src/a.ts'], note: 'You seem to fully understand the guard now.' }
+  ]
 })
 
-// second chat: switched to Codex · gpt-5-codex (high) and asked a security question
-setThreadAgent(db, userChat.id, { engine: 'codex', model: 'gpt-5-codex', reasoningEffort: 'high' })
+// second chat: switched to Codex · gpt-5.5 (high) and asked a security question
+setThreadAgent(db, userChat.id, { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'high' })
 setThreadEngineSession(db, userChat.id, 'codex-thread-1')
 addChatMessage(db, userChat.id, { role: 'user', text: 'Do a quick security pass on the new branch.', at: 'now' })
 addChatMessage(db, userChat.id, {
@@ -82,4 +93,34 @@ addChatMessage(db, userChat.id, {
   ].join('\n')
 })
 
-console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id }))
+// agent-authored comment (identity → the review agent's chat) + a user comment
+// the agent replied to and resolved (the round-trip with a verdict badge).
+upsertComment(db, session.id, {
+  id: 'agent-c1',
+  anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '@@ -1,4 +1,5 @@', lineContent: '  return 2' },
+  author: 'agent', agentRef: { engine: 'claude', model: 'opus' }, threadId: reviewChat.id,
+  text: 'Heads up: this guard makes the return type `number | null`, so the two callers must null-check.',
+  status: 'resolved', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-c1',
+  anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 5, hunkRange: '@@ -1,4 +1,5 @@', lineContent: 'export const J = 20' },
+  author: 'user', text: 'Is this constant actually used anywhere yet?',
+  status: 'resolved',
+  resolution: { verdict: 'addressed', note: 'Confirmed and wired a first use.', commit: 'a1b2c3d' },
+  replies: [{
+    author: 'agent', text: 'Good catch — it was dead. I referenced it from `b.ts` so it is exercised now.',
+    at: 'now', agentRef: { engine: 'claude', model: 'opus' }, threadId: reviewChat.id
+  }],
+  createdAt: 'now', iteration: 1
+})
+
+// a still-queued comment, so the batch CTA shows and a real batch run has work
+upsertComment(db, session.id, {
+  id: 'user-q1',
+  anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 4, hunkRange: '@@ -1,4 +1,5 @@', lineContent: 'export const K = 10' },
+  author: 'user', text: 'Can you add a short test covering K?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+
+console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id, reviewChat: reviewChat.id, userChat: userChat.id }))
