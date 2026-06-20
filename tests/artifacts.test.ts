@@ -32,6 +32,29 @@ describe('artifacts', () => {
     expect(found.find((a) => a.role === 'spec')?.path).toBe('notes/branch-spec.md')
   })
 
+  it('returns every spec/plan markdown that is part of the branch diff', async () => {
+    fixtureWrite(fx.dir, 'docs/feature-a-spec.md', '# Feature A spec\n\nDesign for A.\n')
+    fixtureWrite(fx.dir, 'docs/feature-a-plan.md', '# Feature A plan\n\n1. step one\n')
+    fixtureWrite(fx.dir, 'docs/feature-b-design.md', '# Feature B design\n\nDesign for B.\n')
+    fixtureGit(fx.dir, 'add', '-A')
+    fixtureGit(fx.dir, 'commit', '-m', 'multi-feature artifacts on the branch')
+    const changed = ['docs/feature-a-spec.md', 'docs/feature-a-plan.md', 'docs/feature-b-design.md', 'src/a.ts']
+    const found = await detectArtifacts(fx.dir, 'feature', changed)
+    const paths = found.map((a) => a.path)
+    // all three in-diff artifacts surface — not just one spec + one plan
+    expect(paths).toContain('docs/feature-a-spec.md')
+    expect(paths).toContain('docs/feature-a-plan.md')
+    expect(paths).toContain('docs/feature-b-design.md')
+  })
+
+  it('falls back to the best-per-role heuristic when no artifact is in the diff', async () => {
+    // no changedPaths → heuristic mode: one spec (mentions branch), one plan (by name)
+    const found = await detectArtifacts(fx.dir, 'feature')
+    expect(found.filter((a) => a.role === 'spec')).toHaveLength(1)
+    expect(found.filter((a) => a.role === 'plan')).toHaveLength(1)
+    expect(found.find((a) => a.role === 'spec')?.path).toBe('docs/spec.md')
+  })
+
   it('loads artifact lines and title', () => {
     const art = loadArtifact(fx.dir, 'docs/spec.md', 'spec')
     expect(art.title).toBe('Rate limiting spec')

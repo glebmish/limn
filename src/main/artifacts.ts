@@ -71,6 +71,14 @@ export async function detectArtifacts(repo: string, branch: string, changedPaths
     }
   }
 
+  // A branch can bundle several features, each with its own spec/plan. When any
+  // artifact is part of the diff itself, surface ALL of them (highest score
+  // first) rather than collapsing to one per role. Only when nothing in the diff
+  // looks like a spec/plan do we fall back to the single best-per-role guess.
+  const inDiff = scored.filter((s) => changed.has(s.rel)).sort((a, b) => b.score - a.score)
+  if (inDiff.length > 0) {
+    return inDiff.map((s) => ({ role: s.role, path: s.rel }))
+  }
   const out: { role: 'spec' | 'plan'; path: string }[] = []
   for (const role of ['spec', 'plan'] as const) {
     const best = scored.filter((s) => s.role === role).sort((a, b) => b.score - a.score)[0]
