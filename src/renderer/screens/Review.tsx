@@ -97,7 +97,10 @@ export default function Review() {
       const box = scrollRef.current
       if (!el || !box) return
       const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12
-      box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+      // Jump straight to the section. A smooth scroll fires the scroll-sync
+      // handler on every animation frame, which re-selects each section the
+      // viewport passes over — the sidebar flickers through the whole list.
+      box.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
     })
   }
 
