@@ -45,9 +45,11 @@ export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, guidance, loaded, gen, focusTarget } = useStore()
+  const { viewedAt, toggleViewed, guidance, loaded, gen, focusTarget, openDoc } = useStore()
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
+  // recognized spec/plan: this same file is reviewable rendered at the top
+  const artifact = loaded?.artifacts.find((a) => a.path === f.path)
   const focused = focusTarget?.file === f.path
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
@@ -88,6 +90,17 @@ export function DiffView({ f, plainNote }: {
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}
+          {artifact && (
+            <button
+              className="art-badge"
+              title={`Recognized ${artifact.role} — open the rendered document`}
+              onClick={() => openDoc(f.path)}
+            >
+              {artifact.role === 'plan' ? <I.spark style={{ width: 10, height: 10 }} /> : <I.doc style={{ width: 10, height: 10 }} />}
+              {artifact.role === 'plan' ? 'Plan' : 'Spec'}
+              <I.arrow style={{ width: 9, height: 9, transform: 'rotate(-90deg)' }} />
+            </button>
+          )}
         </span>
         <Delta add={f.add} del={f.del} />
         {!isViewed && hasSince && <span className="pill pill-amber"><I.changed />changed since approval</span>}

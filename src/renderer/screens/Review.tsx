@@ -17,13 +17,12 @@ let devBatchRan = false
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, reviewedSections, cur, gen, density, accent, guidance } = store
+  const { loaded, branch, base, reviewedSections, cur, gen, density, accent, guidance, docPath, openDoc, closeDoc } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
-  const [docOpen, setDocOpen] = useState<string | null>(null)
   const [peek, setPeek] = useState<string | null>(null)
   const chatOpen = store.chatOpen
 
@@ -143,16 +142,32 @@ export default function Review() {
         <div className="gside">
           {artifacts.length > 0 && (
             <div className="gside-arts">
-              {artifacts.map((a) => (
+              {(['spec', 'plan'] as const).map((role) => {
+                const items = artifacts.filter((a) => a.role === role)
+                if (items.length === 0) return null
+                return (
+                  <div key={role} className="art-group">
+                    <div className="art-group-head">{role === 'spec' ? 'Specs' : 'Plans'}</div>
+                    {items.map((a) => (
                 <div key={a.path}>
-                  <div className={'art-row' + (peek === a.path ? ' open' : '')} onClick={() => setPeek(peek === a.path ? null : a.path)}>
-                    <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
-                    <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
-                    <span className="art-meta">{a.title}</span>
+                  <div className={'art-row' + (peek === a.path ? ' open' : '')}>
+                    <span className="art-open" onClick={() => openDoc(a.path)} title="Open the rendered document">
+                      <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
+                      <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
+                      <span className="art-meta">{a.title}</span>
+                    </span>
                     {state.artifactApprovals[a.path] && (
                       <span className="art-tick"><I.check style={{ width: 10, height: 10 }} />approved</span>
                     )}
-                    <I.chevR style={{ width: 11, height: 11, color: 'var(--muted)', transform: peek === a.path ? 'rotate(90deg)' : '', transition: '.15s', flex: '0 0 auto', marginLeft: state.artifactApprovals[a.path] ? undefined : 'auto' }} />
+                    <button
+                      className="art-expand"
+                      onClick={(e) => { e.stopPropagation(); setPeek(peek === a.path ? null : a.path) }}
+                      title={peek === a.path ? 'Hide details' : 'Show details'}
+                      aria-label="Toggle details"
+                      style={state.artifactApprovals[a.path] ? undefined : { marginLeft: 'auto' }}
+                    >
+                      <I.chevR style={{ width: 11, height: 11, color: 'var(--muted)', transform: peek === a.path ? 'rotate(90deg)' : '', transition: '.15s' }} />
+                    </button>
                   </div>
                   {peek === a.path && (
                     <div className="art-peek">
@@ -177,13 +192,16 @@ export default function Review() {
                       ) : (
                         <div className="art-goal">{a.lines.find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 140)}</div>
                       )}
-                      <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => setDocOpen(a.path)}>
+                      <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => openDoc(a.path)}>
                         <I.doc style={{ width: 11, height: 11 }} />Open &amp; comment
                       </button>
                     </div>
                   )}
                 </div>
-              ))}
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -273,8 +291,8 @@ export default function Review() {
 
         {/* MAIN */}
         <div className="gmain" ref={scrollRef}>
-          {docOpen ? (
-            <ArtifactDoc path={docOpen} onClose={() => setDocOpen(null)} />
+          {docPath ? (
+            <ArtifactDoc path={docPath} onClose={closeDoc} />
           ) : (
             <>
               <div className="page-head">

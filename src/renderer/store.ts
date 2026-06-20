@@ -106,6 +106,9 @@ interface AppStore {
   /** transient: force-render a focus target (a viewed file / reviewed section)
    *  without mutating viewedAt/reviewedSections. Set by focusAnchor. */
   focusTarget: { file?: string; sectionId?: string } | null
+  /** path of the artifact whose rendered doc view is open (overlay), or null.
+   *  Lifted out of Review so the diff's spec/plan badge can open it too. */
+  docPath: string | null
 
   density: Density
   guidance: Guidance
@@ -143,6 +146,8 @@ interface AppStore {
   openSection(id: string): void
   setCur(id: string): void
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
+  openDoc(path: string): void
+  closeDoc(): void
   setTweak(key: 'density' | 'guidance' | 'accent', value: unknown): void
   startOp(kind: 'review' | 'chat' | 'fix', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
@@ -229,6 +234,7 @@ export const useStore = create<AppStore>((set, get) => {
     collapsed: new Set<string>(),
     cur: null,
     focusTarget: null,
+    docPath: null,
 
     density: 'comfortable',
     guidance: 'guided',
@@ -530,6 +536,12 @@ export const useStore = create<AppStore>((set, get) => {
       if (get().cur !== id) set({ cur: id })
     },
 
+    openDoc(path) {
+      set({ docPath: path })
+    },
+    closeDoc() {
+      set({ docPath: null })
+    },
     setFocusTarget(t) {
       set({ focusTarget: t })
     },

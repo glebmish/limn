@@ -7,16 +7,32 @@
 .gside-top{flex:0 0 auto;padding:13px 15px;border-bottom:1px solid var(--line)}
 .gnav{flex:1 1 auto;overflow-y:auto;min-height:0;padding:6px 0}
 
-/* ---- approved artifact rows (Spec + Plan) ---- */
-.gside-arts{flex:0 0 auto;border-bottom:1px solid var(--line);padding:6px 0}
-.art-row{display:flex;align-items:center;gap:8px;padding:8px 13px;cursor:pointer}
+/* ---- recognized artifact rows (Specs + Plans) ---- */
+.gside-arts{flex:0 0 auto;border-bottom:1px solid var(--line);padding:4px 0}
+.art-group{padding:2px 0}
+.art-group + .art-group{border-top:1px solid var(--line);margin-top:2px;padding-top:4px}
+.art-group-head{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);padding:5px 13px 3px}
+.art-row{display:flex;align-items:center;gap:8px;padding:6px 13px}
 .art-row:hover{background:var(--panel-2)}
+/* primary click zone — opens the rendered document */
+.art-open{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;cursor:pointer}
 .art-ic{width:20px;height:20px;border-radius:6px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--accent-line)}
 .art-name{font-size:12.5px;font-weight:700;color:var(--ink);flex:0 0 auto}
-.art-meta{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;flex:0 0 auto}
-.art-tick{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;
+.art-open:hover .art-name{color:var(--accent-ink)}
+.art-meta{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0}
+.art-tick{display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;
   letter-spacing:.03em;text-transform:uppercase;color:var(--accent-ink);flex:0 0 auto}
+/* secondary click zone — toggles the inline peek */
+.art-expand{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:20px;height:20px;
+  border:none;background:transparent;border-radius:5px;cursor:pointer;color:var(--muted)}
+.art-expand:hover{background:var(--accent-soft);color:var(--accent-ink)}
+/* clickable Spec/Plan badge on the same file inside the diff */
+.art-badge{display:inline-flex;align-items:center;gap:4px;margin-left:7px;padding:1px 7px 1px 6px;
+  font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;cursor:pointer;
+  background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--accent-line)}
+.art-badge:hover{filter:brightness(.96)}
 .art-peek{padding:2px 13px 10px 34px;display:flex;flex-direction:column;gap:2px}
 .art-peek .art-goal{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-bottom:6px}
 .art-peek .spec-req{padding:3px 0}
