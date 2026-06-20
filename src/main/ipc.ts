@@ -254,7 +254,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
 
   handle('repoState', async (repo: string) => repoState(repo))
 
-  handle('listRepoSessions', async (repo: string) => dao.listRepoSessions(db, repo))
+  handle('listRepoSessions', async (repo: string, includeArchived?: boolean) => dao.listRepoSessions(db, repo, includeArchived))
+
+  handle('unarchiveSession', async (sessionId: number) => { dao.unarchiveSession(db, sessionId) })
 
   handle('switchBranch', async (repo: string, branch: string) => {
     await checkoutBranch(repo, branch) // throws "commit or stash first" on a dirty tree

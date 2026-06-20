@@ -7,7 +7,7 @@ import { openDb } from '../src/main/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
   createSession, findSession, getSession, archiveSession, retargetSession,
-  listRepoSessions, latestSessionForBranch,
+  listRepoSessions, latestSessionForBranch, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount,
@@ -275,5 +275,18 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
     expect(row.approved).toBe(true)
     archiveSession(db, s.id)
     expect(listRepoSessions(db, '/repo').map((r) => r.id)).not.toContain(s.id)
+  })
+
+  it('includeArchived lists archived rows flagged; unarchive restores them', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    archiveSession(db, s.id)
+    expect(listRepoSessions(db, '/repo')).toHaveLength(0)                 // live-only by default
+    const withArchived = listRepoSessions(db, '/repo', true)
+    expect(withArchived).toHaveLength(1)
+    expect(withArchived[0].archived).toBe(true)
+    unarchiveSession(db, s.id)
+    const live = listRepoSessions(db, '/repo')
+    expect(live).toHaveLength(1)
+    expect(live[0].archived).toBe(false)
   })
 })

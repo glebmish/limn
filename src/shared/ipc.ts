@@ -53,8 +53,10 @@ export interface Api {
   openRepo(path: string): Promise<RepoInfo>
   /** Live git state (branches, current branch, worktrees, dirtiness). */
   repoState(repo: string): Promise<RepoState>
-  /** All live sessions for a repo, latest first (the repo hub list). */
-  listRepoSessions(repo: string): Promise<SessionListItem[]>
+  /** Sessions for a repo, latest first. Live only unless `includeArchived`. */
+  listRepoSessions(repo: string, includeArchived?: boolean): Promise<SessionListItem[]>
+  /** Restore a soft-deleted (archived) session. */
+  unarchiveSession(sessionId: number): Promise<void>
   /** Check out `branch` in the repo's primary worktree. Rejects on a dirty tree. */
   switchBranch(repo: string, branch: string): Promise<RepoState>
   /** Resolve both refs, return the session id. `fresh` forces a new session even
@@ -116,7 +118,7 @@ export interface RendererApi extends Api {
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
-  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'switchBranch',
+  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
   'startSession', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',

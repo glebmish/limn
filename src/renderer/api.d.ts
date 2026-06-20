@@ -8,6 +8,8 @@ declare global {
       openSession?: string | null
       /** dev-only: open the repo hub for this repo path */
       openHub?: string | null
+      /** dev-only: start the hub with archived sessions shown */
+      showArchived?: boolean
       /** dev-only: scroll the review body to the bottom (capture the volatile band) */
       scrollBottom?: boolean
       // dev-only screenshot hooks

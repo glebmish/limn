@@ -74,8 +74,10 @@ interface AppStore {
    *  dirtiness) — feeds the hub + review-header switchers. */
   repoState: RepoState | null
   /** all live sessions for the current repo, latest first (hub list + the review
-   *  header's session dropdown). */
+   *  header's session dropdown). Includes archived ones when `showArchived`. */
   repoSessions: SessionListItem[]
+  /** hub toggle: also list archived (soft-deleted) sessions. */
+  showArchived: boolean
   branch: string
   base: string
   /** the agent selected for creating / regenerating a review */
@@ -147,6 +149,10 @@ interface AppStore {
   switchBranchTo(branch: string): Promise<void>
   /** Archive a session and refresh the hub list. */
   deleteSession(id: number): Promise<void>
+  /** Restore an archived session and refresh the hub list. */
+  restoreSession(id: number): Promise<void>
+  /** Toggle whether the hub lists archived sessions. */
+  toggleArchived(): Promise<void>
   // compare
   enterCompare(repoPath: string, refs?: { base?: string; compare?: string }, opts?: { retargetSessionId?: number | null; fresh?: boolean }): Promise<void>
   setBaseInput(s: string): void
@@ -228,7 +234,7 @@ export const useStore = create<AppStore>((set, get) => {
   const loadRepoContext = async (repo: string): Promise<void> => {
     try {
       const [repoState, repoSessions] = await Promise.all([
-        window.api.repoState(repo), window.api.listRepoSessions(repo)
+        window.api.repoState(repo), window.api.listRepoSessions(repo, get().showArchived)
       ])
       set({ repoState, repoSessions })
     } catch { /* keep prior context */ }
@@ -250,6 +256,7 @@ export const useStore = create<AppStore>((set, get) => {
     repoInfo: null,
     repoState: null,
     repoSessions: [],
+    showArchived: false,
     branch: '',
     base: '',
     agent: defaultAgent('claude'),
@@ -317,7 +324,10 @@ export const useStore = create<AppStore>((set, get) => {
       if (openSession) await get().resumeExisting(Number(openSession))
       // dev/screenshot: LR_OPEN_HUB lands on the repo hub for a given repo path
       const openHub = window.lrDev?.openHub
-      if (openHub) await get().enterHub(openHub)
+      if (openHub) {
+        if (window.lrDev?.showArchived) set({ showArchived: true })
+        await get().enterHub(openHub)
+      }
     },
 
     applyCliOpen(msg) {
@@ -439,7 +449,20 @@ export const useStore = create<AppStore>((set, get) => {
     async deleteSession(id) {
       await window.api.archiveSession(id)
       const repo = get().repo
-      if (repo) set({ repoSessions: await window.api.listRepoSessions(repo) })
+      if (repo) set({ repoSessions: await window.api.listRepoSessions(repo, get().showArchived) })
+    },
+
+    async restoreSession(id) {
+      await window.api.unarchiveSession(id)
+      const repo = get().repo
+      if (repo) set({ repoSessions: await window.api.listRepoSessions(repo, get().showArchived) })
+    },
+
+    async toggleArchived() {
+      const showArchived = !get().showArchived
+      set({ showArchived })
+      const repo = get().repo
+      if (repo) set({ repoSessions: await window.api.listRepoSessions(repo, showArchived) })
     },
 
     async enterCompare(repoPath, refs, opts) {

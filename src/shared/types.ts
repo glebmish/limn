@@ -228,6 +228,7 @@ export interface SessionListItem {
   title?: string
   hasReview: boolean       // an annotation/review has been generated
   approved: boolean        // approvedSha === reviewedAtSha (latest state approved)
+  archived: boolean        // soft-deleted (archived_at set) — shown only on demand
   unresolved: number       // queued + sent comments
   updatedAt: string
   createdAt: string

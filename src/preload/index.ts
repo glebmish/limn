@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('lrDev', {
   // dev-only: land on the repo hub for a given repo path; scroll the review body
   // to the bottom (to capture the volatile band).
   openHub: process.env.LR_OPEN_HUB ?? null,
+  showArchived: process.env.LR_SHOW_ARCHIVED === '1',
   scrollBottom: process.env.LR_SCROLL_BOTTOM === '1',
   // dev-only screenshot hooks: activate a specific chat, force the agent
   // picker / chat-list dropdown open so a static capture shows them.

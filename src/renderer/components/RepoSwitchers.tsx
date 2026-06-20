@@ -110,7 +110,7 @@ export function WorktreeSwitcher({ compareBranch }: { compareBranch?: string }) 
 export function SessionSwitcher() {
   const { repoSessions, repoState, sessionId, resumeExisting, enterHub, newReview } = useStore()
   const branch = repoState?.current
-  const here = repoSessions.filter((s) => s.compareKind === 'branch' && s.compareSymbol === branch)
+  const here = repoSessions.filter((s) => !s.archived && s.compareKind === 'branch' && s.compareSymbol === branch)
   const cur = repoSessions.find((s) => s.id === sessionId)
   return (
     <Dropdown
