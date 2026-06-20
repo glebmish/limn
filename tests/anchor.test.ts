@@ -55,7 +55,7 @@ describe('reanchorComments', () => {
   })
 
   it('re-anchors artifact comments by text', () => {
-    const art: Artifact = { role: 'spec', path: 'docs/spec.md', title: 'Spec', lines: ['# Spec', '', 'the goal moved here'] }
+    const art: Artifact = { role: 'spec', format: 'superpowers', path: 'docs/spec.md', title: 'Spec', lines: ['# Spec', '', 'the goal moved here'] }
     const c = mkComment({ anchor: { kind: 'artifact', path: 'docs/spec.md', line: 1, lineContent: 'the goal moved here' } })
     reanchorComments([c], mkSkeleton([]), [art])
     expect((c.anchor as { line: number }).line).toBe(3)

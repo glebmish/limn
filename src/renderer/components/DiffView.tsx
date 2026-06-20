@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
+import { FORMAT_LABELS } from '../../shared/types'
 import { I, Delta, ficonClass } from '../kit'
 import { useStore } from '../store'
 import { addComment, sendComments } from '../lib/comments'
@@ -93,11 +94,12 @@ export function DiffView({ f, plainNote }: {
           {artifact && (
             <button
               className="art-badge"
-              title={`Recognized ${artifact.role} — open the rendered document`}
+              title={`Recognized ${FORMAT_LABELS[artifact.format]} ${artifact.role} — open the rendered document`}
               onClick={() => openDoc(f.path)}
             >
               {artifact.role === 'plan' ? <I.spark style={{ width: 10, height: 10 }} /> : <I.doc style={{ width: 10, height: 10 }} />}
               {artifact.role === 'plan' ? 'Plan' : 'Spec'}
+              <span className="art-fmt">{FORMAT_LABELS[artifact.format]}</span>
               <I.arrow style={{ width: 9, height: 9, transform: 'rotate(-90deg)' }} />
             </button>
           )}

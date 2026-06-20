@@ -33,6 +33,11 @@
   font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;cursor:pointer;
   background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--accent-line)}
 .art-badge:hover{filter:brightness(.96)}
+/* format flag — which spec/plan convention this artifact was recognized as */
+.art-fmt{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  padding:1px 5px;border-radius:999px;background:var(--chip,rgba(127,127,127,.14));
+  color:var(--muted);border:1px solid var(--line,rgba(127,127,127,.22));white-space:nowrap}
+.art-badge .art-fmt{font-size:8.5px;padding:0 4px}
 .art-peek{padding:2px 13px 10px 34px;display:flex;flex-direction:column;gap:2px}
 .art-peek .art-goal{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-bottom:6px}
 .art-peek .spec-req{padding:3px 0}

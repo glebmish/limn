@@ -134,7 +134,14 @@ export type EngineEvent =
   | { type: 'error'; message: string }
 
 // ── artifacts / chat / state ─────────────────────────────────
-export interface Artifact { role: 'spec' | 'plan' | 'doc'; path: string; title: string; lines: string[] }
+/** A recognized spec/plan format. A markdown file is only treated as an
+ *  artifact when its path matches one of these formats' conventions. */
+export type ArtifactFormat = 'superpowers' | 'sdd'
+export const FORMAT_LABELS: Record<ArtifactFormat, string> = {
+  superpowers: 'Superpowers',
+  sdd: 'Spec Kit'
+}
+export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactFormat; path: string; title: string; lines: string[] }
 export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are

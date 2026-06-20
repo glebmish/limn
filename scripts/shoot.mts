@@ -5,18 +5,26 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { makeFixtureRepo } from '../tests/helpers/fixtureRepo'
+import { makeFixtureRepo, fixtureWrite, fixtureGit } from '../tests/helpers/fixtureRepo'
 import { getDiff, resolveRefInput } from '../src/main/git'
 import { FakeEngine } from '../src/main/engines/fake'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { openDb } from '../src/main/db/db'
 import {
   createSession, updateSessionMeta, addIteration, reconcileChats,
-  listChatThreads, addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment
+  listChatThreads, addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment, setArtifacts
 } from '../src/main/db/sessions'
 import type { RefPair } from '../src/shared/types'
 
 const fx = makeFixtureRepo()
+// recognized-format spec + plan written on the branch (Superpowers convention),
+// so the review surfaces the format-flagged artifacts in the diff + sidebar
+const SPEC = 'docs/superpowers/specs/2026-06-12-rate-limit-design.md'
+const PLAN = 'docs/superpowers/plans/2026-06-12-rate-limit.md'
+fixtureWrite(fx.dir, SPEC, '# Rate limiting spec\n\nGoal: protect the API on branch feature.\n\n- requests are capped per client\n- the cap is configurable\n')
+fixtureWrite(fx.dir, PLAN, '# Rate limiting plan\n\n1. add a token-bucket limiter\n2. wire it into the request path\n3. expose the cap as config\n')
+fixtureGit(fx.dir, 'add', '-A')
+fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
 const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }
@@ -38,9 +46,10 @@ const session = createSession(db, fx.dir, pair, { engine: 'claude', model: 'opus
 updateSessionMeta(db, session.id, {
   engine: 'claude', model: 'opus',
   annotations, title: annotations.title, summary: annotations.summary,
-  reviewedAtSha: fx.shas.head, approvedSha: fx.shas.head
+  reviewedAtSha: compare.sha, approvedSha: compare.sha
 })
-addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: fx.shas.head, at: 'now' })
+addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now' })
+setArtifacts(db, session.id, [{ role: 'spec', path: SPEC }, { role: 'plan', path: PLAN }])
 
 // default chats: review (claude/opus) + one empty user chat
 reconcileChats(db, session.id)

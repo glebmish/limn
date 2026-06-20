@@ -1,72 +1,91 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { makeFixtureRepo, fixtureWrite, fixtureGit, type FixtureRepo } from './helpers/fixtureRepo'
-import { detectArtifacts, loadArtifact } from '../src/main/artifacts'
+import { detectArtifacts, loadArtifact, classify } from '../src/main/artifacts'
 
 let fx: FixtureRepo
 beforeAll(() => {
   fx = makeFixtureRepo()
+  // recognized-format artifacts living in their conventional locations
+  fixtureWrite(fx.dir, 'docs/superpowers/specs/2026-06-20-feature-design.md', '# Feature spec\n\nGoal: protect the API on branch feature.\n')
+  fixtureWrite(fx.dir, 'docs/superpowers/plans/2026-06-20-feature.md', '# Feature plan\n\n1. step one\n2. step two\n')
+  fixtureWrite(fx.dir, 'specs/012-auth/spec.md', '# Auth spec\n\nSpec Kit spec.\n')
+  fixtureWrite(fx.dir, 'specs/012-auth/plan.md', '# Auth plan\n\nSpec Kit plan.\n')
+  fixtureWrite(fx.dir, 'specs/012-auth/tasks.md', '# Auth tasks\n\n- [ ] task one\n')
+  fixtureWrite(fx.dir, 'specs/012-auth/research.md', '# Auth research\n\nSupporting doc, not an artifact.\n')
+  // decoys that must NOT be recognized — right words, wrong location
+  fixtureWrite(fx.dir, 'docs/spec.md', '# A spec-ish note on branch feature\n\nNot in a recognized format.\n')
+  fixtureWrite(fx.dir, 'docs/plan.md', '# A plan-ish note\n\nNot in a recognized format.\n')
+  fixtureGit(fx.dir, 'add', '-A')
+  fixtureGit(fx.dir, 'commit', '-m', 'artifacts + decoys')
 })
 
-describe('artifacts', () => {
-  it('detects spec doc mentioning the branch', async () => {
-    const found = await detectArtifacts(fx.dir, 'feature')
-    const spec = found.find((a) => a.role === 'spec')
-    expect(spec?.path).toBe('docs/spec.md')
+describe('classify', () => {
+  it('recognizes superpowers spec/plan by directory', () => {
+    expect(classify('docs/superpowers/specs/2026-06-20-x-design.md')).toEqual({ role: 'spec', format: 'superpowers' })
+    expect(classify('docs/superpowers/plans/2026-06-20-x.md')).toEqual({ role: 'plan', format: 'superpowers' })
   })
 
-  it('classifies plan docs by filename', async () => {
-    fixtureWrite(fx.dir, 'docs/plan.md', '# Plan for feature\n\n1. step one\n2. step two\n')
-    fixtureGit(fx.dir, 'add', '-A')
-    fixtureGit(fx.dir, 'commit', '-m', 'plan doc')
-    const found = await detectArtifacts(fx.dir, 'feature')
-    expect(found.find((a) => a.role === 'plan')?.path).toBe('docs/plan.md')
-    expect(found.find((a) => a.role === 'spec')?.path).toBe('docs/spec.md')
+  it('recognizes Spec Kit spec/plan/tasks, folding tasks into plan', () => {
+    expect(classify('specs/012-auth/spec.md')).toEqual({ role: 'spec', format: 'sdd' })
+    expect(classify('specs/012-auth/plan.md')).toEqual({ role: 'plan', format: 'sdd' })
+    expect(classify('specs/012-auth/tasks.md')).toEqual({ role: 'plan', format: 'sdd' })
   })
 
-  it('prefers spec/plan markdown that is part of the branch diff', async () => {
-    fixtureWrite(fx.dir, 'notes/branch-spec.md', '# Branch spec\n\nWritten alongside this change.\n')
-    fixtureGit(fx.dir, 'add', '-A')
-    fixtureGit(fx.dir, 'commit', '-m', 'spec written on the branch')
-    // docs/spec.md mentions the branch (+3, name +2) = 5; the in-diff spec gets +6 +2 = 8
-    const found = await detectArtifacts(fx.dir, 'feature', ['notes/branch-spec.md', 'src/a.ts'])
-    expect(found.find((a) => a.role === 'spec')?.path).toBe('notes/branch-spec.md')
+  it('rejects files outside any recognized convention', () => {
+    expect(classify('docs/spec.md')).toBeNull()
+    expect(classify('docs/plan.md')).toBeNull()
+    expect(classify('specs/012-auth/research.md')).toBeNull()
+    expect(classify('README.md')).toBeNull()
   })
+})
 
-  it('returns every spec/plan markdown that is part of the branch diff', async () => {
-    fixtureWrite(fx.dir, 'docs/feature-a-spec.md', '# Feature A spec\n\nDesign for A.\n')
-    fixtureWrite(fx.dir, 'docs/feature-a-plan.md', '# Feature A plan\n\n1. step one\n')
-    fixtureWrite(fx.dir, 'docs/feature-b-design.md', '# Feature B design\n\nDesign for B.\n')
-    fixtureGit(fx.dir, 'add', '-A')
-    fixtureGit(fx.dir, 'commit', '-m', 'multi-feature artifacts on the branch')
-    const changed = ['docs/feature-a-spec.md', 'docs/feature-a-plan.md', 'docs/feature-b-design.md', 'src/a.ts']
+describe('detectArtifacts', () => {
+  it('surfaces every recognized artifact in the branch diff, with its format', async () => {
+    const changed = [
+      'docs/superpowers/specs/2026-06-20-feature-design.md',
+      'docs/superpowers/plans/2026-06-20-feature.md',
+      'specs/012-auth/spec.md',
+      'specs/012-auth/tasks.md',
+      'docs/spec.md',      // decoy — must be dropped
+      'src/a.ts'
+    ]
     const found = await detectArtifacts(fx.dir, 'feature', changed)
     const paths = found.map((a) => a.path)
-    // all three in-diff artifacts surface — not just one spec + one plan
-    expect(paths).toContain('docs/feature-a-spec.md')
-    expect(paths).toContain('docs/feature-a-plan.md')
-    expect(paths).toContain('docs/feature-b-design.md')
+    expect(paths).toContain('docs/superpowers/specs/2026-06-20-feature-design.md')
+    expect(paths).toContain('docs/superpowers/plans/2026-06-20-feature.md')
+    expect(paths).toContain('specs/012-auth/spec.md')
+    expect(paths).toContain('specs/012-auth/tasks.md')
+    // decoys and non-markdown never surface
+    expect(paths).not.toContain('docs/spec.md')
+    expect(paths).not.toContain('src/a.ts')
+    // formats are attached
+    expect(found.find((a) => a.path === 'specs/012-auth/tasks.md')).toMatchObject({ role: 'plan', format: 'sdd' })
+    expect(found.find((a) => a.path.includes('superpowers/specs'))).toMatchObject({ role: 'spec', format: 'superpowers' })
   })
 
-  it('classifies an artifact as a plan by its plans/ directory even when the filename lacks "plan"', async () => {
-    fixtureWrite(fx.dir, 'docs/superpowers/plans/2026-06-19-tool-call-log.md', '# Tool-call log\n\n1. step one\n2. step two\n')
-    fixtureGit(fx.dir, 'add', '-A')
-    fixtureGit(fx.dir, 'commit', '-m', 'plan living in a plans/ directory')
-    const found = await detectArtifacts(fx.dir, 'feature', ['docs/superpowers/plans/2026-06-19-tool-call-log.md'])
-    expect(found.find((a) => a.path === 'docs/superpowers/plans/2026-06-19-tool-call-log.md')?.role).toBe('plan')
-  })
-
-  it('falls back to the best-per-role heuristic when no artifact is in the diff', async () => {
-    // no changedPaths → heuristic mode: one spec (mentions branch), one plan (by name)
+  it('falls back to best-per-role when nothing recognized is in the diff', async () => {
     const found = await detectArtifacts(fx.dir, 'feature')
-    expect(found.filter((a) => a.role === 'spec')).toHaveLength(1)
-    expect(found.filter((a) => a.role === 'plan')).toHaveLength(1)
-    expect(found.find((a) => a.role === 'spec')?.path).toBe('docs/spec.md')
+    expect(found.filter((a) => a.role === 'spec').length).toBe(1)
+    expect(found.filter((a) => a.role === 'plan').length).toBe(1)
+    // every returned ref is a recognized artifact, never a decoy
+    for (const a of found) expect(classify(a.path)).not.toBeNull()
   })
 
-  it('loads artifact lines and title', () => {
-    const art = loadArtifact(fx.dir, 'docs/spec.md', 'spec')
-    expect(art.title).toBe('Rate limiting spec')
-    expect(art.lines.length).toBeGreaterThan(3)
-    expect(art.lines[0]).toBe('# Rate limiting spec')
+  it('never surfaces a decoy even when only non-artifacts changed', async () => {
+    // src/a.ts is the only change and is not an artifact; the no-diff fallback
+    // may surface a recognized artifact, but never a decoy or a non-artifact
+    const found = await detectArtifacts(fx.dir, 'feature', ['src/a.ts'])
+    for (const a of found) expect(classify(a.path)).not.toBeNull()
+    expect(found.map((a) => a.path)).not.toContain('docs/spec.md')
+  })
+})
+
+describe('loadArtifact', () => {
+  it('loads lines, title, and derives the format from the path', () => {
+    const art = loadArtifact(fx.dir, 'specs/012-auth/plan.md', 'plan')
+    expect(art.title).toBe('Auth plan')
+    expect(art.format).toBe('sdd')
+    expect(art.role).toBe('plan')
+    expect(art.lines[0]).toBe('# Auth plan')
   })
 })

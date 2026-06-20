@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { I } from '../kit'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { FORMAT_LABELS } from '../../shared/types'
 
 /** v3-style commentable document view for spec/plan artifacts.
  *  Every line is a hover-"+" spec-line; threads render inline under their line. */
@@ -73,6 +74,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     <>
       <div className="plan-stage-banner">
         <span className="psb-ic">{art.role === 'plan' ? <I.spark style={{ width: 14, height: 14 }} /> : <I.doc style={{ width: 14, height: 14 }} />}</span>
+        <span className="art-fmt" title={`${FORMAT_LABELS[art.format]} format`}>{FORMAT_LABELS[art.format]}</span>
         <span className="psb-tx">
           {approvedAt
             ? <><b>{art.role === 'plan' ? 'Plan' : 'Spec'} — approved.</b> Comments still queue for the agent; re-approve if it changes.</>

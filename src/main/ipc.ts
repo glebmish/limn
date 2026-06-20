@@ -20,7 +20,7 @@ import * as pins from './db/pins.js'
 import { scanPin } from './scan.js'
 import { buildCompareData } from './compare.js'
 import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
-import { detectArtifacts, loadArtifact } from './artifacts.js'
+import { detectArtifacts, loadArtifact, classify } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls } from '../shared/toolcalls.js'
@@ -281,10 +281,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const { annotations, warnings } = mergeAnnotations(skeleton, value)
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
       if (annotations.artifactPaths) {
+        // accept agent-reported paths only when they match a recognized format —
+        // the role comes from the convention, never a guess
         const refs = [...state.artifacts]
         for (const p of annotations.artifactPaths) {
-          if (!refs.some((a) => a.path === p) && fs.existsSync(path.join(repo, p))) {
-            refs.push({ role: refs.some((a) => a.role === 'spec') ? 'plan' : 'spec', path: p })
+          const hit = classify(p)
+          if (hit && !refs.some((a) => a.path === p) && fs.existsSync(path.join(repo, p))) {
+            refs.push({ role: hit.role, path: p })
           }
         }
         dao.setArtifacts(db, sessionId, refs)

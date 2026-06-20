@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { effectiveSections, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
+import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
@@ -154,6 +155,7 @@ export default function Review() {
                     <span className="art-open" onClick={() => openDoc(a.path)} title="Open the rendered document">
                       <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
+                      <span className="art-fmt" title={`${FORMAT_LABELS[a.format]} format`}>{FORMAT_LABELS[a.format]}</span>
                       <span className="art-meta">{a.title}</span>
                     </span>
                     {state.artifactApprovals[a.path] && (
