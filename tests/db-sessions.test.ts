@@ -7,6 +7,7 @@ import { openDb } from '../src/main/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
   createSession, findSession, getSession, archiveSession, retargetSession,
+  listRepoSessions, latestSessionForBranch,
   loadReviewState, updateSessionMeta, replaceUiState,
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount,
@@ -239,5 +240,40 @@ describe('chat threads DAO', () => {
     const msgs = getChatThread(db, t.id)!.messages
     expect(msgs[0].tools).toEqual(tools)
     expect(msgs[1].tools).toBeUndefined() // no tools → no key, not []
+  })
+})
+
+describe('repo-scoped session queries (hub + branch jump)', () => {
+  it('allows multiple live sessions for the same branch pair', () => {
+    const a = createSession(db, '/repo', pair, { engine: 'claude' })
+    const b = createSession(db, '/repo', pair, { engine: 'codex' })
+    expect(a.id).not.toBe(b.id) // unique-per-pair constraint dropped (migration v5)
+    expect(listRepoSessions(db, '/repo').length).toBe(2)
+  })
+
+  it('latestSessionForBranch returns the most recently touched live match', () => {
+    const old = createSession(db, '/repo', pair)
+    const recent = createSession(db, '/repo', pair)
+    updateSessionMeta(db, recent.id, { title: 'newer' })
+    expect(latestSessionForBranch(db, '/repo', 'feature')?.id).toBe(recent.id)
+    expect(latestSessionForBranch(db, '/repo', 'nope')).toBeNull()
+    archiveSession(db, recent.id)
+    expect(latestSessionForBranch(db, '/repo', 'feature')?.id).toBe(old.id) // falls back past archived
+  })
+
+  it('listRepoSessions denormalizes status and excludes archived', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    upsertComment(db, s.id, mkComment('c1'))            // queued → unresolved
+    updateSessionMeta(db, s.id, { approvedSha: 'z'.repeat(40), reviewedAtSha: 'z'.repeat(40) })
+    const otherRepo = createSession(db, '/other', pair)
+    const list = listRepoSessions(db, '/repo')
+    expect(list.map((r) => r.id)).not.toContain(otherRepo.id)
+    const row = list.find((r) => r.id === s.id)!
+    expect(row.compareSymbol).toBe('feature')
+    expect(row.baseSymbol).toBe('main')
+    expect(row.unresolved).toBe(1)
+    expect(row.approved).toBe(true)
+    archiveSession(db, s.id)
+    expect(listRepoSessions(db, '/repo').map((r) => r.id)).not.toContain(s.id)
   })
 })

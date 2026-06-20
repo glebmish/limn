@@ -4,11 +4,14 @@ import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
+import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
+import { BranchSwitcher, WorktreeSwitcher, SessionSwitcher } from '../components/RepoSwitchers'
+import { RefPicker } from '../components/RefPicker'
 import { queuedComments, sendComments } from '../lib/comments'
 import { focusAnchor } from '../lib/focus'
 
@@ -43,6 +46,12 @@ export default function Review() {
         devFlowRan = true
         sendComments(ids)
       }
+    }
+    // dev-only: LR_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
+    // the diffs render (scrollHeight grows over a few frames) to show the volatile band
+    if (window.lrDev?.scrollBottom && loaded) {
+      let n = 0
+      const t = setInterval(() => { const b = scrollRef.current; if (b) b.scrollTo({ top: b.scrollHeight }); if (++n > 12) clearInterval(t) }, 350)
     }
     // dev-only: LR_FOCUS=<json FocusTarget> focuses once after the review mounts
     if (window.lrDev?.focus && !devFocusRan && loaded) {
@@ -122,7 +131,14 @@ export default function Review() {
   return (
     <div className={`wf dz-${density} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
-        <span className="wf-title"><b>Code Review</b></span>
+        <button className="btn btn-sm btn-ghost" onClick={() => void store.enterHub()} title="All sessions for this repo">
+          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />sessions
+        </button>
+        <span className="rv-refs">
+          <BranchSwitcher />
+          <span className="rv-arrow">←</span>
+          <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
+        </span>
         <span className="grow"></span>
         {sinceTagged && baseline && (
           <span className="ctimeline" style={{ marginRight: 14 }}>
@@ -131,16 +147,11 @@ export default function Review() {
             <span className="ctnode"><span className="cdot dot-amber"></span><span className="csha">{shortSha(skeleton.headSha)}</span><span className="clab">current</span></span>
           </span>
         )}
+        <SessionSwitcher />
+        <WorktreeSwitcher compareBranch={branch} />
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => store.backToCompare()}>
-          <I.branch style={{ width: 12, height: 12 }} />Switch
-        </button>
-        <span className="branch">
-          <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
-          <span className="b-src">{branch}</span><span className="arrow">→</span><span className="b-base">{base}</span>
-        </span>
       </div>
 
       {loaded?.refMissing && (
@@ -298,7 +309,9 @@ export default function Review() {
             <div className="gside-note">
               {verdict === 'changes'
                 ? queued.length > 0 ? 'Inline comments batch up — sent in one prompt.' : 'Comment on lines, sections, or the spec first.'
-                : 'Records the current commit as approved.'}
+                : loaded.dirty
+                  ? `Records the committed state. ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
+                  : 'Records the current commit as approved.'}
             </div>
           </div>
         </div>
@@ -349,8 +362,19 @@ export default function Review() {
                   secRef={(el) => { secRefs.current[s.id] = el }}
                 />
               ))}
-              {skeleton.files.length === 0 && (
+              {skeleton.files.length === 0 && !loaded.dirty && (
                 <div className="lr-empty">No changes between <b>{branch}</b> and <b>{base}</b>.</div>
+              )}
+
+              {loaded.dirty && loaded.volatile.length > 0 && (
+                <div className="vol-band">
+                  <div className="vol-head">
+                    <span className="vol-tag"><I.warn style={{ width: 12, height: 12 }} />Uncommitted</span>
+                    <span className="vol-lead">Working tree — {loaded.volatile.length} file{loaded.volatile.length === 1 ? '' : 's'} changed since <span className="mono">{shortSha(skeleton.headSha)}</span></span>
+                    <span className="vol-note">volatile · not pinned to a commit · auto-pins when committed</span>
+                  </div>
+                  {loaded.volatile.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
+                </div>
               )}
               <div style={{ height: 40 }}></div>
             </>

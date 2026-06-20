@@ -174,6 +174,22 @@ export interface ReviewState {
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
 
+/** A git worktree (primary or linked). `branch` is null for a detached HEAD. */
+export interface WorktreeInfo { path: string; branch: string | null; head: string; primary: boolean; locked: boolean }
+
+/** Live git state for a repo — the source of truth the repo hub / review header
+ *  switchers read. `current` is the branch checked out in the primary worktree
+ *  ('HEAD' when detached). */
+export interface RepoState {
+  path: string
+  branches: string[]
+  current: string
+  defaultBase: string
+  dirty: boolean
+  dirtyCount: number
+  worktrees: WorktreeInfo[]
+}
+
 // ── ref pairs (sessions) ──────────────────────────────────────
 export type RefKind = 'branch' | 'commit'
 /** One side of a review session. Branch sides follow the tip (anchorSha
@@ -201,6 +217,21 @@ export interface SessionMeta {
   agent?: AgentRef
   createdAt: string
   updatedAt: string
+}
+
+/** A row in the repo hub's session list — denormalized for display. */
+export interface SessionListItem {
+  id: number
+  baseSymbol: string
+  compareSymbol: string
+  compareKind: RefKind
+  title?: string
+  hasReview: boolean       // an annotation/review has been generated
+  approved: boolean        // approvedSha === reviewedAtSha (latest state approved)
+  unresolved: number       // queued + sent comments
+  updatedAt: string
+  createdAt: string
+  agent?: AgentRef
 }
 
 // ── repo dashboard (pinned directory trees) ───────────────────

@@ -152,5 +152,15 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE chat_threads ADD COLUMN execution_mode TEXT;')
     }
+  },
+  {
+    // Repo-interaction redesign: a repo holds many sessions, and multiple may
+    // review the same branch (the hub lists them; the user deletes explicitly).
+    // Drop the one-session-per-(base,compare) uniqueness — the exact-pair lookup
+    // (findSession) becomes "the most recent matching session" instead.
+    version: 5,
+    up(db) {
+      db.exec('DROP INDEX IF EXISTS idx_sessions_pair;')
+    }
   }
 ]

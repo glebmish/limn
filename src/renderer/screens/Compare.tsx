@@ -4,12 +4,14 @@ import { I, ago, shortSha } from '../kit'
 import { AgentPicker } from '../components/AgentPicker'
 import { RefPicker } from '../components/RefPicker'
 import { CompareDiff } from '../components/CompareDiff'
+import { WorktreeSwitcher } from '../components/RepoSwitchers'
 
 export default function Compare() {
-  const { compare, agent, error, setAgent, setBaseInput, setCompareInput, swapRefs, startFromCompare, resumeExisting, startFresh, applyRetarget, backToDashboard } = useStore()
+  const { compare, agent, error, repoSessions, setAgent, setBaseInput, setCompareInput, swapRefs, startFromCompare, resumeExisting, startFresh, applyRetarget, backToDashboard, enterHub } = useStore()
   const [starting, setStarting] = useState(false)
 
-  const { repo, baseInput, compareInput, data, loading, retargetSessionId } = compare
+  const { repo, baseInput, compareInput, data, loading, retargetSessionId, fresh } = compare
+  const back = (): void => { if (repoSessions.length > 0) void enterHub(); else backToDashboard() }
   if (!repo) return null
   const repoName = repo.split('/').pop()
   const hasError = Boolean(data?.baseError || data?.compareError)
@@ -24,10 +26,10 @@ export default function Compare() {
   return (
     <div className="lr-cmp">
       <div className="wf-titlebar">
-        <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()}>
-          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />repos
+        <button className="btn btn-sm btn-ghost" onClick={back}>
+          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />{repoSessions.length > 0 ? 'sessions' : 'repos'}
         </button>
-        <span className="lr-cmp-repo"><b>{repoName}</b> · {repo}</span>
+        <span className="lr-cmp-repo"><b>{repoName}</b> · {repo}{fresh ? ' · new review' : ''}</span>
         <span className="grow" />
       </div>
 
@@ -77,7 +79,10 @@ export default function Compare() {
         </div>
 
         <div className="lr-cmp-side">
-          <div className="tweak-sec">Review agent</div>
+          <div className="tweak-sec">Worktree</div>
+          <WorktreeSwitcher compareBranch={compareInput} />
+
+          <div className="tweak-sec" style={{ marginTop: 16 }}>Review agent</div>
           <AgentPicker value={agent} onChange={setAgent} />
 
           <div style={{ marginTop: 16 }}>

@@ -59,7 +59,7 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
   statuses: Record<string, RepoStatus>
   depth?: number
 }) {
-  const { sel, enterCompare } = useStore()
+  const { sel, openRepo } = useStore()
 
   // Root node (relPath === '' and kind === 'dir'): skip the root's own dir row
   // since the pin header already shows the path. Render children directly.
@@ -96,7 +96,7 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
       <div
         className={'lr-row' + (sel === myIndex ? ' sel' : '')}
         style={{ marginLeft: depth * 14 }}
-        onClick={() => void enterCompare(absPath)}
+        onClick={() => void openRepo(absPath)}
       >
         <span className="r-name">{node.name}</span>
         {parent && <span className="r-parent">{parent}</span>}

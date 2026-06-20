@@ -11,8 +11,8 @@ import type {
 import type { AgentRef, ApprovalDecision, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
-  listBranches, log, markSince, recentCommits, resolveRefInput
+  checkoutBranch, currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
+  listBranches, log, markSince, recentCommits, repoState, resolveRefInput, workingTreeDiff
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
@@ -121,13 +121,26 @@ async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promis
         baseContext: await describeSide(repo, pair.base),
         compareContext: await describeSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
-        artifacts: [], commits: [], sinceTagged: false,
+        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
         refMissing: { side, symbol }
       }
     }
   }
 
   const skeleton = await getDiff(repo, baseEff, compareEff)
+  // Volatile band: uncommitted changes (HEAD → working tree), but only when the
+  // repo is actually checked out on the compare branch — otherwise the working
+  // tree belongs to a different branch and isn't part of this review.
+  let dirty = false
+  let volatile: import('../shared/types.js').FileDiff[] = []
+  if (pair.compare.kind === 'branch') {
+    try {
+      if ((await currentBranch(repo)) === pair.compare.symbol && (await isDirty(repo))) {
+        dirty = true
+        volatile = await workingTreeDiff(repo)
+      }
+    } catch { /* status/diff failure — treat as clean */ }
+  }
   const artifacts = await loadArtifactsFor(db, session.id, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
   const commits = await log(repo, baseEff, compareEff)
   let sinceTagged = false
@@ -154,14 +167,32 @@ async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promis
     }
   }
   if (viewedDropped) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
-  reanchorComments(state.comments, skeleton, artifacts)
+  // Re-anchor against the spine PLUS the volatile band: a comment on an
+  // uncommitted line stays anchored while volatile, and auto-pins once the change
+  // is committed (the line migrates from `volatile` into `skeleton`).
+  const forAnchor = volatile.length
+    ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
+    : skeleton
+  reanchorComments(state.comments, forAnchor, artifacts)
   for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
   return {
     sessionId: session.id, session,
     baseContext: await describeSide(repo, pair.base),
     compareContext: await describeSide(repo, pair.compare),
-    skeleton, state, artifacts, commits, sinceTagged
+    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile
   }
+}
+
+/** Union two FileDiff lists by path, concatenating hunks for shared paths — used
+ *  to re-anchor comments across the spine + volatile band in one pass. */
+function mergeFilesByPath(a: import('../shared/types.js').FileDiff[], b: import('../shared/types.js').FileDiff[]): import('../shared/types.js').FileDiff[] {
+  const out = new Map(a.map((f) => [f.path, { ...f, hunks: [...f.hunks] }]))
+  for (const f of b) {
+    const ex = out.get(f.path)
+    if (ex) ex.hunks.push(...f.hunks)
+    else out.set(f.path, { ...f, hunks: [...f.hunks] })
+  }
+  return [...out.values()]
 }
 
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
@@ -221,7 +252,16 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
   })
 
-  handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) => {
+  handle('repoState', async (repo: string) => repoState(repo))
+
+  handle('listRepoSessions', async (repo: string) => dao.listRepoSessions(db, repo))
+
+  handle('switchBranch', async (repo: string, branch: string) => {
+    await checkoutBranch(repo, branch) // throws "commit or stash first" on a dirty tree
+    return repoState(repo)
+  })
+
+  handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean) => {
     await importLegacyRepoFiles(db, repo) // repos can be entered without openRepo (CLI, plan B)
     const base = await resolveRefInput(repo, baseInput)
     const compare = await resolveRefInput(repo, compareInput)
@@ -230,7 +270,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
       compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
     }
-    const existing = dao.findSession(db, repo, pair)
+    const existing = fresh ? null : dao.findSession(db, repo, pair)
     const session = existing ?? dao.createSession(db, repo, pair, agent)
     if (!existing) {
       try {

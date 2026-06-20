@@ -4,7 +4,7 @@ import { I } from '../kit'
 import { RepoTree, visiblePinRepos, type FlatRow } from '../components/RepoTree'
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, enterCompare } = useStore()
+  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, openRepo } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function Dashboard() {
       if (e.key === 'Enter') {
         e.preventDefault()
         const row = flatRef.current[useStore.getState().sel]
-        if (row) void useStore.getState().enterCompare(row.absPath)
+        if (row) void useStore.getState().openRepo(row.absPath)
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); void useStore.getState().pinDirectory(); return }
@@ -124,7 +124,7 @@ export default function Dashboard() {
               if (idx < 0) return null // filtered out
               const st = statuses[r]
               return (
-                <div key={r} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void enterCompare(r)}>
+                <div key={r} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void openRepo(r)}>
                   <span className="r-name">{r.split('/').pop()}</span>
                   <span className="r-parent">{r}</span>
                   <span className="grow" />

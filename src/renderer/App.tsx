@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useStore } from './store'
 import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
+import RepoHub from './screens/RepoHub'
 import Compare from './screens/Compare'
 import Review from './screens/Review'
 
@@ -48,7 +49,7 @@ export default function App() {
 
   return (
     <div className={`wf dz-${density}`} style={rootStyle}>
-      {screen === 'compare' ? <Compare /> : <Dashboard />}
+      {screen === 'compare' ? <Compare /> : screen === 'hub' ? <RepoHub /> : <Dashboard />}
     </div>
   )
 }

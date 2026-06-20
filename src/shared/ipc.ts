@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, PinNode, RefKind, RepoInfo, RepoStatus, ReviewState, SessionMeta
+  ExecutionMode, FileDiff, PinNode, RefKind, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
 } from './types.js'
 
 export interface LoadedReview {
@@ -14,6 +14,13 @@ export interface LoadedReview {
   artifacts: Artifact[]
   commits: CommitInfo[]
   sinceTagged: boolean
+  /** the working tree is dirty AND checked out on the compare branch — the
+   *  volatile band (HEAD → working tree) below applies. */
+  dirty: boolean
+  /** uncommitted changes (HEAD → working tree), shown as the volatile band.
+   *  Empty unless `dirty`. These lines carry no SHA; comments on them re-anchor
+   *  by content and auto-pin once committed (they migrate into `skeleton`). */
+  volatile: FileDiff[]
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
 }
@@ -44,8 +51,15 @@ export interface Api {
   pickRepo(): Promise<string | null>
   recentRepos(): Promise<string[]>
   openRepo(path: string): Promise<RepoInfo>
-  /** Resolve both refs, find-or-create the session for the pair, return its id. */
-  startSession(repo: string, baseInput: string, compareInput: string, agent: AgentRef): Promise<{ sessionId: number }>
+  /** Live git state (branches, current branch, worktrees, dirtiness). */
+  repoState(repo: string): Promise<RepoState>
+  /** All live sessions for a repo, latest first (the repo hub list). */
+  listRepoSessions(repo: string): Promise<SessionListItem[]>
+  /** Check out `branch` in the repo's primary worktree. Rejects on a dirty tree. */
+  switchBranch(repo: string, branch: string): Promise<RepoState>
+  /** Resolve both refs, return the session id. `fresh` forces a new session even
+   *  when one already exists for the exact pair (the hub's "New review"). */
+  startSession(repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean): Promise<{ sessionId: number }>
   loadSession(sessionId: number): Promise<LoadedReview>
   archiveSession(sessionId: number): Promise<void>
   generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
@@ -102,7 +116,8 @@ export interface RendererApi extends Api {
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
-  'pickRepo', 'recentRepos', 'openRepo', 'startSession', 'loadSession', 'archiveSession',
+  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'switchBranch',
+  'startSession', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',

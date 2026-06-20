@@ -1,0 +1,81 @@
+/* ── repo switchers (branch / worktree / session dropdowns) ────────────── */
+.rsw { position: relative; -webkit-app-region: no-drag; }
+.rsw-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel);
+  font-family: var(--sans); font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap;
+}
+.rsw-btn:hover { border-color: var(--line-3); background: var(--panel-2); }
+.rsw-btn .rsw-val { font-family: var(--mono); color: var(--ink); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.rsw-btn .rsw-lab { color: var(--muted); font-size: 11px; }
+.rsw-pop {
+  position: absolute; top: calc(100% + 5px); z-index: 60; min-width: 200px; max-height: 360px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md);
+  box-shadow: 0 8px 28px rgba(0,0,0,.14); padding: 5px;
+}
+.rsw-pop.left { left: 0; } .rsw-pop.right { right: 0; }
+.rsw-head { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 5px 8px 3px; display: flex; gap: 6px; align-items: baseline; }
+.rsw-head .rsw-sub { text-transform: none; letter-spacing: 0; font-size: 10.5px; color: var(--muted-2); }
+.rsw-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: none; background: none;
+  border-radius: var(--r-sm); font-family: var(--sans); font-size: 12.5px; color: var(--ink-2); cursor: pointer; text-align: left;
+}
+button.rsw-item:hover { background: var(--panel-2); }
+.rsw-item.on { background: var(--accent-soft); color: var(--accent-ink); }
+.rsw-item .rsw-item-t { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rsw-item .rsw-age { color: var(--muted-2); font-size: 11px; }
+.rsw-tag { font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+.rsw-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+.rsw-note { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px; font-size: 11px; color: var(--amber); }
+
+/* ── repo hub (session list) ───────────────────────────────────────────── */
+.lr-hub { display: flex; flex-direction: column; height: 100vh; }
+.lr-hub-bar {
+  display: flex; align-items: center; gap: 10px; padding: 12px 24px;
+  border-bottom: 1px solid var(--line); background: var(--panel-2);
+}
+.lr-hub-scroll { flex: 1; overflow-y: auto; padding: 16px 24px 60px; }
+.lr-hub-sech { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); margin: 4px 2px 10px; }
+.lr-sess {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); cursor: pointer;
+}
+.lr-sess:hover { border-color: var(--line-3); background: var(--panel-2); }
+.lr-sess.active { border-color: var(--accent-line); background: var(--accent-soft); }
+.lr-sess-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-3); flex: 0 0 auto; }
+.lr-sess-dot.on { background: var(--accent); }
+.lr-sess-refs { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; flex: 0 0 auto; }
+.lr-sess-refs .b-src { color: var(--accent-ink); font-weight: 600; }
+.lr-sess-refs .b-base { color: var(--ink-2); }
+.lr-sess-title { font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-sess-age { font-size: 11.5px; color: var(--muted-2); font-family: var(--mono); }
+.lr-sess-st { font-size: 11px; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+.lr-sess-st.ok { color: var(--accent-ink); background: var(--accent-soft); }
+.lr-sess-st.warn { color: var(--amber); background: var(--amber-soft); }
+.lr-sess-st.dim { color: var(--muted); background: var(--panel-2); }
+.lr-sess-open {
+  font-family: var(--sans); font-size: 12px; color: var(--accent-ink); background: none;
+  border: 1px solid var(--accent-line); border-radius: var(--r-sm); padding: 4px 12px; cursor: pointer;
+}
+.lr-sess-open:hover { background: var(--accent-soft); }
+.lr-sess-del { background: none; border: none; color: var(--muted-2); cursor: pointer; padding: 4px; border-radius: var(--r-sm); display: inline-flex; }
+.lr-sess-del:hover { color: var(--red); background: var(--red-soft); }
+
+/* ── review header refs ────────────────────────────────────────────────── */
+.rv-refs { display: inline-flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+.rv-arrow { color: var(--faint); font-family: var(--mono); }
+
+/* ── volatile band (uncommitted working tree) ──────────────────────────── */
+.vol-band {
+  margin-top: 28px; border: 1px dashed var(--amber-line); border-radius: var(--r-lg);
+  background: repeating-linear-gradient(135deg, var(--amber-soft) 0 12px, color-mix(in srgb, var(--amber-soft) 60%, var(--panel)) 12px 24px);
+  padding: 14px;
+}
+.vol-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.vol-tag {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--amber); background: var(--panel); border: 1px solid var(--amber-line); border-radius: 20px; padding: 3px 10px;
+}
+.vol-lead { font-size: 13px; color: var(--ink-2); }
+.vol-lead .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.vol-note { font-size: 11.5px; color: var(--muted); font-style: italic; margin-left: auto; }

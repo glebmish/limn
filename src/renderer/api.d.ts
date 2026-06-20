@@ -6,6 +6,10 @@ declare global {
     lrDev?: {
       flow: string | null
       openSession?: string | null
+      /** dev-only: open the repo hub for this repo path */
+      openHub?: string | null
+      /** dev-only: scroll the review body to the bottom (capture the volatile band) */
+      scrollBottom?: boolean
       // dev-only screenshot hooks
       activeChat?: number | null
       openPicker?: boolean

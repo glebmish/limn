@@ -132,4 +132,17 @@ upsertComment(db, session.id, {
   status: 'queued', replies: [], createdAt: 'now', iteration: 1
 })
 
+// extra sessions so the repo hub list + the review's session dropdown have content
+// (multiple reviews of the same branch, latest on top)
+const s2 = createSession(db, fx.dir, {
+  base: { kind: 'commit', symbol: 'HEAD~1', anchorSha: fx.shas.firstFeature },
+  compare: { kind: 'branch', symbol: 'feature', anchorSha: compare.sha }
+}, { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'high' })
+updateSessionMeta(db, s2.id, { title: 'Incremental pass since last commit' })
+const s3 = createSession(db, fx.dir, {
+  base: { kind: 'branch', symbol: 'main', anchorSha: base.sha },
+  compare: { kind: 'branch', symbol: 'feature', anchorSha: compare.sha }
+}, { engine: 'claude', model: 'sonnet' })
+updateSessionMeta(db, s3.id, { title: 'First look' })
+
 console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id, reviewChat: reviewChat.id, userChat: userChat.id }))

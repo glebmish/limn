@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
-  RefPair, RefSide, ReviewAnnotations, ReviewState, SessionMeta
+  RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
@@ -96,10 +96,48 @@ export function getSession(db: DatabaseSync, id: number): SessionMeta | null {
 }
 
 export function findSession(db: DatabaseSync, repoPath: string, pair: RefPair): SessionMeta | null {
+  // Multiple sessions may now share a (base, compare) identity — return the most
+  // recently touched live one (the "resume hint" for that exact pair).
   const row = db.prepare(`${SESSION_SELECT}
-    WHERE r.path = ? AND s.base_ident = ? AND s.compare_ident = ? AND s.archived_at IS NULL`)
+    WHERE r.path = ? AND s.base_ident = ? AND s.compare_ident = ? AND s.archived_at IS NULL
+    ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`)
     .get(repoPath, refIdentity(pair.base), refIdentity(pair.compare)) as SessionDbRow | undefined
   return row ? rowToMeta(row) : null
+}
+
+/** All live sessions for a repo, most-recently-touched first (the repo hub list). */
+export function listRepoSessions(db: DatabaseSync, repoPath: string): SessionListItem[] {
+  const rows = db.prepare(`${SESSION_SELECT}
+    WHERE r.path = ? AND s.archived_at IS NULL ORDER BY s.updated_at DESC, s.id DESC`)
+    .all(repoPath) as unknown as SessionDbRow[]
+  return rows.map((row) => toListItem(db, row))
+}
+
+/** The latest live session whose compare side is branch `branch` (any base) —
+ *  the auto-jump target when a repo opens on that branch. */
+export function latestSessionForBranch(db: DatabaseSync, repoPath: string, branch: string): SessionMeta | null {
+  const row = db.prepare(`${SESSION_SELECT}
+    WHERE r.path = ? AND s.compare_kind = 'branch' AND s.compare_symbol = ? AND s.archived_at IS NULL
+    ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`)
+    .get(repoPath, branch) as SessionDbRow | undefined
+  return row ? rowToMeta(row) : null
+}
+
+function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
+  const meta = rowToMeta(row)
+  return {
+    id: row.id,
+    baseSymbol: row.base_symbol,
+    compareSymbol: row.compare_symbol,
+    compareKind: row.compare_kind,
+    title: row.title ?? undefined,
+    hasReview: Boolean(row.annotations_json),
+    approved: Boolean(row.approved_sha) && row.approved_sha === row.reviewed_at_sha,
+    unresolved: unresolvedCount(db, row.id),
+    updatedAt: meta.updatedAt,
+    createdAt: meta.createdAt,
+    agent: meta.agent
+  }
 }
 
 export function archiveSession(db: DatabaseSync, id: number): void {

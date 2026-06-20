@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('api', api)
 contextBridge.exposeInMainWorld('lrDev', {
   flow: process.env.LR_FLOW ?? null,
   openSession: process.env.LR_OPEN_SESSION ?? null,
+  // dev-only: land on the repo hub for a given repo path; scroll the review body
+  // to the bottom (to capture the volatile band).
+  openHub: process.env.LR_OPEN_HUB ?? null,
+  scrollBottom: process.env.LR_SCROLL_BOTTOM === '1',
   // dev-only screenshot hooks: activate a specific chat, force the agent
   // picker / chat-list dropdown open so a static capture shows them.
   activeChat: process.env.LR_ACTIVE_CHAT ? Number(process.env.LR_ACTIVE_CHAT) : null,

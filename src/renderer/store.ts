@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, CompareData, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoStatus, Section } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -66,10 +66,16 @@ function pickActiveChat(chats: ChatThread[], current: number | null): number | n
 }
 
 interface AppStore {
-  screen: 'dashboard' | 'compare' | 'review'
+  screen: 'dashboard' | 'hub' | 'compare' | 'review'
   recents: string[]
   repo: string | null
   repoInfo: RepoInfo | null
+  /** live git state for the current repo (branches, current branch, worktrees,
+   *  dirtiness) — feeds the hub + review-header switchers. */
+  repoState: RepoState | null
+  /** all live sessions for the current repo, latest first (hub list + the review
+   *  header's session dropdown). */
+  repoSessions: SessionListItem[]
   branch: string
   base: string
   /** the agent selected for creating / regenerating a review */
@@ -97,6 +103,9 @@ interface AppStore {
     data: CompareData | null
     loading: boolean
     retargetSessionId: number | null
+    /** force a brand-new session on Start (the hub's "New review"), bypassing the
+     *  resume-the-existing-pair shortcut. */
+    fresh: boolean
   }
 
   viewedAt: Record<string, string>
@@ -125,8 +134,21 @@ interface AppStore {
   openRepository(): Promise<void>
   unpin(id: number): Promise<void>
   rescan(id: number): Promise<void>
+  // repo (source of truth)
+  /** Open a repo: jump into the latest session for the active branch, else the
+   *  new-review setup. The entry point from the dashboard. */
+  openRepo(repoPath: string): Promise<void>
+  /** Show the repo hub (session list + branch/worktree switchers). */
+  enterHub(repoPath?: string): Promise<void>
+  /** Start a fresh review for the current repo (new-review setup). */
+  newReview(): Promise<void>
+  /** Check out a branch (refused on a dirty tree), then jump to its latest
+   *  session or new-review. Used by the hub + review-header branch switcher. */
+  switchBranchTo(branch: string): Promise<void>
+  /** Archive a session and refresh the hub list. */
+  deleteSession(id: number): Promise<void>
   // compare
-  enterCompare(repoPath: string, refs?: { base?: string; compare?: string }, opts?: { retargetSessionId?: number | null }): Promise<void>
+  enterCompare(repoPath: string, refs?: { base?: string; compare?: string }, opts?: { retargetSessionId?: number | null; fresh?: boolean }): Promise<void>
   setBaseInput(s: string): void
   setCompareInput(s: string): void
   swapRefs(): void
@@ -138,6 +160,8 @@ interface AppStore {
   backToDashboard(): void
   backToCompare(): void
   retarget(side: 'base' | 'compare'): void
+  /** Change the loaded session's base ref in place (review-header base picker). */
+  setSessionBase(ref: string): Promise<void>
   // review
   setAgent(a: AgentRef): void
   reload(): Promise<void>
@@ -199,6 +223,17 @@ export const useStore = create<AppStore>((set, get) => {
     return [...new Set(out)]
   }
 
+  /** Refresh the current repo's live git state + session list (header switchers
+   *  + hub read these). Best-effort — failures leave the prior values. */
+  const loadRepoContext = async (repo: string): Promise<void> => {
+    try {
+      const [repoState, repoSessions] = await Promise.all([
+        window.api.repoState(repo), window.api.listRepoSessions(repo)
+      ])
+      set({ repoState, repoSessions })
+    } catch { /* keep prior context */ }
+  }
+
   /** Fill branch/dirty status in chunks of 8 without blocking render. */
   const fillStatuses = async (paths: string[]): Promise<void> => {
     for (let i = 0; i < paths.length; i += 8) {
@@ -213,6 +248,8 @@ export const useStore = create<AppStore>((set, get) => {
     recents: [],
     repo: null,
     repoInfo: null,
+    repoState: null,
+    repoSessions: [],
     branch: '',
     base: '',
     agent: defaultAgent('claude'),
@@ -227,7 +264,7 @@ export const useStore = create<AppStore>((set, get) => {
     sel: 0,
     statuses: {},
 
-    compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null },
+    compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null, fresh: false },
 
     viewedAt: {},
     reviewedSections: new Set<string>(),
@@ -278,6 +315,9 @@ export const useStore = create<AppStore>((set, get) => {
       // dev/screenshot: LR_OPEN_SESSION auto-resumes a seeded session onto Review
       const openSession = window.lrDev?.openSession
       if (openSession) await get().resumeExisting(Number(openSession))
+      // dev/screenshot: LR_OPEN_HUB lands on the repo hub for a given repo path
+      const openHub = window.lrDev?.openHub
+      if (openHub) await get().enterHub(openHub)
     },
 
     applyCliOpen(msg) {
@@ -348,10 +388,64 @@ export const useStore = create<AppStore>((set, get) => {
       void fillStatuses(collectRepoPaths(dashboard))
     },
 
+    async openRepo(repoPath) {
+      set({ error: null })
+      try {
+        const [info, repoState, repoSessions] = await Promise.all([
+          window.api.openRepo(repoPath),
+          window.api.repoState(repoPath),
+          window.api.listRepoSessions(repoPath)
+        ])
+        set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
+        // jump into the latest session reviewing the active (checked-out) branch
+        const match = repoState.current !== 'HEAD'
+          ? repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
+          : undefined
+        if (match) { await get().resumeExisting(match.id); return }
+        await get().enterCompare(repoPath)            // none → new-review setup
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err), screen: 'dashboard' })
+      }
+    },
+
+    async enterHub(repoPath) {
+      const repo = repoPath ?? get().repo
+      if (!repo) { get().backToDashboard(); return }
+      set({ screen: 'hub', repo, loaded: null, sessionId: null, error: null })
+      await loadRepoContext(repo)
+    },
+
+    async newReview() {
+      const repo = get().repo
+      if (repo) await get().enterCompare(repo, undefined, { fresh: true })
+    },
+
+    async switchBranchTo(branch) {
+      const repo = get().repo
+      if (!repo) return
+      try {
+        const repoState = await window.api.switchBranch(repo, branch)
+        const repoSessions = await window.api.listRepoSessions(repo)
+        set({ repoState, repoSessions, error: null })
+        const match = repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
+        if (match) await get().resumeExisting(match.id)
+        else await get().enterCompare(repo)
+      } catch (err) {
+        // dirty-tree block ("commit or stash first") surfaces here
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    async deleteSession(id) {
+      await window.api.archiveSession(id)
+      const repo = get().repo
+      if (repo) set({ repoSessions: await window.api.listRepoSessions(repo) })
+    },
+
     async enterCompare(repoPath, refs, opts) {
       set({
         screen: 'compare',
-        compare: { repo: repoPath, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: true, retargetSessionId: opts?.retargetSessionId ?? null },
+        compare: { repo: repoPath, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: true, retargetSessionId: opts?.retargetSessionId ?? null, fresh: opts?.fresh ?? false },
         error: null
       })
       try {
@@ -359,6 +453,7 @@ export const useStore = create<AppStore>((set, get) => {
         const baseInput = refs?.base ?? info.defaultBase
         const compareInput = refs?.compare ?? (info.current !== 'HEAD' ? info.current : info.branches[0] ?? '')
         set({ compare: { ...get().compare, repoInfo: info, baseInput, compareInput } })
+        void loadRepoContext(repoPath)
         await get().refreshCompare()
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err), compare: { ...get().compare, loading: false } })
@@ -399,11 +494,11 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     async startFromCompare() {
-      const { repo, baseInput, compareInput } = get().compare
+      const { repo, baseInput, compareInput, fresh } = get().compare
       const agent = get().agent
       if (!repo || !baseInput || !compareInput) return
       try {
-        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, agent)
+        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, agent, fresh)
         const loaded = await window.api.loadSession(sessionId)
         set({
           sessionId, loaded, error: null, screen: 'review',
@@ -414,6 +509,7 @@ export const useStore = create<AppStore>((set, get) => {
           agent: loaded.state.agent ?? agent,
           activeChatId: pickActiveChat(loaded.state.chats, null)
         })
+        void loadRepoContext(repo)
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
@@ -431,6 +527,7 @@ export const useStore = create<AppStore>((set, get) => {
           agent: loaded.state.agent ?? get().agent,
           activeChatId: pickActiveChat(loaded.state.chats, null)
         })
+        void loadRepoContext(loaded.state.repo)
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
@@ -467,8 +564,8 @@ export const useStore = create<AppStore>((set, get) => {
     backToDashboard() {
       if (compareTimer) { clearTimeout(compareTimer); compareTimer = null }
       set({
-        screen: 'dashboard', loaded: null, sessionId: null,
-        compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null }
+        screen: 'dashboard', loaded: null, sessionId: null, repoState: null, repoSessions: [],
+        compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null, fresh: false }
       })
       void get().loadDashboard()
     },
@@ -480,6 +577,17 @@ export const useStore = create<AppStore>((set, get) => {
       const baseSym = loaded?.session.pair.base.symbol ?? get().compare.baseInput
       const compareSym = loaded?.session.pair.compare.symbol ?? get().compare.compareInput
       void get().enterCompare(repo, { base: baseSym, compare: compareSym }, { retargetSessionId: loaded?.refMissing ? get().sessionId : null })
+    },
+
+    async setSessionBase(ref) {
+      const { sessionId } = get()
+      if (sessionId == null || !ref.trim()) return
+      try {
+        await window.api.retargetSession(sessionId, 'base', ref.trim())
+        await get().reload()
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
     },
 
     retarget(_side) {
@@ -505,6 +613,7 @@ export const useStore = create<AppStore>((set, get) => {
         reviewedSections: new Set(loaded.state.reviewedSections),
         activeChatId: pickActiveChat(loaded.state.chats, get().activeChatId)
       })
+      void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     },
 
     toggleViewed(file, currentlyViewed) {
