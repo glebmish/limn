@@ -34,16 +34,20 @@ function Dropdown({ trigger, children, align = 'left', width }: {
 /** Branch picker = a real `git checkout` (refused on a dirty tree → the error
  *  toast shows "commit or stash first"). Picking a branch jumps to its latest
  *  session or the new-review setup. */
-export function BranchSwitcher() {
+export function BranchSwitcher({ display }: { display?: string }) {
   const { repoState, switchBranchTo } = useStore()
   if (!repoState) return null
   const branches = repoState.branches
+  // the branch this control represents: the review's compare branch when given
+  // (it may live in a linked worktree, so it differs from the primary checkout),
+  // else the primary's current branch.
+  const shown = display ?? repoState.current
   return (
     <Dropdown
       width={240}
       trigger={() => (
         <><I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
-          <b className="rsw-val">{repoState.current}</b>
+          <b className="rsw-val">{shown}</b>
           <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} /></>
       )}
     >
@@ -51,7 +55,7 @@ export function BranchSwitcher() {
         <>
           <div className="rsw-head">Switch branch <span className="rsw-sub">checks it out</span></div>
           {branches.map((b) => {
-            const here = b === repoState.current
+            const here = b === shown
             const wt = repoState.worktrees.find((w) => w.branch === b && !w.primary)
             return (
               <button key={b} className={'rsw-item' + (here ? ' on' : '')}
@@ -91,14 +95,16 @@ export function WorktreeSwitcher({ compareBranch }: { compareBranch?: string }) 
     >
       {() => (
         <>
-          <div className="rsw-head">Worktrees <span className="rsw-sub">where branches are checked out</span></div>
+          <div className="rsw-head">Worktrees <span className="rsw-sub">review + edits run where the branch lives</span></div>
           {repoState.worktrees.map((w) => (
-            <div key={w.path} className={'rsw-item' + (w.branch === compareBranch ? ' on' : '')}>
+            <div key={w.path} className={'rsw-item' + (w.branch === compareBranch ? ' on' : '')} title={w.path}>
               <I.list style={{ width: 12, height: 12 }} />
-              <span className="rsw-item-t" title={w.path}>{w.primary ? 'primary' : w.path.split('/').pop()}</span>
+              <span className="rsw-item-t">{w.primary ? 'primary' : w.path.split('/').pop()}</span>
               <span className="rsw-tag">{w.branch ?? 'detached'}</span>
+              {w.branch === compareBranch && <I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} />}
             </div>
           ))}
+          <div className="rsw-note" style={{ color: 'var(--muted)' }}>The compare branch's worktree is where the agent commits.</div>
         </>
       )}
     </Dropdown>

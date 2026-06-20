@@ -66,6 +66,30 @@ describe('checkout guard', () => {
   })
 })
 
+describe('volatile band routes to the worktree holding the branch', () => {
+  it('reads the linked worktree dirtiness, not the primary tree', async () => {
+    // primary is on main and clean; dirty the LINKED worktree (on feature)
+    expect(await dirtyCount(fx.dir)).toBe(0)
+    fixtureWrite(linked, 'src/b.ts', 'export function b() {\n  return 7777\n}\n')
+    fixtureWrite(linked, 'wip-in-worktree.ts', 'export const here = true\n')
+
+    // the workdir for branch `feature` is the linked worktree
+    expect(fs.realpathSync((await branchCheckedOutAt(fx.dir, 'feature'))!)).toBe(fs.realpathSync(linked))
+    expect(await dirtyCount(fx.dir)).toBe(0)            // primary still clean
+    expect(await dirtyCount(linked)).toBeGreaterThan(0) // the branch's tree is dirty
+
+    const vol = await workingTreeDiff(linked)
+    const paths = vol.map((f) => f.path)
+    expect(paths).toContain('src/b.ts')
+    expect(paths).toContain('wip-in-worktree.ts')
+    // the primary tree shows none of it
+    expect((await workingTreeDiff(fx.dir)).length).toBe(0)
+
+    git(linked, 'checkout', '--', 'src/b.ts')
+    fs.rmSync(path.join(linked, 'wip-in-worktree.ts'))
+  })
+})
+
 describe('working-tree diff (volatile band)', () => {
   it('captures tracked edits and untracked files, ignores the index state', async () => {
     fixtureWrite(fx.dir, 'src/a.ts', 'export function a() {\n  return 999\n}\n')

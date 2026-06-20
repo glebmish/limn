@@ -11,7 +11,7 @@ import type {
 import type { AgentRef, ApprovalDecision, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  checkoutBranch, currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
+  branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
   listBranches, log, markSince, recentCommits, repoState, resolveRefInput, workingTreeDiff
 } from './git.js'
 import { execGit } from './exec.js'
@@ -104,6 +104,14 @@ async function loadArtifactsFor(
   return out
 }
 
+/** The working directory the review's writes + working-tree reads run in: the
+ *  worktree currently holding the compare branch, else the primary repo. The repo
+ *  path stays the identity/lock key; this is the cwd handed to git + the engine. */
+async function resolveWorkdir(repo: string, pair: RefPair): Promise<string> {
+  if (pair.compare.kind !== 'branch') return repo
+  return (await branchCheckedOutAt(repo, pair.compare.symbol)) ?? repo
+}
+
 async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promise<LoadedReview> {
   const { repo, pair } = session
   dao.reconcileChats(db, session.id) // ensure default chats exist + review chat tracks latest iteration
@@ -128,20 +136,20 @@ async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promis
   }
 
   const skeleton = await getDiff(repo, baseEff, compareEff)
-  // Volatile band: uncommitted changes (HEAD → working tree), but only when the
-  // repo is actually checked out on the compare branch — otherwise the working
-  // tree belongs to a different branch and isn't part of this review.
+  // The worktree currently holding the compare branch (primary or a linked one);
+  // working-tree reads (volatile band, artifact file contents) come from there.
+  const wt = pair.compare.kind === 'branch' ? await branchCheckedOutAt(repo, pair.compare.symbol) : null
+  const workdir = wt ?? repo
+  // Volatile band: uncommitted changes (HEAD → working tree) of that worktree.
+  // When the branch is checked out nowhere, there's no working tree for it.
   let dirty = false
   let volatile: import('../shared/types.js').FileDiff[] = []
-  if (pair.compare.kind === 'branch') {
+  if (wt) {
     try {
-      if ((await currentBranch(repo)) === pair.compare.symbol && (await isDirty(repo))) {
-        dirty = true
-        volatile = await workingTreeDiff(repo)
-      }
+      if (await isDirty(wt)) { dirty = true; volatile = await workingTreeDiff(wt) }
     } catch { /* status/diff failure — treat as clean */ }
   }
-  const artifacts = await loadArtifactsFor(db, session.id, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+  const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
   const commits = await log(repo, baseEff, compareEff)
   let sinceTagged = false
   const baseline = state.approvedSha ?? state.reviewedAtSha
@@ -308,12 +316,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     try {
       const baseEff = effectiveRef(session.pair.base)
       const compareEff = effectiveRef(session.pair.compare)
+      const workdir = await resolveWorkdir(repo, session.pair)
       const skeleton = await getDiff(repo, baseEff, compareEff)
       const state = dao.loadReviewState(db, sessionId)
-      const artifacts = await loadArtifactsFor(db, sessionId, repo, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+      const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
-        repo, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
+        repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
         model: agent.model, reasoningEffort: agent.reasoningEffort
       })
       activeOps.set(opId, run.cancel)
@@ -328,7 +337,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
         const refs = [...state.artifacts]
         for (const p of annotations.artifactPaths) {
           const hit = classify(p)
-          if (hit && !refs.some((a) => a.path === p) && fs.existsSync(path.join(repo, p))) {
+          if (hit && !refs.some((a) => a.path === p) && fs.existsSync(path.join(workdir, p))) {
             refs.push({ role: hit.role, path: p })
           }
         }
@@ -389,19 +398,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
+      const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
       // the localreview tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
       const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo, agent: thread.agent, writeEnabled: false,
+        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled: false,
         emit: (event) => send('op:event', { opId, event })
       })
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume).
       const run = engine.chat({
-        repo,
+        repo: workdir,
         engineSessionId: thread.engineSessionId,
         model: thread.agent.model,
         reasoningEffort: thread.agent.reasoningEffort,
@@ -472,12 +482,16 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     repoLocks.add(repo)
     try {
       // write guards (same preconditions the old fix flow enforced): the compare
-      // side is a branch, the tree is clean, and the repo is on that branch. When
-      // unmet, the agent runs write-disabled (review/comment-only) rather than failing.
+      // side is a branch checked out (in primary OR a linked worktree) and that
+      // worktree is clean. Edits + commits run in that worktree. When unmet, the
+      // agent runs write-disabled (review/comment-only) rather than failing.
+      const workdir = await resolveWorkdir(repo, session.pair)
       let writeEnabled = false
       if (session.pair.compare.kind === 'branch') {
         const branch = session.pair.compare.symbol
-        writeEnabled = !(await isDirty(repo)) && (await currentBranch(repo)) === branch
+        writeEnabled = workdir !== repo
+          ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
+          : !(await isDirty(repo)) && (await currentBranch(repo)) === branch
       }
       const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
@@ -486,11 +500,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
 
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo, agent: thread.agent, writeEnabled,
+        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled,
         engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
       })
       const run = engine.chat({
-        repo, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+        repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
         tools, writeEnabled, opId, executionMode: thread.executionMode
       })
