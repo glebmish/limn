@@ -47,6 +47,14 @@ describe('artifacts', () => {
     expect(paths).toContain('docs/feature-b-design.md')
   })
 
+  it('classifies an artifact as a plan by its plans/ directory even when the filename lacks "plan"', async () => {
+    fixtureWrite(fx.dir, 'docs/superpowers/plans/2026-06-19-tool-call-log.md', '# Tool-call log\n\n1. step one\n2. step two\n')
+    fixtureGit(fx.dir, 'add', '-A')
+    fixtureGit(fx.dir, 'commit', '-m', 'plan living in a plans/ directory')
+    const found = await detectArtifacts(fx.dir, 'feature', ['docs/superpowers/plans/2026-06-19-tool-call-log.md'])
+    expect(found.find((a) => a.path === 'docs/superpowers/plans/2026-06-19-tool-call-log.md')?.role).toBe('plan')
+  })
+
   it('falls back to the best-per-role heuristic when no artifact is in the diff', async () => {
     // no changedPaths → heuristic mode: one spec (mentions branch), one plan (by name)
     const found = await detectArtifacts(fx.dir, 'feature')

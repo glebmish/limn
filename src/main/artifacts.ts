@@ -55,7 +55,10 @@ export async function detectArtifacts(repo: string, branch: string, changedPaths
     if (head.includes(branch) || head.includes(branchTail)) score += 3
     if (ticket && head.includes(ticket)) score += 3
     if (score <= 0) return
-    const role: 'spec' | 'plan' = /\bplan/.test(name) ? 'plan' : 'spec'
+    // Role from the filename first, then the containing directory — a plan often
+    // lives in plans/ with a date-stamped name that never mentions "plan".
+    const isPlan = /\bplan/.test(name) || /(^|\/)plans?\//.test(relLower)
+    const role: 'spec' | 'plan' = isPlan ? 'plan' : 'spec'
     scored.push({ rel, score, role })
   }
 
