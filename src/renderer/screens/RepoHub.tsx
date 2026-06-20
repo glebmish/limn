@@ -58,10 +58,10 @@ export default function RepoHub() {
     return (
       <div key={s.id} className={'lr-sess' + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
         <span className={'lr-sess-dot ' + (onActive ? 'on' : '')} />
-        <span className="lr-sess-refs">
-          <span className="b-src">{s.compareSymbol}</span>
-          <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
+        <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
           <span className="b-base">{s.baseSymbol}</span>
+          <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
+          <span className="b-src">{s.compareSymbol}</span>
         </span>
         <span className="lr-sess-title">{s.title ?? `Session #${s.id}`}</span>
         <span className="grow" />

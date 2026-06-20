@@ -135,9 +135,9 @@ export default function Review() {
           <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />sessions
         </button>
         <span className="rv-refs">
-          <BranchSwitcher display={branch} />
-          <span className="rv-arrow">←</span>
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
+          <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
+          <BranchSwitcher display={branch} />
         </span>
         <span className="grow"></span>
         {sinceTagged && baseline && (
