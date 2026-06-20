@@ -62,6 +62,9 @@ export default function Review() {
     const box = scrollRef.current
     if (!box) return
     const onScroll = (): void => {
+      // the doc view shares this scroll container; scrolling a spec/plan must
+      // not re-track the (unmounted) changes sections in the sidebar
+      if (useStore.getState().docPath) return
       const baseTop = box.getBoundingClientRect().top + 90
       const reviewed = useStore.getState().reviewedSections
       const firstOpen = sections.find((s) => !reviewed.has(s.id))
