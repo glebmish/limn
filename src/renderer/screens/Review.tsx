@@ -90,17 +90,26 @@ export default function Review() {
   const approved = state.approvedSha === skeleton.headSha
 
   const jumpTo = (id: string): void => {
+    // Selecting a section while a spec/plan doc is open exits the doc back to
+    // the changes view — the changes list then has to remount before its
+    // section refs exist, so the scroll retries across a few frames.
+    if (docPath) closeDoc()
     store.openSection(id)
-    requestAnimationFrame(() => {
+    let tries = 0
+    const scroll = (): void => {
       const el = secRefs.current[id]
       const box = scrollRef.current
-      if (!el || !box) return
+      if (!el || !box) {
+        if (tries++ < 10) requestAnimationFrame(scroll)
+        return
+      }
       const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12
       // Jump straight to the section. A smooth scroll fires the scroll-sync
       // handler on every animation frame, which re-selects each section the
       // viewport passes over — the sidebar flickers through the whole list.
       box.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
-    })
+    }
+    requestAnimationFrame(scroll)
   }
 
   const rootStyle = {
