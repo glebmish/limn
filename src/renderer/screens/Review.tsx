@@ -86,7 +86,6 @@ export default function Review() {
   const queued = queuedComments()
   const baseline = state.approvedSha ?? state.reviewedAtSha
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
-  const iteration = state.iterations.length
   const lastIteration = state.iterations[state.iterations.length - 1]
   const approved = state.approvedSha === skeleton.headSha
 
@@ -138,40 +137,6 @@ export default function Review() {
           Review is read-only. <button className="btn btn-sm" onClick={() => store.retarget(loaded.refMissing!.side)}>Pick a new ref</button>
         </div>
       )}
-
-      <div className="stage-strip">
-        {artifacts.length > 0 && (() => {
-          const allApproved = artifacts.every((a) => state.artifactApprovals[a.path])
-          return (
-            <>
-              <div className={'ss-node ' + (allApproved ? 'done' : 'active')}>
-                <span className="ss-dot"></span>
-                <span className="ss-tx">
-                  <b>{allApproved ? 'Plan' : 'Review the plan'}</b>
-                  <span>{allApproved ? 'approved' : `${artifacts.filter((a) => state.artifactApprovals[a.path]).length}/${artifacts.length} approved`}</span>
-                </span>
-              </div>
-              <span className={'ss-conn' + (allApproved ? '' : ' dashed')}></span>
-            </>
-          )
-        })()}
-        <div className="ss-node done">
-          <span className="ss-dot"></span>
-          <span className="ss-tx"><b>Built</b><span className="mono">{shortSha(skeleton.headSha)}</span></span>
-        </div>
-        {sinceTagged && driftCount > 0 ? (
-          <span className="ss-conn drift"><span className="ss-conn-lab"><I.changed style={{ width: 10, height: 10 }} />{driftCount} commit{driftCount > 1 ? 's' : ''} since you reviewed</span></span>
-        ) : (
-          <span className="ss-conn"></span>
-        )}
-        <div className={'ss-node ' + (approved ? 'done' : 'active')}>
-          <span className="ss-dot"></span>
-          <span className="ss-tx">
-            <b>{approved ? 'Approved' : 'Review the code'}</b>
-            <span>{iteration > 0 ? `iteration ${iteration} · ` : ''}{reviewedCount}/{sections.length} sections</span>
-          </span>
-        </div>
-      </div>
 
       <div className="wf-body">
         {/* LEFT spine */}
