@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { I, ago } from '../kit'
+import { I } from '../kit'
 import { RefPicker } from '../components/RefPicker'
+import { SessionRow } from '../components/SessionRow'
 
 export default function RepoHub() {
   const { repo, repoState, repoSessions, showArchived, hubReturn, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview } = useStore()
@@ -77,7 +78,11 @@ export default function RepoHub() {
               <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
               <b title={branch}>{branch}</b>
             </div>
-            {sessions.map((s) => renderRow(s, true))}
+            {sessions.map((s) => (
+              <SessionRow key={s.id} s={s}
+                active={!s.archived && s.compareKind === 'branch' && s.compareSymbol === repoState?.current}
+                onOpen={() => void resumeExisting(s.id)} onDelete={() => void deleteSession(s.id)} />
+            ))}
           </div>
         ))}
 
@@ -85,42 +90,12 @@ export default function RepoHub() {
           <>
             <div className="lr-hub-sech" style={{ marginTop: 22 }}><span>Archived</span></div>
             {archived.length === 0 && <div className="lr-empty">No archived reviews.</div>}
-            {archived.map((s) => renderRow(s))}
+            {archived.map((s) => (
+              <SessionRow key={s.id} s={s} onOpen={() => void resumeExisting(s.id)} onRestore={() => void restoreSession(s.id)} />
+            ))}
           </>
         )}
       </div>
     </div>
   )
-
-  function renderRow(s: typeof repoSessions[number], grouped = false) {
-    const onActive = !s.archived && s.compareKind === 'branch' && s.compareSymbol === repoState?.current
-    const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'generated' : 'not generated'
-    const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
-    return (
-      <div key={s.id} className={'lr-sess' + (grouped ? ' grouped' : '') + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
-        {!grouped && (
-          <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
-            <span className="b-base">{s.baseSymbol}</span>
-            <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
-            <span className="b-src">{s.compareSymbol}</span>
-          </span>
-        )}
-        <span className="lr-sess-title" title={s.title ?? `Session #${s.id}`}>{s.title ?? `Session #${s.id}`}</span>
-        <span className="grow" />
-        <span className="lr-sess-age">{ago(s.updatedAt)}</span>
-        <span className={'lr-sess-st ' + statusKind}>{status}</span>
-        {s.archived ? (
-          <button className="lr-sess-open" title="Restore review" onClick={(e) => { e.stopPropagation(); void restoreSession(s.id) }}>restore</button>
-        ) : (
-          <button className="lr-sess-del" title="Delete review"
-            onClick={(e) => {
-              e.stopPropagation()
-              if (window.confirm('Delete this review? It moves to Archived (recoverable).')) void deleteSession(s.id)
-            }}>
-            <I.trash style={{ width: 13, height: 13 }} />
-          </button>
-        )}
-      </div>
-    )
-  }
 }

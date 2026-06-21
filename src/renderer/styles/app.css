@@ -187,8 +187,6 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .lr-row.empty, .lr-row.errrow { color: var(--faint); cursor: default; }
 .lr-row.empty:hover, .lr-row.errrow:hover { background: transparent; }
 .lr-row .r-name { font-size: 12.5px; color: var(--ink); font-weight: 500; }
-.lr-row .r-name-link { background: none; border: none; padding: 0; cursor: pointer; flex: 0 0 auto; }
-.lr-row .r-name-link:hover { color: var(--accent-ink); text-decoration: underline; }
 .lr-row .r-parent { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .lr-row.dir .r-name, .lr-row.empty .r-name, .lr-row.errrow .r-name { font-weight: 500; color: inherit; font-family: var(--mono); font-size: 11.5px; }
 .lr-row .r-warn { color: var(--amber); font-size: 11px; }

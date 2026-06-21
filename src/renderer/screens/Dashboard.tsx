@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
-import { I, ago } from '../kit'
+import { I } from '../kit'
 import { RepoTree, visiblePinRepos, type FlatRow } from '../components/RepoTree'
+import { SessionRow } from '../components/SessionRow'
 import type { RecentSession } from '../../shared/types'
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting, enterHub } = useStore()
+  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting, enterHub, deleteSession } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -132,24 +133,11 @@ export default function Dashboard() {
         {dashboard && recentRows.length > 0 && (
           <div className="lr-recent-sec">
             <div className="rs-h">Recent sessions (outside pinned dirs)</div>
-            {recentRows.map((s, i) => {
-              const idx = flatPins.length + i
-              const st = statuses[s.repo]
-              const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'reviewed' : 'not generated'
-              const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
-              return (
-                <div key={s.id} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void resumeExisting(s.id)} title={s.title ?? `Session #${s.id}`}>
-                  <button className="r-name r-name-link" title="All sessions for this repo"
-                    onClick={(e) => { e.stopPropagation(); void enterHub(s.repo) }}>{s.repo.split('/').pop()}</button>
-                  <span className="lr-chip">{s.compareSymbol}</span>
-                  <span className="r-parent" style={{ minWidth: 0 }}>{s.title ?? `Session #${s.id}`}</span>
-                  <span className="grow" />
-                  <span className="lr-sess-age">{ago(s.updatedAt)}</span>
-                  <span className={'lr-sess-st ' + statusKind}>{status}</span>
-                  <span className={'lr-dirty ' + (st ? (st.dirty ? 'on' : 'off') : 'off')} />
-                </div>
-              )
-            })}
+            {recentRows.map((s, i) => (
+              <SessionRow key={s.id} s={s} selected={sel === flatPins.length + i}
+                repoName={s.repo.split('/').pop()} onRepoClick={() => void enterHub(s.repo)}
+                onOpen={() => void resumeExisting(s.id)} onDelete={() => void deleteSession(s.id)} />
+            ))}
           </div>
         )}
       </div>

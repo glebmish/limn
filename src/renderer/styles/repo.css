@@ -103,8 +103,11 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 }
 .lr-sess:hover { border-color: var(--line-3); background: var(--panel-2); }
 .lr-sess.active { border-color: var(--accent-line); background: var(--accent-soft); }
+.lr-sess.sel { border-color: var(--accent-line); background: var(--accent-soft); }
 .lr-sess.archived { opacity: .62; background: var(--panel-2); border-style: dashed; }
 .lr-sess.archived:hover { opacity: 1; }
+.lr-sess-repo { background: none; border: none; padding: 0; cursor: pointer; flex: 0 0 auto; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.lr-sess-repo:hover { color: var(--accent-ink); text-decoration: underline; }
 .lr-hub-bar .btn.on { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
 .lr-sess-refs { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; flex: 0 0 auto; }
 .lr-sess-refs .b-src { color: var(--accent-ink); font-weight: 600; }
