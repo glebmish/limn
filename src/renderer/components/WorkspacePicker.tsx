@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { Dropdown } from './RepoSwitchers'
-import { I, ago } from '../kit'
+import { I } from '../kit'
 import { useStore } from '../store'
 import { checkoutMatrix } from '../lib/worktreeMatrix'
-import { wtName, branchLocation, reviewsForBranch } from '../lib/workspace'
+import { wtName, branchLocation } from '../lib/workspace'
 
-/** Merged header-right control: the current review (or a draft) + where the
- *  compare branch is checked out ("detached" when nowhere). One stacked menu
- *  switches reviews and sets the checkout. The checkout section has no branch
- *  row — the branch is fixed (= compare) — so picking never moves the target,
- *  which is what removes the old "worktree jumps when I pick a branch" friction. */
+/** Header-right worktree control: where the compare branch is checked out
+ *  ("detached" when nowhere) and the action to check it out. Sessions are picked
+ *  via the separate "Sessions" button now. The checkout section has no branch row
+ *  — the branch is fixed (= compare) — so picking never moves the target. */
 export function WorkspacePicker({ branch }: { branch: string }) {
-  const { repoState, repoSessions, sessionId, resumeExisting, checkoutInto, addWorktreeFor, newReview, enterHub } = useStore()
+  const { repoState, checkoutInto, addWorktreeFor } = useStore()
   const worktrees = repoState?.worktrees ?? []
   const primaryWt = worktrees.find((w) => w.primary) ?? worktrees[0]
   const repoBase = primaryWt ? primaryWt.path.split('/').pop() ?? '' : ''
@@ -19,13 +18,14 @@ export function WorkspacePicker({ branch }: { branch: string }) {
 
   const isBranch = !!repoState?.branches.includes(branch)
   const loc = branchLocation(branch, worktrees)
-  const reviews = reviewsForBranch(repoSessions, branch)
-  const cur = repoSessions.find((s) => s.id === sessionId)
 
   // checkout target: default to where the branch lives, else primary; re-default
   // when the selected branch or its resolved host changes.
   const [targetPath, setTargetPath] = useState<string>(loc.host?.path ?? primaryWt?.path ?? '')
-  useEffect(() => { setTargetPath(loc.host?.path ?? primaryWt?.path ?? '') }, [branch, loc.host?.path]) // eslint-disable-line react-hooks/exhaustive-deps
+  // whether the reviewer actively picked a target — until then a detached branch
+  // shows no row selected (the default-primary highlight reads as "current").
+  const [picked, setPicked] = useState(false)
+  useEffect(() => { setTargetPath(loc.host?.path ?? primaryWt?.path ?? ''); setPicked(false) }, [branch, loc.host?.path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // inline new-worktree editor (null = closed) and a staged-but-uncreated name.
   const [newName, setNewName] = useState<string | null>(null)
@@ -42,7 +42,6 @@ export function WorkspacePicker({ branch }: { branch: string }) {
     targetPath
   )
 
-  const sessLabel = sessionId == null ? 'Session ‹new›' : `Session #${sessionId}`
   const locLabel = !isBranch ? 'commit' : loc.detached ? 'detached' : name(loc.host!)
   const detachedBranch = isBranch && loc.detached
 
@@ -53,9 +52,8 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       popClass="ws-pop"
       defaultOpen={Boolean(window.lrDev?.openWorkspace)}
       trigger={() => (
-        <span className={'ws-trig' + (detachedBranch ? ' detached' : '')}>
-          <span className={'ws-ssn' + (sessionId == null ? ' new' : '')} title={cur?.title}>{sessLabel}</span>
-          <span className="ws-dot-sep" />
+        <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title="Where this branch is checked out">
+          <I.branch style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
           <span className={'ws-loc' + (detachedBranch ? ' det' : '')}>
             {locLabel}{!loc.detached && loc.dirty && <span className="gdot" title="uncommitted changes" />}
           </span>
@@ -65,45 +63,11 @@ export function WorkspacePicker({ branch }: { branch: string }) {
     >
       {(close) => (
         <>
-          {/* title is just the branch in context — the worktree-selection section
-              below owns the word "checkout", so a top "Workspace" label only competed
-              with it. */}
           <div className="ws-title"><I.branch style={{ width: 13, height: 13, color: 'var(--accent)' }} /><b title={branch}>{branch}</b></div>
           {detachedBranch && (
             <div className="ws-status"><I.warn style={{ width: 11, height: 11 }} />Detached — read-only until you check it out</div>
           )}
 
-          <div className="rsw-head ws-sec">Reviews</div>
-          {sessionId == null && (
-            <div className="rsw-item on">
-              <I.doc style={{ width: 12, height: 12 }} />
-              <span className="rsw-item-t">Session ‹new›</span>
-              <span className="ws-tag">draft</span>
-              <I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} />
-            </div>
-          )}
-          {reviews.map((s) => (
-            <button key={s.id} className={'rsw-item' + (s.id === sessionId ? ' on' : '')}
-              onClick={() => { close(); if (s.id !== sessionId) void resumeExisting(s.id) }}>
-              <I.doc style={{ width: 12, height: 12 }} />
-              <span className="rsw-item-t" title={s.title ?? `Session #${s.id}`}>Session #{s.id}</span>
-              <span className="rsw-age">{ago(s.updatedAt)}</span>
-              {s.id === sessionId && <I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} />}
-            </button>
-          ))}
-          {/* on a draft, "Session ‹new›" above already IS the new review — showing
-              "New review" too would be the same action twice, so offer it only when
-              a saved session is loaded. */}
-          {sessionId != null && (
-            <button className="rsw-item" onClick={() => { close(); void newReview() }}>
-              <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">New review</span>
-            </button>
-          )}
-          <button className="rsw-item" onClick={() => { close(); void enterHub() }}>
-            <I.list style={{ width: 12, height: 12 }} /><span className="rsw-item-t">All repo sessions…</span>
-          </button>
-
-          <div className="rsw-sep" />
           <div className="rsw-head ws-sec">Checkout {detachedBranch && <span className="ws-badge">detached</span>}</div>
 
           {!isBranch ? (
@@ -113,10 +77,12 @@ export function WorkspacePicker({ branch }: { branch: string }) {
               {worktrees.map((w) => {
                 const isHost = w.branch === branch
                 const disabled = !!loc.host && !isHost
-                const isSel = !pendingWt && w.path === targetPath && !disabled
+                // a detached branch isn't checked out anywhere, so don't pre-select
+                // the default target — only highlight once the reviewer picks one.
+                const isSel = !pendingWt && w.path === targetPath && !disabled && (!loc.detached || picked)
                 return (
                   <button key={w.path} className={'rsw-item' + (isSel ? ' on' : '')} title={w.path} disabled={disabled}
-                    onClick={() => { setTargetPath(w.path); setPendingWt(null) }}>
+                    onClick={() => { setTargetPath(w.path); setPendingWt(null); setPicked(true) }}>
                     <I.list style={{ width: 12, height: 12 }} />
                     <span className="rsw-item-t">{name(w)}</span>
                     {w.dirty && <span className="gdot" title="uncommitted changes" />}
