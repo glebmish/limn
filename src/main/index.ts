@@ -38,7 +38,11 @@ function createWindow(): void {
     webPreferences: {
       preload: path.join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // keep painting + streaming the live agent feed while backgrounded — otherwise
+      // Chromium throttles the renderer and the feed shows a stale/unpainted frame
+      // when you tab away mid-generation and come back.
+      backgroundThrottling: false
     }
   })
 
