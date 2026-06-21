@@ -21,6 +21,10 @@ export interface AgentQuestion { id: string; text: string; context?: string }
 export interface ReviewAnnotations {
   title: string; summary: string; sections: Section[];
   planMap?: PlanMap; questions: AgentQuestion[]; artifactPaths?: string[];
+  /** The agent that produced this narration — stamped by the main process at
+   *  generate time, so "Guided by" stays locked to it even if the regenerate
+   *  picker is changed to a different agent. Not part of the engine's output. */
+  generatedBy?: AgentRef;
 }
 
 // ── comments ──────────────────────────────────────────────────

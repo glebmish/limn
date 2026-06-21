@@ -88,7 +88,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               )}
               {s.what && (
                 <div className="agent-note gsec-what">
-                  <span className="ai"><EngineGlyph engine={loaded?.state.agent?.engine} style={{ width: 11, height: 11 }} /></span>
+                  <span className="ai"><EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 11, height: 11 }} /></span>
                   <span className="txt">
                     <b>What changed: </b>{s.what}
                     <button

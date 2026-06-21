@@ -254,6 +254,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const { value, sessionId: engineSession } = await run.result
       await pump
       const { annotations, warnings } = mergeAnnotations(skeleton, value)
+      annotations.generatedBy = agent   // lock "Guided by" to the producing agent
+
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
       if (annotations.artifactPaths) {
         // accept agent-reported paths only when they match a recognized format —

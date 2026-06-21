@@ -116,6 +116,8 @@ export default function Review() {
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
   const annotations = state.annotations
+  // who produced THIS review — locked to the generating agent (not the regen picker)
+  const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
   const totalAdd = skeleton.files.reduce((n, f) => n + f.add, 0)
   const totalDel = skeleton.files.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter((s) => reviewedSections.has(s.id)).length
@@ -160,9 +162,6 @@ export default function Review() {
   return (
     <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
-        <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
-          <I.list style={{ width: 13, height: 13 }} />Sessions
-        </button>
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
@@ -177,6 +176,9 @@ export default function Review() {
           </span>
         )}
         <WorkspacePicker branch={branch} />
+        <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
+          <I.list style={{ width: 13, height: 13 }} />Sessions
+        </button>
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
@@ -357,7 +359,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(state.agent ?? store.agent).replace(' · ', ' ')}` : ''}</div>
+                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <h1>{annotations?.title ?? `Changes on ${branch}`}</h1>
               </div>
 
@@ -378,7 +380,7 @@ export default function Review() {
                 </div>
               ) : (
                 <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
-                  <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={(state.agent ?? store.agent).engine} style={{ width: 14, height: 14 }} /></span>
+                  <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
                   <span className="rr-tx">{annotations.summary}</span>
                 </div>
               ))}

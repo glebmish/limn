@@ -121,7 +121,7 @@ export function DiffView({ f, plainNote }: {
 
       {!isViewed && GUIDANCE === 'narrated' && plainNote && (
         <div className="plain-note">
-          <EngineGlyph engine={loaded?.state.agent?.engine} style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
+          <EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
           <span>{plainNote}</span>
         </div>
       )}
