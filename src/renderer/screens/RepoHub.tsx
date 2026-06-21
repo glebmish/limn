@@ -63,9 +63,8 @@ export default function RepoHub() {
 
       <div className="lr-hub-scroll">
         <div className="lr-hub-sech">
-          <span>Sessions</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()} title="All sessions across repos">
-            <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />all
+          <button className="lr-sech-back" onClick={() => backToDashboard()} title="All sessions across repos">
+            <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />Sessions
           </button>
           <span className="grow" />
           <button className={'btn btn-sm btn-ghost' + (showArchived ? ' on' : '')} onClick={() => void toggleArchived()}>
