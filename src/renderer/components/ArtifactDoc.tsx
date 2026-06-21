@@ -1,12 +1,17 @@
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
+import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
+import type { Components } from 'react-markdown'
 import { useStore } from '../store'
 import { I } from '../kit'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { MD_PLUGINS, PreBlock, InlineCode, type HastNode } from '../lib/markdown'
 import { FORMAT_LABELS } from '../../shared/types'
 
-/** v3-style commentable document view for spec/plan artifacts.
- *  Every line is a hover-"+" spec-line; threads render inline under their line. */
+/** Commentable document view for spec/plan artifacts. The doc renders through the
+ *  full markdown pipeline; each rendered block is a hover-"+" comment target,
+ *  anchored to the block's source start line so re-anchoring keeps working. */
 export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => void }) {
   const { loaded, branch, reload, materialize } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
@@ -26,48 +31,52 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     void reload()
   }
 
-  const renderLine = (text: string, idx: number) => {
-    const lineNo = idx + 1
-    const threads = comments.filter((c) => c.anchor.kind === 'artifact' && c.anchor.line === lineNo && c.status !== 'outdated')
-    const trimmed = text.trim()
+  const lineOf = (node?: HastNode): number => node?.position?.start.line ?? 0
 
-    let content: React.ReactNode
-    if (trimmed.startsWith('# ')) content = <h1>{trimmed.slice(2)}</h1>
-    else if (trimmed.startsWith('## ')) content = <h2>{trimmed.slice(3)}</h2>
-    else if (trimmed.startsWith('### ')) content = <h2 style={{ opacity: 0.85 }}>{trimmed.slice(4)}</h2>
-    else if (trimmed === '') content = <div style={{ height: 8 }} />
-    else {
-      const bullet = /^[-*] /.test(trimmed)
-      const num = trimmed.match(/^(\d+)\. /)
-      content = (
-        <div className="spec-line">
-          <button className="spec-plus" tabIndex={-1} onClick={() => setComposerLine(lineNo)}>
-            <I.plus style={{ width: 12, height: 12 }} />
-            <span className="plus-tip">comment</span>
-          </button>
-          {bullet && <span className="sl-bullet"></span>}
-          {num && <span className="sl-num">{num[1]}</span>}
-          <span className="sl-text">{bullet ? trimmed.slice(2) : num ? trimmed.slice(num[0].length) : trimmed}</span>
-        </div>
-      )
-    }
-
+  /** One commentable markdown block: hover-"+" + inline threads/composer, anchored
+   *  to its source start line. `Tag` is the element to render (a div wrapper, or the
+   *  <li> itself so list markup stays valid). */
+  const Block = ({ line, tag: Tag = 'div', className, children }: {
+    line: number; tag?: 'div' | 'li'; className?: string; children: ReactNode
+  }) => {
+    const lineContent = art.lines[line - 1] ?? ''
+    const threads = comments.filter(
+      (c) => c.anchor.kind === 'artifact' && c.anchor.line === line && c.status !== 'outdated'
+    )
     return (
-      <Fragment key={idx}>
-        {content}
-        {threads.map((c) => <InlineThread key={c.id} c={c} locLabel={`on ${art.role} line ${lineNo}`} />)}
-        {composerLine === lineNo && (
+      <Tag className={'cmt' + (className ? ` ${className}` : '')}>
+        <button className="spec-plus" tabIndex={-1} onClick={() => setComposerLine(line)}>
+          <I.plus style={{ width: 12, height: 12 }} />
+          <span className="plus-tip">comment</span>
+        </button>
+        {children}
+        {threads.map((c) => <InlineThread key={c.id} c={c} locLabel={`on ${art.role} line ${line}`} />)}
+        {composerLine === line && (
           <Composer
             placeholder={`Comment on this ${art.role} line — the agent gets it with your next batch…`}
             onCancel={() => setComposerLine(null)}
             onSubmit={(t) => {
-              void addComment({ kind: 'artifact', path, line: lineNo, lineContent: text }, t)
+              void addComment({ kind: 'artifact', path, line, lineContent }, t)
               setComposerLine(null)
             }}
           />
         )}
-      </Fragment>
+      </Tag>
     )
+  }
+
+  const components: Components = {
+    p: ({ node, children }) => <Block line={lineOf(node)}><p>{children}</p></Block>,
+    h1: ({ node, children }) => <Block line={lineOf(node)}><h1>{children}</h1></Block>,
+    h2: ({ node, children }) => <Block line={lineOf(node)}><h2>{children}</h2></Block>,
+    h3: ({ node, children }) => <Block line={lineOf(node)}><h2 style={{ opacity: 0.85 }}>{children}</h2></Block>,
+    h4: ({ node, children }) => <Block line={lineOf(node)}><h2 style={{ opacity: 0.85 }}>{children}</h2></Block>,
+    blockquote: ({ node, children }) => <Block line={lineOf(node)}><blockquote className="md-quote">{children}</blockquote></Block>,
+    li: ({ node, children }) => <Block line={lineOf(node)} tag="li">{children}</Block>,
+    pre: ({ node }) => <Block line={lineOf(node)}><PreBlock node={node} /></Block>,
+    table: ({ node, children }) => <Block line={lineOf(node)}><table className="md-table">{children}</table></Block>,
+    code: InlineCode,
+    a: ({ href, children }) => <a className="md-link" href={href} target="_blank" rel="noreferrer">{children}</a>
   }
 
   const outdated = comments.filter((c) => c.status === 'outdated')
@@ -113,7 +122,9 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
             <ul>{deviations.map((d, i) => <li key={i}>{d.text}</li>)}</ul>
           </div>
         )}
-        {art.lines.map(renderLine)}
+        <div className="pdoc-md">
+          <ReactMarkdown remarkPlugins={MD_PLUGINS} components={components}>{art.lines.join('\n')}</ReactMarkdown>
+        </div>
         {outdated.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div className="pdoc-eyebrow">outdated comments</div>

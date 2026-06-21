@@ -70,6 +70,19 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/** Whole fenced code block → safe highlighted HTML. `lang` is the fence info
+ *  string (e.g. "ts", "bash", "typescript"); resolves hljs aliases and our
+ *  extension map, falls back to auto-detect, then to escaped text. */
+export function highlightBlock(code: string, lang: string | null): string {
+  const resolved = lang ? (hljs.getLanguage(lang) ? lang : EXT_LANG[lang.toLowerCase()] ?? null) : null
+  try {
+    if (resolved) return hljs.highlight(code, { language: resolved, ignoreIllegals: true }).value
+    return hljs.highlightAuto(code).value
+  } catch {
+    return escapeHtml(code)
+  }
+}
+
 /** Per-line syntax highlight → safe HTML (hljs escapes content). */
 export function highlightLine(text: string, lang: string | null): string {
   if (!lang || !text.trim()) return escapeHtml(text)

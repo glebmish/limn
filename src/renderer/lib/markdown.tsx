@@ -1,77 +1,71 @@
 import type { ReactNode } from 'react'
-import hljs from 'highlight.js'
+import ReactMarkdown from 'react-markdown'
+import type { Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { highlightBlock } from './highlight'
 
-/** Inline spans: `code` and **bold**. */
-function inline(text: string, key: string): ReactNode {
-  const parts: ReactNode[] = []
-  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g
-  let last = 0
-  let m: RegExpExecArray | null
-  let i = 0
-  while ((m = re.exec(text))) {
-    if (m.index > last) parts.push(text.slice(last, m.index))
-    const t = m[0]
-    if (t.startsWith('`')) parts.push(<code key={`${key}-${i}`} className="md-code">{t.slice(1, -1)}</code>)
-    else parts.push(<strong key={`${key}-${i}`}>{t.slice(2, -2)}</strong>)
-    last = m.index + t.length
-    i++
-  }
-  if (last < text.length) parts.push(text.slice(last))
-  return parts
+/** GFM gives us tables, strikethrough, task lists, autolinks. Shared by the chat
+ *  renderer and ArtifactDoc so both parse identically. */
+export const MD_PLUGINS = [remarkGfm]
+
+/** Minimal shape of the hast nodes react-markdown hands to custom components. */
+export interface HastNode {
+  type?: string
+  tagName?: string
+  value?: string
+  position?: { start: { line: number } }
+  properties?: { className?: string[] }
+  children?: HastNode[]
 }
 
-/** Minimal block renderer — headings, fenced code (hljs), blockquotes, bullet
- *  lists, and paragraphs. Enough to make agent answers read well in the panel. */
-export function Markdown({ text }: { text: string }) {
-  const lines = text.split('\n')
-  const blocks: ReactNode[] = []
-  let i = 0
-  let b = 0
-  const isPlain = (l: string): boolean =>
-    l.trim() !== '' && !l.startsWith('```') && !l.startsWith('>') &&
-    !/^\s*[-*]\s+/.test(l) && !/^#{1,3}\s+/.test(l)
+/** Recursively collect the raw text of a hast node (used to pull fenced code). */
+export function textOf(node?: HastNode): string {
+  if (!node) return ''
+  if (node.type === 'text') return node.value ?? ''
+  return (node.children ?? []).map(textOf).join('')
+}
 
-  while (i < lines.length) {
-    const line = lines[i]
-    const fence = line.match(/^```(\w*)/)
-    if (fence) {
-      const lang = fence[1]
-      const body: string[] = []
-      i++
-      while (i < lines.length && !lines[i].startsWith('```')) { body.push(lines[i]); i++ }
-      i++ // skip closing fence
-      const code = body.join('\n')
-      let html = code
-      try {
-        html = lang && hljs.getLanguage(lang)
-          ? hljs.highlight(code, { language: lang }).value
-          : hljs.highlightAuto(code).value
-      } catch { /* fall back to raw text */ }
-      blocks.push(<pre key={b++} className="md-pre"><code className="hljs" dangerouslySetInnerHTML={{ __html: html }} /></pre>)
-      continue
-    }
-    if (line.startsWith('>')) {
-      const body: string[] = []
-      while (i < lines.length && lines[i].startsWith('>')) { body.push(lines[i].replace(/^>\s?/, '')); i++ }
-      blocks.push(<blockquote key={b++} className="md-quote">{inline(body.join(' '), `q${b}`)}</blockquote>)
-      continue
-    }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*]\s+/, '')); i++ }
-      blocks.push(<ul key={b++} className="md-ul">{items.map((it, k) => <li key={k}>{inline(it, `li${b}-${k}`)}</li>)}</ul>)
-      continue
-    }
-    const h = line.match(/^(#{1,3})\s+(.*)/)
-    if (h) {
-      blocks.push(<div key={b++} className={`md-h md-h${h[1].length}`}>{inline(h[2], `h${b}`)}</div>)
-      i++
-      continue
-    }
-    if (line.trim() === '') { i++; continue }
-    const para: string[] = []
-    while (i < lines.length && isPlain(lines[i])) { para.push(lines[i]); i++ }
-    blocks.push(<p key={b++} className="md-p">{inline(para.join(' '), `p${b}`)}</p>)
-  }
-  return <div className="md">{blocks}</div>
+/** Inline `code` — fenced blocks are handled by PreBlock, so this only fires for
+ *  inline spans. */
+export function InlineCode({ children }: { children?: ReactNode }) {
+  return <code className="md-code">{children}</code>
+}
+
+/** Fenced code block: highlight the whole block via the shared hljs set. We render
+ *  the block directly (ignoring react-markdown's inner <code>), so InlineCode is
+ *  never reached for block code. */
+export function PreBlock({ node }: { node?: HastNode }) {
+  const codeEl = node?.children?.find((c) => c.tagName === 'code') ?? node?.children?.[0]
+  const cls = codeEl?.properties?.className?.[0] ?? ''
+  const lang = /language-([\w-]+)/.exec(cls)?.[1] ?? null
+  const code = textOf(codeEl).replace(/\n$/, '')
+  return <pre className="md-pre"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightBlock(code, lang) }} /></pre>
+}
+
+/** Component overrides that carry the chat's existing md-* classNames so styling is
+ *  unchanged from the old hand-rolled renderer. */
+export const MD_COMPONENTS: Components = {
+  p: ({ children }) => <p className="md-p">{children}</p>,
+  h1: ({ children }) => <div className="md-h md-h1">{children}</div>,
+  h2: ({ children }) => <div className="md-h md-h2">{children}</div>,
+  h3: ({ children }) => <div className="md-h md-h3">{children}</div>,
+  h4: ({ children }) => <div className="md-h md-h3">{children}</div>,
+  h5: ({ children }) => <div className="md-h md-h3">{children}</div>,
+  h6: ({ children }) => <div className="md-h md-h3">{children}</div>,
+  ul: ({ children }) => <ul className="md-ul">{children}</ul>,
+  ol: ({ children }) => <ol className="md-ol">{children}</ol>,
+  blockquote: ({ children }) => <blockquote className="md-quote">{children}</blockquote>,
+  table: ({ children }) => <table className="md-table">{children}</table>,
+  a: ({ href, children }) => <a className="md-link" href={href} target="_blank" rel="noreferrer">{children}</a>,
+  code: InlineCode,
+  pre: PreBlock
+}
+
+/** Full-featured markdown for agent chat messages. */
+export function Markdown({ text }: { text: string }) {
+  return (
+    <div className="md">
+      <ReactMarkdown remarkPlugins={MD_PLUGINS} components={MD_COMPONENTS}>{text}</ReactMarkdown>
+    </div>
+  )
 }

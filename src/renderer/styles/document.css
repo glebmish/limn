@@ -65,6 +65,15 @@
   padding:4px 0 2px;margin-bottom:6px;border-bottom:1px solid var(--line);padding-bottom:14px}
 .spec-byline .ava{width:20px;height:20px;font-size:8.5px}
 
+/* commentable rendered markdown blocks (ArtifactDoc) — hover reveals a + in the
+   left gutter; .pdoc ul has padding:0 so blocks and <li>s share one left edge. */
+.pdoc-md{padding-left:30px}
+.pdoc-md .cmt{position:relative;border-radius:7px}
+.pdoc-md .cmt>.spec-plus{left:-26px;top:3px}
+.pdoc-md .cmt:hover{background:var(--panel-2)}
+.pdoc-md .cmt:hover>.spec-plus{display:flex}
+.pdoc-md .cmt>p:last-child,.pdoc-md .cmt>blockquote:last-child{margin-bottom:0}
+
 /* commentable line: hover reveals + gutter */
 .spec-line{position:relative;display:flex;align-items:flex-start;gap:9px;padding:5px 8px 5px 32px;
   margin:1px 0 1px -8px;border-radius:7px;font-size:13.5px;line-height:1.6;color:var(--ink-2)}

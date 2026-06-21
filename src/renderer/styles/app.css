@@ -320,7 +320,12 @@ button.lr-chip:hover { background: var(--accent-line); }
 .md .md-h1 { font-size: 14px; }
 .md .md-h2 { font-size: 13px; }
 .md .md-h3 { font-size: 12.5px; }
-.md .md-ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.md .md-ul, .md .md-ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.md .md-ol { list-style: decimal; }
+.md .md-link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.md .md-table { border-collapse: collapse; font-size: 11.5px; margin: 2px 0; }
+.md .md-table th, .md .md-table td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+.md .md-table th { background: var(--panel); font-weight: 700; }
 .md .md-quote { margin: 0; padding: 2px 0 2px 9px; border-left: 2px solid var(--line-3); color: var(--muted); }
 .md .md-code { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; }
 .md .md-pre { margin: 2px 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); overflow-x: auto; }

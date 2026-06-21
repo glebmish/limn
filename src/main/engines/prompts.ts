@@ -6,7 +6,7 @@ function describeAnchor(a: CommentAnchor): string {
     case 'diff': return `${a.file} line ${a.line} (${a.side} side, hunk ${a.hunkRange}): \`${a.lineContent}\``
     case 'artifact': return `${a.path} line ${a.line}: \`${a.lineContent}\``
     case 'plan-step': return `plan step ${a.stepN}`
-    case 'section': return `review section "${a.sectionId}"`
+    case 'section': return `review section "${a.sectionId}"${a.part ? ` (${a.part})` : ''}`
     case 'summary': return 'the overall review summary'
     case 'file': return `file ${a.file}`
     case 'question': return `your open question ${a.questionId}`

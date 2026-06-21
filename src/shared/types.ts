@@ -32,7 +32,7 @@ export type CommentAnchor =
   | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; hunkRange: string; lineContent: string }
   | { kind: 'artifact'; path: string; line: number; lineContent: string }
   | { kind: 'plan-step'; stepN: number }
-  | { kind: 'section'; sectionId: string }
+  | { kind: 'section'; sectionId: string; part?: 'narration' | 'diagram' }
   | { kind: 'summary' }
   | { kind: 'file'; file: string }
   | { kind: 'question'; questionId: string }
