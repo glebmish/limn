@@ -276,7 +276,6 @@ export default function Review() {
                     <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
                     <span className="gnav-name" title={s.name}>{s.name}</span>
                     {hasSince && !done && <I.changed style={{ width: 12, height: 12, color: 'var(--amber)' }} />}
-                    {s.flags.some((f) => f.risk) && !done && <I.flag style={{ width: 12, height: 12, color: 'var(--red)' }} />}
                   </div>
                   {cur === s.id && !done && s.desc && <div className="gnav-intent">{s.desc}</div>}
                   <div className="gnav-files">
@@ -355,7 +354,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by ${agentLabel(state.agent ?? store.agent)}` : ''}</div>
+                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(state.agent ?? store.agent).replace(' · ', ' ')}` : ''}</div>
                 <h1>{annotations?.title ?? `Changes on ${branch}`}</h1>
               </div>
 

@@ -226,7 +226,7 @@ describe('review edit tools (real temp DB)', () => {
   }
   const annotations: ReviewAnnotations = {
     title: 'Old title', summary: 'Old summary',
-    sections: [{ id: 's1', name: 'Auth', desc: 'old desc', what: 'old what', files: ['src/a.ts'], order: 1, flags: [] }],
+    sections: [{ id: 's1', name: 'Auth', desc: 'old desc', what: 'old what', files: ['src/a.ts'], order: 1 }],
     questions: []
   }
 

@@ -293,9 +293,6 @@
   background:none;cursor:pointer;font-family:var(--sans);font-size:11px}
 .dthread .send-now:hover{color:var(--accent)}
 
-/* ---- section-level agent flag (below the diagram) ---- */
-.gsec-flag{border-radius:var(--r-md);border:1px solid var(--accent-line);margin-bottom:14px;align-items:flex-start}
-.gsec-flag.risk{border-color:var(--red-line)}
 .gfile-seg{margin-right:10px}
 
 /* ---- narrated plain-language band ---- */

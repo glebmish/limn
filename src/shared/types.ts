@@ -7,10 +7,9 @@ export interface CommitInfo { sha: string; subject: string; author: string; date
 
 // ── annotations (engine output, validated) ───────────────────
 export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]
-export interface SectionFlag { file: string; hunkRange?: string; risk: boolean; label: string; text: string }
 export interface Section {
   id: string; name: string; desc: string; what: string; files: string[]; order: number;
-  diagram?: DiagramNode[]; insight?: { caption: string }; flags: SectionFlag[];
+  diagram?: DiagramNode[]; insight?: { caption: string };
   plainNotes?: Record<string, string>;
 }
 export interface PlanMap {

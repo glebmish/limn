@@ -25,20 +25,8 @@ export class FakeEngine implements ReviewEngine {
         desc: `Changes under ${dir}.`,
         what: `Touches ${files.length} file${files.length > 1 ? 's' : ''} in ${dir}.`,
         files,
-        order: i + 1,
-        flags: [] as ReviewAnnotations['sections'][number]['flags']
+        order: i + 1
       }))
-      const firstWithHunks = req.diff.files.find((f) => f.hunks.length > 0)
-      if (firstWithHunks && sections.length > 0) {
-        const sec = sections.find((s) => s.files.includes(firstWithHunks.path))!
-        sec.flags.push({
-          file: firstWithHunks.path,
-          hunkRange: firstWithHunks.hunks[0].range,
-          risk: true,
-          label: 'Flagged for you:',
-          text: 'Demo flag — the first hunk of the change.'
-        })
-      }
       q.push({ type: 'status', text: 'Writing the guided review…' })
       const value: ReviewAnnotations = {
         title: `Changes on ${req.branch}`,

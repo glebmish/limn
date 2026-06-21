@@ -23,13 +23,6 @@ const wireSection = z.object({
   order: z.number(),
   diagram: z.array(wireDiagramNode).nullable(),
   insight: z.object({ caption: z.string() }).nullable(),
-  flags: z.array(z.object({
-    file: z.string(),
-    hunkRange: z.string().nullable(),
-    risk: z.boolean(),
-    label: z.string(),
-    text: z.string()
-  })),
   plainNotes: z.array(z.object({ file: z.string(), note: z.string() })).nullable()
 })
 
@@ -74,7 +67,6 @@ export function parseReviewOutput(raw: unknown): ReviewAnnotations {
       order: s.order,
       diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as [string, '' | 'hi' | 'new', string]) ?? undefined,
       insight: s.insight ?? undefined,
-      flags: s.flags.map((f) => ({ ...f, hunkRange: f.hunkRange ?? undefined })),
       plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
     })),
     planMap: wire.planMap ?? undefined,

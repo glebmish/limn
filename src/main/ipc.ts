@@ -272,9 +272,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
       dao.reconcileChats(db, sessionId) // create default chats / resync review chat to the new engine session
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
-      const flagged = annotations.sections.reduce((n, s) => n + s.flags.filter((f) => f.risk).length, 0)
       notifyIfUnfocused('Guided review ready',
-        `${annotations.sections.length} sections${flagged ? `, ${flagged} flagged` : ''} — ${session.pair.compare.symbol}`)
+        `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
     } catch (err) {
       console.error('[generate] failed:', err)
       send('op:result', { opId, kind: 'review', ok: false, error: String(err instanceof Error ? err.message : err) })

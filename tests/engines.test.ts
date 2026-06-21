@@ -30,7 +30,7 @@ describe('mergeAnnotations', () => {
     const raw = {
       title: 't', summary: 's',
       sections: [
-        { id: 'a', name: 'A', desc: 'd', what: 'w', files: ['src/a.ts', 'src/NOPE.ts'], order: 1, flags: [] }
+        { id: 'a', name: 'A', desc: 'd', what: 'w', files: ['src/a.ts', 'src/NOPE.ts'], order: 1 }
       ],
       questions: []
     }

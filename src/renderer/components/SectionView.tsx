@@ -39,8 +39,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
           <div className="t">
             {s.name}
             {!done && !open && reReview && <span className="pill pill-amber"><I.changed />needs re-review</span>}
-            {!done && !open && !reReview && s.flags.some((f) => f.risk) && <span className="pill pill-risk"><I.flag />{s.flags.filter((f) => f.risk).length} flagged</span>}
-            {!done && !open && !reReview && !s.flags.some((f) => f.risk) && <span className="pill pill-unrev">unreviewed</span>}
+            {!done && !open && !reReview && <span className="pill pill-unrev">unreviewed</span>}
             {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />reviewed{approvedAt ? ` at ${approvedAt}` : ''}</span>}
           </div>
           {open && showCtx && s.desc && <div className="d">{s.desc}</div>}
@@ -119,13 +118,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               }}
             />
           )}
-
-          {showCtx && s.flags.map((fl, i) => (
-            <div key={i} className={'agent-note gsec-flag' + (fl.risk ? ' risk' : '')}>
-              <span className="ai">{fl.risk ? <I.flag style={{ width: 11, height: 11 }} /> : <I.spark style={{ width: 11, height: 11 }} />}</span>
-              <span className="txt"><b>{fl.label} </b>{fl.text}{fl.hunkRange && <span className="mono dim" style={{ marginLeft: 6, fontSize: 10.5 }}>{fl.file} {fl.hunkRange}</span>}</span>
-            </div>
-          ))}
 
           {files.map((f) => (
             <DiffView

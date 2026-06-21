@@ -121,7 +121,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             {active?.kind === 'review' && active.messages.length === 0 && !streaming && (
               <div className="chat-hint">
                 This is the agent that wrote the review — it already has full context. Ask why it
-                flagged something, or what a change affects.
+                grouped a section that way, or what a change affects.
               </div>
             )}
             {active?.messages.map((m, i) => (

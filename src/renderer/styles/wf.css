@@ -200,9 +200,6 @@
   font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:0 0 auto;
   margin-top:1px}
 .agent-note .txt{font-size:12px;color:var(--accent-ink);line-height:1.5}
-.agent-note.risk{background:var(--red-soft);border-color:var(--red-line)}
-.agent-note.risk .ai{background:var(--red)}
-.agent-note.risk .txt{color:#8f3e30}
 
 /* gutter + on add-comment hover */
 .gutter-add{position:absolute;left:24px;top:50%;transform:translateY(-50%);

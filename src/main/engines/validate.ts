@@ -26,18 +26,11 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       assigned.add(f)
       return true
     })
-    const flags = (s.flags ?? []).filter((fl) => {
-      if (!known.has(fl.file)) {
-        warnings.push(`flag on unknown file ${fl.file} — dropped`)
-        return false
-      }
-      return true
-    })
     if (files.length === 0) {
       warnings.push(`section "${s.name}" has no valid files — dropped`)
       continue
     }
-    sections.push({ ...s, files, flags })
+    sections.push({ ...s, files })
   }
 
   const strays = skeleton.files.map((f) => f.path).filter((p) => !assigned.has(p))
@@ -48,8 +41,7 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       desc: 'Files the agent did not group into a section.',
       what: 'Remaining changes in this branch.',
       files: strays,
-      order: sections.length + 1,
-      flags: []
+      order: sections.length + 1
     })
   }
 

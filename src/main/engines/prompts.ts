@@ -40,11 +40,10 @@ ${fileList}
 Then produce the structured review:
 1. Group ALL changed files into logical sections (by what they accomplish together, not by directory). Every file in the list above must appear in exactly one section's "files" array, using the exact paths shown. Order sections by where the reviewer's attention pays off most (core logic first, tests/config later).
 2. For each section write: "desc" — one sentence on why this section matters to the reviewer; "what" — plain-language explanation of what changed and why (this is your narration, the heart of the review).
-3. Flag risky or surprising hunks in "flags" (risk: true for correctness/security concerns; risk: false for "worth a look"). Reference the exact file path and hunk range from the list above.
-4. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
-5. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
-6. If a spec/plan artifact exists: fill "planMap" — acceptance criteria with met true/false/"partial", plan steps mapped to your section ids with status done/changed/missing, and "deviations" where the implementation diverged from the stated plan.
-7. "questions": open questions where you genuinely need the human's decision (empty array if none). Give each a short stable id like "q1".
+3. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
+4. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
+5. If a spec/plan artifact exists: fill "planMap" — acceptance criteria with met true/false/"partial", plan steps mapped to your section ids with status done/changed/missing, and "deviations" where the implementation diverged from the stated plan.
+6. "questions": open questions where you genuinely need the human's decision (empty array if none). Give each a short stable id like "q1".
 
 Be concrete and specific to this codebase. Do not invent files or content. Keep section count between 2 and 8.`
 }
