@@ -3,7 +3,11 @@ import type { DatabaseSync } from 'node:sqlite'
 export interface Migration { version: number; up(db: DatabaseSync): void }
 
 /** Forward-only, applied in order inside a transaction. Never edit a shipped
- *  migration — append a new one. */
+ *  migration — append a new one.
+ *
+ *  Greenfield baseline: the original v1–v5 history was squashed into this single
+ *  schema (no released databases to preserve). When evolving the schema from
+ *  here, append a new migration with the next version — don't edit this one. */
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -56,8 +60,6 @@ export const MIGRATIONS: Migration[] = [
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
-        CREATE UNIQUE INDEX idx_sessions_pair
-          ON sessions(repo_id, base_ident, compare_ident) WHERE archived_at IS NULL;
 
         CREATE TABLE comments (
           id TEXT NOT NULL,
@@ -77,6 +79,7 @@ export const MIGRATIONS: Migration[] = [
           reasoning_effort TEXT,
           engine_session_id TEXT,
           title TEXT,
+          execution_mode TEXT,
           created_at TEXT NOT NULL
         );
 
@@ -86,7 +89,9 @@ export const MIGRATIONS: Migration[] = [
           role TEXT NOT NULL CHECK (role IN ('user','agent')),
           text TEXT NOT NULL,
           at TEXT NOT NULL,
-          anchor_json TEXT
+          anchor_json TEXT,
+          actions_json TEXT,
+          tools_json TEXT
         );
 
         CREATE TABLE iterations (
@@ -127,40 +132,6 @@ export const MIGRATIONS: Migration[] = [
           PRIMARY KEY (session_id, path)
         );
       `)
-    }
-  },
-  {
-    // Agent tool actions persisted on the authoring chat message, so the action
-    // chips (focus, suggest, …) rebuild on reload.
-    version: 2,
-    up(db) {
-      db.exec('ALTER TABLE chat_messages ADD COLUMN actions_json TEXT;')
-    }
-  },
-  {
-    // The tool-call log (wf-D) persisted on the authoring chat message, so the
-    // expandable read/grep/edit rows survive the turn and rebuild on reload.
-    version: 3,
-    up(db) {
-      db.exec('ALTER TABLE chat_messages ADD COLUMN tools_json TEXT;')
-    }
-  },
-  {
-    // Per-chat execution mode (approvals ladder): ask | edits | auto | full.
-    // NULL = legacy thread → treated as the default 'ask' on load.
-    version: 4,
-    up(db) {
-      db.exec('ALTER TABLE chat_threads ADD COLUMN execution_mode TEXT;')
-    }
-  },
-  {
-    // Repo-interaction redesign: a repo holds many sessions, and multiple may
-    // review the same branch (the hub lists them; the user deletes explicitly).
-    // Drop the one-session-per-(base,compare) uniqueness — the exact-pair lookup
-    // (findSession) becomes "the most recent matching session" instead.
-    version: 5,
-    up(db) {
-      db.exec('DROP INDEX IF EXISTS idx_sessions_pair;')
     }
   }
 ]

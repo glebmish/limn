@@ -247,7 +247,7 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
   it('allows multiple live sessions for the same branch pair', () => {
     const a = createSession(db, '/repo', pair, { engine: 'claude' })
     const b = createSession(db, '/repo', pair, { engine: 'codex' })
-    expect(a.id).not.toBe(b.id) // unique-per-pair constraint dropped (migration v5)
+    expect(a.id).not.toBe(b.id) // no unique-per-pair constraint on sessions
     expect(listRepoSessions(db, '/repo').length).toBe(2)
   })
 
