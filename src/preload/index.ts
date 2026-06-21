@@ -56,5 +56,6 @@ contextBridge.exposeInMainWorld('lrDev', {
   runBatch: process.env.LR_RUN_BATCH === '1',
   runChat: process.env.LR_RUN_CHAT ?? null,
   expandTool: process.env.LR_EXPAND_TOOL ?? null,
-  openMode: process.env.LR_OPEN_MODE === '1'
+  openMode: process.env.LR_OPEN_MODE === '1',
+  fakeGen: process.env.LR_FAKE_GEN === '1'
 })

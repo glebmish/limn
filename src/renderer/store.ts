@@ -64,6 +64,8 @@ export interface GenState {
   threadId: number | null
   log: EngineEvent[]
   error: string | null
+  /** epoch ms the op started — drives the live "elapsed" counter. */
+  startedAt: number | null
 }
 
 /** The active chat thread (or a sensible default) within the loaded review. */
@@ -304,7 +306,7 @@ export const useStore = create<AppStore>((set, get) => {
     focusTarget: null,
     docPath: null,
 
-    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null },
 
     async boot() {
       try {
@@ -668,7 +670,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     startOp(kind, opId, threadId) {
-      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null } })
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now() } })
     },
 
     pushOpEvent(ev) {

@@ -34,6 +34,9 @@ declare global {
       expandTool?: string | null
       /** force the execution-mode dropdown open for a static capture */
       openMode?: boolean
+      /** inject a synthetic running review op (tool calls + status) so the live
+       *  generation panel can be captured without a real agent run */
+      fakeGen?: boolean
     }
   }
 }

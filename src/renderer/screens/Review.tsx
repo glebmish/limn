@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
-import type { FileDiff, Section } from '../../shared/types'
+import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
@@ -17,6 +17,24 @@ import { focusAnchor } from '../lib/focus'
 let devFlowRan = false
 let devFocusRan = false
 let devBatchRan = false
+let devGenRan = false
+
+/** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
+function fakeGenState(): { running: true; opId: string; kind: 'review'; threadId: null; log: EngineEvent[]; error: null; startedAt: number } {
+  const tool = (id: string, verb: ToolVerb, arg: string, state: 'run' | 'ok', meta?: string): EngineEvent =>
+    ({ type: 'tool', call: { id, verb, name: verb, arg, state, ...(meta ? { meta } : {}) } })
+  const log: EngineEvent[] = [
+    { type: 'status', text: 'grouping 58 changed files into sections…' },
+    tool('g1', 'grep', 'callers of RateLimiter', 'ok', '7 hits'),
+    tool('r1', 'read', 'src/limiter.ts', 'ok'),
+    tool('r2', 'read', 'tests/limiter.test.ts', 'ok'),
+    tool('r3', 'read', 'src/server.ts', 'ok'),
+    tool('r4', 'read', 'src/middleware/auth.ts', 'ok'),
+    tool('b1', 'bash', 'npm test -- limiter', 'run'),
+    tool('r5', 'read', 'src/queue.ts', 'run'),
+  ]
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000 }
+}
 
 export default function Review() {
   const store = useStore()
@@ -61,6 +79,12 @@ export default function Review() {
     if (window.lrDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
       if (ids.length > 0) { devBatchRan = true; setTimeout(() => sendComments(ids), 400) }
+    }
+    // dev-only: LR_FAKE_GEN injects a synthetic running review op so the live
+    // generation panel (activity log + phase header + counters) can be captured
+    if (window.lrDev?.fakeGen && !devGenRan && loaded) {
+      devGenRan = true
+      useStore.setState({ gen: fakeGenState() })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])

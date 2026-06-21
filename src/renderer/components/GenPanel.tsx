@@ -1,9 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { checkoutGate, newOpId, useStore } from '../store'
 import { I } from '../kit'
 import { agentLabel } from '../../shared/agents'
+import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
+import { ToolCallLog } from './ToolCallLog'
 import type { AgentRef } from '../../shared/types'
+
+/** mm:ss for the live elapsed counter. */
+function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
 
 export function startGenerate(sessionId: number, agent: AgentRef, opId: string): void {
   useStore.getState().startOp('review', opId)
@@ -44,13 +52,28 @@ export function GenPanel() {
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight })
   }, [gen.log.length])
 
+  // tick the elapsed counter once a second while an op is running
+  useEffect(() => {
+    if (!gen.running) return
+    setNow(Date.now())
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [gen.running])
+
   if (gen.running) {
     const label = gen.kind === 'fix' ? 'Agent is applying your comments…' : gen.kind === 'review' ? 'Agent is exploring the branch…' : 'Agent is thinking…'
+    const calls = reduceToolCalls(gen.log)
+    // latest status line → the one-line phase header under the title
+    const status = [...gen.log].reverse().find((e) => e.type === 'status')
+    const phase = status && 'text' in status ? status.text : null
+    // distinct files the agent has opened or touched (grep args are queries, not files)
+    const filesExplored = new Set(calls.filter((c) => (c.verb === 'read' || c.verb === 'edit') && c.arg).map((c) => c.arg)).size
     return (
       <div className="gen-strip">
         <div className="gs-head">
@@ -63,13 +86,14 @@ export function GenPanel() {
             Cancel
           </button>
         </div>
+        {phase && <div className="gs-sub" title={phase}>{phase}</div>}
+        <div className="counts">
+          <span><b>{filesExplored}</b> file{filesExplored === 1 ? '' : 's'} explored</span>
+          <span><b>{calls.length}</b> tool call{calls.length === 1 ? '' : 's'}</span>
+          <span><b>{fmtElapsed(gen.startedAt ? now - gen.startedAt : 0)}</b> elapsed</span>
+        </div>
         <div className="gs-log" ref={logRef}>
-          {gen.log.filter((e) => e.type === 'status' || e.type === 'tool').map((e, i) => (
-            <div key={i} className={'gs-line' + (e.type === 'tool' ? ' tool' : '')}
-              title={'text' in e ? e.text : undefined}>
-              {e.type === 'tool' ? '⌁ ' : '· '}{'text' in e ? e.text : ''}
-            </div>
-          ))}
+          <ToolCallLog calls={calls} />
         </div>
       </div>
     )
