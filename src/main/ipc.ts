@@ -1,4 +1,4 @@
-import { BrowserWindow, Notification, app, dialog, ipcMain } from 'electron'
+import { BrowserWindow, Notification, dialog, ipcMain } from 'electron'
 import { installCli, takeCliOpen } from './cli.js'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -19,7 +19,6 @@ import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
 import * as pins from './db/pins.js'
 import { scanPin } from './scan.js'
-import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
 import { classify } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
@@ -136,8 +135,6 @@ function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData 
 }
 
 export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
-  seedFromConfig(db, path.join(app.getPath('userData'), 'config.json'))
-
   const handle = <K extends keyof Api>(name: K, fn: Api[K]): void => {
     ipcMain.handle(name, (_ev, ...args) => (fn as (...a: unknown[]) => unknown)(...args))
   }
@@ -153,7 +150,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
   handle('openRepo', async (repo: string) => {
     if (!fs.existsSync(path.join(repo, '.git'))) throw new Error(`${repo} is not a git repository`)
     dao.touchRepo(db, repo)
-    await importLegacyRepoFiles(db, repo)
     const branches = await listBranches(repo)
     return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
   })
@@ -192,7 +188,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
   })
 
   handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean) => {
-    await importLegacyRepoFiles(db, repo) // repos can be entered without openRepo (CLI, plan B)
     const base = await resolveRefInput(repo, baseInput)
     const compare = await resolveRefInput(repo, compareInput)
     if (base.sha === compare.sha) throw new Error('base and compare point at the same commit')

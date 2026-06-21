@@ -51,7 +51,7 @@ function* walk(dir: string, depth: number): Generator<string> {
     return
   }
   for (const e of entries) {
-    if (e.name === 'node_modules' || e.name === '.git' || e.name === '.local-review') continue
+    if (e.name === 'node_modules' || e.name === '.git') continue
     const full = path.join(dir, e.name)
     if (e.isDirectory()) yield* walk(full, depth + 1)
     else if (e.isFile() && e.name.endsWith('.md')) yield full

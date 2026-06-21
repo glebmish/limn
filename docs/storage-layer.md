@@ -1,6 +1,6 @@
 # Storage Layer
 
-How local-review persists review state: SQLite schema, the session-identity model, migrations, the data-access layer, and the one-time legacy import.
+How local-review persists review state: SQLite schema, the session-identity model, migrations, and the data-access layer.
 
 > **Audience:** developers working on the main process. This describes architecture and the invariants you can break, not every function. See the source in `src/main/db/` and the shapes in `src/shared/types.ts`.
 
@@ -21,7 +21,6 @@ All review state — sessions, comments, chat, iterations, approvals, pinned dir
 | `db/migrations.ts` | The forward-only migration list (the schema *is* the migrations) |
 | `db/sessions.ts` | The session/comment/chat/iteration/artifact DAO |
 | `db/pins.ts` | Pinned dirs + scan-cache DAO |
-| `db/import.ts` | One-time import of legacy `.local-review/*.json` |
 
 ## Connection setup & resilience
 
@@ -60,7 +59,7 @@ repos ──1:N──> sessions ──1:N──> comments
 pinned_dirs ──1:1──> scan_cache
 ```
 
-Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children in one statement — relied on by the import rollback and `removePin`.
+Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children in one statement — relied on by `removePin`.
 
 ### Tables
 
@@ -149,19 +148,3 @@ Every function takes `db` first. Highlights and contracts:
 
 - Transactions are raw `db.exec('BEGIN'|'COMMIT'|'ROLLBACK')`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
 - **Asymmetric JSON error handling:** `scan_cache` corruption is swallowed, but `comments.json` / `annotations_json` / chat `anchor_json` are `JSON.parse`d with no guard in `loadReviewState` — a malformed blob there fails the whole session load.
-
-## Legacy JSON import
-
-`import.ts` migrates the old file-based format (`.local-review/review-*.json`, always branch-vs-branch) into SQLite. It runs on `openRepo` and on `startSession` (the CLI path can enter a repo without `openRepo`). A separate `seedFromConfig` imports the legacy Electron `config.json` (recents + last engine) once at startup.
-
-Per file:
-- Parse; require `branch` and `base` (else skip and leave in place).
-- Build the pair: base anchor = current tip of `base`; compare anchor = `lastIteration.endSha ?? reviewedAtSha ?? tipOf(branch)`.
-- **Idempotency guard:** `if (findSession(...)) return` — never double-import.
-- Create the session, populate all children, then **rename the source to `<file>.imported`**.
-
-Failure handling:
-- Unparseable/invalid files are skipped and **left in place** (retry next boot).
-- A failed populate rolls back with `DELETE FROM sessions WHERE id = ?` (CASCADE drops the partial children), so a repaired file imports cleanly on the next run.
-
-> ⚠️ The import is **not wrapped in a single transaction** — each child-population helper runs its own BEGIN/COMMIT, and the rollback `DELETE` only fires on a *thrown* error. If the process is *killed* mid-import, a partial session can survive, and the `findSession`-returns-early guard would then treat it as complete. The explicit catch-and-delete covers thrown errors only.

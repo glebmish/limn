@@ -73,7 +73,7 @@ launches it. Outside a git repo, the app opens on the Dashboard with an explanat
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), the drift banner and "since you reviewed" diffs update live, and you get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
-Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData; legacy `.local-review/*.json` files are imported once on open and left renamed `*.imported`.
+Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData.
 
 ## Development
 

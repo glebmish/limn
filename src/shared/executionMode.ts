@@ -30,7 +30,7 @@ export function isExecutionMode(v: unknown): v is ExecutionMode {
   return v === 'ask' || v === 'edits' || v === 'auto' || v === 'full'
 }
 
-/** Map a tier to its engine policy. Unknown/legacy values fall back to the safest tier. */
+/** Map a tier to its engine policy. Unknown values fall back to the safest tier. */
 export function executionPolicy(mode: ExecutionMode): EnginePolicy {
   return POLICY[mode] ?? POLICY[DEFAULT_EXECUTION_MODE]
 }

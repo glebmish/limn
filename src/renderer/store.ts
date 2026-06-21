@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -308,22 +308,12 @@ export const useStore = create<AppStore>((set, get) => {
 
     async boot() {
       try {
-        // one-time migration of localStorage prefs into the db
-        if (!localStorage.getItem('lr-prefs-migrated')) {
-          for (const key of ['engine']) {
-            const v = localStorage.getItem(`lr-${key}`)
-            if (v != null) await window.api.setPref(key, v)
-          }
-          localStorage.setItem('lr-prefs-migrated', '1')
-        }
         const prefs = await window.api.getPrefs()
         const parse = <T,>(k: string, fallback: T): T => {
           try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
         }
-        // legacy formats: bare 'codex' (seeded from old config.json) or JSON '"codex"' (localStorage migration)
-        const legacyEngine: EngineId = prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : 'claude'
         set({
-          agent: parse<AgentRef>('agent', defaultAgent(legacyEngine))
+          agent: parse<AgentRef>('agent', defaultAgent('claude'))
         })
       } catch { /* prefs unavailable — visual defaults stand */ }
       await get().loadDashboard()
