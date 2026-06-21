@@ -106,8 +106,9 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .lr-sess.archived { opacity: .62; background: var(--panel-2); border-style: dashed; }
 .lr-sess.archived:hover { opacity: 1; }
 .lr-hub-bar .btn.on { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
-.lr-sess-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-3); flex: 0 0 auto; }
-.lr-sess-dot.on { background: var(--accent); }
+.lr-sess-base { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; flex: 0 0 auto; }
+.lr-sess-base .lsb-pre { color: var(--muted); }
+.lr-sess-base .lsb-ref { font-family: var(--mono); color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 7px; }
 .lr-sess-refs { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; flex: 0 0 auto; }
 .lr-sess-refs .b-src { color: var(--accent-ink); font-weight: 600; }
 .lr-sess-refs .b-base { color: var(--ink-2); }

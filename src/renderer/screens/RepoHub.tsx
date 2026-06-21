@@ -94,14 +94,13 @@ export default function RepoHub() {
 
   function renderRow(s: typeof repoSessions[number], grouped = false) {
     const onActive = !s.archived && s.compareKind === 'branch' && s.compareSymbol === repoState?.current
-    const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'reviewed' : 'not generated'
+    const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'generated' : 'not generated'
     const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
     return (
       <div key={s.id} className={'lr-sess' + (grouped ? ' grouped' : '') + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
-        <span className={'lr-sess-dot ' + (onActive ? 'on' : '')} />
         {grouped ? (
           // grouped under the compare branch header — only the base differs per row.
-          <span className="lr-sess-refs" title="changes this branch adds over the base"><span className="b-base">over {s.baseSymbol}</span></span>
+          <span className="lr-sess-base" title="changes shown over this base"><span className="lsb-pre">over</span><span className="lsb-ref">{s.baseSymbol}</span></span>
         ) : (
           <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
             <span className="b-base">{s.baseSymbol}</span>
@@ -113,7 +112,6 @@ export default function RepoHub() {
         <span className="grow" />
         <span className="lr-sess-age">{ago(s.updatedAt)}</span>
         <span className={'lr-sess-st ' + statusKind}>{status}</span>
-        <button className="lr-sess-open" onClick={(e) => { e.stopPropagation(); void resumeExisting(s.id) }}>open</button>
         {s.archived ? (
           <button className="lr-sess-open" title="Restore review" onClick={(e) => { e.stopPropagation(); void restoreSession(s.id) }}>restore</button>
         ) : (
