@@ -65,7 +65,10 @@ export function WorkspacePicker({ branch }: { branch: string }) {
     >
       {(close) => (
         <>
-          <div className="rsw-head">Workspace <span className="rsw-sub">{branch}</span></div>
+          {/* title is just the branch in context — the worktree-selection section
+              below owns the word "checkout", so a top "Workspace" label only competed
+              with it. */}
+          <div className="ws-title"><I.branch style={{ width: 13, height: 13, color: 'var(--accent)' }} /><b title={branch}>{branch}</b></div>
           {detachedBranch && (
             <div className="ws-status"><I.warn style={{ width: 11, height: 11 }} />Detached — read-only until you check it out</div>
           )}
@@ -88,11 +91,16 @@ export function WorkspacePicker({ branch }: { branch: string }) {
               {s.id === sessionId && <I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} />}
             </button>
           ))}
-          <button className="rsw-item" onClick={() => { close(); void newReview() }}>
-            <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">New review</span>
-          </button>
+          {/* on a draft, "Session ‹new›" above already IS the new review — showing
+              "New review" too would be the same action twice, so offer it only when
+              a saved session is loaded. */}
+          {sessionId != null && (
+            <button className="rsw-item" onClick={() => { close(); void newReview() }}>
+              <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">New review</span>
+            </button>
+          )}
           <button className="rsw-item" onClick={() => { close(); void enterHub() }}>
-            <I.list style={{ width: 12, height: 12 }} /><span className="rsw-item-t">All sessions…</span>
+            <I.list style={{ width: 12, height: 12 }} /><span className="rsw-item-t">All repo sessions…</span>
           </button>
 
           <div className="rsw-sep" />
@@ -139,29 +147,33 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                 </button>
               )}
 
-              {pendingWt !== null ? (
-                <div className="bwp-act">
-                  <button className="bwp-checkout"
-                    onClick={() => { const n = pendingWt; close(); setPendingWt(null); void addWorktreeFor(branch, n) }}>
-                    Check out into <b>.worktrees/{pendingWt}</b>
-                  </button>
-                </div>
-              ) : matrix.mode === 'checkout' ? (
-                <div className="bwp-act">
-                  {matrix.dirtyBlocked && (
-                    <div className="bwp-note"><I.warn style={{ width: 11, height: 11 }} />
-                      {name(matrix.target)} has uncommitted changes — pick a clean worktree or create one.
-                    </div>
-                  )}
-                  <button className="bwp-checkout" disabled={matrix.dirtyBlocked}
-                    onClick={() => { close(); void checkoutInto(branch, matrix.target.path) }}>
-                    Check out into {name(matrix.target)}
-                  </button>
-                  <div className="bwp-foot-note">unlocks generate · chat · send-to-agent</div>
-                </div>
-              ) : (matrix.mode === 'goto-host' || matrix.mode === 'settled') ? (
-                <div className="ws-settled"><I.check style={{ width: 12, height: 12 }} />Checked out in {name(matrix.host)}</div>
-              ) : null}
+              {/* the action is pinned (sticky) at the popover's bottom edge so a long
+                  worktree list can't scroll the checkout button out of reach. */}
+              <div className="ws-foot">
+                {pendingWt !== null ? (
+                  <div className="bwp-act">
+                    <button className="bwp-checkout"
+                      onClick={() => { const n = pendingWt; close(); setPendingWt(null); void addWorktreeFor(branch, n) }}>
+                      Check out into <b>.worktrees/{pendingWt}</b>
+                    </button>
+                  </div>
+                ) : matrix.mode === 'checkout' ? (
+                  <div className="bwp-act">
+                    {matrix.dirtyBlocked && (
+                      <div className="bwp-note"><I.warn style={{ width: 11, height: 11 }} />
+                        {name(matrix.target)} has uncommitted changes — pick a clean worktree or create one.
+                      </div>
+                    )}
+                    <button className="bwp-checkout" disabled={matrix.dirtyBlocked}
+                      onClick={() => { close(); void checkoutInto(branch, matrix.target.path) }}>
+                      Check out into {name(matrix.target)}
+                    </button>
+                    <div className="bwp-foot-note">unlocks generate · chat · send-to-agent</div>
+                  </div>
+                ) : (matrix.mode === 'goto-host' || matrix.mode === 'settled') ? (
+                  <div className="ws-settled"><I.check style={{ width: 12, height: 12 }} />Checked out in {name(matrix.host)}</div>
+                ) : null}
+              </div>
             </>
           )}
         </>

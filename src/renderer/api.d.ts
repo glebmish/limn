@@ -17,6 +17,8 @@ declare global {
       openPicker?: boolean
       /** dev-only: open the merged Workspace control (sessions + checkout) for a static capture */
       openWorkspace?: boolean
+      /** dev-only: open the compare RefPicker dropdown for a static capture */
+      openCmpRef?: boolean
       openChatList?: boolean
       /** JSON FocusTarget — focusAnchor() it once the review mounts */
       focus?: string | null

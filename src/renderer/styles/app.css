@@ -393,6 +393,11 @@ button.lr-chip:hover { background: var(--accent-line); }
 .lr-refpick { position: relative; display: inline-block; }
 .lr-refpick-btn { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 5px 10px; cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-refpick-btn:hover { border-color: var(--line-3); }
+/* base side is subordinate to the bold compare chip — muted text in a dotted box so
+   it still reads as an editable control, just quieter than the solid compare chip.
+   Hover firms it up (solid border + panel fill). */
+.lr-refpick-btn:not(.lr-refpick-cmp) { color: var(--muted); background: transparent; border-style: dotted; border-color: var(--line-3); }
+.lr-refpick-btn:not(.lr-refpick-cmp):hover { color: var(--ink-2); background: var(--panel); border-style: solid; border-color: var(--line-3); }
 /* compare side: a bold chip with a branch icon (base stays the quiet text button) */
 .lr-refpick-cmp { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; max-width: 300px; }
 .lr-refpick-cmp .rp-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -403,10 +408,14 @@ button.lr-chip:hover { background: var(--accent-line); }
 .lr-refpick-sec-btn:hover { color: var(--ink-2); }
 .lr-refpick-sec-btn svg { margin-left: auto; color: var(--muted-2); }
 .lr-refpick-sec-btn .rp-more { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 9.5px; color: var(--accent-ink); }
-.lr-refpick-item { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; }
+.lr-refpick-item { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.lr-refpick-item .ri-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lr-refpick-item:hover { background: var(--accent-soft); }
 .lr-refpick-item .ri-name { font-family: var(--mono); color: var(--ink); }
 .lr-refpick-item .ri-tag { font-size: 10px; color: var(--accent-ink); }
 .lr-refpick-item .ri-sub { flex: 1 1 auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-refpick-item .ri-age { font-size: 10px; color: var(--muted); }
+/* worktree the branch is checked out in: a single git branch-off icon, right-aligned.
+   The worktree name is in the row tooltip, so a long name never crowds the row. */
+.lr-refpick-item .ri-at { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--muted); }
 .lr-refpick-list { max-height: 280px; overflow-y: auto; }

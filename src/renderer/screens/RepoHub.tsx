@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
+import { wtName } from '../lib/workspace'
 
 export default function RepoHub() {
   const { repo, repoState, repoSessions, showArchived, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, newReview, openReview } = useStore()
@@ -8,6 +9,30 @@ export default function RepoHub() {
   const repoName = repo.split('/').pop()
   const live = repoSessions.filter((s) => !s.archived)
   const archived = repoSessions.filter((s) => s.archived)
+
+  const worktrees = repoState?.worktrees ?? []
+  const primaryWt = worktrees.find((w) => w.primary) ?? worktrees[0]
+  const repoBase = primaryWt ? primaryWt.path.split('/').pop() ?? '' : ''
+  const wtFor = (b: string): string | null => {
+    const w = worktrees.find((wt) => wt.branch === b)
+    return w ? wtName(w.path, w.primary, repoBase) : null
+  }
+
+  // group sessions under their compare branch; the checked-out branch floats to
+  // the top, the rest order by their most-recent session.
+  const groupByBranch = (list: typeof repoSessions): [string, typeof repoSessions][] => {
+    const groups = new Map<string, typeof repoSessions>()
+    for (const s of list) {
+      const arr = groups.get(s.compareSymbol) ?? []
+      arr.push(s); groups.set(s.compareSymbol, arr)
+    }
+    const recency = (g: typeof repoSessions): string => g.reduce((m, s) => (s.updatedAt > m ? s.updatedAt : m), '')
+    return [...groups.entries()].sort((a, b) => {
+      if (a[0] === repoState?.current) return -1
+      if (b[0] === repoState?.current) return 1
+      return recency(a[1]) < recency(b[1]) ? 1 : -1
+    })
+  }
 
   return (
     <div className="lr-hub">
@@ -38,7 +63,20 @@ export default function RepoHub() {
         {live.length === 0 && (
           <div className="lr-empty">No reviews yet for this repo. <b>New review</b> to start one.</div>
         )}
-        {live.map((s) => renderRow(s))}
+        {groupByBranch(live).map(([branch, sessions]) => {
+          const at = wtFor(branch)
+          return (
+            <div key={branch} className="lr-hub-group">
+              <div className="lr-hub-branch">
+                <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
+                <b title={branch}>{branch}</b>
+                {at ? <span className="lr-hub-at" title={`checked out in ${at}`}>@ {at}</span>
+                    : <span className="lr-hub-at det">detached</span>}
+              </div>
+              {sessions.map((s) => renderRow(s, true))}
+            </div>
+          )
+        })}
 
         {showArchived && (
           <>
@@ -51,18 +89,23 @@ export default function RepoHub() {
     </div>
   )
 
-  function renderRow(s: typeof repoSessions[number]) {
+  function renderRow(s: typeof repoSessions[number], grouped = false) {
     const onActive = !s.archived && s.compareKind === 'branch' && s.compareSymbol === repoState?.current
     const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'reviewed' : 'not generated'
     const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
     return (
-      <div key={s.id} className={'lr-sess' + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
+      <div key={s.id} className={'lr-sess' + (grouped ? ' grouped' : '') + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
         <span className={'lr-sess-dot ' + (onActive ? 'on' : '')} />
-        <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
-          <span className="b-base">{s.baseSymbol}</span>
-          <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
-          <span className="b-src">{s.compareSymbol}</span>
-        </span>
+        {grouped ? (
+          // grouped under the compare branch header — only the base differs per row.
+          <span className="lr-sess-refs" title="changes this branch adds over the base"><span className="b-base">over {s.baseSymbol}</span></span>
+        ) : (
+          <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
+            <span className="b-base">{s.baseSymbol}</span>
+            <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
+            <span className="b-src">{s.compareSymbol}</span>
+          </span>
+        )}
         <span className="lr-sess-title" title={s.title ?? `Session #${s.id}`}>{s.title ?? `Session #${s.id}`}</span>
         <span className="grow" />
         <span className="lr-sess-age">{ago(s.updatedAt)}</span>

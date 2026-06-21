@@ -93,6 +93,11 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 }
 .lr-hub-scroll { flex: 1; overflow-y: auto; padding: 16px 24px 60px; }
 .lr-hub-sech { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); margin: 4px 2px 10px; }
+.lr-hub-group { margin-bottom: 18px; }
+.lr-hub-branch { display: flex; align-items: center; gap: 7px; margin: 0 2px 8px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+.lr-hub-branch .lr-hub-at { font-size: 11px; color: var(--muted); font-weight: 400; }
+.lr-hub-branch .lr-hub-at.det { color: var(--amber); }
+.lr-sess.grouped { margin-left: 18px; }
 .lr-sess {
   display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 8px;
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); cursor: pointer;
@@ -144,6 +149,13 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .gdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; margin-left: 4px; vertical-align: middle; }
 
 /* ── merged Workspace control (header right): review + checkout in one ── */
+.ws-title { display: flex; align-items: center; gap: 7px; padding: 6px 8px 6px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+.ws-title b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* checkout action pinned to the popover's bottom edge — a long worktree list scrolls
+   under it instead of pushing it out of view. */
+.ws-pop .ws-foot { position: sticky; bottom: -5px; margin: 0 -5px -5px; padding: 4px 5px 5px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -7px 12px -9px rgba(0,0,0,.22); }
+.ws-pop .ws-foot:empty { display: none; }
+.ws-pop .ws-foot .bwp-act { border-top: none; margin-top: 0; padding-top: 3px; }
 .ws-trig { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
 .ws-trig.detached { color: var(--amber); }
 .ws-ssn { font-weight: 700; color: var(--ink); }

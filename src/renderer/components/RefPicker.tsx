@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
+import { useStore } from '../store'
+import { wtName } from '../lib/workspace'
 import type { CommitInfo } from '../../shared/types'
 
 export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false }: {
@@ -12,14 +14,26 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
    *  side (default) stays the quiet text button. */
   prominent?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(prominent && window.lrDev?.openCmpRef))
+  // worktree a branch is checked out in (if any) — shown muted next to the row so
+  // you can see at a glance which branches are already checked out, and where.
+  const worktrees = useStore((s) => s.repoState?.worktrees) ?? []
+  const primaryWt = worktrees.find((w) => w.primary) ?? worktrees[0]
+  const repoBase = primaryWt ? primaryWt.path.split('/').pop() ?? '' : ''
+  const wtFor = (b: string): string | null => {
+    const w = worktrees.find((wt) => wt.branch === b)
+    return w ? wtName(w.path, w.primary, repoBase) : null
+  }
   const [draft, setDraft] = useState(value)
   const [branches, setBranches] = useState<string[]>([])
   const [defaultBase, setDefaultBase] = useState('')
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
   // expand the branch list past the live text filter — when the input names a
   // branch the filtered list collapses to one, so this reveals the rest to switch.
-  const [showAllBranches, setShowAllBranches] = useState(false)
+  const [showAllBranches, setShowAllBranches] = useState(true)
+  // commits are the additional mode: collapsed by default (branch picking is the
+  // default), opened by the toggle or automatically once the query looks like a SHA.
+  const [showCommits, setShowCommits] = useState(false)
   const popRef = useRef<HTMLDivElement>(null)
   const loadedFor = useRef<string>('')
 
@@ -76,10 +90,14 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // text as a SHA/subject search across the scoped commit list.
   const commitList = (commits ?? []).filter((c) =>
     !!matchedBranch || c.sha.toLowerCase().includes(filter) || c.subject.toLowerCase().includes(filter))
+  // typing a hash should surface commits without a click — auto-open the section
+  // when the input reads as a SHA (and isn't an exact branch name).
+  const shaLike = /^[0-9a-f]{4,40}$/i.test(trimmed) && !matchedBranch
+  const commitsOpen = showCommits || shaLike
 
   return (
     <div className="lr-refpick">
-      <button className={'lr-refpick-btn' + (prominent ? ' lr-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(false); setOpen((o) => !o) }}>
+      <button className={'lr-refpick-btn' + (prominent ? ' lr-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         <span className="rp-val">{value || '—'}</span>
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
@@ -90,6 +108,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             autoFocus
             value={draft}
             placeholder="branch, SHA, or HEAD~N"
+            onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => { setDraft(e.target.value); setShowAllBranches(false) }}
             onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) commit(draft.trim()) }}
           />
@@ -102,25 +121,41 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
                 <I.chevD style={{ width: 10, height: 10, transform: showAllBranches ? 'none' : 'rotate(-90deg)' }} />
               </button>
             )}
-            {branchList.map((b) => (
-              <div key={b} className="lr-refpick-item" onClick={() => commit(b)}>
-                <span className="ri-name" title={b}>{b}</span>
-                {b === defaultBase && <span className="ri-tag">(default base)</span>}
-              </div>
-            ))}
-            {commitList.length > 0 && (
-              <div className="lr-refpick-sec">{matchedBranch ? `commits on ${matchedBranch}` : 'recent commits'}</div>
+            {branchList.map((b) => {
+              const at = wtFor(b)
+              return (
+                // one title on the whole row (not per-span) — native tooltips reset
+                // when the pointer crosses child elements, which made hovering flicker
+                // and dropped the worktree detail. Row-level keeps it stable end to end.
+                <div key={b} className="lr-refpick-item" title={at ? `${b}\nchecked out in ${at}` : b} onClick={() => commit(b)}>
+                  <span className="ri-name">{b}</span>
+                  {b === defaultBase && <span className="ri-tag">(default base)</span>}
+                  {at && (
+                    // worktree = just the git branch-off icon; the name lives in the
+                    // row tooltip (keeps long worktree names from ever crowding the row).
+                    <span className="ri-at"><I.branch style={{ width: 12, height: 12 }} /></span>
+                  )}
+                </div>
+              )
+            })}
+            {(commits === null || commits.length > 0) && (
+              <button type="button" className="lr-refpick-sec lr-refpick-sec-btn"
+                onClick={() => setShowCommits((v) => !v)}>
+                <span>{matchedBranch ? `commits on ${matchedBranch}` : 'recent commits'}</span>
+                {!commitsOpen && commits && commits.length > 0 && <span className="rp-more">+{commits.length}</span>}
+                <I.chevD style={{ width: 10, height: 10, transform: commitsOpen ? 'none' : 'rotate(-90deg)' }} />
+              </button>
             )}
-            {commitList.map((c) => (
+            {commitsOpen && commits === null && (
+              <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>loading…</div>
+            )}
+            {commitsOpen && commitList.map((c) => (
               <div key={c.sha} className="lr-refpick-item" onClick={() => commit(c.sha)}>
                 <span className="ri-name">{shortSha(c.sha)}</span>
                 <span className="ri-sub" title={c.subject}>{c.subject}</span>
                 <span className="ri-age">{ago(c.date)}</span>
               </div>
             ))}
-            {commits === null && (
-              <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>loading…</div>
-            )}
             {commits !== null && branchList.length === 0 && commitList.length === 0 && (
               <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>No matches — press Enter to use "{trimmed}".</div>
             )}
