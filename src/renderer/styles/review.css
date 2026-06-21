@@ -356,3 +356,24 @@
 .lr-verdict.addressed { color: var(--accent-ink); }
 .lr-verdict.reworked { color: var(--amber); }
 .lr-verdict.skipped { color: var(--red); }
+
+/* ---- comment affordances on review elements ---- */
+/* summary banner */
+.rr-cmt { display: inline-flex; align-items: center; justify-content: center; background: none; border: none;
+  cursor: pointer; color: var(--muted); padding: 3px; border-radius: 6px; flex: 0 0 auto; }
+.rr-cmt:hover { color: var(--accent-ink); background: var(--panel-2); }
+.rr-summary-threads { margin: 2px 30px 6px; }
+.wf.dz-compact .rr-summary-threads { margin: 2px 22px 6px; }
+.wf.dz-spacious .rr-summary-threads { margin: 4px 44px 8px; }
+/* plan steps (left spine peek) — reveal on row hover */
+.plan-peek-step { position: relative; }
+.pps-cmt { display: none; align-items: center; justify-content: center; background: none; border: none;
+  cursor: pointer; color: var(--muted); padding: 2px; border-radius: 5px; margin-left: auto; flex: 0 0 auto; }
+.plan-peek-step:hover .pps-cmt { display: inline-flex; }
+.pps-cmt:hover { color: var(--accent-ink); }
+/* file-level comments (between the file header and its diff) */
+.gfile-filecmt { padding: 8px 14px 2px; }
+/* diagram/insight comment bubble — reveal on hover of the diagram block */
+.gsec-diagram-cmt { position: relative; }
+.gsec-diagram-cmt .diagram-cmt-btn { position: absolute; top: 6px; right: 8px; display: none; z-index: 1; }
+.gsec-diagram-cmt:hover .diagram-cmt-btn { display: inline-flex; }

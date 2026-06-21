@@ -54,8 +54,10 @@ export function DiffView({ f, plainNote }: {
   const focused = focusTarget?.file === f.path
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
+  const [fileCommenting, setFileCommenting] = useState(false)
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
+  const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   const hasSince = f.hunks.some((h) => h.since)
   const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
@@ -112,12 +114,33 @@ export function DiffView({ f, plainNote }: {
             {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
+        <button className="gfile-regen" title="Comment on this file" onClick={() => setFileCommenting(true)}>
+          <I.bubble style={{ width: 11, height: 11 }} />
+        </button>
         <label className="file-viewed">
           <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path, isViewed)} />
           <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
           Viewed
         </label>
       </div>
+
+      {(fileLevelComments.length > 0 || fileCommenting) && (
+        <div className="gfile-filecmt">
+          {fileLevelComments.map((c) => (
+            <InlineThread key={c.id} c={c} locLabel={`on ${name}`} />
+          ))}
+          {fileCommenting && (
+            <Composer
+              placeholder={`Comment on ${name} as a whole — the agent gets it with your next batch…`}
+              onCancel={() => setFileCommenting(false)}
+              onSubmit={(text) => {
+                void addComment({ kind: 'file', file: f.path }, text)
+                setFileCommenting(false)
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {!isViewed && GUIDANCE === 'narrated' && plainNote && (
         <div className="plain-note">

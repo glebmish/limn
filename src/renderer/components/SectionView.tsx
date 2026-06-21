@@ -15,7 +15,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   secRef: (el: HTMLDivElement | null) => void
 }) {
   const { reviewedSections, collapsed, markReviewed, openSection, loaded, focusTarget } = useStore()
-  const [commenting, setCommenting] = useState(false)
+  const [commenting, setCommenting] = useState<null | 'narration' | 'diagram'>(null)
   const comments = loaded?.state.comments ?? []
 
   const focused = focusTarget?.sectionId === s.id
@@ -26,6 +26,10 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const reReview = hasSince
   const showCtx = GUIDANCE !== 'minimal'
   const sectionComments = comments.filter((c) => c.anchor.kind === 'section' && c.anchor.sectionId === s.id)
+  // diagram comments are explicitly part:'diagram'; everything else (incl. legacy
+  // section comments with no part) shows under the narration.
+  const diagramComments = sectionComments.filter((c) => c.anchor.kind === 'section' && c.anchor.part === 'diagram')
+  const narrationComments = sectionComments.filter((c) => !(c.anchor.kind === 'section' && c.anchor.part === 'diagram'))
   const approvedAt = loaded?.state.approvedSha?.slice(0, 7)
 
   const cls = 'gsec ' + (done ? 'done ' : reReview ? 'amber ' : '') + (open ? '' : 'collapsed')
@@ -68,7 +72,14 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
           {showCtx && (s.diagram || s.what) && (
             <div className="gsec-cols" style={!s.diagram ? { gridTemplateColumns: '1fr' } : undefined}>
               {s.diagram && (
-                <div className={s.insight ? 'gsec-insight' : 'gsec-diagram'}>
+                <div className={(s.insight ? 'gsec-insight' : 'gsec-diagram') + ' gsec-diagram-cmt'}>
+                  <button
+                    className="gfile-regen diagram-cmt-btn"
+                    title="Comment on this diagram"
+                    onClick={() => setCommenting('diagram')}
+                  >
+                    <I.bubble style={{ width: 11, height: 11 }} />
+                  </button>
                   {s.insight && (
                     <div className="ins-switch">
                       <span className="ins-switch-lab">mechanism</span>
@@ -95,7 +106,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
                       className="gfile-regen"
                       style={{ marginLeft: 8 }}
                       title="Comment on this section's narration"
-                      onClick={() => setCommenting(true)}
+                      onClick={() => setCommenting('narration')}
                     >
                       <I.bubble style={{ width: 11, height: 11 }} />
                     </button>
@@ -105,16 +116,30 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             </div>
           )}
 
-          {sectionComments.map((c) => (
+          {diagramComments.map((c) => (
+            <InlineThread key={c.id} c={c} locLabel={`on the diagram in “${s.name}”`} />
+          ))}
+          {commenting === 'diagram' && (
+            <Composer
+              placeholder={`Comment on the diagram in “${s.name}”…`}
+              onCancel={() => setCommenting(null)}
+              onSubmit={(text) => {
+                void addComment({ kind: 'section', sectionId: s.id, part: 'diagram' }, text)
+                setCommenting(null)
+              }}
+            />
+          )}
+
+          {narrationComments.map((c) => (
             <InlineThread key={c.id} c={c} locLabel={`on section “${s.name}”`} />
           ))}
-          {commenting && (
+          {commenting === 'narration' && (
             <Composer
               placeholder={`Comment on the “${s.name}” section…`}
-              onCancel={() => setCommenting(false)}
+              onCancel={() => setCommenting(null)}
               onSubmit={(text) => {
-                void addComment({ kind: 'section', sectionId: s.id }, text)
-                setCommenting(false)
+                void addComment({ kind: 'section', sectionId: s.id, part: 'narration' }, text)
+                setCommenting(null)
               }}
             />
           )}

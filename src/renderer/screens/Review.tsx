@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
 import { I, ficonClass, shortSha, EngineGlyph } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
@@ -11,7 +11,8 @@ import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
-import { queuedComments, sendComments } from '../lib/comments'
+import { addComment, queuedComments, sendComments } from '../lib/comments'
+import { Composer, InlineThread } from '../components/Threads'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 
@@ -46,6 +47,8 @@ export default function Review() {
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
   const [peek, setPeek] = useState<string | null>(null)
+  const [summaryCommenting, setSummaryCommenting] = useState(false)
+  const [commentStep, setCommentStep] = useState<number | null>(null)
   const chatOpen = store.chatOpen
 
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
@@ -124,6 +127,8 @@ export default function Review() {
   const fileCount = skeleton.files.length
   const viewedCount = skeleton.files.filter((f) => viewedAt[f.path]).length
   const queued = queuedComments()
+  const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
+  const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
   const baseline = state.approvedSha ?? state.reviewedAtSha
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
   const lastIteration = state.iterations[state.iterations.length - 1]
@@ -238,13 +243,26 @@ export default function Review() {
                         ))
                       ) : a.role === 'plan' && annotations?.planMap ? (
                         annotations.planMap.steps.map((st) => (
-                          <div key={st.n} className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} onClick={() => st.sectionId && jumpTo(st.sectionId)}>
-                            <span className="pps-n">{st.n}</span>
-                            <span className="pps-t" title={st.text}>{st.text}</span>
-                            {st.status === 'done' && <I.check style={{ width: 10, height: 10, color: 'var(--accent)' }} />}
-                            {st.status === 'changed' && <I.changed style={{ width: 10, height: 10, color: 'var(--amber)' }} />}
-                            {st.status === 'missing' && <I.flag style={{ width: 10, height: 10, color: 'var(--red)' }} />}
-                          </div>
+                          <Fragment key={st.n}>
+                            <div className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} onClick={() => st.sectionId && jumpTo(st.sectionId)}>
+                              <span className="pps-n">{st.n}</span>
+                              <span className="pps-t" title={st.text}>{st.text}</span>
+                              {st.status === 'done' && <I.check style={{ width: 10, height: 10, color: 'var(--accent)' }} />}
+                              {st.status === 'changed' && <I.changed style={{ width: 10, height: 10, color: 'var(--amber)' }} />}
+                              {st.status === 'missing' && <I.flag style={{ width: 10, height: 10, color: 'var(--red)' }} />}
+                              <button className="pps-cmt" title="Comment on this step" onClick={(e) => { e.stopPropagation(); setCommentStep(st.n) }}>
+                                <I.bubble style={{ width: 10, height: 10 }} />
+                              </button>
+                            </div>
+                            {stepComments(st.n).map((c) => <InlineThread key={c.id} c={c} locLabel={`on plan step ${st.n}`} />)}
+                            {commentStep === st.n && (
+                              <Composer
+                                placeholder={`Comment on plan step ${st.n} — the agent gets it with your next batch…`}
+                                onCancel={() => setCommentStep(null)}
+                                onSubmit={(text) => { void addComment({ kind: 'plan-step', stepN: st.n }, text); setCommentStep(null) }}
+                              />
+                            )}
+                          </Fragment>
                         ))
                       ) : (
                         <div className="art-goal">{a.lines.find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 140)}</div>
@@ -365,25 +383,48 @@ export default function Review() {
 
               <GenPanel />
 
-              {annotations && (sinceTagged && lastIteration?.summary ? (
-                <div className="rr-summary" data-lr-summary>
-                  <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
-                  <span className="rr-tx">
-                    <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
-                    {lastIteration.summary}
-                  </span>
-                  <span className="grow"></span>
-                  <span className="seg seg-sm">
-                    <button className={topFilter === 'changed' ? 'on' : ''} onClick={() => setTopFilter('changed')}>Just the changes</button>
-                    <button className={topFilter === 'all' ? 'on' : ''} onClick={() => setTopFilter('all')}>Everything</button>
-                  </span>
-                </div>
-              ) : (
-                <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
-                  <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
-                  <span className="rr-tx">{annotations.summary}</span>
-                </div>
-              ))}
+              {annotations && (
+                <>
+                  {sinceTagged && lastIteration?.summary ? (
+                    <div className="rr-summary" data-lr-summary>
+                      <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
+                      <span className="rr-tx">
+                        <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
+                        {lastIteration.summary}
+                      </span>
+                      <span className="grow"></span>
+                      <span className="seg seg-sm">
+                        <button className={topFilter === 'changed' ? 'on' : ''} onClick={() => setTopFilter('changed')}>Just the changes</button>
+                        <button className={topFilter === 'all' ? 'on' : ''} onClick={() => setTopFilter('all')}>Everything</button>
+                      </span>
+                      <button className="rr-cmt" title="Comment on the summary" onClick={() => setSummaryCommenting(true)}>
+                        <I.bubble style={{ width: 12, height: 12 }} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+                      <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
+                      <span className="rr-tx">{annotations.summary}</span>
+                      <span className="grow"></span>
+                      <button className="rr-cmt" title="Comment on the summary" onClick={() => setSummaryCommenting(true)}>
+                        <I.bubble style={{ width: 12, height: 12 }} />
+                      </button>
+                    </div>
+                  )}
+                  {(summaryComments.length > 0 || summaryCommenting) && (
+                    <div className="rr-summary-threads">
+                      {summaryComments.map((c) => <InlineThread key={c.id} c={c} locLabel="on the summary" />)}
+                      {summaryCommenting && (
+                        <Composer
+                          placeholder="Comment on the overall review summary — the agent gets it with your next batch…"
+                          onCancel={() => setSummaryCommenting(false)}
+                          onSubmit={(text) => { void addComment({ kind: 'summary' }, text); setSummaryCommenting(false) }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
 
               <Questions />
 
