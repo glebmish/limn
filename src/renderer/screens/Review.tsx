@@ -50,6 +50,8 @@ export default function Review() {
   const [peek, setPeek] = useState<string | null>(window.lrDev?.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
+  const [titleCommenting, setTitleCommenting] = useState(false)
+  const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const chatOpen = store.chatOpen
 
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
@@ -134,7 +136,9 @@ export default function Review() {
   const viewedCount = skeleton.files.filter((f) => viewedAt[f.path]).length
   const queued = queuedComments()
   const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
+  const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
+  const criterionComments = (i: number) => state.comments.filter((c) => c.anchor.kind === 'acceptance' && c.anchor.index === i)
   const baseline = state.approvedSha ?? state.reviewedAtSha
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
   const lastIteration = state.iterations[state.iterations.length - 1]
@@ -240,12 +244,25 @@ export default function Review() {
                   {peek === a.path && (
                     <div className="art-peek">
                       {a.role === 'spec' && annotations?.planMap ? (
-                        annotations.planMap.acceptance.map((c, i) => (
-                          <div key={i} className={'spec-req' + (c.met === true ? ' met' : '')}>
-                            <span className="req-dot"></span>
-                            <span className="req-t">{c.text}</span>
-                            <span className="req-st">{c.met === true ? 'done' : c.met === 'partial' ? 'partial' : 'open'}</span>
-                          </div>
+                        annotations.planMap.acceptance.map((crit, i) => (
+                          <Fragment key={i}>
+                            <div className={'spec-req' + (crit.met === true ? ' met' : '')}>
+                              <span className="req-dot"></span>
+                              <span className="req-t">{crit.text}</span>
+                              <span className="req-st">{crit.met === true ? 'done' : crit.met === 'partial' ? 'partial' : 'open'}</span>
+                              <button className="pps-cmt" title="Comment on this criterion" onClick={() => setCommentCriterion(i)}>
+                                <I.bubble style={{ width: 10, height: 10 }} />
+                              </button>
+                            </div>
+                            {criterionComments(i).map((c) => <InlineThread key={c.id} c={c} locLabel={`on acceptance criterion ${i + 1}`} />)}
+                            {commentCriterion === i && (
+                              <Composer
+                                placeholder={`Comment on acceptance criterion ${i + 1} — the agent gets it with your next batch…`}
+                                onCancel={() => setCommentCriterion(null)}
+                                onSubmit={(text) => { void addComment({ kind: 'acceptance', index: i }, text); setCommentCriterion(null) }}
+                              />
+                            )}
+                          </Fragment>
                         ))
                       ) : a.role === 'plan' && annotations?.planMap ? (
                         annotations.planMap.steps.map((st) => (
@@ -384,7 +401,26 @@ export default function Review() {
             <>
               <div className="page-head">
                 <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
-                <h1>{annotations?.title ?? `Changes on ${branch}`}</h1>
+                <h1>
+                  {annotations?.title ?? `Changes on ${branch}`}
+                  {annotations && (
+                    <button className="gfile-regen title-cmt" title="Comment on the review title" onClick={() => setTitleCommenting(true)}>
+                      <I.bubble style={{ width: 13, height: 13 }} />
+                    </button>
+                  )}
+                </h1>
+                {(titleComments.length > 0 || titleCommenting) && (
+                  <div className="title-threads">
+                    {titleComments.map((c) => <InlineThread key={c.id} c={c} locLabel="on the review title" />)}
+                    {titleCommenting && (
+                      <Composer
+                        placeholder="Comment on the review title — the agent gets it with your next batch…"
+                        onCancel={() => setTitleCommenting(false)}
+                        onSubmit={(text) => { void addComment({ kind: 'title' }, text); setTitleCommenting(false) }}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
 
               <GenPanel />

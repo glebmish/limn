@@ -45,6 +45,9 @@
   display:flex;align-items:center;gap:7px;margin-bottom:8px}
 .pdoc-q ul{margin:0}
 .pdoc-q li{color:#8a6a22}
+.pdoc-q .dev-li{display:flex;align-items:flex-start;gap:6px}
+.pdoc-q .dev-li .dev-t{flex:1 1 auto;min-width:0}
+.pdoc-q .dev-li:hover .pps-cmt{display:inline-flex}
 .pdoc-q li::before{background:var(--amber)}
 
 .pdoc-comment{border:1px solid var(--line-2);border-radius:var(--r-md);background:var(--panel);overflow:hidden;margin:0 0 10px}

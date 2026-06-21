@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -16,6 +16,7 @@ import { FORMAT_LABELS } from '../../shared/types'
 export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => void }) {
   const { loaded, branch, reload, materialize } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
+  const [commentDeviation, setCommentDeviation] = useState<number | null>(null)
   const art = loaded?.artifacts.find((a) => a.path === path)
   const comments = (loaded?.state.comments ?? []).filter(
     (c) => c.anchor.kind === 'artifact' && c.anchor.path === path
@@ -120,7 +121,29 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
         {deviations.length > 0 && (
           <div className="pdoc-q" style={{ marginTop: 14 }}>
             <div className="pq-h"><I.flag style={{ width: 12, height: 12 }} />Where the implementation diverged</div>
-            <ul>{deviations.map((d, i) => <li key={i}>{d.text}</li>)}</ul>
+            <ul>
+              {deviations.map((d, i) => {
+                const threads = comments.filter((c) => c.anchor.kind === 'deviation' && c.anchor.index === i && c.status !== 'outdated')
+                return (
+                  <Fragment key={i}>
+                    <li className="dev-li">
+                      <span className="dev-t">{d.text}</span>
+                      <button className="pps-cmt" title="Comment on this deviation" onClick={() => setCommentDeviation(i)}>
+                        <I.bubble style={{ width: 10, height: 10 }} />
+                      </button>
+                    </li>
+                    {threads.map((c) => <InlineThread key={c.id} c={c} locLabel={`on plan deviation ${i + 1}`} />)}
+                    {commentDeviation === i && (
+                      <Composer
+                        placeholder={`Comment on plan deviation ${i + 1} — the agent gets it with your next batch…`}
+                        onCancel={() => setCommentDeviation(null)}
+                        onSubmit={(t) => { void addComment({ kind: 'deviation', index: i }, t); setCommentDeviation(null) }}
+                      />
+                    )}
+                  </Fragment>
+                )
+              })}
+            </ul>
           </div>
         )}
         <Commentable scope={{ region: 'artifact', path }} className="pdoc-md">

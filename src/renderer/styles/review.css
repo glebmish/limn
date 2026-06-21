@@ -378,6 +378,15 @@
 .gsec-diagram-cmt .diagram-cmt-btn { position: absolute; top: 6px; right: 8px; display: none; z-index: 1; }
 .gsec-diagram-cmt:hover .diagram-cmt-btn { display: inline-flex; }
 
+/* reuse .pps-cmt (hover-reveal bubble) on acceptance criteria, hunks, deviations */
+.spec-req { position: relative; }
+.spec-req:hover .pps-cmt { display: inline-flex; }
+.hunk:hover .hunk-cmt { display: inline-flex; }
+.hunk-cmt { color: var(--muted-2); }
+/* review title */
+.page-head h1 .title-cmt { vertical-align: middle; margin-left: 9px; }
+.title-threads { margin-top: 10px; max-width: 660px; }
+
 /* text-selection commenting (Commentable wrapper) */
 .lr-commentable { position: relative; }
 .sel-cmt-pill { position: absolute; transform: translate(-50%, 6px); z-index: 20; display: inline-flex; align-items: center;

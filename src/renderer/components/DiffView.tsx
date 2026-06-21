@@ -56,9 +56,12 @@ export function DiffView({ f, plainNote }: {
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [fileCommenting, setFileCommenting] = useState(false)
+  const [commentHunk, setCommentHunk] = useState<string | null>(null)
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
+  const hunkComments = (range: string): Comment[] =>
+    comments.filter((c) => c.anchor.kind === 'hunk' && c.anchor.file === f.path && c.anchor.hunkRange === range)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   const hasSince = f.hunks.some((h) => h.since)
   const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
@@ -171,7 +174,21 @@ export function DiffView({ f, plainNote }: {
                 {h.header && <span style={{ color: 'var(--muted-2)' }}>{h.header}</span>}
                 {h.since && <span style={{ color: 'var(--amber)' }}>· changed since approval</span>}
                 {!h.since && h.sinceViewed && <span style={{ color: 'var(--amber)' }}>· changed since viewed</span>}
+                <span className="grow"></span>
+                <button className="pps-cmt hunk-cmt" title="Comment on this hunk" onClick={() => setCommentHunk(h.range)}>
+                  <I.bubble style={{ width: 11, height: 11 }} />
+                </button>
               </div>
+              {hunkComments(h.range).map((c) => (
+                <InlineThread key={c.id} c={c} locLabel={`on hunk ${h.range}`} />
+              ))}
+              {commentHunk === h.range && (
+                <Composer
+                  placeholder="Comment on this hunk — the agent gets it with your next batch…"
+                  onCancel={() => setCommentHunk(null)}
+                  onSubmit={(text) => { void addComment({ kind: 'hunk', file: f.path, hunkRange: h.range }, text); setCommentHunk(null) }}
+                />
+              )}
               {h.lines.map((l, j) => {
                 const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
                 const lineNo = l.new ?? l.old
