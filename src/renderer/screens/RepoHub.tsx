@@ -1,10 +1,14 @@
+import { useState } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
 import { wtName } from '../lib/workspace'
 
 export default function RepoHub() {
-  const { repo, repoState, repoSessions, showArchived, hubReturn, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, newReview, openReview } = useStore()
+  const { repo, repoState, repoSessions, showArchived, hubReturn, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview } = useStore()
+  // base for a new review (compare defaults to the current branch); empty = repo default
+  const [base, setBase] = useState('')
+  const effBase = base || repoState?.defaultBase || 'HEAD'
   if (!repo) return null
   const repoName = repo.split('/').pop()
   const live = repoSessions.filter((s) => !s.archived)
@@ -50,13 +54,14 @@ export default function RepoHub() {
       </div>
 
       <div className="lr-hub-bar">
-        <RefPicker value={repoState?.current ?? ''} repo={repo} relativeTo={repoState?.defaultBase ?? 'HEAD'} label="review branch" prominent
-          onChange={(v) => { void openReview(repo, { compare: v }) }} />
+        <span className="rv-refs">
+          <RefPicker value={effBase} onChange={setBase} repo={repo} relativeTo={repoState?.current ?? 'HEAD'} label="base ref" />
+          <span className="rv-arrow" title="base ← compare (changes the compare branch adds over the base)">←</span>
+          <RefPicker value={repoState?.current ?? ''} repo={repo} relativeTo={effBase} label="compare ref" prominent
+            onChange={(v) => { void openReview(repo, { base: effBase, compare: v }) }} />
+        </span>
         <span className="grow" />
-        <button className={'btn btn-sm btn-ghost' + (showArchived ? ' on' : '')} onClick={() => void toggleArchived()}>
-          <I.eye style={{ width: 12, height: 12 }} />{showArchived ? 'Hide archived' : 'Show archived'}
-        </button>
-        <button className="btn btn-sm btn-primary" onClick={() => void newReview()}>
+        <button className="btn btn-sm btn-primary" onClick={() => void openReview(repo, { base: effBase, compare: repoState?.current }, { fresh: true })}>
           <I.plus style={{ width: 12, height: 12 }} />New review
         </button>
       </div>
@@ -64,7 +69,13 @@ export default function RepoHub() {
       {error && <div className="lr-error lr-toast">{error}</div>}
 
       <div className="lr-hub-scroll">
-        <div className="lr-hub-sech">Sessions</div>
+        <div className="lr-hub-sech">
+          <span>Sessions</span>
+          <span className="grow" />
+          <button className={'btn btn-sm btn-ghost' + (showArchived ? ' on' : '')} onClick={() => void toggleArchived()}>
+            <I.eye style={{ width: 12, height: 12 }} />{showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+        </div>
         {live.length === 0 && (
           <div className="lr-empty">No reviews yet for this repo. <b>New review</b> to start one.</div>
         )}
@@ -85,7 +96,7 @@ export default function RepoHub() {
 
         {showArchived && (
           <>
-            <div className="lr-hub-sech" style={{ marginTop: 22 }}>Archived</div>
+            <div className="lr-hub-sech" style={{ marginTop: 22 }}><span>Archived</span></div>
             {archived.length === 0 && <div className="lr-empty">No archived reviews.</div>}
             {archived.map((s) => renderRow(s))}
           </>
