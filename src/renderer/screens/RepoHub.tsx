@@ -4,7 +4,7 @@ import { RefPicker } from '../components/RefPicker'
 import { wtName } from '../lib/workspace'
 
 export default function RepoHub() {
-  const { repo, repoState, repoSessions, showArchived, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, newReview, openReview } = useStore()
+  const { repo, repoState, repoSessions, showArchived, hubReturn, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, newReview, openReview } = useStore()
   if (!repo) return null
   const repoName = repo.split('/').pop()
   const live = repoSessions.filter((s) => !s.archived)
@@ -39,12 +39,17 @@ export default function RepoHub() {
       <div className="wf-titlebar">
         <span className="lr-cmp-repo" title={repo}><b>{repoName}</b> · {repo}</span>
         <span className="grow" />
+        {hubReturn != null && (
+          <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void resumeExisting(hubReturn)} title="Back to the review you came from">
+            <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />Back
+          </button>
+        )}
+        <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()} title="All repositories">
+          <I.home style={{ width: 12, height: 12 }} />repos
+        </button>
       </div>
 
       <div className="lr-hub-bar">
-        <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()}>
-          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />repos
-        </button>
         <RefPicker value={repoState?.current ?? ''} repo={repo} relativeTo={repoState?.defaultBase ?? 'HEAD'} label="review branch" prominent
           onChange={(v) => { void openReview(repo, { compare: v }) }} />
         <span className="grow" />

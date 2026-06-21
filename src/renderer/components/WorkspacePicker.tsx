@@ -53,7 +53,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       defaultOpen={Boolean(window.lrDev?.openWorkspace)}
       trigger={() => (
         <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title="Where this branch is checked out">
-          <I.layers style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
+          <I.folder style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
           <span className={'ws-loc' + (detachedBranch ? ' det' : '')}>
             {locLabel}{!loc.detached && loc.dirty && <span className="gdot" title="uncommitted changes" />}
           </span>
@@ -83,7 +83,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                 return (
                   <button key={w.path} className={'rsw-item' + (isSel ? ' on' : '')} title={w.path} disabled={disabled}
                     onClick={() => { setTargetPath(w.path); setPendingWt(null); setPicked(true) }}>
-                    <I.layers style={{ width: 12, height: 12 }} />
+                    <I.folder style={{ width: 12, height: 12 }} />
                     <span className="rsw-item-t">{name(w)}</span>
                     {w.dirty && <span className="gdot" title="uncommitted changes" />}
                     {isHost

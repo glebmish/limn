@@ -101,6 +101,8 @@ interface AppStore {
   agent: AgentRef
   loaded: LoadedReview | null
   sessionId: number | null
+  /** when the hub was opened from a review, the session to jump back to */
+  hubReturn: number | null
   activeChatId: number | null
   /** whether the chat drawer is open (lifted here so an agent-identity click in
    *  the review can open a specific chat). */
@@ -288,6 +290,7 @@ export const useStore = create<AppStore>((set, get) => {
     agent: defaultAgent('claude'),
     loaded: null,
     sessionId: null,
+    hubReturn: null,
     activeChatId: null,
     chatOpen: typeof window !== 'undefined' && window.lrDev?.flow === 'chat',
     error: null,
@@ -441,7 +444,8 @@ export const useStore = create<AppStore>((set, get) => {
     async enterHub(repoPath) {
       const repo = repoPath ?? get().repo
       if (!repo) { get().backToDashboard(); return }
-      set({ screen: 'hub', repo, loaded: null, sessionId: null, error: null })
+      // remember the review we came from so the hub can offer a jump-back
+      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null })
       await loadRepoContext(repo)
     },
 
