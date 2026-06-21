@@ -44,10 +44,10 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-strip { margin: 14px 30px 0; border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: var(--r-md); padding: 11px 14px; }
 .gen-strip .gs-head { display: flex; align-items: center; gap: 9px; }
 .gen-strip .gs-title { font-size: 12.5px; font-weight: 700; color: var(--accent-ink); flex: 1 1 auto; }
-.gen-strip .gs-sub { font-family: var(--mono); font-size: 11px; color: var(--accent-ink); opacity: .8; margin: 2px 0 0 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gen-strip .counts { display: flex; gap: 14px; margin: 9px 0 0 22px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.gen-strip .counts { display: flex; gap: 14px; margin: 4px 0 0 22px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .gen-strip .counts b { color: var(--ink-2); font-weight: 700; }
-.gen-strip .gs-log { margin-top: 8px; max-height: 240px; overflow-y: auto; }
+/* ~4 collapsed tool rows, then scroll — the panel must not grow with the run */
+.gen-strip .gs-log { margin-top: 8px; max-height: 152px; overflow-y: auto; }
 .gen-strip.err { border-color: var(--red-line); background: var(--red-soft); }
 .gen-strip.err .gs-title { color: var(--red); }
 .gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: lr-spin .8s linear infinite; flex: 0 0 auto; }
