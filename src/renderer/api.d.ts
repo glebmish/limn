@@ -15,6 +15,8 @@ declare global {
       // dev-only screenshot hooks
       activeChat?: number | null
       openPicker?: boolean
+      /** dev-only: open the merged Workspace control (sessions + checkout) for a static capture */
+      openWorkspace?: boolean
       openChatList?: boolean
       /** JSON FocusTarget — focusAnchor() it once the review mounts */
       focus?: string | null

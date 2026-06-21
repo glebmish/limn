@@ -45,7 +45,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
           </div>
           {open && showCtx && s.desc && <div className="d">{s.desc}</div>}
           {!open && !done && (
-            <div className="gsec-collapsed-sub">
+            <div className="gsec-collapsed-sub" title={s.what || undefined}>
               {files.length} file{files.length > 1 ? 's' : ''}{s.what ? ` · ${s.what}` : ''}
             </div>
           )}

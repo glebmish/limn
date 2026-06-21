@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { activeChat, useStore } from '../store'
+import { activeChat, checkoutGate, useStore } from '../store'
 import { I, Ava } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor } from '../../shared/types'
@@ -23,6 +23,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const chats = loaded?.state.chats ?? []
   const active = activeChat(loaded, activeChatId) ?? chats[chats.length - 1] ?? null
   const hasReview = (loaded?.state.iterations.length ?? 0) > 0
+  // block agent submissions while the compare branch isn't checked out anywhere —
+  // edits would have nowhere safe to land (see checkoutGate).
+  const gate = checkoutGate(loaded)
   const [draft, setDraft] = useState('')
   const [steer, setSteer] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -72,7 +75,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
   const send = (): void => {
     const text = draft.trim()
-    if (!text || !active || streaming) return
+    if (!text || !active || streaming || gate.blocked) return
     store.sendChat(text)
     setDraft('')
   }
@@ -160,7 +163,8 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <div className="chat-batch">
               <button
                 className="btn btn-primary btn-sm chat-batch-go"
-                onClick={() => { store.sendBatch(active.id, queued.map((c) => c.id), steer); setSteer('') }}
+                disabled={gate.blocked}
+                onClick={() => { if (gate.blocked) return; store.sendBatch(active.id, queued.map((c) => c.id), steer); setSteer('') }}
               >
                 <I.send style={{ width: 12, height: 12 }} />
                 Send {queued.length} pending comment{queued.length === 1 ? '' : 's'} → {agentLabel(active.agent)}
@@ -182,18 +186,31 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             />
           )}
 
+          {gate.blocked && (
+            <div className="chat-gate block">
+              <I.warn style={{ width: 12, height: 12, color: 'var(--amber)' }} />
+              <span><b>{gate.branch}</b> isn't checked out — check it out in the worktree menu to enable edits.</span>
+            </div>
+          )}
+          {gate.dirtyWarn && (
+            <div className="chat-gate warn">
+              <I.warn style={{ width: 12, height: 12 }} />
+              <span>Uncommitted changes in the worktree — agent edits will mix with them.</span>
+            </div>
+          )}
+
           <div className="chat-foot">
             <textarea
               rows={2}
-              placeholder={active ? `Ask ${agentLabel(active.agent)}…` : 'Pick a chat'}
-              disabled={!active || streaming}
+              placeholder={gate.blocked ? 'Check out the branch to chat' : active ? `Ask ${agentLabel(active.agent)}…` : 'Pick a chat'}
+              disabled={!active || streaming || gate.blocked}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
               }}
             />
-            <button className="btn btn-primary btn-sm" disabled={!active || streaming || !draft.trim()} onClick={send}>
+            <button className="btn btn-primary btn-sm" disabled={!active || streaming || gate.blocked || !draft.trim()} onClick={send}>
               <I.send style={{ width: 12, height: 12 }} />
             </button>
           </div>

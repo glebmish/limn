@@ -5,16 +5,32 @@ import path from 'node:path'
 import type { CliOpenMsg } from '../shared/ipc.js'
 import { repoRoot } from './git.js'
 
-export interface CliArgs { dir: string; base?: string; compare?: string }
+export interface CliArgs {
+  dir: string
+  base?: string
+  /** the compare side — a branch in the current "repo as source of truth" model.
+   *  Accepts `--branch` (preferred) or `--compare` (kept for back-compat). */
+  compare?: string
+  /** open the repo hub (session list) instead of a review */
+  hub?: boolean
+  /** force a fresh review rather than resuming an existing one for the pair */
+  fresh?: boolean
+}
 
 /** Parse process/second-instance argv. Returns null unless '--cli' is present.
  *  Pure and unit-testable — no Electron, no fs. */
 export function parseCliArgs(argv: string[]): CliArgs | null {
   if (!argv.includes('--cli')) return null
   const opts: Record<string, string> = {}
+  let hub = false
+  let fresh = false
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i]
-    for (const name of ['dir', 'base', 'compare']) {
+    if (tok === '--hub') { hub = true; continue }
+    if (tok === '--new') { fresh = true; continue }
+    // `branch` is the preferred name for the compare side; `compare` is the legacy
+    // alias. Both land in opts under their own key and are reconciled below.
+    for (const name of ['dir', 'base', 'compare', 'branch']) {
       if (tok === `--${name}`) {
         // space form: only consume the next token as the value if it is not
         // itself a flag. A forwarded second-instance argv is canonicalized by
@@ -30,7 +46,11 @@ export function parseCliArgs(argv: string[]): CliArgs | null {
   }
   const out: CliArgs = { dir: opts.dir ?? process.cwd() }
   if (opts.base !== undefined) out.base = opts.base
-  if (opts.compare !== undefined) out.compare = opts.compare
+  // explicit --compare wins over --branch when both are somehow present
+  const compare = opts.compare ?? opts.branch
+  if (compare !== undefined) out.compare = compare
+  if (hub) out.hub = true
+  if (fresh) out.fresh = true
   return out
 }
 
@@ -47,7 +67,7 @@ let rendererReady = false
 export async function handleCliArgs(args: CliArgs, getWindow: () => BrowserWindow | null): Promise<void> {
   const root = await repoRoot(args.dir)
   const msg: CliOpenMsg = root
-    ? { repo: root, baseInput: args.base, compareInput: args.compare }
+    ? { repo: root, baseInput: args.base, compareInput: args.compare, hub: args.hub, fresh: args.fresh }
     : { error: `${args.dir} is not inside a git repository` }
   const win = getWindow()
   if (rendererReady && win) win.webContents.send('cli:open', msg)
@@ -72,19 +92,28 @@ function shimContent(): string {
   // moved to the end, detaching it from a space-form --dir. Attached forms
   // survive intact, so the running app opens the right repo/refs.
   const normalize = [
-    'B=""; C=""',
+    'B=""; C=""; HUB=""; NEW=""',
     'while [ $# -gt 0 ]; do',
     '  case "$1" in',
+    '    -h|--help)',
+    '      printf "usage: lr [DIR] [--base REF] [--branch BRANCH] [--new] [--hub]\\n"',
+    '      printf "  bare: review the current branch  .  --new: fresh review  .  --hub: session list\\n"',
+    '      exit 0;;',
     '    --base) if [ $# -ge 2 ]; then B="$2"; shift 2; else shift; fi;;',
     '    --base=*) B="${1#--base=}"; shift;;',
-    '    --compare) if [ $# -ge 2 ]; then C="$2"; shift 2; else shift; fi;;',
+    '    --branch|--compare) if [ $# -ge 2 ]; then C="$2"; shift 2; else shift; fi;;',
+    '    --branch=*) C="${1#--branch=}"; shift;;',
     '    --compare=*) C="${1#--compare=}"; shift;;',
+    '    --hub) HUB=1; shift;;',
+    '    --new) NEW=1; shift;;',
     '    *) shift;;',
     '  esac',
     'done',
     'set -- --cli "--dir=$DIR"',
     '[ -n "$B" ] && set -- "$@" "--base=$B"',
     '[ -n "$C" ] && set -- "$@" "--compare=$C"',
+    '[ -n "$HUB" ] && set -- "$@" "--hub"',
+    '[ -n "$NEW" ] && set -- "$@" "--new"',
     ''
   ].join('\n')
   if (app.isPackaged) {

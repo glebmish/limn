@@ -35,17 +35,19 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
    native dialog; it lands under **Recent**.
 2. On the Dashboard: type to filter, ↑/↓ to move, ⏎ (or click) to open a repo.
    Each repo row shows its current branch and a dot when the working tree is dirty.
-3. **Compare** (GitHub-compare-style) opens preselected — compare = current branch,
-   base = default base (`main` → `master` → first branch) — with the diff already
-   loading. Change either side with the ref picker (branches, recent commits, or a
-   typed SHA / `HEAD~N` / tag), swap sides with ⇄, and read the commit list and
-   per-file diffs before any session exists.
-4. Pick an engine — and optionally a model and reasoning effort (Claude Opus/Sonnet
-   `low→max`, Codex GPT-5.x `low→xhigh`; *Auto* uses the CLI default) — then
-   **Start review** — or **Resume review** if a session already exists for the exact
-   (base, compare) pair (with a *Start fresh* option that archives the old one).
+3. **Opening a repo lands directly on the review** for its current branch — the diff
+   against the default base (`main` → `master` → first branch), already loaded. No
+   session is minted until you act (comment, mark something viewed, generate, or
+   approve); until then the header reads **Draft**.
+4. Change the **base** with the ref picker (branches, recent commits, or a typed
+   SHA / `HEAD~N` / tag); switch the **branch** — and where it's checked out — with the
+   branch/worktree picker. Pick an engine — and optionally a model and reasoning effort
+   (Claude Opus/Sonnet `low→max`, Codex GPT-5.x `low→xhigh`; *Auto* uses the CLI
+   default) — then **Generate guided review**.
 5. **Review**: mark files viewed, mark sections reviewed, comment on any diff line,
    section, agent question, or spec/plan line; **Chat** shares the agent's session.
+   The **Session** switcher (and *All sessions…* → the repo hub) lists every saved
+   review for the repo.
 6. **Send N changes to agent** — it edits, commits on your branch, and reports
    per-comment resolutions. **Approve** records the reviewed SHA.
 
@@ -55,13 +57,19 @@ Install the `lr` shim from the app menu (**local-review → Install Command-Line
 Then, from any git repo:
 
 ```bash
-lr                            # open Compare for the repo containing the cwd
-lr --base main --compare wip  # preselect both sides
-lr /path/to/repo              # open a specific repo
+lr                            # review the current branch of the repo containing the cwd
+lr --branch wip               # review a specific branch
+lr --base main --branch wip   # set the base too
+lr /path/to/repo              # a specific repo
+lr --new                      # a fresh review (don't resume an existing one)
+lr --hub                      # open the repo's session list
+lr --help                     # usage
 ```
 
-`lr` reuses the running app (focusing and navigating it) or launches it. Outside a git
-repo, the app opens on the Dashboard with an explanatory toast.
+Bare `lr` lands on the review for the current branch — resuming the latest saved
+session for it, or a fresh (unsaved) **Draft** otherwise (`--compare` is still accepted
+as an alias for `--branch`). `lr` reuses the running app (focusing and navigating it) or
+launches it. Outside a git repo, the app opens on the Dashboard with an explanatory toast.
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), the drift banner and "since you reviewed" diffs update live, and you get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
@@ -75,7 +83,7 @@ npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO,
 npm run typecheck
 ```
 
-Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to Compare for a repo/branch — these now map onto the `lr` CLI open path), `LR_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LR_SHOT=/path.png` (capture the window, with `LR_SHOT_DELAY` / `LR_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to the review for a repo/branch — these map onto the `lr` CLI open path), `LR_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LR_SHOT=/path.png` (capture the window, with `LR_SHOT_DELAY` / `LR_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
 
 **Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LR_DB` / `LR_OPEN_SESSION` + the dev hooks `LR_ACTIVE_CHAT=<id>` (activate a chat), `LR_OPEN_PICKER=1` (open the agent popover), `LR_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 

@@ -5,22 +5,22 @@ import path from 'node:path'
 import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  Api, DashboardData, LoadedReview, OpEventMsg, OpResultMsg, PinData, RefOptions,
+  Api, DashboardData, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, ApprovalDecision, Artifact, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, describeSide, diffSince, getDiff, headSha, isDirty,
-  listBranches, log, markSince, recentCommits, repoState, resolveRefInput, workingTreeDiff
+  addWorktree, checkoutBranch, currentBranch, defaultBase, getDiff, headSha, isDirty,
+  listBranches, recentCommits, repoState, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
+import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
 import * as pins from './db/pins.js'
 import { scanPin } from './scan.js'
-import { buildCompareData } from './compare.js'
 import { importLegacyRepoFiles, seedFromConfig } from './db/import.js'
-import { detectArtifacts, loadArtifact, classify } from './artifacts.js'
+import { classify } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls } from '../shared/toolcalls.js'
@@ -28,7 +28,6 @@ import { clearPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
-import { reanchorComments } from './anchor.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 
 const activeOps = new Map<string, () => void>()
@@ -89,118 +88,17 @@ async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Pro
   return collected
 }
 
-async function loadArtifactsFor(
-  db: DatabaseSync, sessionId: number, repo: string, branch: string,
-  refs: { role: 'spec' | 'plan'; path: string }[], changedPaths: string[]
-): Promise<Artifact[]> {
-  if (refs.length === 0) {
-    refs = await detectArtifacts(repo, branch, changedPaths)
-    if (refs.length > 0) dao.setArtifacts(db, sessionId, refs)
-  }
-  const out: Artifact[] = []
-  for (const r of refs) {
-    try { out.push(loadArtifact(repo, r.path, r.role)) } catch { /* artifact file gone — skip */ }
-  }
-  return out
-}
-
-/** The working directory the review's writes + working-tree reads run in: the
- *  worktree currently holding the compare branch, else the primary repo. The repo
- *  path stays the identity/lock key; this is the cwd handed to git + the engine. */
-async function resolveWorkdir(repo: string, pair: RefPair): Promise<string> {
-  if (pair.compare.kind !== 'branch') return repo
-  return (await branchCheckedOutAt(repo, pair.compare.symbol)) ?? repo
-}
-
-async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promise<LoadedReview> {
-  const { repo, pair } = session
-  dao.reconcileChats(db, session.id) // ensure default chats exist + review chat tracks latest iteration
-  const state = dao.loadReviewState(db, session.id)
-  const baseEff = effectiveRef(pair.base)
-  const compareEff = effectiveRef(pair.compare)
-
-  // ref-missing guard: a deleted branch or GC'd sha must not crash the app
-  for (const [side, eff, symbol] of [['base', baseEff, pair.base.symbol], ['compare', compareEff, pair.compare.symbol]] as const) {
-    try {
-      await headSha(repo, eff)
-    } catch {
-      return {
-        sessionId: session.id, session, state,
-        baseContext: await describeSide(repo, pair.base),
-        compareContext: await describeSide(repo, pair.compare),
-        skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
-        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
-        refMissing: { side, symbol }
-      }
-    }
-  }
-
-  const skeleton = await getDiff(repo, baseEff, compareEff)
-  // The worktree currently holding the compare branch (primary or a linked one);
-  // working-tree reads (volatile band, artifact file contents) come from there.
-  const wt = pair.compare.kind === 'branch' ? await branchCheckedOutAt(repo, pair.compare.symbol) : null
-  const workdir = wt ?? repo
-  // Volatile band: uncommitted changes (HEAD → working tree) of that worktree.
-  // When the branch is checked out nowhere, there's no working tree for it.
-  let dirty = false
-  let volatile: import('../shared/types.js').FileDiff[] = []
-  if (wt) {
-    try {
-      if (await isDirty(wt)) { dirty = true; volatile = await workingTreeDiff(wt) }
-    } catch { /* status/diff failure — treat as clean */ }
-  }
-  const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
-  const commits = await log(repo, baseEff, compareEff)
-  let sinceTagged = false
-  const baseline = state.approvedSha ?? state.reviewedAtSha
-  if (baseline && baseline !== skeleton.headSha) {
-    try {
-      const since = await diffSince(repo, baseline, compareEff)
-      markSince(skeleton, since, 'since')
-      sinceTagged = true
-    } catch { /* baseline unreachable (rebase) — full diff without drift */ }
-  }
-  const byViewSha = new Map<string, Set<string>>()
-  for (const [file, sha] of Object.entries(state.viewedAt)) {
-    if (sha === skeleton.headSha) continue
-    byViewSha.set(sha, (byViewSha.get(sha) ?? new Set()).add(file))
-  }
-  let viewedDropped = false
-  for (const [sha, paths] of byViewSha) {
-    try {
-      const since = await diffSince(repo, sha, compareEff)
-      markSince(skeleton, since, 'sinceViewed', paths)
-    } catch {
-      for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
-    }
-  }
-  if (viewedDropped) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
-  // Re-anchor against the spine PLUS the volatile band: a comment on an
-  // uncommitted line stays anchored while volatile, and auto-pins once the change
-  // is committed (the line migrates from `volatile` into `skeleton`).
-  const forAnchor = volatile.length
-    ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
-    : skeleton
-  reanchorComments(state.comments, forAnchor, artifacts)
-  for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
-  return {
-    sessionId: session.id, session,
-    baseContext: await describeSide(repo, pair.base),
-    compareContext: await describeSide(repo, pair.compare),
-    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile
-  }
-}
-
-/** Union two FileDiff lists by path, concatenating hunks for shared paths — used
- *  to re-anchor comments across the spine + volatile band in one pass. */
-function mergeFilesByPath(a: import('../shared/types.js').FileDiff[], b: import('../shared/types.js').FileDiff[]): import('../shared/types.js').FileDiff[] {
-  const out = new Map(a.map((f) => [f.path, { ...f, hunks: [...f.hunks] }]))
-  for (const f of b) {
-    const ex = out.get(f.path)
-    if (ex) ex.hunks.push(...f.hunks)
-    else out.set(f.path, { ...f, hunks: [...f.hunks] })
-  }
-  return [...out.values()]
+/** Add `pattern` to the repo's local `.git/info/exclude` (idempotent). Local-only —
+ *  doesn't touch tracked `.gitignore` and never gets committed; shared across the
+ *  repo's worktrees via the common git dir. Best-effort: never throws. */
+function ignoreLocally(repo: string, pattern: string): void {
+  try {
+    const exclude = path.join(repo, '.git', 'info', 'exclude')
+    const cur = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : ''
+    if (cur.split('\n').some((l) => l.trim() === pattern)) return
+    fs.mkdirSync(path.dirname(exclude), { recursive: true })
+    fs.appendFileSync(exclude, (cur && !cur.endsWith('\n') ? '\n' : '') + pattern + '\n')
+  } catch { /* excludes are a nicety; failing to write one shouldn't block the worktree */ }
 }
 
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
@@ -271,6 +169,28 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     return repoState(repo)
   })
 
+  // Check out the compare branch into a specific worktree (primary repo path or a
+  // linked worktree path) so the review's agent edits land on the right branch.
+  handle('checkoutInto', async (repo: string, worktreePath: string, branch: string) => {
+    await checkoutBranch(worktreePath, branch) // throws "commit or stash first" on a dirty worktree
+    return repoState(repo)
+  })
+
+  // Give `branch` its own linked worktree under the repo's `.worktrees/` dir. `name` is
+  // the leaf folder (defaults to the branch name on the renderer side). git refuses if
+  // the dir already exists or the branch is already checked out elsewhere.
+  handle('addWorktreeFor', async (repo: string, branch: string, name: string) => {
+    const leaf = name.trim() || branch
+    const dir = path.join(repo, '.worktrees', leaf)
+    fs.mkdirSync(path.dirname(dir), { recursive: true })
+    // a worktree nested in the repo would otherwise show as untracked `.worktrees/` and
+    // dirty the primary tree (blocking checkouts there). Exclude it locally — via
+    // `.git/info/exclude` so no tracked file changes and nothing gets committed.
+    ignoreLocally(repo, '.worktrees/')
+    await addWorktree(repo, branch, dir)
+    return repoState(repo)
+  })
+
   handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean) => {
     await importLegacyRepoFiles(db, repo) // repos can be entered without openRepo (CLI, plan B)
     const base = await resolveRefInput(repo, baseInput)
@@ -302,6 +222,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     }
     return loaded
   })
+
+  // The default entry: build a review for a ref pair WITHOUT minting a session row.
+  // The renderer holds it as a transient (sessionId null) and materializes via
+  // startSession on the first write. Read-only — never touches the DB.
+  handle('previewReview', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) =>
+    previewReview(db, repo, baseInput, compareInput, agent))
 
   handle('archiveSession', async (sessionId: number) => {
     dao.archiveSession(db, sessionId)
@@ -618,9 +544,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     }
     return out
   })
-
-  handle('compareInfo', async (repo: string, baseInput: string, compareInput: string) =>
-    buildCompareData(db, repo, baseInput, compareInput))
 
   handle('refOptions', async (repo: string, relativeTo: string) => {
     const branches = await listBranches(repo)

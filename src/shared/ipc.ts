@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, PinNode, RefKind, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
+  ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
 } from './types.js'
 
 export interface LoadedReview {
@@ -21,25 +21,19 @@ export interface LoadedReview {
    *  Empty unless `dirty`. These lines carry no SHA; comments on them re-anchor
    *  by content and auto-pin once committed (they migrate into `skeleton`). */
   volatile: FileDiff[]
+  /** the compare branch is checked out in some worktree (primary or linked), so
+   *  agent edits have a safe place to land. False when checked out nowhere — the
+   *  renderer blocks submissions and offers the checkout flow. Always false for a
+   *  non-branch compare (a SHA/tag range is inherently review-only). */
+  compareCheckedOut: boolean
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
 }
 
 export interface PinData { id: number; path: string; tree: PinNode | null; scannedAt: string | null; repoCount: number }
 export interface DashboardData { pins: PinData[]; recents: string[]; notices: string[] }
-export interface RefSideInfo { kind: RefKind; symbol: string; sha: string; context: string }
-export interface CompareData {
-  base?: RefSideInfo
-  compare?: RefSideInfo
-  baseError?: string      // resolveRefInput failure message for that side
-  compareError?: string
-  commits: CommitInfo[]   // log base..compare (empty when either side errored)
-  files: FileDiff[]       // full diff skeleton files (empty when errored)
-  add: number; del: number  // totals across files
-  existingSession: { id: number; unresolved: number } | null  // unarchived session for this exact pair identity
-}
 export interface RefOptions { branches: string[]; defaultBase: string; commits: CommitInfo[] }  // commits = last 50 reachable from relativeTo
-export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; error?: string }
+export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; hub?: boolean; fresh?: boolean; error?: string }
 
 export interface UiStatePatch {
   viewedAt?: Record<string, string>
@@ -59,9 +53,19 @@ export interface Api {
   unarchiveSession(sessionId: number): Promise<void>
   /** Check out `branch` in the repo's primary worktree. Rejects on a dirty tree. */
   switchBranch(repo: string, branch: string): Promise<RepoState>
+  /** Check out `branch` into a specific worktree dir (primary repo or a linked
+   *  worktree). Rejects if that worktree is dirty. Returns fresh repo state. */
+  checkoutInto(repo: string, worktreePath: string, branch: string): Promise<RepoState>
+  /** Create a new linked worktree for `branch` at `<repo>/.worktrees/<name>` (name
+   *  defaults to the branch name on the renderer side). Returns fresh repo state. */
+  addWorktreeFor(repo: string, branch: string, name: string): Promise<RepoState>
   /** Resolve both refs, return the session id. `fresh` forces a new session even
    *  when one already exists for the exact pair (the hub's "New review"). */
   startSession(repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean): Promise<{ sessionId: number }>
+  /** Build a review for a ref pair without minting a session (the default entry).
+   *  The renderer holds it transiently and persists on first write. Throws on an
+   *  unresolvable ref. */
+  previewReview(repo: string, baseInput: string, compareInput: string, agent: AgentRef): Promise<LoadedReview>
   loadSession(sessionId: number): Promise<LoadedReview>
   archiveSession(sessionId: number): Promise<void>
   generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
@@ -92,7 +96,6 @@ export interface Api {
   removePin(id: number): Promise<DashboardData>
   rescanPin(id: number): Promise<DashboardData>
   repoStatus(repoPaths: string[]): Promise<Record<string, RepoStatus>>
-  compareInfo(repo: string, baseInput: string, compareInput: string): Promise<CompareData>
   refOptions(repo: string, relativeTo: string): Promise<RefOptions>
   retargetSession(sessionId: number, side: 'base' | 'compare', refInput: string): Promise<void>
   installCli(): Promise<{ ok: boolean; message: string }>
@@ -119,10 +122,11 @@ export interface RendererApi extends Api {
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
-  'startSession', 'loadSession', 'archiveSession',
+  'checkoutInto', 'addWorktreeFor',
+  'startSession', 'previewReview', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
-  'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus', 'compareInfo',
+  'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

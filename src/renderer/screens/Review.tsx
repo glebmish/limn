@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { effectiveSections, useStore } from '../store'
+import { checkoutGate, effectiveSections, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
@@ -10,7 +10,7 @@ import { Questions } from '../components/Questions'
 import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
-import { BranchSwitcher, WorktreeSwitcher, SessionSwitcher } from '../components/RepoSwitchers'
+import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
 import { queuedComments, sendComments } from '../lib/comments'
 import { focusAnchor } from '../lib/focus'
@@ -100,6 +100,9 @@ export default function Review() {
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
   const lastIteration = state.iterations[state.iterations.length - 1]
   const approved = state.approvedSha === skeleton.headSha
+  // detached compare branch ⇒ agent locked: sending queued comments is blocked
+  // until checkout (the agent edits real files). Comments stay saved meanwhile.
+  const gate = checkoutGate(loaded)
 
   const jumpTo = (id: string): void => {
     // Selecting a section while a spec/plan doc is open exits the doc back to
@@ -137,7 +140,7 @@ export default function Review() {
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
-          <BranchSwitcher display={branch} />
+          <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={base || 'HEAD'} label="compare ref" prominent />
         </span>
         <span className="grow"></span>
         {sinceTagged && baseline && (
@@ -147,17 +150,18 @@ export default function Review() {
             <span className="ctnode"><span className="cdot dot-amber"></span><span className="csha">{shortSha(skeleton.headSha)}</span><span className="clab">current</span></span>
           </span>
         )}
-        <SessionSwitcher />
-        <WorktreeSwitcher compareBranch={branch} />
+        <WorkspacePicker branch={branch} />
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
       </div>
 
+      {store.error && <div className="lr-error lr-toast" style={{ marginTop: 12 }}>{store.error}</div>}
+
       {loaded?.refMissing && (
         <div className="lr-error" style={{ margin: '12px 24px' }}>
           The {loaded.refMissing.side} ref "{loaded.refMissing.symbol}" no longer exists in this repository.
-          Review is read-only. <button className="btn btn-sm" onClick={() => store.retarget(loaded.refMissing!.side)}>Pick a new ref</button>
+          Review is read-only — pick a new {loaded.refMissing.side} ref from the {loaded.refMissing.side === 'base' ? 'base picker' : 'branch picker'} in the header above.
         </div>
       )}
 
@@ -179,7 +183,7 @@ export default function Review() {
                       <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
                       <span className="art-fmt" title={`${FORMAT_LABELS[a.format]} format`}>{FORMAT_LABELS[a.format]}</span>
-                      <span className="art-meta">{a.title}</span>
+                      <span className="art-meta" title={a.title}>{a.title}</span>
                     </span>
                     {state.artifactApprovals[a.path] && (
                       <span className="art-tick"><I.check style={{ width: 10, height: 10 }} />approved</span>
@@ -208,7 +212,7 @@ export default function Review() {
                         annotations.planMap.steps.map((st) => (
                           <div key={st.n} className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} onClick={() => st.sectionId && jumpTo(st.sectionId)}>
                             <span className="pps-n">{st.n}</span>
-                            <span className="pps-t">{st.text}</span>
+                            <span className="pps-t" title={st.text}>{st.text}</span>
                             {st.status === 'done' && <I.check style={{ width: 10, height: 10, color: 'var(--accent)' }} />}
                             {st.status === 'changed' && <I.changed style={{ width: 10, height: 10, color: 'var(--amber)' }} />}
                             {st.status === 'missing' && <I.flag style={{ width: 10, height: 10, color: 'var(--red)' }} />}
@@ -247,7 +251,7 @@ export default function Review() {
                 >
                   <div className="gnav-head">
                     <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
-                    <span className="gnav-name">{s.name}</span>
+                    <span className="gnav-name" title={s.name}>{s.name}</span>
                     {hasSince && !done && <I.changed style={{ width: 12, height: 12, color: 'var(--amber)' }} />}
                     {s.flags.some((f) => f.risk) && !done && <I.flag style={{ width: 12, height: 12, color: 'var(--red)' }} />}
                   </div>
@@ -262,7 +266,7 @@ export default function Review() {
                         <div key={f.path} className="gnav-file">
                           <span className={'dot ' + dot}></span>
                           <span className={'ficon ' + ficonClass(f.path)}></span>
-                          <span className="nm">
+                          <span className="nm" title={f.path}>
                             {idx >= 0 && <span className="dim">{f.path.slice(0, idx + 1)}</span>}
                             {idx >= 0 ? f.path.slice(idx + 1) : f.path}
                           </span>
@@ -279,17 +283,20 @@ export default function Review() {
             <div className={'split-cta ' + (verdict === 'changes' ? 'changes' : 'approve')}>
               <button
                 className="sc-main"
-                disabled={gen.running || store.sessionId == null}
-                onClick={() => {
+                disabled={gen.running || (verdict === 'changes' && gate.blocked && queued.length > 0)}
+                onClick={async () => {
                   if (verdict === 'changes') {
                     if (queued.length > 0) sendComments(queued.map((c) => c.id))
-                  } else if (store.sessionId != null) {
-                    void window.api.approve(store.sessionId).then(() => store.reload())
+                  } else {
+                    const id = await store.materialize()   // approving a transient mints the session
+                    if (id != null) void window.api.approve(id).then(() => store.reload())
                   }
                 }}
               >
                 {verdict === 'changes'
-                  ? <><I.send />Send {queued.length || 'no'} change{queued.length === 1 ? '' : 's'} to agent</>
+                  ? (gate.blocked && queued.length > 0
+                    ? <><I.warn />Check out to send {queued.length} change{queued.length === 1 ? '' : 's'}</>
+                    : <><I.send />Send {queued.length || 'no'} change{queued.length === 1 ? '' : 's'} to agent</>)
                   : <><I.check />{approved ? 'Approved ✓' : 'Approve this review'}</>}
               </button>
               <button className="sc-caret" onClick={() => setVerdictOpen((o) => !o)} aria-label="Change verdict">
@@ -308,7 +315,9 @@ export default function Review() {
             </div>
             <div className="gside-note">
               {verdict === 'changes'
-                ? queued.length > 0 ? 'Inline comments batch up — sent in one prompt.' : 'Comment on lines, sections, or the spec first.'
+                ? gate.blocked
+                  ? <>Detached — check out <b>{branch}</b> (Workspace ▸) to send comments to the agent.</>
+                  : queued.length > 0 ? 'Inline comments batch up — sent in one prompt.' : 'Comment on lines, sections, or the spec first.'
                 : loaded.dirty
                   ? `Records the committed state. ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
                   : 'Records the current commit as approved.'}

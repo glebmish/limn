@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CliOpenMsg, CompareData, DashboardData, LoadedReview } from '../shared/ipc'
+import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
 import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
@@ -16,6 +16,20 @@ export const ACCENTS: string[][] = [
 let opCounter = 0
 export function newOpId(): string {
   return `op-${Date.now()}-${++opCounter}`
+}
+
+/** Whether the review's compare branch is in a state where agent edits can safely
+ *  land. `blocked` → branch checked out nowhere (submissions disabled, offer
+ *  checkout). `dirtyWarn` → branch active but its worktree is dirty (allowed, warn).
+ *  Non-branch compares are inherently review-only and never blocked. */
+export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; dirtyWarn: boolean; branch: string | null } {
+  const compare = loaded?.session.pair.compare
+  if (!loaded || compare?.kind !== 'branch') return { blocked: false, dirtyWarn: false, branch: null }
+  return {
+    blocked: !loaded.compareCheckedOut,
+    dirtyWarn: loaded.compareCheckedOut && loaded.dirty,
+    branch: compare.symbol
+  }
 }
 
 /** Fallback grouping before AI annotations exist: one section per top-level dir. */
@@ -66,7 +80,7 @@ function pickActiveChat(chats: ChatThread[], current: number | null): number | n
 }
 
 interface AppStore {
-  screen: 'dashboard' | 'hub' | 'compare' | 'review'
+  screen: 'dashboard' | 'hub' | 'review'
   recents: string[]
   repo: string | null
   repoInfo: RepoInfo | null
@@ -96,19 +110,10 @@ interface AppStore {
   sel: number
   statuses: Record<string, RepoStatus>
 
-  // compare
-  compare: {
-    repo: string | null
-    repoInfo: RepoInfo | null
-    baseInput: string
-    compareInput: string
-    data: CompareData | null
-    loading: boolean
-    retargetSessionId: number | null
-    /** force a brand-new session on Start (the hub's "New review"), bypassing the
-     *  resume-the-existing-pair shortcut. */
-    fresh: boolean
-  }
+  /** A transient (preview) review is shown but no session row exists yet. Set when
+   *  the transient was opened via "New review" so materialize forces a fresh session
+   *  even if one already exists for the pair. */
+  transientFresh: boolean
 
   viewedAt: Record<string, string>
   reviewedSections: Set<string>
@@ -144,29 +149,31 @@ interface AppStore {
   enterHub(repoPath?: string): Promise<void>
   /** Start a fresh review for the current repo (new-review setup). */
   newReview(): Promise<void>
-  /** Check out a branch (refused on a dirty tree), then jump to its latest
-   *  session or new-review. Used by the hub + review-header branch switcher. */
-  switchBranchTo(branch: string): Promise<void>
+  /** Check out `branch` into a worktree (primary or linked) — refused on a dirty
+   *  worktree. Reloads the review when `branch` is its compare branch so the
+   *  agent-gating state updates. */
+  checkoutInto(branch: string, worktreePath: string): Promise<void>
+  /** Give `branch` a new linked worktree at `.worktrees/<name>`, then reload if it's
+   *  the loaded review's compare branch. */
+  addWorktreeFor(branch: string, name: string): Promise<void>
   /** Archive a session and refresh the hub list. */
   deleteSession(id: number): Promise<void>
   /** Restore an archived session and refresh the hub list. */
   restoreSession(id: number): Promise<void>
   /** Toggle whether the hub lists archived sessions. */
   toggleArchived(): Promise<void>
-  // compare
-  enterCompare(repoPath: string, refs?: { base?: string; compare?: string }, opts?: { retargetSessionId?: number | null; fresh?: boolean }): Promise<void>
-  setBaseInput(s: string): void
-  setCompareInput(s: string): void
-  swapRefs(): void
-  refreshCompare(): Promise<void>
-  startFromCompare(): Promise<void>
+  // review entry
+  /** Open the repo's review for a ref pair as the default entry. Resumes a live
+   *  session for the exact pair (unless `fresh`), else shows a transient review (no
+   *  DB row) that persists on first write. */
+  openReview(repo: string, refs?: { base?: string; compare?: string }, opts?: { fresh?: boolean }): Promise<void>
+  /** Persist the transient review (create/reuse its session) and return the new id.
+   *  Idempotent: returns the existing id when already persisted; null on failure. */
+  materialize(): Promise<number | null>
   resumeExisting(sessionId: number): Promise<void>
-  startFresh(sessionId: number): Promise<void>
-  applyRetarget(): Promise<void>
   backToDashboard(): void
-  backToCompare(): void
-  retarget(side: 'base' | 'compare'): void
-  /** Change the loaded session's base ref in place (review-header base picker). */
+  /** Change the loaded review's base ref (review-header base picker). Transient →
+   *  rebuild the preview; persisted → retarget the session in place. */
   setSessionBase(ref: string): Promise<void>
   // review
   setAgent(a: AgentRef): void
@@ -201,10 +208,11 @@ interface AppStore {
 }
 
 export const useStore = create<AppStore>((set, get) => {
-  const persistUi = (): void => {
-    const { sessionId, viewedAt, reviewedSections } = get()
-    if (sessionId == null) return
-    void window.api.saveUiState(sessionId, { viewedAt, reviewedSections: [...reviewedSections] })
+  const persistUi = async (): Promise<void> => {
+    const id = await get().materialize()        // first viewed/reviewed mark mints the session
+    if (id == null) return
+    const { viewedAt, reviewedSections } = get()
+    void window.api.saveUiState(id, { viewedAt, reviewedSections: [...reviewedSections] })
   }
 
   /** Splice an updated chat-thread list into the loaded review. */
@@ -213,9 +221,29 @@ export const useStore = create<AppStore>((set, get) => {
     if (loaded) set({ loaded: { ...loaded, state: { ...loaded.state, chats } } })
   }
 
-  let compareTimer: ReturnType<typeof setTimeout> | null = null
-  let compareGen = 0
+  /** Land on `branch`'s review: its latest live session, else the new-review setup.
+   *  Called after checking a branch out from the picker so the action lands somewhere. */
+  const openBranchReview = async (branch: string): Promise<void> => {
+    const { repo, repoSessions } = get()
+    if (!repo) return
+    const match = repoSessions.find((s) => !s.archived && s.compareKind === 'branch' && s.compareSymbol === branch)
+    if (match) await get().resumeExisting(match.id)
+    else await get().openReview(repo, { compare: branch })
+  }
+
+  /** Post-checkout payoff. If `branch` is the loaded review's compare branch, reload it
+   *  (its agent-gating state just changed). Otherwise the user checked out a *different*
+   *  branch to work on it — land on that branch's review (skipped mid new-review setup
+   *  on the Compare screen, where a jump would discard the in-progress ref pair). */
+  const afterCheckout = async (branch: string, loaded: LoadedReview | null): Promise<void> => {
+    const compare = loaded?.session.pair.compare
+    if (loaded && compare?.kind === 'branch' && compare.symbol === branch) { await get().reload(); return }
+    await openBranchReview(branch)
+  }
+
   let rescanRunning = false
+  // in-flight materialize, so concurrent first-writes don't mint duplicate sessions
+  let materializing: Promise<number | null> | null = null
 
   /** Walk a dashboard's pin trees + recents into the flat list of repo paths. */
   const collectRepoPaths = (d: DashboardData): string[] => {
@@ -271,7 +299,7 @@ export const useStore = create<AppStore>((set, get) => {
     sel: 0,
     statuses: {},
 
-    compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null, fresh: false },
+    transientFresh: false,
 
     viewedAt: {},
     reviewedSections: new Set<string>(),
@@ -332,7 +360,14 @@ export const useStore = create<AppStore>((set, get) => {
 
     applyCliOpen(msg) {
       if (msg.error) { set({ error: msg.error }); return }
-      if (msg.repo) void get().enterCompare(msg.repo, { base: msg.baseInput, compare: msg.compareInput })
+      const repo = msg.repo
+      if (!repo) return
+      if (msg.hub) { void get().enterHub(repo); return }              // `lr --hub` → session list
+      if (msg.fresh) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }, { fresh: true }); return }
+      if (msg.baseInput || msg.compareInput) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }); return }
+      // bare `lr` → behave like opening from the dashboard (resume the latest session
+      // on the current branch, else a transient review)
+      void get().openRepo(repo)
     },
 
     async loadDashboard() {
@@ -368,10 +403,10 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     async openRepository() {
-      // escape hatch: open a one-off repo without pinning; openRepo (inside
-      // enterCompare) records it, so it shows up under Recent afterwards
+      // escape hatch: open a one-off repo without pinning; openRepo records it, so it
+      // shows up under Recent afterwards
       const dir = await window.api.pickRepo()
-      if (dir) await get().enterCompare(dir)
+      if (dir) await get().openRepo(dir)
     },
 
     async pinDirectory() {
@@ -412,7 +447,7 @@ export const useStore = create<AppStore>((set, get) => {
           ? repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
           : undefined
         if (match) { await get().resumeExisting(match.id); return }
-        await get().enterCompare(repoPath)            // none → new-review setup
+        await get().openReview(repoPath)              // none → transient review for the current branch
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err), screen: 'dashboard' })
       }
@@ -427,21 +462,30 @@ export const useStore = create<AppStore>((set, get) => {
 
     async newReview() {
       const repo = get().repo
-      if (repo) await get().enterCompare(repo, undefined, { fresh: true })
+      if (repo) await get().openReview(repo, undefined, { fresh: true })
     },
 
-    async switchBranchTo(branch) {
-      const repo = get().repo
+    async checkoutInto(branch, worktreePath) {
+      const { repo, loaded } = get()
       if (!repo) return
       try {
-        const repoState = await window.api.switchBranch(repo, branch)
-        const repoSessions = await window.api.listRepoSessions(repo)
-        set({ repoState, repoSessions, error: null })
-        const match = repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
-        if (match) await get().resumeExisting(match.id)
-        else await get().enterCompare(repo)
+        const repoState = await window.api.checkoutInto(repo, worktreePath, branch)
+        set({ repoState, error: null })
+        await afterCheckout(branch, loaded)
       } catch (err) {
-        // dirty-tree block ("commit or stash first") surfaces here
+        // dirty-worktree block ("commit or stash first") + git's own errors surface here
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    async addWorktreeFor(branch, name) {
+      const { repo, loaded } = get()
+      if (!repo) return
+      try {
+        const repoState = await window.api.addWorktreeFor(repo, branch, name)
+        set({ repoState, error: null })
+        await afterCheckout(branch, loaded)
+      } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
     },
@@ -465,77 +509,70 @@ export const useStore = create<AppStore>((set, get) => {
       if (repo) set({ repoSessions: await window.api.listRepoSessions(repo, showArchived) })
     },
 
-    async enterCompare(repoPath, refs, opts) {
-      set({
-        screen: 'compare',
-        compare: { repo: repoPath, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: true, retargetSessionId: opts?.retargetSessionId ?? null, fresh: opts?.fresh ?? false },
-        error: null
-      })
+    async openReview(repoPath, refs, opts) {
+      set({ error: null })
       try {
-        const info = await window.api.openRepo(repoPath)
-        const baseInput = refs?.base ?? info.defaultBase
-        const compareInput = refs?.compare ?? (info.current !== 'HEAD' ? info.current : info.branches[0] ?? '')
-        set({ compare: { ...get().compare, repoInfo: info, baseInput, compareInput } })
-        void loadRepoContext(repoPath)
-        await get().refreshCompare()
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err), compare: { ...get().compare, loading: false } })
-      }
-    },
-
-    setBaseInput(s) {
-      set({ compare: { ...get().compare, baseInput: s } })
-      if (compareTimer) clearTimeout(compareTimer)
-      compareTimer = setTimeout(() => { void get().refreshCompare() }, 300)
-    },
-
-    setCompareInput(s) {
-      set({ compare: { ...get().compare, compareInput: s } })
-      if (compareTimer) clearTimeout(compareTimer)
-      compareTimer = setTimeout(() => { void get().refreshCompare() }, 300)
-    },
-
-    swapRefs() {
-      const { baseInput, compareInput } = get().compare
-      set({ compare: { ...get().compare, baseInput: compareInput, compareInput: baseInput } })
-      void get().refreshCompare()
-    },
-
-    async refreshCompare() {
-      const gen = ++compareGen
-      const { repo, baseInput, compareInput } = get().compare
-      if (!repo || !baseInput || !compareInput) return
-      set({ compare: { ...get().compare, loading: true } })
-      try {
-        const data = await window.api.compareInfo(repo, baseInput, compareInput)
-        if (gen !== compareGen) return // superseded by a newer refresh
-        set({ compare: { ...get().compare, data, loading: false } })
-      } catch (err) {
-        if (gen !== compareGen) return
-        set({ compare: { ...get().compare, loading: false }, error: err instanceof Error ? err.message : String(err) })
-      }
-    },
-
-    async startFromCompare() {
-      const { repo, baseInput, compareInput, fresh } = get().compare
-      const agent = get().agent
-      if (!repo || !baseInput || !compareInput) return
-      try {
-        const { sessionId } = await window.api.startSession(repo, baseInput, compareInput, agent, fresh)
-        const loaded = await window.api.loadSession(sessionId)
+        // ensure repo context (state + session list). openRepo seeds these for the
+        // dashboard path; CLI / direct callers may not have them yet, so fetch when
+        // the repo differs or state is missing. openRepo also records it under Recent.
+        if (get().repo !== repoPath || !get().repoState) {
+          const [info, repoState, repoSessions] = await Promise.all([
+            window.api.openRepo(repoPath), window.api.repoState(repoPath), window.api.listRepoSessions(repoPath)
+          ])
+          set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
+        }
+        const repoState = get().repoState
+        if (!repoState) return
+        const base = refs?.base ?? repoState.defaultBase
+        const compare = refs?.compare ?? (repoState.current !== 'HEAD' ? repoState.current : repoState.branches[0] ?? '')
+        // resume a live session for the exact pair unless a fresh review was asked for
+        if (!opts?.fresh) {
+          const match = get().repoSessions.find(
+            (s) => !s.archived && s.compareKind === 'branch' && s.compareSymbol === compare && s.baseSymbol === base
+          )
+          if (match) { await get().resumeExisting(match.id); return }
+        }
+        // transient: render the diff with no session row; persists on first write
+        const loaded = await window.api.previewReview(repoPath, base, compare, get().agent)
         set({
-          sessionId, loaded, error: null, screen: 'review',
-          repo, branch: loaded.state.branch, base: loaded.state.base,
-          viewedAt: loaded.state.viewedAt,
-          reviewedSections: new Set(loaded.state.reviewedSections),
-          collapsed: new Set<string>(), cur: null,
-          agent: loaded.state.agent ?? agent,
-          activeChatId: pickActiveChat(loaded.state.chats, null)
+          screen: 'review', sessionId: null, loaded, repo: repoPath,
+          branch: loaded.state.branch, base: loaded.state.base,
+          viewedAt: {}, reviewedSections: new Set<string>(), collapsed: new Set<string>(), cur: null,
+          activeChatId: null, transientFresh: opts?.fresh ?? false, error: null
         })
-        void loadRepoContext(repo)
+        void loadRepoContext(repoPath)
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
+    },
+
+    async materialize() {
+      const existing = get().sessionId
+      if (existing != null) return existing
+      if (materializing) return materializing
+      const { repo, loaded, agent, transientFresh } = get()
+      if (!repo || !loaded) return null
+      const pair = loaded.session.pair
+      const reviewAgent = loaded.session.agent ?? agent
+      materializing = (async () => {
+        try {
+          // startSession (non-fresh) reuses an existing pair-session, so this never
+          // duplicates; `transientFresh` forces a brand-new one for "New review".
+          const { sessionId } = await window.api.startSession(repo, pair.base.symbol, pair.compare.symbol, reviewAgent, transientFresh)
+          const real = await window.api.loadSession(sessionId)
+          // swap in the persisted shell but KEEP the store's in-memory viewed/reviewed
+          // marks — the write that triggered materialize set them just before this.
+          set({ sessionId, loaded: real, transientFresh: false })
+          void loadRepoContext(repo)
+          return sessionId
+        } catch (err) {
+          set({ error: err instanceof Error ? err.message : String(err) })
+          return null
+        } finally {
+          materializing = null
+        }
+      })()
+      return materializing
     },
 
     async resumeExisting(sessionId) {
@@ -556,69 +593,30 @@ export const useStore = create<AppStore>((set, get) => {
       }
     },
 
-    async startFresh(sessionId) {
-      await window.api.archiveSession(sessionId)
-      await get().startFromCompare()
-    },
-
-    /** Apply the corrected pair to the session being retargeted (set when the
-     *  user arrived from the ref-missing banner), then resume it — review
-     *  state (comments, chat, iterations) is preserved, unlike start-fresh. */
-    async applyRetarget() {
-      const { retargetSessionId, baseInput, compareInput } = get().compare
-      if (retargetSessionId == null) return
-      try {
-        // invariant: retargetSessionId is only ever seeded (backToCompare) when
-        // loaded.refMissing is set, so `loaded` is the session being retargeted
-        const pair = get().loaded?.session.pair
-        if (!pair || pair.base.symbol !== baseInput) {
-          await window.api.retargetSession(retargetSessionId, 'base', baseInput)
-        }
-        if (!pair || pair.compare.symbol !== compareInput) {
-          await window.api.retargetSession(retargetSessionId, 'compare', compareInput)
-        }
-        await get().resumeExisting(retargetSessionId)
-      } catch (err) {
-        // e.g. invalid ref, or the corrected pair collides with another live session
-        set({ error: err instanceof Error ? err.message : String(err) })
-      }
-    },
-
     backToDashboard() {
-      if (compareTimer) { clearTimeout(compareTimer); compareTimer = null }
       set({
-        screen: 'dashboard', loaded: null, sessionId: null, repoState: null, repoSessions: [],
-        compare: { repo: null, repoInfo: null, baseInput: '', compareInput: '', data: null, loading: false, retargetSessionId: null, fresh: false }
+        screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
+        repoState: null, repoSessions: []
       })
       void get().loadDashboard()
     },
 
-    backToCompare() {
-      const loaded = get().loaded
-      const repo = loaded?.state.repo ?? get().compare.repo
-      if (!repo) { get().backToDashboard(); return }
-      const baseSym = loaded?.session.pair.base.symbol ?? get().compare.baseInput
-      const compareSym = loaded?.session.pair.compare.symbol ?? get().compare.compareInput
-      void get().enterCompare(repo, { base: baseSym, compare: compareSym }, { retargetSessionId: loaded?.refMissing ? get().sessionId : null })
-    },
-
     async setSessionBase(ref) {
-      const { sessionId } = get()
-      if (sessionId == null || !ref.trim()) return
+      const r = ref.trim()
+      if (!r) return
+      const { sessionId, loaded, repo } = get()
+      if (sessionId == null) {
+        // transient: rebuild the preview with the new base, keeping the compare side
+        const compare = loaded?.session.pair.compare.symbol
+        if (repo) await get().openReview(repo, { base: r, compare })
+        return
+      }
       try {
-        await window.api.retargetSession(sessionId, 'base', ref.trim())
+        await window.api.retargetSession(sessionId, 'base', r)
         await get().reload()
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
-    },
-
-    retarget(_side) {
-      // navigate to Compare seeded from the loaded session's symbols; backToCompare
-      // sets compare.retargetSessionId, so the start panel shows "Retarget
-      // session #N", and that button applies the corrected pair in place via
-      // applyRetarget (api.retargetSession + resume — review state preserved).
-      get().backToCompare()
     },
 
     setAgent(a) {

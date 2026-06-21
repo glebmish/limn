@@ -105,7 +105,7 @@ export default function Dashboard() {
         {dashboard?.pins.map((pin) => (
           <div key={pin.id} className="lr-pin">
             <div className="lr-pin-head">
-              <span className="pin-path">{pin.path}</span>
+              <span className="pin-path" title={pin.path}>{pin.path}</span>
               <span className="pin-count">· {pin.repoCount} repo{pin.repoCount === 1 ? '' : 's'}</span>
               <span className="grow" />
               <button className="lr-pin-btn" title="Rescan" onClick={() => void rescan(pin.id)}>⟳</button>

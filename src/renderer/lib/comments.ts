@@ -2,8 +2,9 @@ import { useStore } from '../store'
 import type { Comment, CommentAnchor } from '../../shared/types'
 
 export async function addComment(anchor: CommentAnchor, text: string): Promise<void> {
-  const { sessionId, loaded, setComments } = useStore.getState()
+  const sessionId = await useStore.getState().materialize()  // first comment mints the session
   if (sessionId == null) return
+  const loaded = useStore.getState().loaded
   const comment: Comment = {
     id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     anchor,
@@ -15,18 +16,18 @@ export async function addComment(anchor: CommentAnchor, text: string): Promise<v
     iteration: loaded?.state.iterations.length ?? 0
   }
   const state = await window.api.upsertComment(sessionId, comment)
-  setComments(state.comments)
+  useStore.getState().setComments(state.comments)
 }
 
 export async function editComment(comment: Comment, text: string): Promise<void> {
-  const { sessionId } = useStore.getState()
+  const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const state = await window.api.upsertComment(sessionId, { ...comment, text })
   useStore.getState().setComments(state.comments)
 }
 
 export async function deleteComment(id: string): Promise<void> {
-  const { sessionId } = useStore.getState()
+  const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const state = await window.api.deleteComment(sessionId, id)
   useStore.getState().setComments(state.comments)

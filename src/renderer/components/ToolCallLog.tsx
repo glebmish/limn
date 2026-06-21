@@ -37,7 +37,7 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
             <div className="tcall-head" onClick={() => toggle(i)}>
               <Ico className="tcall-ico" />
               <span className="tcall-verb">{c.verb}</span>
-              <span className="tcall-arg">{c.arg}</span>
+              <span className="tcall-arg" title={c.arg}>{c.arg}</span>
               {c.state === 'run' && <span className="tcall-stat run"><span className="lr-spin" />running</span>}
               {c.state === 'ok' && <span className="tcall-stat ok">{c.meta ?? 'done'}</span>}
               {c.state === 'err' && <span className="tcall-stat err"><I.warn style={{ width: 10, height: 10 }} />failed</span>}

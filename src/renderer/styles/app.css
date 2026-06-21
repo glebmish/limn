@@ -139,6 +139,10 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-cta .gc-tx { flex: 1 1 260px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
 .gen-cta .gc-tx b { color: var(--ink); }
 .gen-cta .seg { flex: 0 0 auto; }
+.gen-cta .gc-gate { flex: 1 1 100%; display: flex; align-items: center; gap: 7px; font-size: 11.5px; line-height: 1.45; }
+.gen-cta .gc-gate.block { color: var(--amber); }
+.gen-cta .gc-gate.block b { color: var(--ink); }
+.gen-cta .gc-gate.warn { color: var(--muted); }
 
 /* empty diff state */
 .lr-empty { padding: 60px 30px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -239,7 +243,12 @@ button.lr-chip:hover { background: var(--accent-line); }
 .chat-batch { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 9px 13px; border-top: 1px solid var(--line); background: var(--accent-soft); }
 .chat-batch-go { justify-content: center; }
 .chat-steer { border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); font-family: var(--sans); font-size: 11px; color: var(--ink); padding: 5px 8px; }
+.chat-gate { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 8px 13px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.4; }
+.chat-gate.block { background: var(--accent-soft); color: var(--amber); }
+.chat-gate.block b { color: var(--ink); }
+.chat-gate.warn { color: var(--muted); background: var(--panel-2); }
 .chat-foot { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; padding: 10px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.chat-foot textarea:disabled { opacity: .6; cursor: not-allowed; }
 .chat-foot textarea { flex: 1 1 auto; resize: none; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); font-family: var(--sans); font-size: 12px; color: var(--ink); padding: 7px 9px; line-height: 1.45; }
 
 /* ---- multi-chat: tabs + agent bar ---- */
@@ -341,19 +350,28 @@ button.lr-chip:hover { background: var(--accent-line); }
 .lr-cmp-repo b { color: var(--ink-2); }
 
 .lr-cmp-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-.lr-cmp-bar .cb-lab { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; }
-.lr-cmp-bar .cb-arrow { color: var(--faint); }
+/* equal fixed-width ref buttons so swapping their contents never shifts the layout
+   (otherwise a long branch in the base slot pushes the swap control sideways). */
+.lr-cmp-bar .lr-refpick { width: 190px; }
+.lr-cmp-bar .lr-refpick-btn { width: 100%; max-width: none; box-sizing: border-box; text-align: left; }
+/* the base←compare arrow doubles as the swap button: shows ← at rest, morphs to
+   the swap glyph on hover (no separate control). */
+.lr-cmp-bar .cb-swap { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: none; background: none; color: var(--faint); cursor: pointer; border-radius: var(--r-sm); font-size: 13px; line-height: 1; }
+.lr-cmp-bar .cb-swap:hover { color: var(--ink-2); background: var(--panel-2); }
+.lr-cmp-bar .cb-swap .cb-swap-icon { display: none; }
+.lr-cmp-bar .cb-swap:hover .cb-swap-arrow { display: none; }
+.lr-cmp-bar .cb-swap:hover .cb-swap-icon { display: inline; }
 .lr-cmp-summary { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
 .lr-cmp-summary .add { color: var(--accent); }
 .lr-cmp-summary .del { color: var(--red); }
-.lr-cmp-swap { border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); cursor: pointer; border-radius: var(--r-sm); padding: 4px 8px; font-size: 13px; line-height: 1; }
-.lr-cmp-swap:hover { color: var(--ink-2); background: var(--panel-2); }
 .lr-cmp-context { flex: 0 0 auto; display: flex; gap: 16px; padding: 7px 24px; border-bottom: 1px solid var(--line); background: var(--panel-2); font-size: 11.5px; color: var(--muted); }
 .lr-cmp-context .ctx-err { color: var(--red); }
 
 .lr-cmp-body { flex: 1 1 auto; display: flex; min-height: 0; }
 .lr-cmp-main { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 16px 24px; }
-.lr-cmp-side { flex: 0 0 300px; border-left: 1px solid var(--line); overflow-y: auto; min-height: 0; padding: 16px; background: var(--panel-2); }
+/* overflow stays visible so the worktree / agent popovers can escape the panel;
+   an overflow-y:auto here also clips overflow-x, which cut off the dropdowns. */
+.lr-cmp-side { flex: 0 0 300px; border-left: 1px solid var(--line); overflow: visible; min-height: 0; padding: 16px; background: var(--panel-2); }
 
 /* commits list */
 .lr-commits { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; margin-bottom: 16px; background: var(--panel); }
@@ -375,9 +393,16 @@ button.lr-chip:hover { background: var(--accent-line); }
 .lr-refpick { position: relative; display: inline-block; }
 .lr-refpick-btn { font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 5px 10px; cursor: pointer; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-refpick-btn:hover { border-color: var(--line-3); }
+/* compare side: a bold chip with a branch icon (base stays the quiet text button) */
+.lr-refpick-cmp { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; max-width: 300px; }
+.lr-refpick-cmp .rp-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-refpick-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; width: 300px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; }
 .lr-refpick-pop input { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); margin-bottom: 6px; }
 .lr-refpick-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 6px 4px 3px; }
+.lr-refpick-sec-btn { display: flex; align-items: center; gap: 6px; width: 100%; border: none; background: none; font-family: inherit; cursor: pointer; }
+.lr-refpick-sec-btn:hover { color: var(--ink-2); }
+.lr-refpick-sec-btn svg { margin-left: auto; color: var(--muted-2); }
+.lr-refpick-sec-btn .rp-more { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 9.5px; color: var(--accent-ink); }
 .lr-refpick-item { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; }
 .lr-refpick-item:hover { background: var(--accent-soft); }
 .lr-refpick-item .ri-name { font-family: var(--mono); color: var(--ink); }

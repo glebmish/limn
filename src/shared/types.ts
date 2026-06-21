@@ -174,8 +174,10 @@ export interface ReviewState {
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
 
-/** A git worktree (primary or linked). `branch` is null for a detached HEAD. */
-export interface WorktreeInfo { path: string; branch: string | null; head: string; primary: boolean; locked: boolean }
+/** A git worktree (primary or linked). `branch` is null for a detached HEAD.
+ *  `dirty` is populated by `repoState` (the UI path) and left undefined by the
+ *  lean `listWorktrees` used in hot git paths. */
+export interface WorktreeInfo { path: string; branch: string | null; head: string; primary: boolean; locked: boolean; dirty?: boolean }
 
 /** Live git state for a repo — the source of truth the repo hub / review header
  *  switchers read. `current` is the branch checked out in the primary worktree

@@ -8,7 +8,7 @@ import { FORMAT_LABELS } from '../../shared/types'
 /** v3-style commentable document view for spec/plan artifacts.
  *  Every line is a hover-"+" spec-line; threads render inline under their line. */
 export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => void }) {
-  const { loaded, branch, sessionId, reload } = useStore()
+  const { loaded, branch, reload, materialize } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
   const art = loaded?.artifacts.find((a) => a.path === path)
   const comments = (loaded?.state.comments ?? []).filter(
@@ -19,9 +19,11 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   const deviations = loaded?.state.annotations?.planMap?.deviations ?? []
   const approvedAt = loaded?.state.artifactApprovals[path]
   const queuedHere = comments.filter((c) => c.status === 'queued').length
-  const approve = (): void => {
-    if (sessionId == null) return
-    void window.api.approveArtifact(sessionId, path).then(() => reload())
+  const approve = async (): Promise<void> => {
+    const id = await materialize()
+    if (id == null) return
+    await window.api.approveArtifact(id, path)
+    void reload()
   }
 
   const renderLine = (text: string, idx: number) => {

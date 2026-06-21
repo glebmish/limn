@@ -64,7 +64,7 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
   }
   return (
     <div className="lr-suggest">
-      <div className="ls-head"><I.eye style={{ width: 12, height: 12 }} />Mark viewed?<span className="ls-targets">{targets}</span></div>
+      <div className="ls-head"><I.eye style={{ width: 12, height: 12 }} />Mark viewed?<span className="ls-targets" title={targets}>{targets}</span></div>
       {action.note && <div className="ls-note">{action.note}</div>}
       <div className="ls-sub">A suggestion only — nothing changes until you confirm.</div>
       <div className="ls-act">

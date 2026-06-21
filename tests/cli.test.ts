@@ -40,4 +40,28 @@ describe('parseCliArgs', () => {
     const a = parseCliArgs(['app', '--cli', '--dir=/repo', '--base=main', '--compare=feature'])
     expect(a).toEqual({ dir: '/repo', base: 'main', compare: 'feature' })
   })
+
+  it('treats --branch as the preferred alias for the compare side', () => {
+    expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--branch', 'feature']))
+      .toEqual({ dir: '/repo', compare: 'feature' })
+    expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--branch=feature']))
+      .toEqual({ dir: '/repo', compare: 'feature' })
+  })
+
+  it('parses the boolean --hub flag', () => {
+    expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--hub']))
+      .toEqual({ dir: '/repo', hub: true })
+  })
+
+  it('parses the boolean --new flag (force a fresh review)', () => {
+    expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--branch=feature', '--new']))
+      .toEqual({ dir: '/repo', compare: 'feature', fresh: true })
+  })
+
+  it('omits hub/fresh when their flags are absent (not false)', () => {
+    const a = parseCliArgs(['app', '--cli', '--dir=/repo'])
+    expect(a).toEqual({ dir: '/repo' })
+    expect('hub' in a!).toBe(false)
+    expect('fresh' in a!).toBe(false)
+  })
 })
