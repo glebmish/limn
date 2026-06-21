@@ -96,8 +96,6 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .lr-hub-sech > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
 .lr-hub-group { margin-bottom: 18px; }
 .lr-hub-branch { display: flex; align-items: center; gap: 7px; margin: 0 2px 8px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
-.lr-hub-branch .lr-hub-at { font-size: 11px; color: var(--muted); font-weight: 400; }
-.lr-hub-branch .lr-hub-at.det { color: var(--amber); }
 .lr-sess.grouped { margin-left: 18px; }
 .lr-sess {
   display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 8px;

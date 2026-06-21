@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
-import { wtName } from '../lib/workspace'
 
 export default function RepoHub() {
   const { repo, repoState, repoSessions, showArchived, hubReturn, error, backToDashboard, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview } = useStore()
@@ -14,13 +13,6 @@ export default function RepoHub() {
   const live = repoSessions.filter((s) => !s.archived)
   const archived = repoSessions.filter((s) => s.archived)
 
-  const worktrees = repoState?.worktrees ?? []
-  const primaryWt = worktrees.find((w) => w.primary) ?? worktrees[0]
-  const repoBase = primaryWt ? primaryWt.path.split('/').pop() ?? '' : ''
-  const wtFor = (b: string): string | null => {
-    const w = worktrees.find((wt) => wt.branch === b)
-    return w ? wtName(w.path, w.primary, repoBase) : null
-  }
 
   // group sessions under their compare branch; the checked-out branch floats to
   // the top, the rest order by their most-recent session.
@@ -79,20 +71,15 @@ export default function RepoHub() {
         {live.length === 0 && (
           <div className="lr-empty">No reviews yet for this repo. <b>New review</b> to start one.</div>
         )}
-        {groupByBranch(live).map(([branch, sessions]) => {
-          const at = wtFor(branch)
-          return (
-            <div key={branch} className="lr-hub-group">
-              <div className="lr-hub-branch">
-                <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
-                <b title={branch}>{branch}</b>
-                {at ? <span className="lr-hub-at" title={`checked out in ${at}`}>@ {at}</span>
-                    : <span className="lr-hub-at det">detached</span>}
-              </div>
-              {sessions.map((s) => renderRow(s, true))}
+        {groupByBranch(live).map(([branch, sessions]) => (
+          <div key={branch} className="lr-hub-group">
+            <div className="lr-hub-branch">
+              <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
+              <b title={branch}>{branch}</b>
             </div>
-          )
-        })}
+            {sessions.map((s) => renderRow(s, true))}
+          </div>
+        ))}
 
         {showArchived && (
           <>
