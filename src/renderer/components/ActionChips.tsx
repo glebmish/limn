@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { AgentAction, CommentAnchor, FocusTarget } from '../../shared/types'
-import { I } from '../kit'
+import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
+import { I, EngineGlyph } from '../kit'
 import { useStore } from '../store'
 import { focusAnchor } from '../lib/focus'
 
@@ -79,7 +79,7 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
   )
 }
 
-function Chip({ action }: { action: AgentAction }) {
+function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
   switch (action.kind) {
     case 'focus':
       return (
@@ -103,7 +103,7 @@ function Chip({ action }: { action: AgentAction }) {
           : 'a section'
       return (
         <button className="lr-chip" title="Show in the review" onClick={() => focusAnchor(target)}>
-          <I.spark style={{ width: 11, height: 11 }} />edited {what}
+          <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />edited {what}
         </button>
       )
     }
@@ -119,11 +119,11 @@ function Chip({ action }: { action: AgentAction }) {
 }
 
 /** The action chips for one turn (live or settled). */
-export function ActionChips({ actions }: { actions: AgentAction[] }) {
+export function ActionChips({ actions, engine }: { actions: AgentAction[]; engine?: EngineId }) {
   if (!actions.length) return null
   return (
     <div className="lr-chips">
-      {actions.map((a, i) => <Chip key={i} action={a} />)}
+      {actions.map((a, i) => <Chip key={i} action={a} engine={engine} />)}
     </div>
   )
 }

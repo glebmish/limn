@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
-import { I, ficonClass, shortSha } from '../kit'
+import { I, ficonClass, shortSha, EngineGlyph } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
@@ -203,7 +203,7 @@ export default function Review() {
                 <div key={a.path}>
                   <div className={'art-row' + (peek === a.path ? ' open' : '')}>
                     <span className="art-open" onClick={() => openDoc(a.path)} title="Open the rendered document">
-                      <span className="art-ic">{a.role === 'plan' ? <I.spark style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
+                      <span className="art-ic">{a.role === 'plan' ? <I.plan style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
                       <span className="art-fmt" title={`${FORMAT_LABELS[a.format]} format`}>{FORMAT_LABELS[a.format]}</span>
                       <span className="art-meta" title={a.title}>{a.title}</span>
@@ -362,7 +362,7 @@ export default function Review() {
 
               {annotations && (sinceTagged && lastIteration?.summary ? (
                 <div className="rr-summary" data-lr-summary>
-                  <span className="rr-ic"><I.spark style={{ width: 14, height: 14 }} /></span>
+                  <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
                   <span className="rr-tx">
                     <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
                     {lastIteration.summary}
@@ -375,7 +375,7 @@ export default function Review() {
                 </div>
               ) : (
                 <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
-                  <span className="rr-ic" style={{ background: 'var(--accent)' }}><I.spark style={{ width: 14, height: 14 }} /></span>
+                  <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={(state.agent ?? store.agent).engine} style={{ width: 14, height: 14 }} /></span>
                   <span className="rr-tx">{annotations.summary}</span>
                 </div>
               ))}

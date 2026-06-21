@@ -222,7 +222,7 @@ const TOOL_IMPLS: ToolImpl[] = [
       const comment = loadReviewState(ctx.db, ctx.sessionId).comments.find((c) => c.id === commentId)
       if (!comment) throw new Error(`No comment with id ${commentId}`)
       comment.status = 'resolved'
-      comment.resolution = { verdict, note }
+      comment.resolution = { verdict, note, agentRef: ctx.agent }
       upsertComment(ctx.db, ctx.sessionId, comment)
       return { result: `Resolved the comment on ${anchorLabel(comment.anchor)} as ${verdict}.`, action: { kind: 'comment_resolved', commentId, anchor: comment.anchor, verdict, note } }
     }
@@ -303,7 +303,7 @@ const TOOL_IMPLS: ToolImpl[] = [
           const c = st.comments.find((x) => x.id === r.commentId)
           if (!c) continue
           c.status = 'resolved'
-          c.resolution = { verdict: r.verdict, note: r.note, ...(staged ? { commit: short } : {}) }
+          c.resolution = { verdict: r.verdict, note: r.note, agentRef: ctx.agent, ...(staged ? { commit: short } : {}) }
           upsertComment(ctx.db, ctx.sessionId, c)
         }
       }

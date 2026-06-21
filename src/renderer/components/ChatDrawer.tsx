@@ -131,7 +131,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
                   {m.role === 'agent' && m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
                   {m.role === 'agent' ? <Markdown text={m.text} /> : m.text}
-                  {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} />}
+                  {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} />}
                 </div>
               </div>
             ))}
@@ -143,7 +143,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   {partial ? <Markdown text={partial} /> : (
                     <div className="tstatus"><span className="lr-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
-                  {liveActions.length > 0 && <ActionChips actions={liveActions} />}
+                  {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} />}
                 </div>
               </div>
             )}

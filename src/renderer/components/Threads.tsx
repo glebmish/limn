@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AgentRef, Comment } from '../../shared/types'
-import { I, Ava } from '../kit'
+import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import { useStore } from '../store'
 import { deleteComment, editComment, sendComments } from '../lib/comments'
@@ -22,6 +22,8 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(c.text)
   const isAgent = c.author === 'agent'
+  // engine a queued comment will be sent to = the review agent
+  const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
 
   return (
     <div className="dthread">
@@ -31,7 +33,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           <span className="dim">{locLabel}</span>
           {!isAgent && c.status === 'queued' && (
             <>
-              <span className="agentq"><I.spark style={{ width: 11, height: 11 }} />queued for agent</span>
+              <span className="agentq"><EngineGlyph engine={reviewEngine} style={{ width: 11, height: 11 }} />queued for agent</span>
               <button className="send-now" onClick={() => sendComments([c.id])}>
                 <I.send style={{ width: 11, height: 11 }} />Send now
               </button>
@@ -70,7 +72,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         )}
         {c.resolution?.note && c.status === 'resolved' && (
           <div className="bb" style={{ paddingTop: 0, color: 'var(--muted)', fontSize: 12 }}>
-            <I.spark style={{ width: 10, height: 10, color: 'var(--accent)', marginRight: 5 }} />
+            <EngineGlyph engine={c.resolution.agentRef?.engine} style={{ width: 10, height: 10, color: 'var(--accent)', marginRight: 5 }} />
             {c.resolution.note}
           </div>
         )}

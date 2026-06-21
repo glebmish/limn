@@ -39,7 +39,7 @@ export interface Comment {
    *  the identity chip + click-through (JSON blob — no column migration). */
   agentRef?: AgentRef; threadId?: number;
   status: 'queued' | 'sent' | 'resolved' | 'outdated';
-  resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string };
+  resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string; agentRef?: AgentRef };
   replies: CommentReply[]; createdAt: string; iteration: number;
 }
 

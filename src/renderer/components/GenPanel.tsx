@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { checkoutGate, newOpId, useStore } from '../store'
-import { I } from '../kit'
+import { I, EngineGlyph } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
@@ -117,7 +117,7 @@ export function GenPanel() {
         </span>
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
         <button className="btn btn-primary" disabled={gate.blocked} onClick={startGenerateNow}>
-          <I.spark style={{ width: 13, height: 13 }} />Generate guided review
+          <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
         </button>
         {gate.blocked && <GateNote branch={gate.branch} />}
         {gate.dirtyWarn && <GateNote branch={gate.branch} dirty />}

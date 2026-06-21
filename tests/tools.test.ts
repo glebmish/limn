@@ -199,7 +199,7 @@ describe('comment tools (real temp DB)', () => {
     await host.call('resolve_comment', { commentId: 'u1', verdict: 'addressed', note: 'done' })
     const c = loadReviewState(db, sessionId).comments.find((x) => x.id === 'u1')!
     expect(c.status).toBe('resolved')
-    expect(c.resolution).toEqual({ verdict: 'addressed', note: 'done' })
+    expect(c.resolution).toEqual({ verdict: 'addressed', note: 'done', agentRef: { engine: 'claude', model: 'opus' } })
   })
 
   it('errors (no throw) on an unknown comment id', async () => {

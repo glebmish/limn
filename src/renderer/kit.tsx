@@ -1,4 +1,5 @@
 import type { SVGProps, ReactNode } from 'react'
+import type { EngineId } from '../shared/types'
 
 type P = SVGProps<SVGSVGElement>
 
@@ -14,6 +15,12 @@ export const I = {
   plus: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" {...p}><path d="M7 3v8M3 7h8" /></svg>,
   flag: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12V2M3 2.5h7l-1.5 2.5L10 8H3" /></svg>,
   spark: (p: P) => <svg viewBox="0 0 14 14" fill="currentColor" {...p}><path d="M7 1l1.1 3.4L11.5 5.5 8.1 6.7 7 10 5.9 6.7 2.5 5.5l3.4-1.1z" /></svg>,
+  // engine marks — Anthropic sunburst (Claude) + OpenAI knot (Codex). Monochrome
+  // (currentColor) so they sit in any context; differentiated by shape.
+  claude: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" {...p}><path d="M1.6 7H12.4M7 1.6V12.4M11.68 4.3L2.32 9.7M9.7 2.32L4.3 11.68M4.3 2.32L9.7 11.68M2.32 4.3L11.68 9.7" /></svg>,
+  codex: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinejoin="round" strokeLinecap="round" {...p}><path d="M7 1.6l4.7 2.7v5.4L7 12.4 2.3 9.7V4.3z" /><path d="M7 1.6v3.1M11.7 4.3L9 5.9M11.7 9.7L9 8.1M7 12.4V9.3M2.3 9.7L5 8.1M2.3 4.3L5 5.9" /></svg>,
+  // plan artifact — a neutral clipboard/checklist glyph (was the AI spark)
+  plan: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" {...p}><rect x="3" y="2.5" width="8" height="10" rx="1.2" /><path d="M5.3 2.5V1.7h3.4v.8z" /><path d="M5 6l1 1 1.4-1.6M5 9.3l1 1 1.4-1.6M8.7 5.8h1.6M8.7 9.1h1.6" /></svg>,
   send: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12.5 1.5L6 8M12.5 1.5l-4 11-2.5-4.5L1.5 5z" /></svg>,
   copy: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><rect x="4.5" y="4.5" width="7.5" height="8" rx="1.2" /><path d="M9.5 4.5V2.5h-7v8h2" /></svg>,
   filter: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M1.5 3h11l-4 4.5V12l-3-1.5V7.5z" /></svg>,
@@ -37,6 +44,14 @@ export const I = {
 
 export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {
   return <span className={'ava' + (ai ? ' ava-ai' : '')}>{children}</span>
+}
+
+/** The brand mark for the engine an action is attributed to — Anthropic sunburst
+ *  (claude) or OpenAI knot (codex). Falls back to the Claude mark (the default
+ *  engine) when the engine is unknown. */
+export function EngineGlyph({ engine, ...p }: { engine?: EngineId } & P) {
+  const Mark = engine === 'codex' ? I.codex : I.claude
+  return <Mark {...p} />
 }
 
 export function DiagramNodeBox({ kind, title, sub }: { kind?: string; title: string; sub?: string }) {
