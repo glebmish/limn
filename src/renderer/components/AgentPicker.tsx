@@ -23,6 +23,13 @@ export function AgentPicker({ value, onChange, disabled }: {
     }
   }, [])
 
+  // dev-only: drive the real onChange once so a static capture can show selection
+  const devPicked = useRef(false)
+  useEffect(() => {
+    const e = window.lrDev?.pickEngine
+    if (e && !devPicked.current) { devPicked.current = true; onChange({ engine: e as EngineId }) }
+  }, [onChange])
+
   useEffect(() => {
     if (!open) return
     const off = (e: PointerEvent): void => {

@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('lrDev', {
   openPicker: process.env.LR_OPEN_PICKER === '1',
   openWorkspace: process.env.LR_OPEN_WORKSPACE === '1',
   openCmpRef: process.env.LR_OPEN_CMPREF === '1',
+  pickEngine: process.env.LR_PICK_ENGINE ?? null,
   openChatList: process.env.LR_OPEN_CHATLIST === '1',
   focus: process.env.LR_FOCUS ?? null,
   holdFocus: process.env.LR_HOLD_FOCUS === '1',

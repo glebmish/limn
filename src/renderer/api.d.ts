@@ -19,6 +19,8 @@ declare global {
       openWorkspace?: boolean
       /** dev-only: open the compare RefPicker dropdown for a static capture */
       openCmpRef?: boolean
+      /** dev-only: fire the agent picker's onChange to this engine once (proves selection) */
+      pickEngine?: string | null
       openChatList?: boolean
       /** JSON FocusTarget — focusAnchor() it once the review mounts */
       focus?: string | null

@@ -621,7 +621,19 @@ export const useStore = create<AppStore>((set, get) => {
 
     setAgent(a) {
       void window.api.setPref('agent', JSON.stringify(a))
-      set({ agent: a })
+      // The picker (and generate) read the *loaded review's* agent
+      // (`loaded.state.agent ?? agent`), so updating only the top-level `agent`
+      // is shadowed whenever a review is loaded — the click looked like a no-op.
+      // Patch the loaded state/session too so the choice shows and is what
+      // generate runs with.
+      set((s) => ({
+        agent: a,
+        loaded: s.loaded
+          ? { ...s.loaded,
+              state: { ...s.loaded.state, agent: a, engine: a.engine },
+              session: { ...s.loaded.session, agent: a, engine: a.engine } }
+          : s.loaded
+      }))
     },
 
     async reload() {
