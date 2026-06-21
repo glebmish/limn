@@ -12,6 +12,7 @@ import { ChatDrawer } from '../components/ChatDrawer'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
 import { queuedComments, sendComments } from '../lib/comments'
+import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 
 let devFlowRan = false
@@ -354,7 +355,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · ${state.engine === 'codex' ? 'Codex' : 'Claude'} guided` : ''}</div>
+                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by ${agentLabel(state.agent ?? store.agent)}` : ''}</div>
                 <h1>{annotations?.title ?? `Changes on ${branch}`}</h1>
               </div>
 

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { checkoutGate, newOpId, useStore } from '../store'
 import { I } from '../kit'
-import { agentLabel } from '../../shared/agents'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
@@ -133,9 +132,7 @@ export function GenPanel() {
       <span className="gc-tx dim" style={{ fontSize: 11.5 }}>
         Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
       </span>
-      <span className="gc-agent" title="The agent that generated this review">
-        <I.spark style={{ width: 11, height: 11, color: 'var(--accent)' }} />{agentLabel(reviewAgent)}
-      </span>
+      <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
       <button className="btn btn-sm" disabled={gate.blocked} onClick={startGenerateNow}>
         <I.changed style={{ width: 12, height: 12 }} />Regenerate review
       </button>
