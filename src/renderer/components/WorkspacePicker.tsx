@@ -53,7 +53,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       defaultOpen={Boolean(window.lrDev?.openWorkspace)}
       trigger={() => (
         <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title="Where this branch is checked out">
-          <I.branch style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
+          <I.list style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
           <span className={'ws-loc' + (detachedBranch ? ' det' : '')}>
             {locLabel}{!loc.detached && loc.dirty && <span className="gdot" title="uncommitted changes" />}
           </span>
@@ -68,7 +68,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
             <div className="ws-status"><I.warn style={{ width: 11, height: 11 }} />Detached — read-only until you check it out</div>
           )}
 
-          <div className="rsw-head ws-sec">Checkout {detachedBranch && <span className="ws-badge">detached</span>}</div>
+          <div className="rsw-head ws-sec">Worktree {detachedBranch && <span className="ws-badge">detached</span>}</div>
 
           {!isBranch ? (
             <div className="ws-note">A commit is review-only — branch from it to work on it.</div>

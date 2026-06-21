@@ -37,14 +37,14 @@ export default function RepoHub() {
   return (
     <div className="lr-hub">
       <div className="wf-titlebar">
-        <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()}>
-          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />repos
-        </button>
         <span className="lr-cmp-repo" title={repo}><b>{repoName}</b> · {repo}</span>
         <span className="grow" />
       </div>
 
       <div className="lr-hub-bar">
+        <button className="btn btn-sm btn-ghost" onClick={() => backToDashboard()}>
+          <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />repos
+        </button>
         <RefPicker value={repoState?.current ?? ''} repo={repo} relativeTo={repoState?.defaultBase ?? 'HEAD'} label="review branch" prominent
           onChange={(v) => { void openReview(repo, { compare: v }) }} />
         <span className="grow" />

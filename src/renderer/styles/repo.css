@@ -153,7 +153,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .ws-title b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* checkout action pinned to the popover's bottom edge — a long worktree list scrolls
    under it instead of pushing it out of view. */
-.ws-pop .ws-foot { position: sticky; bottom: -5px; margin: 0 -5px -5px; padding: 4px 5px 5px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -7px 12px -9px rgba(0,0,0,.22); }
+.ws-pop .ws-foot { position: sticky; bottom: -5px; margin: 6px -5px -5px; padding: 6px 5px 5px; background: var(--panel); border-top: 1px solid var(--line); }
 .ws-pop .ws-foot:empty { display: none; }
 .ws-pop .ws-foot .bwp-act { border-top: none; margin-top: 0; padding-top: 3px; }
 .ws-trig { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
