@@ -129,7 +129,9 @@
 .page-head h1{font-size:19px;font-weight:700;letter-spacing:-.3px;margin:6px 0 0}
 
 /* ---- section block ---- */
-.gsec{border-top:1px solid var(--line)}
+/* separate sections from each other, but not the first — no stray line right after
+   the generate box. */
+.gsec + .gsec{border-top:1px solid var(--line)}
 .gsec-head{display:flex;align-items:flex-start;gap:13px;padding:18px 30px 14px}
 .gsec.collapsed .gsec-head{padding:13px 30px}
 .gsec-no{width:26px;height:26px;border-radius:7px;flex:0 0 auto;display:flex;align-items:center;
@@ -149,16 +151,6 @@
   font-weight:600;color:var(--muted);background:none;border:none;cursor:pointer;padding:0;white-space:nowrap}
 .gfile-regen:hover{color:var(--accent-ink)}
 .gfile-regen.on{color:var(--accent-ink)}
-.regen-panel{border-bottom:1px solid var(--accent-line);background:var(--accent-soft)}
-.regen-panel .rg-feed{display:flex;gap:8px;align-items:flex-start;padding:11px 14px 4px;font-size:12px;
-  color:var(--ink-2);line-height:1.5}
-.regen-panel .rg-feed b{color:var(--accent-ink);white-space:nowrap}
-.regen-panel .rg-steer{display:block;width:calc(100% - 28px);margin:9px 14px;padding:8px 10px;
-  border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--panel);resize:none;
-  font-family:var(--sans);font-size:12px;color:var(--ink);line-height:1.5}
-.regen-panel .rg-steer::placeholder{color:var(--muted-2)}
-.regen-panel .rg-foot{display:flex;align-items:center;gap:8px;padding:0 14px 12px}
-.regen-panel .rg-note{font-size:11px;color:var(--muted);white-space:nowrap}
 .gsec-body{padding:0 30px 24px}
 
 /* ---- stage strip (lifecycle indicator, low-profile) ---- */

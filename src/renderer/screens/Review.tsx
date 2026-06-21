@@ -21,7 +21,7 @@ let devBatchRan = false
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, reviewedSections, cur, gen, density, accent, guidance, docPath, openDoc, closeDoc } = store
+  const { loaded, branch, base, reviewedSections, viewedAt, cur, gen, density, accent, guidance, docPath, openDoc, closeDoc } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
@@ -95,6 +95,8 @@ export default function Review() {
   const totalAdd = skeleton.files.reduce((n, f) => n + f.add, 0)
   const totalDel = skeleton.files.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter((s) => reviewedSections.has(s.id)).length
+  const fileCount = skeleton.files.length
+  const viewedCount = skeleton.files.filter((f) => viewedAt[f.path]).length
   const queued = queuedComments()
   const baseline = state.approvedSha ?? state.reviewedAtSha
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
@@ -234,7 +236,7 @@ export default function Review() {
           <div className="gnav">
             <div className="gnav-planlabel">
               <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />Changes</span>
-              <span className="pl-prog">{reviewedCount}/{sections.length} reviewed</span>
+              <span className="pl-prog">{reviewedCount}/{sections.length} sections · {viewedCount}/{fileCount} files</span>
             </div>
             {sections.map((s, i) => {
               const done = reviewedSections.has(s.id)

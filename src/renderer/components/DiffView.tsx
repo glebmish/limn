@@ -3,7 +3,7 @@ import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { I, Delta, ficonClass } from '../kit'
 import { useStore } from '../store'
-import { addComment, sendComments } from '../lib/comments'
+import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
@@ -46,7 +46,7 @@ export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, guidance, loaded, gen, focusTarget, openDoc } = useStore()
+  const { viewedAt, toggleViewed, guidance, loaded, focusTarget, openDoc } = useStore()
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
   // recognized spec/plan: this same file is reviewable rendered at the top
@@ -54,12 +54,9 @@ export function DiffView({ f, plainNote }: {
   const focused = focusTarget?.file === f.path
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
-  const [regenOpen, setRegenOpen] = useState(false)
-  const [steer, setSteer] = useState('')
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
-  const queuedHere = fileComments.filter((c) => c.status === 'queued')
   const hasSince = f.hunks.some((h) => h.since)
   const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
   const viewedSha = viewedAt[f.path]
@@ -115,56 +112,12 @@ export function DiffView({ f, plainNote }: {
             {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
-        {!isViewed && (
-          <button
-            className={'gfile-regen' + (regenOpen ? ' on' : '')}
-            onClick={() => setRegenOpen((o) => !o)}
-            title="Send this file's comments to the agent, optionally with a steer"
-          >
-            <I.changed style={{ width: 13, height: 13 }} />Regenerate
-          </button>
-        )}
         <label className="file-viewed">
           <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path, isViewed)} />
           <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
           Viewed
         </label>
       </div>
-
-      {!isViewed && regenOpen && (
-        <div className="regen-panel">
-          <div className="rg-feed">
-            <I.spark style={{ width: 12, height: 12, color: queuedHere.length ? 'var(--accent)' : 'var(--muted)', flex: '0 0 auto', marginTop: 2 }} />
-            <span>
-              {queuedHere.length > 0
-                ? <>The agent will address your <b>{queuedHere.length} comment{queuedHere.length > 1 ? 's' : ''}</b> on this file. Add a steer to redirect the approach.</>
-                : <>No comments on this file yet — add a steer to tell the agent what to change.</>}
-            </span>
-          </div>
-          <textarea
-            className="rg-steer"
-            rows={2}
-            value={steer}
-            onChange={(e) => setSteer(e.target.value)}
-            placeholder="Optional steer — e.g. “use a sliding window instead of a token bucket”"
-          />
-          <div className="rg-foot">
-            <span className="rg-note">Creates a new iteration on this branch</span>
-            <span className="grow"></span>
-            <button className="btn btn-sm btn-ghost" onClick={() => setRegenOpen(false)}>Cancel</button>
-            <button
-              className="btn btn-sm btn-primary"
-              disabled={gen.running || (queuedHere.length === 0 && !steer.trim())}
-              onClick={() => {
-                sendComments(queuedHere.map((c) => c.id), steer.trim() ? `${steer.trim()} (scope: ${f.path})` : `Only address the listed comments. Scope: ${f.path}`)
-                setRegenOpen(false)
-              }}
-            >
-              <I.changed style={{ width: 12, height: 12 }} />Regenerate file
-            </button>
-          </div>
-        </div>
-      )}
 
       {!isViewed && guidance === 'narrated' && plainNote && (
         <div className="plain-note">
