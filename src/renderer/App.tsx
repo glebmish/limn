@@ -1,12 +1,12 @@
 import { useEffect } from 'react'
-import { useStore } from './store'
+import { ACCENT, DENSITY, useStore } from './store'
 import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
 import RepoHub from './screens/RepoHub'
 import Review from './screens/Review'
 
 export default function App() {
-  const { screen, density, accent } = useStore()
+  const { screen } = useStore()
 
   useEffect(() => {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
@@ -43,11 +43,11 @@ export default function App() {
   if (screen === 'review') return <Review />
 
   const rootStyle = {
-    '--accent': accent[0], '--accent-ink': accent[1], '--accent-soft': accent[2], '--accent-line': accent[3]
+    '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
   } as React.CSSProperties
 
   return (
-    <div className={`wf dz-${density}`} style={rootStyle}>
+    <div className={`wf dz-${DENSITY}`} style={rootStyle}>
       {screen === 'hub' ? <RepoHub /> : <Dashboard />}
     </div>
   )
