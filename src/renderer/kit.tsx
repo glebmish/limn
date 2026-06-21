@@ -35,6 +35,8 @@ export const I = {
   edit: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><path d="M9.5 2.5l2 2L5 11l-2.5.5L3 9z" /><path d="M8.5 3.5l2 2" /></svg>,
   term: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="1.5" y="2.5" width="11" height="9" rx="1.3" /><path d="M4 6l2 1.5L4 9M7.5 9.5h3" /></svg>,
   list: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" {...p}><path d="M5 4h7M5 7h7M5 10h7M2.3 4h.01M2.3 7h.01M2.3 10h.01" /></svg>,
+  // worktree — stacked layers (a working copy of the tree)
+  layers: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" {...p}><rect x="2.4" y="2.4" width="7" height="7" rx="1" /><path d="M4.8 11.6h4.8a2 2 0 0 0 2-2V4.8" /></svg>,
   warn: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M7 1.8l5.5 9.7H1.5z" /><path d="M7 5.7v2.6M7 10h.01" /></svg>,
   // execution-mode tiers (approvals ladder)
   lock: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><rect x="2.7" y="6.2" width="8.6" height="5.6" rx="1.2" /><path d="M4.4 6.2V4.6a2.6 2.6 0 0 1 5.2 0v1.6" /></svg>,
