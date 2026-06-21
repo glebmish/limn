@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workspace menu — layout options</title>
+<style>
+  :root{
+    --paper:#f6f5f1; --panel:#ffffff; --panel-2:#faf9f6;
+    --ink:#2c2b28; --ink-2:#55534d; --muted:#8b887f; --muted-2:#a8a59b;
+    --line:#e4e2db; --line-2:#d6d3ca; --line-3:#c7c3b8;
+    --accent:#3a7d54; --accent-ink:#2c6342; --accent-soft:#e7efe9; --accent-line:#bcd6c5;
+    --amber:#a9781d; --amber-soft:#f6ecd4; --amber-line:#e3cf9e;
+    --red:#b14d3c; --red-soft:#f4e7e3; --red-line:#e2c2b8;
+    --r-sm:5px; --r-md:8px; --r-lg:12px;
+    --mono:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:40px 24px 90px}
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 26px}
+  code,.mono{font-family:var(--mono)}
+
+  .recap{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 20px;margin-bottom:30px;font-size:13px;color:var(--ink-2)}
+  .recap b{color:var(--ink)}
+
+  /* chrome + trigger states */
+  .triglane{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:36px}
+  .trigwrap{flex:1 1 280px}
+  .trigwrap .cap{font-size:11px;color:var(--muted);margin-top:7px}
+  .trigwrap .cap b{color:var(--ink-2)}
+  .bar{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);display:flex;align-items:center;gap:9px;padding:8px 12px;min-height:46px}
+  .ghost{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600}
+  .grow{flex:1 1 auto}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;color:var(--ink-2);font-family:var(--mono)}
+  .chip .ic{color:var(--accent);font-size:12px}
+  .chip.compare{border-color:var(--line-3);font-weight:700;color:var(--ink)}
+  .baseleft{font-family:var(--mono);font-size:11px;color:var(--muted)} .baseleft u{text-underline-offset:2px}
+  .arrow{color:var(--muted-2);font-size:13px}
+  .car{color:var(--muted);font-size:9px;margin-left:1px}
+
+  /* the workspace trigger */
+  .ws{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;border-radius:var(--r-sm);padding:5px 11px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);cursor:pointer}
+  .ws .ssn{font-weight:700;color:var(--ink)}
+  .ws .ssn.new{color:var(--muted);font-weight:600;font-style:italic}
+  .ws .dot{width:4px;height:4px;border-radius:50%;background:var(--muted-2)}
+  .ws .loc{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .ws .loc.det{color:var(--amber)}
+  .ws .loc.dirty .d{color:var(--amber)}
+  .ws.detached{border-color:var(--amber-line)}
+
+  /* generic menu bits */
+  .opt{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px;margin-bottom:22px}
+  .opt.rec{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
+  .opt-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .opt-h .num{font-family:var(--mono);font-size:12px;font-weight:700;color:#fff;background:var(--accent);width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center}
+  .opt-h .name{font-size:16px;font-weight:700}
+  .rec-pill{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px}
+  .opt p.note{font-size:12.5px;color:var(--ink-2);margin:0 0 16px;max-width:80ch}
+  .opt-body{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  .opt-mock{flex:0 0 auto}
+  .opt-desc{flex:1 1 280px;min-width:260px}
+  .takeaway{display:grid;gap:8px}
+  .pros,.cons{font-size:12.5px;border-radius:var(--r-sm);padding:9px 11px}
+  .pros{background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .cons{background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .pros b,.cons b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .pros b{color:var(--accent-ink)} .cons b{color:var(--amber)}
+
+  /* popover */
+  .pop{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:0 14px 36px rgba(40,40,40,.17);overflow:hidden}
+  .pop.w1{width:320px}
+  .pop.w2{width:520px}
+  .pop.w3{width:330px}
+  .pop-title{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700;padding:11px 13px 4px}
+  .pop-title b{color:var(--ink-2);font-family:var(--mono);text-transform:none;letter-spacing:0}
+  .statusline{display:flex;align-items:center;gap:8px;margin:4px 13px 8px;padding:8px 10px;border-radius:var(--r-sm);font-size:11.5px;font-weight:600}
+  .statusline.det{background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber)}
+  .statusline.ok{background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent-ink)}
+  .sec{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;padding:7px 13px 4px;display:flex;align-items:center;gap:7px}
+  .sec .badge{margin-left:auto;font-size:9px;font-family:var(--mono);text-transform:none;letter-spacing:0;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:999px;padding:1px 7px}
+  .row{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:12px;cursor:pointer}
+  .row:hover{background:var(--panel-2)}
+  .row.on{background:var(--accent-soft)}
+  .row.dim{opacity:.45;cursor:not-allowed}
+  .row .gic{color:var(--muted);font-size:11px;flex:0 0 auto;width:13px;text-align:center}
+  .row .nm{color:var(--ink)}
+  .row .nm.mono{font-family:var(--mono)}
+  .row .nm.new{font-style:italic;color:var(--muted)}
+  .row .meta{font-family:var(--sans);color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
+  .row .age{color:var(--muted);font-size:10.5px;flex:0 0 auto;margin-left:auto}
+  .row .holds{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .tag{font-size:9.5px;font-family:var(--mono);border-radius:999px;padding:1px 6px;flex:0 0 auto}
+  .row .tag.dirty{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .row .tag.clean{color:var(--accent-ink);background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .row .tag.draft{color:var(--muted);background:var(--panel-2);border:1px solid var(--line)}
+  .row .ck{color:var(--accent);margin-left:auto;flex:0 0 auto}
+  /* git-state dot: amber = uncommitted (dirty); clean = no dot */
+  .gdot{display:inline-block;vertical-align:middle;width:10px;height:10px;border-radius:50%;flex:0 0 auto;background:var(--amber)}
+  .legend{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 18px;margin-bottom:30px}
+  .legend h3{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 10px}
+  .legend .lrow{display:flex;gap:22px;flex-wrap:wrap}
+  .legend .lz{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--ink-2)}
+  .legend .ex{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 11px;color:var(--ink)}
+  .legend .verdict{font-size:11.5px;font-weight:600}
+  .legend .verdict.good{color:var(--accent-ink)} .legend .verdict.bad{color:var(--red)}
+  .row .add{color:var(--accent-ink);font-weight:600}
+  .sep{height:1px;background:var(--line);margin:6px 0}
+  .foot{padding:10px 13px;border-top:1px solid var(--line);background:var(--panel-2)}
+  .btn{display:block;width:100%;text-align:center;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:9px;cursor:pointer}
+  .btn.sec2{background:var(--panel);color:var(--ink-2);border:1px solid var(--line-2);font-weight:600}
+  .footnote{font-size:10.5px;color:var(--muted);text-align:center;margin-top:6px}
+
+  /* two-column */
+  .cols{display:flex}
+  .cols > div{flex:1;min-width:0}
+  .cols .cl{border-right:1px solid var(--line)}
+  /* tabs */
+  .tabs{display:flex;gap:5px;padding:9px 13px 4px}
+  .tabs button{flex:1;font-size:11.5px;font-weight:600;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-2);border-radius:var(--r-sm);padding:6px 8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+  .tabs button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+  .tabs button .mini{font-size:9px;font-family:var(--mono);color:var(--amber)}
+  /* status-led compact switch rows */
+  .switchrow{display:flex;align-items:center;gap:8px;padding:7px 13px;font-size:11.5px}
+  .switchrow .lab{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);font-weight:700;flex:0 0 74px}
+  .pillset{display:flex;gap:5px;flex-wrap:wrap}
+  .pillset .pl{font-size:10.5px;font-family:var(--mono);border:1px solid var(--line-2);background:var(--panel);border-radius:999px;padding:2px 9px;cursor:pointer;color:var(--ink-2)}
+  .pillset .pl.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:700}
+  .pillset .pl.add{color:var(--accent-ink);border-style:dashed}
+  .bigcta{margin:0 13px 10px;display:flex;align-items:center;gap:8px}
+  .bigcta button{flex:1;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Workspace menu — layout options</h1>
+  <p class="sub">One merged control on the header right · carries session + checkout · "detached" when the branch is in no worktree · <span class="mono">local-review</span></p>
+
+  <div class="recap">
+    <b>What this control is:</b> a single chip that replaces the separate Session and Edit-target chips. Its label reads out both axes — the current review (<code>Session #4</code> or a draft <code>Session ‹new›</code>) and where the compare branch lives (<code>primary</code>, or <b>detached</b> when it's checked out nowhere). Opening it lets you <b>switch reviews</b> and <b>switch / set the checkout</b>. Detached ⇒ read-only (agent locked); you can still browse and save comments.
+  </div>
+
+  <div class="legend">
+    <h3>Dirty indicator — amber dot, clean = nothing</h3>
+    <div class="lrow">
+      <div class="lz"><span class="ex">primary <span class="gdot"></span></span> <span class="verdict good">amber = uncommitted</span></div>
+      <div class="lz"><span class="ex">yesterdays-work</span> <span class="verdict good">clean = no dot</span></div>
+    </div>
+  </div>
+
+  <!-- trigger states -->
+  <div class="triglane">
+    <div class="trigwrap">
+      <div class="bar">
+        <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+        <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="ws detached"><span class="ssn new">Session ‹new›</span><span class="dot"></span><span class="loc det">detached</span><span class="car">▾</span></span>
+      </div>
+      <p class="cap"><b>Draft + detached.</b> Brand-new review on a branch that's checked out nowhere.</p>
+    </div>
+    <div class="trigwrap">
+      <div class="bar">
+        <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+        <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="ws detached"><span class="ssn">Session #4</span><span class="dot"></span><span class="loc det">detached</span><span class="car">▾</span></span>
+      </div>
+      <p class="cap"><b>Existing + detached.</b> A saved review whose branch isn't currently in a worktree.</p>
+    </div>
+    <div class="trigwrap">
+      <div class="bar">
+        <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+        <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="ws"><span class="ssn">Session #4</span><span class="dot"></span><span class="loc">primary <span class="gdot" title="uncommitted changes"></span></span><span class="car">▾</span></span>
+      </div>
+      <p class="cap"><b>Existing + checked out.</b> Editable; agent unlocked.</p>
+    </div>
+  </div>
+
+  <!-- ===== M1 stacked ===== -->
+  <div class="opt rec">
+    <div class="opt-h"><span class="num">1</span><span class="name">Stacked — Reviews over Checkout</span><span class="rec-pill">Recommended</span></div>
+    <p class="note">Status line up top, then two labelled lists in one scroll: <b>Reviews</b> on this branch (switch between them; the draft is a row, <code>New review</code> adds one), then <b>Checkout</b> (the worktree the branch lives in; detached ⇒ pick one + a checkout button). Reads top-to-bottom; both axes visible at once.</p>
+    <div class="opt-body">
+      <div class="opt-mock">
+        <div class="pop w1">
+          <div class="pop-title">Workspace · <b>feature/data-layer</b></div>
+          <div class="statusline det">⚠ Detached — read-only until you check it out</div>
+          <div class="sec">reviews</div>
+          <div class="row on"><span class="gic">◔</span><span class="nm new">Session ‹new›</span><span class="tag draft">draft</span><span class="ck">✓</span></div>
+          <div class="row"><span class="gic">▤</span><span class="nm">Session #4</span><span class="meta">Data-layer review</span><span class="age">3d</span></div>
+          <div class="row"><span class="gic">▤</span><span class="nm">Session #2</span><span class="meta">Earlier pass</span><span class="age">9d</span></div>
+          <div class="row"><span class="gic">＋</span><span class="nm add">New review</span></div>
+          <div class="sep"></div>
+          <div class="sec">checkout <span class="badge">detached</span></div>
+          <div class="row dim"><span class="gic">⊟</span><span class="nm mono">primary</span><span class="gdot" title="uncommitted changes"></span><span class="holds">feat/ux-improvements</span></div>
+          <div class="row on"><span class="gic">⊟</span><span class="nm mono">yesterdays-work</span><span class="ck">✓</span></div>
+          <div class="row"><span class="gic">＋</span><span class="nm add">New worktree…</span></div>
+          <div class="foot"><button class="btn">Check out into yesterdays-work</button>
+            <div class="footnote">unlocks generate · chat · send-to-agent</div></div>
+        </div>
+      </div>
+      <div class="opt-desc">
+        <div class="takeaway">
+          <div class="pros"><b>Why this one</b>Both axes always visible — you see the review <em>and</em> the checkout state in one glance. Natural reading order. The checkout button has a stable home at the bottom.</div>
+          <div class="cons"><b>Watch-out</b>Can get tall with many sessions + worktrees. Cap each list (e.g. 4) with a filter/“+N more”.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== M2 two-column ===== -->
+  <div class="opt">
+    <div class="opt-h"><span class="num">2</span><span class="name">Two columns — Reviews | Checkout</span></div>
+    <p class="note">The two axes side by side, making their independence explicit: pick a review on the left, a worktree on the right. The checkout action spans the bottom. Less vertical scroll; wider popover.</p>
+    <div class="opt-body">
+      <div class="opt-mock">
+        <div class="pop w2">
+          <div class="pop-title">Workspace · <b>feature/data-layer</b></div>
+          <div class="cols">
+            <div class="cl">
+              <div class="sec">reviews</div>
+              <div class="row on"><span class="gic">◔</span><span class="nm new">Session ‹new›</span><span class="tag draft">draft</span><span class="ck">✓</span></div>
+              <div class="row"><span class="gic">▤</span><span class="nm">Session #4</span><span class="age">3d</span></div>
+              <div class="row"><span class="gic">▤</span><span class="nm">Session #2</span><span class="age">9d</span></div>
+              <div class="row"><span class="gic">＋</span><span class="nm add">New review</span></div>
+            </div>
+            <div>
+              <div class="sec">checkout <span class="badge">detached</span></div>
+              <div class="row dim"><span class="gic">⊟</span><span class="nm mono">primary</span><span class="gdot" title="uncommitted changes"></span></div>
+              <div class="row on"><span class="gic">⊟</span><span class="nm mono">yesterdays-work</span><span class="ck">✓</span></div>
+              <div class="row"><span class="gic">＋</span><span class="nm add">New worktree…</span></div>
+            </div>
+          </div>
+          <div class="foot"><button class="btn">Check out feature/data-layer into yesterdays-work</button></div>
+        </div>
+      </div>
+      <div class="opt-desc">
+        <div class="takeaway">
+          <div class="pros"><b>Strength</b>Visually states "these are two separate things." No scrolling between axes. Good if both lists are short.</div>
+          <div class="cons"><b>Watch-out</b>Wide (~520px) for a header dropdown. Two scrolling columns get awkward if either list is long. Heavier than the common "just switch review" need.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== M3 tabs ===== -->
+  <div class="opt">
+    <div class="opt-h"><span class="num">3</span><span class="name">Tabs — Reviews ⇄ Checkout</span></div>
+    <p class="note">A segmented toggle; one pane at a time. The inactive tab still flags state (<code>Checkout · detached</code>), so you know to look. Compact width, but you only see one axis until you switch.</p>
+    <div class="opt-body">
+      <div class="opt-mock">
+        <div class="pop w3">
+          <div class="pop-title">Workspace · <b>feature/data-layer</b></div>
+          <div class="tabs">
+            <button>Reviews</button>
+            <button class="on">Checkout <span class="mini">· detached</span></button>
+          </div>
+          <div class="statusline det">⚠ Not in any worktree — read-only</div>
+          <div class="row dim"><span class="gic">⊟</span><span class="nm mono">primary</span><span class="gdot" title="uncommitted changes"></span><span class="holds">feat/ux-improvements</span></div>
+          <div class="row on"><span class="gic">⊟</span><span class="nm mono">yesterdays-work</span><span class="ck">✓</span></div>
+          <div class="row"><span class="gic">＋</span><span class="nm add">New worktree…</span></div>
+          <div class="foot"><button class="btn">Check out into yesterdays-work</button></div>
+        </div>
+      </div>
+      <div class="opt-desc">
+        <div class="takeaway">
+          <div class="pros"><b>Strength</b>Most compact; each pane is simple. Scales to long lists without a tall popover.</div>
+          <div class="cons"><b>Watch-out</b>Hides an axis behind a click — defeats some of the point of merging them. The "which is current" overview is split across two tabs.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== M4 status-led ===== -->
+  <div class="opt">
+    <div class="opt-h"><span class="num">4</span><span class="name">Status-led — one CTA, compact switchers</span></div>
+    <p class="note">Lead with the state and the single most useful action (when detached: <b>Check out to edit</b>, a split button that picks the worktree). Switching review or worktree is secondary, as compact pill rows below. Optimized for the common path: "I'm detached → get me working."</p>
+    <div class="opt-body">
+      <div class="opt-mock">
+        <div class="pop w3">
+          <div class="pop-title">Workspace · <b>feature/data-layer</b></div>
+          <div class="statusline det">⚠ Detached · Session ‹new› — read-only</div>
+          <div class="bigcta"><button>⊟ Check out to edit <span style="opacity:.7;font-weight:600">▾ yesterdays-work</span></button></div>
+          <div class="sep"></div>
+          <div class="switchrow"><span class="lab">Review</span>
+            <div class="pillset"><span class="pl on">‹new›</span><span class="pl">#4</span><span class="pl">#2</span><span class="pl add">+ new</span></div>
+          </div>
+          <div class="switchrow"><span class="lab">Worktree</span>
+            <div class="pillset"><span class="pl">primary</span><span class="pl on">yesterdays</span><span class="pl add">+ new</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="opt-desc">
+        <div class="takeaway">
+          <div class="pros"><b>Strength</b>Fastest for the dominant action. Compact. The state is unmissable at the top.</div>
+          <div class="cons"><b>Watch-out</b>Pill switchers hide per-review metadata (title, age) and per-worktree dirty/holds detail — less informative when you genuinely need to choose between several.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:30px">Which menu layout — <b>1</b> stacked (recommended), <b>2</b> two-column, <b>3</b> tabs, or <b>4</b> status-led? (We can also blend — e.g. stacked lists with the status-led header + CTA.)</p>
+</div>
+</body>
+</html>

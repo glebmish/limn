@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option 3 — compare-primary, developed</title>
+<style>
+  :root{
+    --paper:#f6f5f1; --panel:#ffffff; --panel-2:#faf9f6;
+    --ink:#2c2b28; --ink-2:#55534d; --muted:#8b887f; --muted-2:#a8a59b;
+    --line:#e4e2db; --line-2:#d6d3ca; --line-3:#c7c3b8;
+    --accent:#3a7d54; --accent-ink:#2c6342; --accent-soft:#e7efe9; --accent-line:#bcd6c5;
+    --amber:#a9781d; --amber-soft:#f6ecd4; --amber-line:#e3cf9e;
+    --red:#b14d3c; --red-soft:#f4e7e3; --red-line:#e2c2b8;
+    --r-sm:5px; --r-md:8px; --r-lg:12px;
+    --mono:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:40px 24px 90px}
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 26px}
+  .recap{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 20px;margin-bottom:34px;font-size:13px;color:var(--ink-2)}
+  .recap b{color:var(--ink)}
+  code,.mono{font-family:var(--mono)}
+
+  .section{margin-bottom:46px}
+  .section > h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .section > h2 .q{font-family:var(--mono);font-size:11px;font-weight:700;color:#fff;background:var(--ink);border-radius:6px;padding:2px 8px}
+  .section > .lede{color:var(--ink-2);font-size:13px;margin:0 0 20px;max-width:78ch}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px 22px;margin-bottom:16px}
+  .card.rec{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
+  .card-h{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+  .card-h .name{font-size:14px;font-weight:700}
+  .card-h .tag{font-size:11px;color:var(--muted);font-style:italic}
+  .rec-pill{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px}
+  .alt-pill{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--panel-2);border:1px solid var(--line-2);border-radius:999px;padding:2px 9px}
+  .card p.note{font-size:12.5px;color:var(--ink-2);margin:0 0 14px;max-width:76ch}
+
+  .mock-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 7px}
+  .states{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .state{flex:1 1 280px;min-width:260px}
+  .state .cap{font-size:11px;color:var(--muted);margin:7px 0 0}
+  .state .cap b{color:var(--ink-2)}
+
+  /* faux app chrome */
+  .bar{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);display:flex;align-items:center;gap:9px;padding:8px 12px;min-height:46px}
+  .bar.lg{gap:10px}
+  .ghost{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600}
+  .grow{flex:1 1 auto}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;color:var(--ink-2);font-family:var(--mono)}
+  .chip .ic{color:var(--accent);font-size:12px}
+  .chip.compare{border-color:var(--line-3);font-weight:700;color:var(--ink)}
+  .chip.sm{padding:3px 9px;font-size:11px}
+  .chip.plain{border-radius:var(--r-sm)}
+  .chip .car{color:var(--muted);font-size:9px;margin-left:1px}
+  .arrow{color:var(--muted-2);font-size:13px}
+  .vsbase{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+  .vsbase u{text-underline-offset:2px}
+  .vsbase .car{font-size:9px}
+  .baseleft{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer}
+  .baseleft u{text-underline-offset:2px}
+
+  /* edit-target chip */
+  .etchip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;font-family:var(--mono);border-radius:999px;padding:4px 10px;cursor:pointer}
+  .etchip.clean{color:var(--muted);background:var(--panel);border:1px solid var(--line)}
+  .etchip.dirty{color:var(--ink-2);background:var(--panel);border:1px solid var(--line-2)}
+  .etchip.dirty .d{color:var(--amber)}
+  .etchip.ro{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .etchip .fl{font-size:11px}
+
+  /* popover */
+  .pop{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:0 12px 34px rgba(40,40,40,.16);overflow:hidden;width:330px}
+  .pop.narrow{width:300px}
+  .pop-head{display:flex;align-items:baseline;gap:8px;padding:11px 13px 7px}
+  .pop-head .h{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700}
+  .pop-head .h b{color:var(--ink-2);font-family:var(--mono);letter-spacing:0;text-transform:none;font-weight:700}
+  .pop-head .note{font-size:10.5px;color:var(--muted);font-style:italic;margin-left:auto}
+  .pop-msg{font-size:11.5px;color:var(--ink-2);padding:0 13px 9px;line-height:1.5}
+  .pop-msg.warn{color:var(--amber)}
+  .search{margin:0 13px 9px;display:block;width:calc(100% - 26px);font-family:var(--mono);font-size:11.5px;color:var(--ink);padding:7px 9px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--panel-2)}
+  .search.focus{border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 3px var(--accent-soft)}
+  .sec{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;padding:6px 13px 4px;display:flex;align-items:center;gap:6px}
+  .sec .more{font-size:9.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:1px 6px;font-family:var(--mono);text-transform:none;letter-spacing:0}
+  .sec .chev{margin-left:auto;color:var(--muted)}
+  .item{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:12px;cursor:pointer}
+  .item:hover{background:var(--panel-2)}
+  .item.on{background:var(--accent-soft)}
+  .item.dim{opacity:.45;cursor:not-allowed}
+  .item .gic{color:var(--muted);font-size:11px;flex:0 0 auto}
+  .item .nm{font-family:var(--mono);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .sub{font-family:var(--sans);color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
+  .item .age{color:var(--muted);font-size:10.5px;flex:0 0 auto;margin-left:auto}
+  .item .holds{font-family:var(--mono);font-size:10px;color:var(--muted);margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+  .item .tag{font-size:9.5px;font-family:var(--mono);border-radius:999px;padding:1px 6px;flex:0 0 auto}
+  .item .tag.dirty{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .item .tag.clean{color:var(--accent-ink);background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .item .ck{color:var(--accent);margin-left:auto;flex:0 0 auto}
+  .sha{color:var(--accent-ink);font-family:var(--mono)}
+  .foot{padding:10px 13px;border-top:1px solid var(--line);background:var(--panel-2)}
+  .apply{display:block;width:100%;text-align:center;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:9px;cursor:pointer}
+  .apply.disabled{background:var(--panel-2);color:var(--muted-2);border:1px solid var(--line);cursor:not-allowed}
+  .warnnote{display:flex;gap:7px;align-items:flex-start;font-size:11px;color:var(--amber);background:var(--amber-soft);border-top:1px solid var(--amber-line);padding:8px 13px}
+  .advlink{font-size:11px;color:var(--accent-ink);font-weight:600;padding:9px 13px;border-top:1px solid var(--line);cursor:pointer}
+  .settled{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-2);padding:4px 13px 10px}
+  .settled .ck{color:var(--accent)}
+
+  /* edit CTA mock (sidebar foot) */
+  .ctablock{width:300px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);padding:12px;}
+  .ctabtn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:10px;cursor:pointer}
+  .ctabtn.blocked{background:var(--panel-2);color:var(--muted);border:1px solid var(--line-2)}
+  .cta-target{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:9px;font-family:var(--mono)}
+  .cta-target .lk{margin-left:auto;color:var(--accent-ink);font-weight:600;font-family:var(--sans);cursor:pointer}
+  .cta-target.warn{color:var(--amber)}
+
+  .takeaway{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}
+  .pros,.cons{font-size:12.5px;border-radius:var(--r-sm);padding:9px 11px}
+  .pros{background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .cons{background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .pros b,.cons b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .pros b{color:var(--accent-ink)} .cons b{color:var(--amber)}
+
+  .together{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px 24px}
+  .tg-row{margin-bottom:20px}
+  .tg-row:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Option 3 — compare-primary, developed</h1>
+  <p class="sub">The compare branch is the subject; base is a quiet reference; the worktree is a decoupled "edit target." · <span class="mono">local-review</span></p>
+
+  <div class="recap">
+    <b>The shape:</b> the compare branch is the prominent chip — it's what you're reviewing. The base is a small affordance beside it. Both open the <b>same</b> picker (filter → branches → commits → Apply). The worktree leaves the ref pickers entirely and becomes a separate <b>edit target</b>: it only matters when you apply edits, never when you view. This page answers the two open questions — <b>where the worktree goes</b> and <b>how the base affordance looks</b>.
+  </div>
+
+  <!-- ===================== SECTION A — WORKTREE ===================== -->
+  <div class="section">
+    <h2><span class="q">A</span> Where the worktree goes</h2>
+    <p class="lede">Decoupled from viewing. The worktree only answers one question now — "where do this branch's edits land?" — so it becomes a quiet <b>edit-target</b> control. Because the branch is already fixed (it's the compare ref), the worktree popover loses its branch row entirely: that's what removes the "worktree jumps when I pick a branch" friction. Three placements, recommended first.</p>
+
+    <!-- A1 recommended -->
+    <div class="card rec">
+      <div class="card-h"><span class="rec-pill">Recommended</span><span class="name">A1 · Edit-target chip on the header right</span><span class="tag">grouped with workspace concerns (session / chat), away from the ref chips</span></div>
+      <p class="note">Left of the header = <em>what am I comparing</em> (refs). Right of the header = <em>working context</em> (which worktree edits go to, which session, chat). Always visible but quiet; it goes amber only when it's actually blocking you.</p>
+
+      <p class="mock-label">Header — the chip lives on the right</p>
+      <div class="bar lg">
+        <span class="ghost">← sessions</span>
+        <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+        <span class="vsbase">vs <u>main</u> <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="etchip dirty"><span class="fl">⚑</span> primary <span class="d">· dirty</span></span>
+        <span class="chip plain sm">Session #5 ▾</span>
+        <span class="ghost" style="font-weight:600">💬 Chat</span>
+      </div>
+
+      <p class="mock-label" style="margin-top:22px">Its three states</p>
+      <div class="states">
+        <div class="state">
+          <span class="etchip clean"><span class="fl">⚑</span> primary</span>
+          <p class="cap"><b>Homed, clean.</b> Edits land in <code>primary</code>. Minimal — no color, no fuss.</p>
+        </div>
+        <div class="state">
+          <span class="etchip dirty"><span class="fl">⚑</span> primary <span class="d">· dirty</span></span>
+          <p class="cap"><b>Homed, dirty.</b> Still editable; the dirty word is amber so you know agent edits will mix with uncommitted work.</p>
+        </div>
+        <div class="state">
+          <span class="etchip ro"><span class="fl">⚑</span> read-only <span class="car">▾</span></span>
+          <p class="cap"><b>Homeless.</b> The branch is checked out nowhere → review is read-only. Amber, and the one place you go to fix it.</p>
+        </div>
+      </div>
+
+      <p class="mock-label" style="margin-top:22px">Clicking it — popover by state (note: no branch row)</p>
+      <div class="states">
+        <div class="state">
+          <div class="pop narrow">
+            <div class="pop-head"><span class="h">Edit target · <b>feat/ux-improvements</b></span></div>
+            <div class="settled"><span class="ck">✓</span> Lives in <b style="margin:0 3px;font-family:var(--mono)">primary</b> — edits land here.</div>
+            <div class="advlink">Move to another worktree…</div>
+          </div>
+          <p class="cap"><b>Homed.</b> Nothing to decide; just confirms where edits go, with an advanced escape hatch.</p>
+        </div>
+        <div class="state">
+          <div class="pop narrow">
+            <div class="pop-head"><span class="h">Check out to edit · <b>feat/ux-…</b></span></div>
+            <div class="pop-msg warn">Not checked out anywhere, so the review is read-only. Pick a worktree to check it out into.</div>
+            <div class="item dim"><span class="gic">⊟</span><span class="nm">primary</span><span class="tag dirty">dirty</span><span class="holds">feat/ux-improvements?</span></div>
+            <div class="item dim"><span class="gic">⊟</span><span class="nm">drop-legacy-json</span><span class="tag dirty">dirty</span><span class="holds">worktree-drop-…</span></div>
+            <div class="item on"><span class="gic">⊟</span><span class="nm">yesterdays-work</span><span class="tag clean">clean</span><span class="ck">✓</span></div>
+            <div class="item"><span class="gic">＋</span><span class="nm" style="color:var(--ink-2)">New worktree…</span></div>
+            <div class="foot"><button class="apply">Check out into yesterdays-work</button></div>
+          </div>
+          <p class="cap"><b>Homeless.</b> Pure target picker — clean worktrees selectable, dirty ones disabled, <code>New worktree…</code> always available. One explicit checkout button.</p>
+        </div>
+      </div>
+      <div class="takeaway">
+        <div class="pros"><b>Why this one</b>Stable, predictable home for "where edits go." The read-only state has an obvious, always-present fix. Clean IA: refs left, context right. The popover is the old matrix minus the branch row — strictly simpler.</div>
+      </div>
+    </div>
+
+    <!-- A2 alt -->
+    <div class="card">
+      <div class="card-h"><span class="alt-pill">Alternative</span><span class="name">A2 · Beside the edit action (sidebar foot)</span><span class="tag">co-located with "Send changes to agent"</span></div>
+      <p class="note">Put it where editing actually happens — right under the <em>Send changes to agent</em> button in the left rail. Honest co-location: the target sits with the thing it gates. When homeless, the button itself is blocked and explains why.</p>
+      <div class="states">
+        <div class="state">
+          <p class="mock-label">Editable</p>
+          <div class="ctablock">
+            <button class="ctabtn">✉ Send 3 changes to agent</button>
+            <div class="cta-target">⚑ edits → primary · dirty <span class="lk">change</span></div>
+          </div>
+        </div>
+        <div class="state">
+          <p class="mock-label">Read-only (homeless)</p>
+          <div class="ctablock">
+            <button class="ctabtn blocked">⚑ Check out to apply edits</button>
+            <div class="cta-target warn">feat/ux-improvements isn't checked out anywhere</div>
+          </div>
+        </div>
+      </div>
+      <div class="takeaway">
+        <div class="pros"><b>Strength</b>Invisible while you read; appears exactly where you act. Strongest "decoupled" story.</div>
+        <div class="cons"><b>Watch-out</b>Less glanceable — you don't see the dirty/read-only state until you look at the rail. A header still needs <em>some</em> read-only hint, so this risks two homes.</div>
+      </div>
+    </div>
+
+    <!-- A3 alt -->
+    <div class="card">
+      <div class="card-h"><span class="alt-pill">Alternative</span><span class="name">A3 · Contextual only — hidden until it matters</span><span class="tag">nothing in the header when homed &amp; clean</span></div>
+      <p class="note">The most minimal: show <em>nothing</em> in the common case. The edit-target indicator appears only when (a) the branch is homeless (amber chip surfaces), or (b) you trigger an edit on a homeless branch (inline prompt). Maximum calm; lowest discoverability.</p>
+      <div class="states">
+        <div class="state">
+          <p class="mock-label">Homed &amp; clean → header is empty here</p>
+          <div class="bar"><span class="ghost">← sessions</span><span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span><span class="vsbase">vs <u>main</u> <span class="car">▾</span></span><span class="grow"></span><span class="chip plain sm">Session #5 ▾</span></div>
+        </div>
+        <div class="state">
+          <p class="mock-label">Homeless → the only time it appears</p>
+          <div class="bar"><span class="ghost">← sessions</span><span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span><span class="vsbase">vs <u>main</u> <span class="car">▾</span></span><span class="grow"></span><span class="etchip ro"><span class="fl">⚑</span> read-only <span class="car">▾</span></span><span class="chip plain sm">Session #5 ▾</span></div>
+        </div>
+      </div>
+      <div class="takeaway">
+        <div class="cons"><b>Watch-out</b>You can't tell <em>where</em> edits will land before you act, and can't pre-stage a different worktree. Good if "homed in primary" is true ~always; risky otherwise.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SECTION B — BASE ===================== -->
+  <div class="section">
+    <h2><span class="q">B</span> How the base affordance looks</h2>
+    <p class="lede">Base is secondary, but it must (1) read clearly as <em>the thing you compare against</em>, (2) open the <em>same</em> picker as compare, and (3) not undo your recent base-left ordering work. Two trigger treatments, then the shared popover both sides use.</p>
+
+    <!-- B trigger variants -->
+    <div class="card rec">
+      <div class="card-h"><span class="rec-pill">Recommended</span><span class="name">B1 · Base-left, compare-prominent</span><span class="tag">keeps your "base ← compare" order; prominence comes from styling, not position</span></div>
+      <p class="note">Reconciles compare-primary with the base-left commit you just landed: <code>main</code> stays on the left as quiet text, then the arrow, then the bold compare chip. You read it left-to-right as "main → feature," and the heavy chip still tells you which one is the subject.</p>
+      <p class="mock-label">Closed</p>
+      <div class="bar">
+        <span class="ghost">← sessions</span>
+        <span class="baseleft"><u>main</u></span>
+        <span class="arrow">←</span>
+        <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="etchip clean"><span class="fl">⚑</span> primary</span>
+        <span class="chip plain sm">Session #5 ▾</span>
+      </div>
+      <div class="takeaway">
+        <div class="pros"><b>Why this one</b>Preserves base-left (GitHub) order, so nothing regresses. Compare is still visually dominant. The base text is clickable and underlines on hover.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="alt-pill">Alternative</span><span class="name">B2 · Literal "vs main" trailing</span><span class="tag">the phrasing you named — reads as "reviewing feat/ux-improvements vs main"</span></div>
+      <p class="note">Compare comes first, base trails as <code>vs main</code>. Most natural reading of "I'm looking at this branch vs main," but it does flip the base-left order from your recent commit.</p>
+      <p class="mock-label">Closed</p>
+      <div class="bar">
+        <span class="ghost">← sessions</span>
+        <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+        <span class="vsbase">vs <u>main</u> <span class="car">▾</span></span>
+        <span class="grow"></span>
+        <span class="etchip clean"><span class="fl">⚑</span> primary</span>
+        <span class="chip plain sm">Session #5 ▾</span>
+      </div>
+      <div class="takeaway">
+        <div class="cons"><b>Watch-out</b>Reverses base-left order. If you want the "vs main" wording <em>and</em> base-left, we can write it as <code>main ←</code> on hover/label — but the cleanest base-left rendering is B1.</div>
+      </div>
+    </div>
+
+    <!-- shared popover -->
+    <div class="card">
+      <div class="card-h"><span class="name">The shared picker — identical for base and compare</span><span class="tag">filter → branches → commits → Apply; the only difference is the header label</span></div>
+      <div class="states">
+        <div class="state">
+          <p class="mock-label">Click <code>main</code> → base picker</p>
+          <div class="pop">
+            <div class="pop-head"><span class="h">Compare against</span><span class="note">Apply to load</span></div>
+            <input class="search focus" value="" />
+            <div class="sec"><span>branches</span><span class="more">+3 more</span><span class="chev">⌃</span></div>
+            <div class="item on"><span class="gic">⎇</span><span class="nm">main</span><span class="tag clean" style="color:var(--muted);background:var(--panel-2);border-color:var(--line)">default base</span><span class="ck">✓</span></div>
+            <div class="item"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span></div>
+            <div class="sec">commits on main</div>
+            <div class="item"><span class="sha">7b909d6</span><span class="sub">feat: multiple agents</span><span class="age">2d</span></div>
+            <div class="item"><span class="sha">cb03349</span><span class="sub">docs: README for dashboard</span><span class="age">8d</span></div>
+            <div class="foot"><button class="apply">Update diff</button></div>
+          </div>
+        </div>
+        <div class="state">
+          <p class="mock-label">Click the compare chip → compare picker</p>
+          <div class="pop">
+            <div class="pop-head"><span class="h">Reviewing branch</span><span class="note">Apply to load</span></div>
+            <input class="search focus" value="" />
+            <div class="sec"><span>branches</span><span class="more">+3 more</span><span class="chev">⌃</span></div>
+            <div class="item on"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span><span class="ck">✓</span></div>
+            <div class="item"><span class="gic">⎇</span><span class="nm">feature/data-layer-sessions</span></div>
+            <div class="sec">commits on feat/ux-improvements</div>
+            <div class="item"><span class="sha">a1b2c3</span><span class="sub">fix: base-left ref order</span><span class="age">2d</span></div>
+            <div class="item"><span class="sha">12ed648</span><span class="sub">docs: spec for multi-agent</span><span class="age">2d</span></div>
+            <div class="foot"><button class="apply">Update diff</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="takeaway">
+        <div class="pros"><b>The payoff</b>Same component, same interaction, same commit list on both sides — friction #1 gone. Both staged + button-applied — friction #2 gone. The compare picker no longer carries worktrees, so it never jumps — friction #4 gone.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TOGETHER ===================== -->
+  <div class="section">
+    <h2>Putting it together — the recommended combination</h2>
+    <p class="lede">B1 base-left + compare-prominent, with the A1 edit-target chip on the right. Shown in the three worktree states.</p>
+    <div class="together">
+      <div class="tg-row">
+        <p class="mock-label">Homed &amp; clean — calm</p>
+        <div class="bar lg">
+          <span class="ghost">← sessions</span>
+          <span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="etchip clean"><span class="fl">⚑</span> primary</span>
+          <span class="chip plain sm">Session #5 ▾</span>
+          <span class="ghost" style="font-weight:600">💬 Chat</span>
+        </div>
+      </div>
+      <div class="tg-row">
+        <p class="mock-label">Homed &amp; dirty — editable, flagged</p>
+        <div class="bar lg">
+          <span class="ghost">← sessions</span>
+          <span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="etchip dirty"><span class="fl">⚑</span> primary <span class="d">· dirty</span></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+          <span class="ghost" style="font-weight:600">💬 Chat</span>
+        </div>
+      </div>
+      <div class="tg-row">
+        <p class="mock-label">Homeless — read-only until you check out</p>
+        <div class="bar lg">
+          <span class="ghost">← sessions</span>
+          <span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="etchip ro"><span class="fl">⚑</span> read-only <span class="car">▾</span></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+          <span class="ghost" style="font-weight:600">💬 Chat</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:30px">Open question to settle the worktree home: <b>A1</b> (header-right chip, recommended), <b>A2</b> (beside the edit button), or <b>A3</b> (hidden until homeless). And the base affordance: <b>B1</b> (base-left, recommended) or <b>B2</b> ("vs main"). Pick and I'll write the spec.</p>
+</div>
+</body>
+</html>

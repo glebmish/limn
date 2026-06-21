@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ref picker — 5 design options</title>
+<style>
+  :root{
+    --paper:#f6f5f1; --panel:#ffffff; --panel-2:#faf9f6;
+    --ink:#2c2b28; --ink-2:#55534d; --muted:#8b887f; --muted-2:#a8a59b;
+    --line:#e4e2db; --line-2:#d6d3ca; --line-3:#c7c3b8;
+    --accent:#3a7d54; --accent-ink:#2c6342; --accent-soft:#e7efe9; --accent-line:#bcd6c5;
+    --amber:#a9781d; --amber-soft:#f6ecd4; --amber-line:#e3cf9e;
+    --red:#b14d3c; --red-soft:#f4e7e3; --red-line:#e2c2b8;
+    --r-sm:5px; --r-md:8px; --r-lg:12px;
+    --mono:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:40px 24px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 28px}
+  h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 12px}
+  .intro{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px 22px;margin-bottom:34px}
+  .intro ul{margin:8px 0 0;padding-left:18px}
+  .intro li{margin:4px 0}
+  .intro .goals li{color:var(--accent-ink)}
+  code,.mono{font-family:var(--mono)}
+  .frictions{display:grid;grid-template-columns:1fr 1fr;gap:8px 22px;margin-top:10px}
+  .fr{font-size:12.5px;color:var(--ink-2)}
+  .fr b{color:var(--ink)}
+
+  /* option card */
+  .opt{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:24px 26px;margin-bottom:26px;box-shadow:0 1px 3px rgba(40,40,40,.04)}
+  .opt-head{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+  .opt-num{font-family:var(--mono);font-size:12px;font-weight:700;color:#fff;background:var(--accent);width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .opt-title{font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .opt-tag{font-size:11px;color:var(--muted);font-style:italic}
+  .opt-lede{color:var(--ink-2);font-size:13px;margin:8px 0 18px;max-width:70ch}
+  .opt-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:26px;align-items:start}
+  @media (max-width:880px){.opt-grid{grid-template-columns:1fr}}
+  .mock-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 7px}
+  .mock-label.second{margin-top:18px}
+
+  /* faux app chrome */
+  .bar{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);display:flex;align-items:center;gap:9px;padding:8px 12px;min-height:46px}
+  .ghost{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600}
+  .grow{flex:1 1 auto}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;color:var(--ink-2);font-family:var(--mono)}
+  .chip .ic{color:var(--accent);font-size:12px}
+  .chip.sm{padding:3px 9px;font-size:11px}
+  .chip.plain{border-radius:var(--r-sm)}
+  .chip .car{color:var(--muted);font-size:9px;margin-left:1px}
+  .arrow{color:var(--muted);font-size:13px}
+  .at{color:var(--muted);font-weight:500;font-family:var(--mono);font-size:10.5px}
+  .warn{color:var(--amber)}
+  .pillbtn{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:4px 11px}
+
+  /* popover */
+  .pop{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:0 12px 34px rgba(40,40,40,.16);padding:0;overflow:hidden;width:340px}
+  .pop.wide{width:520px}
+  .pop-head{display:flex;align-items:baseline;gap:8px;padding:11px 13px 7px}
+  .pop-head .h{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700}
+  .pop-head .note{font-size:10.5px;color:var(--muted);font-style:italic}
+  .seg{display:flex;gap:4px;padding:0 13px 9px}
+  .seg button{flex:1;font-size:11.5px;font-weight:600;font-family:var(--mono);border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-2);border-radius:var(--r-sm);padding:6px 8px;text-align:left;cursor:pointer}
+  .seg button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+  .seg button small{display:block;font-family:var(--sans);font-size:9.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+  .search{margin:0 13px 9px;display:block;width:calc(100% - 26px);font-family:var(--mono);font-size:11.5px;color:var(--ink);padding:7px 9px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--panel-2)}
+  .search.focus{border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 3px var(--accent-soft)}
+  .sec{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;padding:6px 13px 4px;display:flex;align-items:center;gap:6px}
+  .sec .more{font-size:9.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:1px 6px;font-family:var(--mono);text-transform:none;letter-spacing:0}
+  .sec .chev{margin-left:auto;color:var(--muted)}
+  .item{display:flex;align-items:center;gap:8px;padding:6px 13px;font-size:12px;cursor:pointer}
+  .item:hover{background:var(--panel-2)}
+  .item.on{background:var(--accent-soft)}
+  .item .gic{color:var(--muted);font-size:11px;flex:0 0 auto}
+  .item .nm{font-family:var(--mono);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .sub{font-family:var(--sans);color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
+  .item .age{color:var(--muted);font-size:10.5px;flex:0 0 auto;margin-left:auto}
+  .item .tag{font-size:9.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:1px 6px;font-family:var(--mono)}
+  .item .tag.dirty{color:var(--amber);background:var(--amber-soft);border-color:var(--amber-line)}
+  .item .tag.clean{color:var(--accent-ink);background:var(--accent-soft);border-color:var(--accent-line)}
+  .item .ck{color:var(--accent);margin-left:auto;flex:0 0 auto}
+  .item.dim{opacity:.5}
+  .sha{color:var(--accent-ink);font-family:var(--mono)}
+  .sep{height:1px;background:var(--line);margin:7px 0}
+  .foot{padding:10px 13px;border-top:1px solid var(--line);background:var(--panel-2)}
+  .apply{display:block;width:100%;text-align:center;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:9px;cursor:pointer}
+  .apply.dim{background:var(--panel);color:var(--muted);border:1px solid var(--line-2)}
+  .apply.disabled{background:var(--panel-2);color:var(--muted-2);border:1px solid var(--line)}
+  .editrow{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);padding:8px 13px;border-top:1px solid var(--line)}
+  .editrow .lk{color:var(--accent-ink);font-weight:600;cursor:pointer;margin-left:auto}
+  .colwrap{display:flex;gap:0}
+  .colwrap > div{flex:1;min-width:0}
+  .colwrap .col-l{border-right:1px solid var(--line)}
+  .colhd{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;padding:10px 13px 6px;display:flex;align-items:center;gap:6px}
+  .colhd .pick{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--accent-ink);text-transform:none;letter-spacing:0}
+  .preview{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--accent-soft);border-top:1px solid var(--accent-line);border-bottom:1px solid var(--accent-line);font-size:11.5px;color:var(--accent-ink);font-weight:600}
+  .preview .pm{font-family:var(--mono);font-size:11px}
+  .preview .add{color:var(--accent)} .preview .del{color:var(--red)}
+  .palette-row{display:flex;align-items:center;gap:9px;padding:7px 13px;font-size:12px;cursor:pointer}
+  .palette-row:hover{background:var(--panel-2)}
+  .palette-row .kind{font-size:9px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px;flex:0 0 auto;width:54px;text-align:center}
+  .palette-row .kind.branch{color:var(--accent-ink);background:var(--accent-soft);border-color:var(--accent-line)}
+  .palette-row .kind.commit{color:var(--ink-2)}
+  .palette-row .side{margin-left:auto;font-size:10px;color:var(--muted);font-family:var(--mono);flex:0 0 auto}
+  kbd{font-family:var(--mono);font-size:10px;background:var(--panel-2);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--ink-2)}
+
+  .desc h4{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 6px}
+  .desc p{margin:0 0 14px;font-size:13px;color:var(--ink-2)}
+  .solves{list-style:none;padding:0;margin:0 0 14px}
+  .solves li{position:relative;padding-left:22px;margin:6px 0;font-size:12.5px;color:var(--ink-2)}
+  .solves li::before{content:"✓";position:absolute;left:0;top:0;color:var(--accent);font-weight:700}
+  .tradeoff{display:grid;grid-template-columns:1fr;gap:8px}
+  .pros,.cons{font-size:12.5px;border-radius:var(--r-sm);padding:9px 11px}
+  .pros{background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .cons{background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .pros b,.cons b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .pros b{color:var(--accent-ink)} .cons b{color:var(--amber)}
+  .rec{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;margin-left:8px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ref picker — 5 design options</h1>
+  <p class="sub">Redesigning base / compare / worktree selection in the review header · <span class="mono">local-review</span></p>
+
+  <div class="intro">
+    <h2>The problem</h2>
+    <div class="frictions">
+      <div class="fr"><b>1 · Inconsistent info.</b> Base shows commits-in-branch; compare shows branches + worktrees. Different mental model per side.</div>
+      <div class="fr"><b>2 · Inconsistent apply.</b> Base applies automatically on click; compare applies on a button. You can't predict which.</div>
+      <div class="fr"><b>3 · Overloaded button.</b> The compare button means different things per state ("Check out", "Already checked out", "New review"…), and extra buttons appear.</div>
+      <div class="fr"><b>4 · Worktree jumps.</b> Picking a branch yanks the worktree selection to wherever that branch is checked out — motion you didn't ask for.</div>
+    </div>
+    <h2 style="margin-top:18px">Design goals</h2>
+    <ul class="goals">
+      <li><b>One consistent picker</b> for base and compare — same info (branches + commits), same interaction.</li>
+      <li><b>Viewing a diff never requires a checkout</b> or a worktree choice. Worktrees only matter when you apply edits.</li>
+      <li><b>Changes apply on a button press</b>, never automatically — the loaded review is expensive to rebuild and you may have a rich session open.</li>
+    </ul>
+  </div>
+
+  <!-- ============ OPTION 1 ============ -->
+  <div class="opt">
+    <div class="opt-head"><span class="opt-num">1</span><span class="opt-title">Unified comparison dropdown</span><span class="rec">Recommended</span></div>
+    <div class="opt-tag">one trigger · both sides in one popover · GitHub-compare feel</div>
+    <p class="opt-lede">A single <code>base ← compare</code> control. Opening it shows two ref slots up top; clicking a slot focuses it, and the <em>same</em> branch + commit list below drives whichever slot is active. One <b>Update diff</b> applies both. Worktree is a quiet footer — present only because edits need a target, never in the way of viewing.</p>
+    <div class="opt-grid">
+      <div>
+        <p class="mock-label">Header (closed)</p>
+        <div class="bar">
+          <span class="ghost">← sessions</span>
+          <span class="chip"><span class="ic">⎇</span> main <span class="arrow">←</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+        </div>
+        <p class="mock-label second">Opened</p>
+        <div class="pop">
+          <div class="pop-head"><span class="h">Comparing</span><span class="note">nothing changes until you apply</span></div>
+          <div class="seg">
+            <button>base<small>main</small></button>
+            <button class="on">compare<small>feat/ux-improvements</small></button>
+          </div>
+          <input class="search focus" value="feat" />
+          <div class="sec"><span>branches</span><span class="more">+3 more</span><span class="chev">⌃</span></div>
+          <div class="item on"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span><span class="ck">✓</span></div>
+          <div class="item"><span class="gic">⎇</span><span class="nm">feature/data-layer-sessions</span></div>
+          <div class="sec">commits on feat/ux-improvements</div>
+          <div class="item"><span class="sha">a1b2c3</span><span class="sub">fix: base-left ref order</span><span class="age">2d</span></div>
+          <div class="item"><span class="sha">7b909d6</span><span class="sub">feat: multiple agents</span><span class="age">2d</span></div>
+          <div class="editrow">⚑ edits land in <b style="color:var(--ink-2);margin:0 3px">primary</b> · dirty <span class="lk">change ▾</span></div>
+          <div class="foot"><button class="apply">Update diff</button></div>
+        </div>
+      </div>
+      <div class="desc">
+        <h4>How it solves the frictions</h4>
+        <ul class="solves">
+          <li>One control, one interaction — both sides use the identical branch+commit list.</li>
+          <li>Single <b>Update diff</b> button; both sides are staged, nothing auto-applies.</li>
+          <li>No state-dependent button labels — the action is always "update the diff".</li>
+          <li>Worktree demoted to a footer line; the diff loads regardless of checkout.</li>
+        </ul>
+        <div class="tradeoff">
+          <div class="pros"><b>Strengths</b>Most compact. Mirrors GitHub's compare. Hardest to misread — there is exactly one way to change refs.</div>
+          <div class="cons"><b>Watch-outs</b>Two-slot + list in one small popover needs careful layout. Switching the focused slot is a learned move.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OPTION 2 ============ -->
+  <div class="opt">
+    <div class="opt-head"><span class="opt-num">2</span><span class="opt-title">Two consistent triggers</span></div>
+    <div class="opt-tag">base + compare stay separate buttons · identical picker behind each</div>
+    <p class="opt-lede">Keep two header buttons so both sides are visible at a glance — but they open the <em>exact same</em> picker (filter, branches, commits, Apply). The asymmetry is gone: both stage and apply on a button, both show commits. Worktree is pulled out entirely into a small standalone status chip that you only touch to edit.</p>
+    <div class="opt-grid">
+      <div>
+        <p class="mock-label">Header (closed)</p>
+        <div class="bar">
+          <span class="ghost">← sessions</span>
+          <span class="chip plain sm">main <span class="car">▾</span></span>
+          <span class="arrow">←</span>
+          <span class="chip"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="chip sm" style="color:var(--muted)">⚑ primary</span>
+          <span class="grow"></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+        </div>
+        <p class="mock-label second">Either button opens the same picker</p>
+        <div class="pop" style="width:300px">
+          <div class="pop-head"><span class="h">Compare ref</span><span class="note">Apply to load</span></div>
+          <input class="search focus" value="" />
+          <div class="sec"><span>branches</span><span class="more">+3 more</span><span class="chev">⌃</span></div>
+          <div class="item on"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span><span class="ck">✓</span></div>
+          <div class="item"><span class="gic">⎇</span><span class="nm">feature/multi-agent-chat</span></div>
+          <div class="item"><span class="gic">⎇</span><span class="nm">main</span></div>
+          <div class="sec">commits on feat/ux-improvements</div>
+          <div class="item"><span class="sha">a1b2c3</span><span class="sub">fix: base-left ref order</span><span class="age">2d</span></div>
+          <div class="item"><span class="sha">d3b991e</span><span class="sub">fix: lr CLI open path</span><span class="age">8d</span></div>
+          <div class="foot"><button class="apply">Apply</button></div>
+        </div>
+      </div>
+      <div class="desc">
+        <h4>How it solves the frictions</h4>
+        <ul class="solves">
+          <li>One shared component → identical info and identical interaction on both sides.</li>
+          <li>Both sides apply on a button; nothing auto-reloads.</li>
+          <li>Worktree leaves the ref picker completely — it becomes a separate concern.</li>
+          <li>Each side stays glanceable in the header without opening anything.</li>
+        </ul>
+        <div class="tradeoff">
+          <div class="pros"><b>Strengths</b>Smallest change from today's two-control layout. Both sides always visible. Clean separation of "view" vs "edit target".</div>
+          <div class="cons"><b>Watch-outs</b>Still two popovers to learn. The separate worktree chip needs an obvious home, or it gets ignored.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OPTION 3 ============ -->
+  <div class="opt">
+    <div class="opt-head"><span class="opt-num">3</span><span class="opt-title">Compare-primary, base secondary</span></div>
+    <div class="opt-tag">compare is the subject · base is a quiet "vs main" reference</div>
+    <p class="opt-lede">Acknowledge the asymmetry instead of fighting it: the compare branch is what you're reviewing, so make it the prominent chip. Base is a small <code>vs main</code> affordance next to it. Both open the same picker, but the visual weight tells you which one is the thing under review.</p>
+    <div class="opt-grid">
+      <div>
+        <p class="mock-label">Header (closed)</p>
+        <div class="bar">
+          <span class="ghost">← sessions</span>
+          <span class="chip"><span class="ic">⎇</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="at" style="cursor:pointer">vs <u>main</u> ▾</span>
+          <span class="grow"></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+        </div>
+        <p class="mock-label second">Compare picker (base picker is identical)</p>
+        <div class="pop" style="width:320px">
+          <div class="pop-head"><span class="h">Reviewing branch</span><span class="note">Apply to load</span></div>
+          <input class="search focus" value="" />
+          <div class="sec"><span>branches</span><span class="more">+3 more</span><span class="chev">⌃</span></div>
+          <div class="item on"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span><span class="ck">✓</span></div>
+          <div class="item"><span class="gic">⎇</span><span class="nm">feature/data-layer-sessions</span></div>
+          <div class="sec">commits on feat/ux-improvements</div>
+          <div class="item"><span class="sha">a1b2c3</span><span class="sub">fix: base-left ref order</span><span class="age">2d</span></div>
+          <div class="item"><span class="sha">12ed648</span><span class="sub">docs: spec for multi-agent</span><span class="age">2d</span></div>
+          <div class="foot"><button class="apply">Review this ref</button></div>
+        </div>
+      </div>
+      <div class="desc">
+        <h4>How it solves the frictions</h4>
+        <ul class="solves">
+          <li>Consistent picker for both sides; same commit list everywhere.</li>
+          <li>Button-applied; no auto-reload on either side.</li>
+          <li>Hierarchy teaches the model: compare = subject, base = reference point.</li>
+          <li>Worktree handled the same as option 2 (separate / on-demand).</li>
+        </ul>
+        <div class="tradeoff">
+          <div class="pros"><b>Strengths</b>Matches how you actually think about a review. Compact. The dominant chip is an obvious target.</div>
+          <div class="cons"><b>Watch-outs</b>Base is easy to overlook when you <em>do</em> want to change it. Two different visual weights can feel less "unified" than option 1.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OPTION 4 ============ -->
+  <div class="opt">
+    <div class="opt-head"><span class="opt-num">4</span><span class="opt-title">Side-by-side comparison panel</span></div>
+    <div class="opt-tag">one wide panel · base column + compare column · live diff-stat preview</div>
+    <p class="opt-lede">Clicking the comparison opens a wider two-column sheet: base on the left, compare on the right, each with its own branch + commit list. A live diff-stat strip previews what you'd get before you commit to it, and one <b>Update diff</b> applies. Best when you actually want to explore commits on each side side-by-side.</p>
+    <div class="opt-grid">
+      <div>
+        <p class="mock-label">Header (closed)</p>
+        <div class="bar">
+          <span class="ghost">← sessions</span>
+          <span class="chip"><span class="ic">⎇</span> main <span class="arrow">←</span> feat/ux-improvements <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+        </div>
+        <p class="mock-label second">Opened (wide)</p>
+        <div class="pop wide">
+          <div class="colwrap">
+            <div class="col-l">
+              <div class="colhd"><span>base</span><span class="pick">main</span></div>
+              <input class="search" value="" style="width:calc(100% - 26px)" />
+              <div class="item on"><span class="gic">⎇</span><span class="nm">main</span><span class="ck">✓</span></div>
+              <div class="item"><span class="sha">7b909d6</span><span class="sub">feat: multiple agents</span><span class="age">2d</span></div>
+              <div class="item"><span class="sha">cb03349</span><span class="sub">docs: README</span><span class="age">8d</span></div>
+            </div>
+            <div>
+              <div class="colhd"><span>compare</span><span class="pick">feat/ux-improvements</span></div>
+              <input class="search focus" value="" style="width:calc(100% - 26px)" />
+              <div class="item on"><span class="gic">⎇</span><span class="nm">feat/ux-improvements</span><span class="ck">✓</span></div>
+              <div class="item"><span class="sha">a1b2c3</span><span class="sub">fix: ref order</span><span class="age">2d</span></div>
+              <div class="item"><span class="sha">12ed648</span><span class="sub">docs: spec</span><span class="age">2d</span></div>
+            </div>
+          </div>
+          <div class="preview"><span class="pm">main … feat/ux-improvements</span><span class="grow" style="flex:1"></span><span class="pm">48 files · <span class="add">+1.2k</span> / <span class="del">−312</span></span></div>
+          <div class="editrow">⚑ edits land in <b style="color:var(--ink-2);margin:0 3px">primary</b> · dirty <span class="lk">change ▾</span></div>
+          <div class="foot"><button class="apply">Update diff</button></div>
+        </div>
+      </div>
+      <div class="desc">
+        <h4>How it solves the frictions</h4>
+        <ul class="solves">
+          <li>Both sides, same layout, side by side — maximally consistent and legible.</li>
+          <li>Live diff-stat preview means you confirm before the expensive reload.</li>
+          <li>One Update button; explicit by construction.</li>
+          <li>Worktree is a single footer row, clearly optional.</li>
+        </ul>
+        <div class="tradeoff">
+          <div class="pros"><b>Strengths</b>Most powerful for exploring ranges. The preview is a genuinely new affordance. Symmetric and teachable.</div>
+          <div class="cons"><b>Watch-outs</b>Largest surface — heavier than a quick branch switch deserves. The live preview needs a cheap diff-stat call on every hover/select.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ OPTION 5 ============ -->
+  <div class="opt">
+    <div class="opt-head"><span class="opt-num">5</span><span class="opt-title">Search-first command palette</span></div>
+    <div class="opt-tag">type to find any ref · unified results · assign to a side</div>
+    <p class="opt-lede">The header shows <code>main ← feat/branch</code> as editable chips; clicking one (or a hotkey) opens a single search box. You type once and it fuzzy-matches across branches, commits (SHA / subject), tags, and <code>HEAD~N</code> — results are unified, each row says what it is and which side it'll fill. Pick, then Apply. Worktrees never appear here at all; they surface once, contextually, the first time you apply an edit.</p>
+    <div class="opt-grid">
+      <div>
+        <p class="mock-label">Header (closed)</p>
+        <div class="bar">
+          <span class="ghost">← sessions</span>
+          <span class="chip plain sm">main</span>
+          <span class="arrow">←</span>
+          <span class="chip"><span class="ic">⎇</span> feat/ux-improvements</span>
+          <span class="at"><kbd>⌘K</kbd></span>
+          <span class="grow"></span>
+          <span class="chip plain sm">Session #5 ▾</span>
+        </div>
+        <p class="mock-label second">Opened</p>
+        <div class="pop" style="width:380px">
+          <input class="search focus" value="data-layer" style="margin-top:11px" />
+          <div class="sec">setting <b style="color:var(--accent-ink);margin-left:4px">compare</b> &nbsp;·&nbsp; <span style="text-transform:none;letter-spacing:0;color:var(--muted)">tab to switch side</span></div>
+          <div class="palette-row"><span class="kind branch">branch</span><span class="nm" style="font-family:var(--mono)">feature/data-layer-sessions</span><span class="side">→ compare</span></div>
+          <div class="palette-row"><span class="kind commit">commit</span><span class="nm" style="font-family:var(--mono)">e0c1d2 <span style="font-family:var(--sans);color:var(--muted)">feat: data layer</span></span><span class="side">→ compare</span></div>
+          <div class="palette-row"><span class="kind commit">commit</span><span class="nm" style="font-family:var(--mono)">3f7a01 <span style="font-family:var(--sans);color:var(--muted)">data-layer migration</span></span><span class="side">→ compare</span></div>
+          <div class="foot"><button class="apply">Apply &nbsp;<span style="opacity:.7;font-weight:600">↵</span></button></div>
+        </div>
+      </div>
+      <div class="desc">
+        <h4>How it solves the frictions</h4>
+        <ul class="solves">
+          <li>One input, one mental model — branches and commits are searched together.</li>
+          <li>Keyboard-first; Apply on <kbd>↵</kbd>, nothing auto-loads.</li>
+          <li>No state-dependent buttons at all — it's just search → assign → apply.</li>
+          <li>Worktrees are fully removed from ref selection; surfaced only at edit time.</li>
+        </ul>
+        <div class="tradeoff">
+          <div class="pros"><b>Strengths</b>Fastest for power users. Scales to many branches/commits without scrolling. The most "decoupled" of all — refs and worktrees never mix.</div>
+          <div class="cons"><b>Watch-outs</b>Least discoverable for browsing ("what branches exist?"). Side-assignment (which slot) needs a clear, learnable rule.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:30px">Pick one (or mix — e.g. option 1's unified popover with option 4's live preview). Once you choose, I'll write the design spec and implement it with screenshot proofs.</p>
+</div>
+</body>
+</html>

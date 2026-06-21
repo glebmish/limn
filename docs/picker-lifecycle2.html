@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lifecycle, refined — comments save before checkout</title>
+<style>
+  :root{
+    --paper:#f6f5f1; --panel:#ffffff; --panel-2:#faf9f6;
+    --ink:#2c2b28; --ink-2:#55534d; --muted:#8b887f; --muted-2:#a8a59b;
+    --line:#e4e2db; --line-2:#d6d3ca; --line-3:#c7c3b8;
+    --accent:#3a7d54; --accent-ink:#2c6342; --accent-soft:#e7efe9; --accent-line:#bcd6c5;
+    --amber:#a9781d; --amber-soft:#f6ecd4; --amber-line:#e3cf9e;
+    --red:#b14d3c; --red-soft:#f4e7e3; --red-line:#e2c2b8;
+    --r-sm:5px; --r-md:8px; --r-lg:12px;
+    --mono:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:40px 24px 90px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 26px}
+  code,.mono{font-family:var(--mono)}
+
+  .got{background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:var(--r-lg);padding:16px 20px;margin-bottom:34px;font-size:13px;color:var(--ink-2)}
+  .got b{color:var(--ink)}
+
+  .section{margin-bottom:44px}
+  .section > h2{font-size:16px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .section > h2 .q{font-family:var(--mono);font-size:11px;font-weight:700;color:#fff;background:var(--ink);border-radius:6px;padding:2px 9px}
+  .section > .lede{color:var(--ink-2);font-size:13px;margin:0 0 20px;max-width:80ch}
+
+  /* two-axis matrix */
+  .matrix{display:grid;grid-template-columns:140px 1fr 1fr;gap:10px;align-items:stretch}
+  .mhead{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--muted-2);display:flex;align-items:flex-end;padding:0 4px 4px}
+  .rlab{font-size:11px;font-weight:700;color:var(--ink-2);display:flex;align-items:center;padding:0 4px}
+  .rlab small{display:block;color:var(--muted);font-weight:600;font-size:10px;margin-top:2px}
+  .cell{border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);padding:13px 14px;min-height:96px}
+  .cell .cn{font-size:13px;font-weight:700;margin-bottom:4px}
+  .cell .cd{font-size:11.5px;color:var(--ink-2)}
+  .cell.preview{background:var(--panel-2)}
+  .cell.draft{border-color:var(--amber-line);background:#fffdf7}
+  .cell.draft .cn{color:var(--amber)}
+  .cell.work{border-color:var(--accent-line);background:var(--accent-soft)}
+  .cell.work .cn{color:var(--accent-ink)}
+  .cell .pill{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:999px;padding:1px 7px;margin-top:8px}
+  .pill.save{color:var(--accent-ink);background:#fff;border:1px solid var(--accent-line)}
+  .pill.new{color:var(--amber);background:#fff;border:1px solid var(--amber-line)}
+  .gates{display:flex;gap:14px;margin-top:16px;flex-wrap:wrap}
+  .gate{flex:1 1 300px;border:1px solid var(--line);border-radius:var(--r-md);padding:11px 13px;font-size:12px;color:var(--ink-2)}
+  .gate b{display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px}
+  .gate.save b{color:var(--accent-ink)} .gate.agent b{color:var(--amber)}
+
+  /* chrome + chips */
+  .bar{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-md);display:flex;align-items:center;gap:9px;padding:8px 12px;min-height:46px}
+  .ghost{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600}
+  .grow{flex:1 1 auto}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:999px;padding:4px 11px;font-size:11.5px;font-weight:600;color:var(--ink-2);font-family:var(--mono)}
+  .chip .ic{color:var(--accent);font-size:12px}
+  .chip.compare{border-color:var(--line-3);font-weight:700;color:var(--ink)}
+  .baseleft{font-family:var(--mono);font-size:11px;color:var(--muted)} .baseleft u{text-underline-offset:2px}
+  .arrow{color:var(--muted-2);font-size:13px}
+  .car{color:var(--muted);font-size:9px}
+  .sess{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;border-radius:var(--r-sm);padding:4px 10px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2)}
+  .sess .lab{color:var(--muted)}
+  .sess.draft{border-style:dashed;color:var(--muted)}
+  .sess.draft .sv{color:var(--accent-ink);font-weight:700}
+  .etchip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;font-family:var(--mono);border-radius:999px;padding:4px 10px}
+  .etchip.clean{color:var(--muted);background:var(--panel);border:1px solid var(--line)}
+  .etchip.ro{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
+
+  /* send CTA */
+  .ctablock{width:300px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);padding:12px}
+  .ctabtn{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;font-size:12.5px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:var(--r-sm);padding:10px;cursor:pointer}
+  .ctabtn.blocked{background:var(--panel-2);color:var(--ink-2);border:1px solid var(--amber-line)}
+  .cta-note{font-size:11px;color:var(--muted);margin-top:9px;line-height:1.45}
+  .cta-note.warn{color:var(--amber)}
+  .cta-note .lk{color:var(--accent-ink);font-weight:600;cursor:pointer}
+
+  .states{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .state{flex:1 1 300px;min-width:280px}
+  .state .cap{font-size:11px;color:var(--muted);margin:8px 0 0}
+  .state .cap b{color:var(--ink-2)}
+  .mock-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);font-weight:700;margin:0 0 7px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px 22px;margin-bottom:16px}
+  .card.rec{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
+  .card-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .card-h .name{font-size:14px;font-weight:700}
+  .card-h .tag{font-size:11px;color:var(--muted);font-style:italic}
+  .rec-pill{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px}
+  .alt-pill{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--panel-2);border:1px solid var(--line-2);border-radius:999px;padding:2px 9px}
+  .card p.note{font-size:12.5px;color:var(--ink-2);margin:0 0 12px;max-width:80ch}
+  .takeaway{display:grid;gap:8px;margin-top:6px}
+  .pros,.cons{font-size:12.5px;border-radius:var(--r-sm);padding:9px 11px}
+  .pros{background:var(--accent-soft);border:1px solid var(--accent-line)}
+  .cons{background:var(--amber-soft);border:1px solid var(--amber-line)}
+  .pros b,.cons b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+  .pros b{color:var(--accent-ink)} .cons b{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lifecycle, refined — comments save before checkout</h1>
+  <p class="sub">Saving and the agent are two separate gates · <span class="mono">local-review</span></p>
+
+  <div class="got">
+    <b>Got it — two independent gates, not one line.</b> Leaving a comment <b>saves</b> it (you never lose annotation work), and that's separate from checkout. Checkout isn't what makes your comments persist — it's only what lets you <b>relay them to the agent</b> (and generate / chat). So you can fully annotate a read-only diff, come back to it later, and only check out when you're ready to put the agent to work.
+  </div>
+
+  <!-- ============ TWO AXES ============ -->
+  <div class="section">
+    <h2><span class="q">1</span> The two axes</h2>
+    <p class="lede">One axis is <b>save</b> (do your comments persist?) — tripped by your first comment. The other is <b>agent</b> (can the AI act?) — tripped by checkout. They're orthogonal, which gives three meaningful states.</p>
+
+    <div class="matrix">
+      <div class="mhead"></div>
+      <div class="mhead">Not checked out · agent locked</div>
+      <div class="mhead">Checked out · agent unlocked</div>
+
+      <div class="rlab">No comments<small>nothing written yet</small></div>
+      <div class="cell preview">
+        <div class="cn">Preview</div>
+        <div class="cd">Pure browse. Refs → diff, read-only. Nothing saved, nothing to lose.</div>
+      </div>
+      <div class="cell work">
+        <div class="cn">Working session</div>
+        <div class="cd">Checked out, ready for the agent. Generate a guided review, chat, then queue comments.</div>
+        <span class="pill new">checkout minted it</span>
+      </div>
+
+      <div class="rlab">Has comments<small>you've annotated</small></div>
+      <div class="cell draft">
+        <div class="cn">Annotated draft</div>
+        <div class="cd">Your comments are <b>saved</b> but <b>not relayed</b> — the agent is still locked. Reopen anytime; pick up where you left off.</div>
+        <span class="pill save">first comment saved it</span>
+      </div>
+      <div class="cell work">
+        <div class="cn">Working session</div>
+        <div class="cd">Comments saved <em>and</em> sendable. Hit "Send to agent" to apply them as edits + commits.</div>
+      </div>
+    </div>
+
+    <div class="gates">
+      <div class="gate save"><b>Save gate — first comment</b>The review persists the instant you comment (or mark viewed). No checkout needed. This is the new <em>Annotated draft</em> cell you called out.</div>
+      <div class="gate agent"><b>Agent gate — checkout</b>Generate, chat, and "Send to agent" stay locked until the compare branch is checked out, because the agent works on real files.</div>
+    </div>
+  </div>
+
+  <!-- ============ STATES IN UI ============ -->
+  <div class="section">
+    <h2><span class="q">2</span> The three states in the UI</h2>
+    <p class="lede">The header chips read out both axes at a glance: the <b>Session</b> chip carries the save state, the <b>Edit-target</b> chip carries the agent state. The "Send to agent" CTA is where the agent gate bites.</p>
+    <div class="states">
+      <div class="state">
+        <p class="mock-label">Preview</p>
+        <div class="bar">
+          <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="sess draft">Draft <span class="car">▾</span></span>
+          <span class="etchip ro">⚑ read-only</span>
+        </div>
+        <p class="cap"><b>Browsing.</b> No comments yet, not checked out. Both chips quiet/empty.</p>
+      </div>
+      <div class="state">
+        <p class="mock-label">Annotated draft</p>
+        <div class="bar">
+          <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="sess draft">Draft · <span class="sv">3 saved</span> <span class="car">▾</span></span>
+          <span class="etchip ro">⚑ read-only</span>
+        </div>
+        <p class="cap"><b>Comments saved, agent locked.</b> The Session chip shows <code>3 saved</code>; the edit-target still reads read-only.</p>
+      </div>
+      <div class="state">
+        <p class="mock-label">Working session</p>
+        <div class="bar">
+          <span class="ghost">←</span><span class="baseleft"><u>main</u></span><span class="arrow">←</span>
+          <span class="chip compare"><span class="ic">⎇</span> feature/data-layer <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <span class="sess"><span class="lab">Session</span> #6 <span class="car">▾</span></span>
+          <span class="etchip clean">⚑ yesterdays-work</span>
+        </div>
+        <p class="cap"><b>Checked out.</b> Agent unlocked; the draft is now a named session.</p>
+      </div>
+    </div>
+
+    <p class="mock-label" style="margin-top:26px">The "Send to agent" CTA — where the agent gate bites</p>
+    <div class="states">
+      <div class="state">
+        <div class="ctablock">
+          <button class="ctabtn blocked">⚑ Check out to send 3 comments</button>
+          <div class="cta-note warn">Saved, not yet relayed. <span class="lk">Check out feature/data-layer ▾</span> to send them to the agent.</div>
+        </div>
+        <p class="cap"><b>Annotated draft.</b> Comments are safe; sending is the only thing gated.</p>
+      </div>
+      <div class="state">
+        <div class="ctablock">
+          <button class="ctabtn">✉ Send 3 changes to agent</button>
+          <div class="cta-note">Inline comments batch up — sent to the agent in one prompt.</div>
+        </div>
+        <p class="cap"><b>Working session.</b> Checked out, so the send goes through.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ THE DECISION ============ -->
+  <div class="section">
+    <h2><span class="q">3</span> The one decision this creates</h2>
+    <p class="lede">If comments save before checkout, the <em>Annotated draft</em> needs a home. Does a comment-only review show up as a <b>session</b> (in the sessions list / hub), or is it a lighter <b>draft</b> that only becomes a listed session once you check out?</p>
+
+    <div class="card rec">
+      <div class="card-h"><span class="rec-pill">Recommended</span><span class="name">D1 · First comment mints a session, badged "Draft"</span><span class="tag">one storage tier; matches the existing transient-review plan</span></div>
+      <p class="note">Commenting materializes a real session row immediately, shown everywhere with a <code>Draft · read-only</code> badge until checkout clears it. The hub lists it (so a half-done annotation isn't invisible), just visibly distinct from checked-out sessions. This is the path the current transient-review spec already lays out — persist on first write — with checkout layered on as the agent gate.</p>
+      <div class="takeaway">
+        <div class="pros"><b>Strengths</b>Comments always live on one thing (a session) — no second storage path, no promotion step. Drafts are findable in the hub. Smallest delta from the planned architecture.</div>
+        <div class="cons"><b>Watch-out</b>The sessions list can collect abandoned comment-only drafts. Mitigate with the Draft badge + easy archive (already supported).</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><span class="alt-pill">Alternative</span><span class="name">D2 · Comments save as a draft; checkout promotes to a session</span><span class="tag">two tiers; keeps the session list "real work only"</span></div>
+      <p class="note">A comment-only review is stored as a draft keyed to the <code>(base, compare)</code> pair but <b>not</b> listed as a session. Checkout promotes it into a full session that appears in the hub. Honors your literal "no session" — the list only ever shows checked-out, agent-capable work.</p>
+      <div class="takeaway">
+        <div class="pros"><b>Strengths</b>Cleanest sessions list — only real, checked-out work appears. Matches the "no session until checkout" phrasing exactly.</div>
+        <div class="cons"><b>Watch-out</b>A second persistence tier + a promotion step (more code, more edge cases: what if two drafts exist for a pair? where do draft comments surface?). Drafts are easy to forget if they're not in the list.</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:30px">So: do you want <b>D1</b> (comment → a Draft-badged session, recommended) or <b>D2</b> (comment → an unlisted draft, promoted on checkout)? Once that's settled I think we have the full model and I can write the spec.</p>
+</div>
+</body>
+</html>
