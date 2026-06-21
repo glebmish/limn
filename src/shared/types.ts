@@ -45,7 +45,6 @@ export type CommentAnchor =
   | { kind: 'title' }
   | { kind: 'acceptance'; index: number }
   | { kind: 'deviation'; index: number }
-  | { kind: 'hunk'; file: string; hunkRange: string }
   // content-addressed: carries the selected text + surrounding context so it needs
   // no positional re-anchoring (reanchorComments leaves it untouched).
   | { kind: 'selection'; scope: SelectionScope; quote: string; prefix: string; suffix: string }

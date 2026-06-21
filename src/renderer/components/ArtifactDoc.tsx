@@ -18,9 +18,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   const [composerLine, setComposerLine] = useState<number | null>(null)
   const [commentDeviation, setCommentDeviation] = useState<number | null>(null)
   const art = loaded?.artifacts.find((a) => a.path === path)
-  const comments = (loaded?.state.comments ?? []).filter(
-    (c) => c.anchor.kind === 'artifact' && c.anchor.path === path
-  )
+  const allComments = loaded?.state.comments ?? []
+  const comments = allComments.filter((c) => c.anchor.kind === 'artifact' && c.anchor.path === path)
   if (!art) return null
 
   const deviations = loaded?.state.annotations?.planMap?.deviations ?? []
@@ -123,7 +122,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
             <div className="pq-h"><I.flag style={{ width: 12, height: 12 }} />Where the implementation diverged</div>
             <ul>
               {deviations.map((d, i) => {
-                const threads = comments.filter((c) => c.anchor.kind === 'deviation' && c.anchor.index === i && c.status !== 'outdated')
+                const threads = allComments.filter((c) => c.anchor.kind === 'deviation' && c.anchor.index === i && c.status !== 'outdated')
                 return (
                   <Fragment key={i}>
                     <li className="dev-li">

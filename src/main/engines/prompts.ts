@@ -23,7 +23,6 @@ function describeAnchor(a: CommentAnchor): string {
     case 'title': return 'the review title'
     case 'acceptance': return `acceptance criterion ${a.index + 1}`
     case 'deviation': return `plan deviation ${a.index + 1}`
-    case 'hunk': return `hunk ${a.hunkRange} in ${a.file}`
     case 'selection': return `selected text “${a.quote}” in ${describeScope(a.scope)}`
   }
 }

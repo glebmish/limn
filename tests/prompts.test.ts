@@ -27,12 +27,10 @@ describe('describeAnchor (via buildChatPrompt)', () => {
     expect(buildChatPrompt('x', { kind: 'plan-step', stepN: 3 })).toContain('plan step 3')
   })
 
-  it('labels the title, acceptance, deviation, and hunk anchors', () => {
+  it('labels the title, acceptance, and deviation anchors', () => {
     expect(buildChatPrompt('x', { kind: 'title' })).toContain('the review title')
     expect(buildChatPrompt('x', { kind: 'acceptance', index: 1 })).toContain('acceptance criterion 2')
     expect(buildChatPrompt('x', { kind: 'deviation', index: 0 })).toContain('plan deviation 1')
-    expect(buildChatPrompt('x', { kind: 'hunk', file: 'src/a.ts', hunkRange: '@@ -1,4 +1,5 @@' }))
-      .toContain('hunk @@ -1,4 +1,5 @@ in src/a.ts')
   })
 
   it('labels a text-selection anchor with its quote and region', () => {

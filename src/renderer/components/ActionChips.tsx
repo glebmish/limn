@@ -37,7 +37,6 @@ function anchorShort(a: CommentAnchor): string {
     case 'title': return 'the title'
     case 'acceptance': return `criterion ${a.index + 1}`
     case 'deviation': return `deviation ${a.index + 1}`
-    case 'hunk': return `${base(a.file)} hunk`
     case 'selection': return `“${a.quote.length > 24 ? a.quote.slice(0, 23) + '…' : a.quote}”`
   }
 }

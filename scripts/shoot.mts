@@ -43,7 +43,9 @@ annotations.planMap = {
     { n: 2, text: 'wire it into the request path', sectionId: firstSection, status: 'changed' },
     { n: 3, text: 'expose the cap as config', sectionId: firstSection, status: 'missing' }
   ],
-  deviations: []
+  deviations: [
+    { text: 'the cap was hard-coded to 100 rather than read from config', sectionId: firstSection }
+  ]
 }
 
 const base = await resolveRefInput(fx.dir, 'main')
@@ -181,6 +183,37 @@ upsertComment(db, session.id, {
 upsertComment(db, session.id, {
   id: 'user-art1', anchor: { kind: 'artifact', path: PLAN, line: 3, lineContent: '1. add a token-bucket limiter' },
   author: 'user', text: 'Note the default bucket size right here so reviewers see the chosen cap.',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+
+// follow-up pass: comment on the title, an acceptance criterion, a deviation, a
+// hunk, and text selections in the narration + the doc (proves "comment on
+// everything" + text-selection commenting).
+const narration = annotations.sections[0]?.what ?? 'the narration'
+const narrationQuote = narration.split(' ').slice(0, 4).join(' ')
+upsertComment(db, session.id, {
+  id: 'user-title1', anchor: { kind: 'title' },
+  author: 'user', text: 'Can the title say “per-client” so it’s unambiguous?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-acc1', anchor: { kind: 'acceptance', index: 1 },
+  author: 'user', text: 'How is “configurable” surfaced — env var or config file?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-dev1', anchor: { kind: 'deviation', index: 0 },
+  author: 'user', text: 'Please pull the cap from config before we merge, as the plan said.',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-sel-sec', anchor: { kind: 'selection', scope: { region: 'section', sectionId: firstSection }, quote: narrationQuote, prefix: '', suffix: '' },
+  author: 'user', text: 'Selected the narration — is this the intended behavior on empty input?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-sel-doc', anchor: { kind: 'selection', scope: { region: 'artifact', path: PLAN }, quote: 'token-bucket limiter', prefix: 'add a ', suffix: '' },
+  author: 'user', text: 'Selected “token-bucket limiter” — consider a sliding window instead.',
   status: 'queued', replies: [], createdAt: 'now', iteration: 1
 })
 

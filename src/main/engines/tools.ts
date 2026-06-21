@@ -99,7 +99,6 @@ function anchorLabel(a: CommentAnchor): string {
     case 'title': return 'the title'
     case 'acceptance': return `acceptance criterion ${a.index + 1}`
     case 'deviation': return `plan deviation ${a.index + 1}`
-    case 'hunk': return `hunk ${a.hunkRange} in ${a.file}`
     case 'selection': return `selected “${a.quote}”`
   }
 }
