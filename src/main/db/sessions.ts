@@ -131,6 +131,17 @@ export function latestSessionForBranch(db: DatabaseSync, repoPath: string, branc
   return row ? rowToMeta(row) : null
 }
 
+/** Compare branch of the repo's most recent live session — what `openRepo` lands
+ *  on when the checked-out branch has no session of its own. Null if none. */
+export function latestCompareBranch(db: DatabaseSync, repoPath: string): string | null {
+  const row = db.prepare(
+    `SELECT s.compare_symbol AS b FROM sessions s JOIN repos r ON r.id = s.repo_id
+     WHERE r.path = ? AND s.compare_kind = 'branch' AND s.archived_at IS NULL
+     ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`
+  ).get(repoPath) as { b: string } | undefined
+  return row?.b ?? null
+}
+
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
   const meta = rowToMeta(row)
   return {

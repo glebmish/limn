@@ -128,7 +128,7 @@ export default function Dashboard() {
                   <span className="r-name">{r.split('/').pop()}</span>
                   <span className="r-parent">{r}</span>
                   <span className="grow" />
-                  <span className="lr-chip">{st ? st.branch : '…'}</span>
+                  <span className="lr-chip" title={dashboard.recentBranches[r] ? 'opens your latest session on this branch' : 'current branch'}>{dashboard.recentBranches[r] ?? (st ? st.branch : '…')}</span>
                   <span className={'lr-dirty ' + (st ? (st.dirty ? 'on' : 'off') : 'off')} />
                 </div>
               )

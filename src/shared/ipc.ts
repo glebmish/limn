@@ -31,7 +31,7 @@ export interface LoadedReview {
 }
 
 export interface PinData { id: number; path: string; tree: PinNode | null; scannedAt: string | null; repoCount: number }
-export interface DashboardData { pins: PinData[]; recents: string[]; notices: string[] }
+export interface DashboardData { pins: PinData[]; recents: string[]; recentBranches: Record<string, string>; notices: string[] }
 export interface RefOptions { branches: string[]; defaultBase: string; commits: CommitInfo[] }  // commits = last 50 reachable from relativeTo
 export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; hub?: boolean; fresh?: boolean; error?: string }
 

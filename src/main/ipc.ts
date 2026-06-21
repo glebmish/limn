@@ -131,7 +131,14 @@ function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData 
     fs.existsSync(r) &&
     !pinPaths.some((pin) => r === pin || r.startsWith(pin + path.sep))
   )
-  return { pins: pinData, recents, notices: bootNotices }
+  // the branch each recent repo will open to — its latest session's branch,
+  // which may differ from the currently checked-out branch
+  const recentBranches: Record<string, string> = {}
+  for (const r of recents) {
+    const b = dao.latestCompareBranch(db, r)
+    if (b) recentBranches[r] = b
+  }
+  return { pins: pinData, recents, recentBranches, notices: bootNotices }
 }
 
 export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {

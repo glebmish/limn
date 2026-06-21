@@ -423,10 +423,14 @@ export const useStore = create<AppStore>((set, get) => {
           window.api.listRepoSessions(repoPath)
         ])
         set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
-        // jump into the latest session reviewing the active (checked-out) branch
-        const match = repoState.current !== 'HEAD'
+        // land on the latest session for the checked-out branch; if that branch has
+        // none, fall back to the repo's most recent session on any branch
+        // (repoSessions is updated_at DESC). Only a repo with no sessions at all
+        // opens a fresh transient review for the current branch.
+        const onBranch = repoState.current !== 'HEAD'
           ? repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
           : undefined
+        const match = onBranch ?? repoSessions[0]
         if (match) { await get().resumeExisting(match.id); return }
         await get().openReview(repoPath)              // none → transient review for the current branch
       } catch (err) {
