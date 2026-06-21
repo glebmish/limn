@@ -236,6 +236,9 @@ export interface SessionListItem {
   agent?: AgentRef
 }
 
+/** A recent-sessions row on the dashboard: a session plus its repo path. */
+export interface RecentSession extends SessionListItem { repo: string }
+
 // ── repo dashboard (pinned directory trees) ───────────────────
 export interface RepoStatus { branch: string; dirty: boolean }
 export interface PinNode {

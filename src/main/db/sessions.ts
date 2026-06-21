@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
-  RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta
+  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
@@ -131,15 +131,16 @@ export function latestSessionForBranch(db: DatabaseSync, repoPath: string, branc
   return row ? rowToMeta(row) : null
 }
 
-/** Compare branch of the repo's most recent live session — what `openRepo` lands
- *  on when the checked-out branch has no session of its own. Null if none. */
-export function latestCompareBranch(db: DatabaseSync, repoPath: string): string | null {
-  const row = db.prepare(
-    `SELECT s.compare_symbol AS b FROM sessions s JOIN repos r ON r.id = s.repo_id
-     WHERE r.path = ? AND s.compare_kind = 'branch' AND s.archived_at IS NULL
-     ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`
-  ).get(repoPath) as { b: string } | undefined
-  return row?.b ?? null
+/** The most recent live sessions across the given repos (newest first), each
+ *  carrying its repo path — the dashboard's session-level "Recent" list. */
+export function recentSessions(db: DatabaseSync, repoPaths: string[], limit: number): RecentSession[] {
+  if (repoPaths.length === 0) return []
+  const ph = repoPaths.map(() => '?').join(',')
+  const rows = db.prepare(`${SESSION_SELECT}
+    WHERE r.path IN (${ph}) AND s.archived_at IS NULL
+    ORDER BY s.updated_at DESC, s.id DESC LIMIT ?`)
+    .all(...repoPaths, limit) as unknown as SessionDbRow[]
+  return rows.map((row) => ({ ...toListItem(db, row), repo: row.repo_path }))
 }
 
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {

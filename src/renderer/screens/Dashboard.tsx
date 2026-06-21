@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
-import { I } from '../kit'
+import { I, ago } from '../kit'
 import { RepoTree, visiblePinRepos, type FlatRow } from '../components/RepoTree'
+import type { RecentSession } from '../../shared/types'
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, openRepo } = useStore()
+  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -12,37 +13,44 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot])
 
-  // the flattened visible repo rows (pins in order, then recents) — pure, so it
-  // is StrictMode-safe; recomputed only when the data or the filter changes
-  const flat: FlatRow[] = useMemo(() => {
+  // pinned-dir repos (flat, absPath-keyed) — drive RepoTree highlight + the first
+  // run of the keyboard nav. Pure, so StrictMode-safe.
+  const flatPins: FlatRow[] = useMemo(() => {
     if (!dashboard) return []
     const out: FlatRow[] = []
     for (const pin of dashboard.pins) {
       if (pin.tree) out.push(...visiblePinRepos(pin.path, pin.tree, filter))
     }
-    const f = filter.toLowerCase()
-    for (const r of dashboard.recents) {
-      const name = r.split('/').pop() ?? r
-      if (!f || name.toLowerCase().includes(f) || r.toLowerCase().includes(f)) {
-        out.push({ absPath: r, node: { name, relPath: '', kind: 'repo', children: [] }, pinPath: r })
-      }
-    }
     return out
   }, [dashboard, filter])
 
-  const indexByPath = useMemo(() => new Map(flat.map((row, i) => [row.absPath, i] as const)), [flat])
-  const indexOf = (absPath: string): number => indexByPath.get(absPath) ?? -1
+  // recent sessions (outside pinned dirs), filtered by repo name / branch / title
+  const recentRows: RecentSession[] = useMemo(() => {
+    if (!dashboard) return []
+    const f = filter.toLowerCase()
+    if (!f) return dashboard.recentSessions
+    return dashboard.recentSessions.filter((s) => {
+      const name = s.repo.split('/').pop() ?? s.repo
+      return name.toLowerCase().includes(f) || s.repo.toLowerCase().includes(f)
+        || s.compareSymbol.toLowerCase().includes(f) || s.baseSymbol.toLowerCase().includes(f)
+        || (s.title?.toLowerCase().includes(f) ?? false)
+    })
+  }, [dashboard, filter])
 
-  // the keydown effect mounts once — read the current list through a ref so
-  // the handler never closes over a stale flat
-  const flatRef = useRef<FlatRow[]>(flat)
-  flatRef.current = flat
+  const indexByPath = useMemo(() => new Map(flatPins.map((row, i) => [row.absPath, i] as const)), [flatPins])
+  const indexOf = (absPath: string): number => indexByPath.get(absPath) ?? -1   // pins only
+
+  // the keydown effect mounts once — read the current lists through a ref so the
+  // handler never closes over stale data. Nav order: pins, then recent sessions.
+  const navRef = useRef<{ pins: FlatRow[]; sessions: RecentSession[] }>({ pins: flatPins, sessions: recentRows })
+  navRef.current = { pins: flatPins, sessions: recentRows }
 
   // keyboard: ↑↓ select (works while the filter is focused), ⏎ open,
   // ⌘P pin, Esc clears, plain typing focuses the filter
   useEffect(() => {
+    const navLen = (): number => navRef.current.pins.length + navRef.current.sessions.length
     const moveSel = (delta: number): void => {
-      const max = Math.max(0, flatRef.current.length - 1)
+      const max = Math.max(0, navLen() - 1)
       const next = Math.min(max, Math.max(0, useStore.getState().sel + delta))
       useStore.setState({ sel: next })
     }
@@ -54,8 +62,10 @@ export default function Dashboard() {
       if (e.key === 'ArrowUp') { e.preventDefault(); moveSel(-1); return }
       if (e.key === 'Enter') {
         e.preventDefault()
-        const row = flatRef.current[useStore.getState().sel]
-        if (row) void useStore.getState().openRepo(row.absPath)
+        const i = useStore.getState().sel
+        const { pins, sessions } = navRef.current
+        if (i < pins.length) { const row = pins[i]; if (row) void useStore.getState().openRepo(row.absPath) }
+        else { const s = sessions[i - pins.length]; if (s) void useStore.getState().resumeExisting(s.id) }
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); void useStore.getState().pinDirectory(); return }
@@ -102,6 +112,9 @@ export default function Dashboard() {
         {dashboard && dashboard.pins.length === 0 && dashboard.recents.length === 0 && (
           <div className="lr-empty">No repositories yet. <b>Pin a directory</b> to scan it for git repos, or open one directly.</div>
         )}
+        {dashboard && dashboard.pins.length === 0 && dashboard.recents.length > 0 && dashboard.recentSessions.length === 0 && (
+          <div className="lr-empty">No reviews yet. Use <b>Open repository…</b> to start one.</div>
+        )}
         {dashboard?.pins.map((pin) => (
           <div key={pin.id} className="lr-pin">
             <div className="lr-pin-head">
@@ -116,19 +129,23 @@ export default function Dashboard() {
               : <div className="dim" style={{ padding: 6 }}>scanning…</div>}
           </div>
         ))}
-        {dashboard && dashboard.recents.some((r) => indexOf(r) >= 0) && (
+        {dashboard && recentRows.length > 0 && (
           <div className="lr-recent-sec">
-            <div className="rs-h">Recent (outside pinned dirs)</div>
-            {dashboard.recents.map((r) => {
-              const idx = indexOf(r)
-              if (idx < 0) return null // filtered out
-              const st = statuses[r]
+            <div className="rs-h">Recent sessions (outside pinned dirs)</div>
+            {recentRows.map((s, i) => {
+              const idx = flatPins.length + i
+              const st = statuses[s.repo]
+              const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'reviewed' : 'not generated'
+              const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
               return (
-                <div key={r} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void openRepo(r)}>
-                  <span className="r-name">{r.split('/').pop()}</span>
-                  <span className="r-parent">{r}</span>
+                <div key={s.id} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void resumeExisting(s.id)} title={s.title ?? `Session #${s.id}`}>
+                  <span className="r-name">{s.repo.split('/').pop()}</span>
+                  <span className="lr-chip">{s.compareSymbol}</span>
+                  <span className="r-parent dim" style={{ flex: '0 0 auto' }}>over {s.baseSymbol}</span>
+                  <span className="r-parent" style={{ minWidth: 0 }}>{s.title ?? `Session #${s.id}`}</span>
                   <span className="grow" />
-                  <span className="lr-chip" title={dashboard.recentBranches[r] ? 'opens your latest session on this branch' : 'current branch'}>{dashboard.recentBranches[r] ?? (st ? st.branch : '…')}</span>
+                  <span className="lr-sess-age">{ago(s.updatedAt)}</span>
+                  <span className={'lr-sess-st ' + statusKind}>{status}</span>
                   <span className={'lr-dirty ' + (st ? (st.dirty ? 'on' : 'off') : 'off')} />
                 </div>
               )
