@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { checkoutGate, effectiveSections, useStore } from '../store'
+import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
 import { I, ficonClass, shortSha } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
@@ -20,7 +20,7 @@ let devBatchRan = false
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, reviewedSections, cur, gen, density, accent, guidance, docPath, openDoc, closeDoc } = store
+  const { loaded, branch, base, reviewedSections, cur, gen, docPath, openDoc, closeDoc } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
@@ -127,11 +127,11 @@ export default function Review() {
   }
 
   const rootStyle = {
-    '--accent': accent[0], '--accent-ink': accent[1], '--accent-soft': accent[2], '--accent-line': accent[3]
+    '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
   } as React.CSSProperties
 
   return (
-    <div className={`wf dz-${density} stage-code`} style={rootStyle}>
+    <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
@@ -328,7 +328,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{guidance !== 'minimal' && annotations ? ` · ${state.engine === 'codex' ? 'Codex' : 'Claude'} guided` : ''}</div>
+                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · ${state.engine === 'codex' ? 'Codex' : 'Claude'} guided` : ''}</div>
                 <h1>{annotations?.title ?? `Changes on ${branch}`}</h1>
               </div>
 

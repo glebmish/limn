@@ -6,10 +6,13 @@ import { defaultAgent } from '../shared/agents'
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
 
+/** Fixed presentation settings — baked in, not user-tweakable (formerly the
+ *  wireframe Tweaks panel). Typed as the unions so call-site comparisons like
+ *  `GUIDANCE === 'narrated'` stay valid. */
+export const DENSITY: Density = 'comfortable'
+export const GUIDANCE: Guidance = 'guided'
 /** Brand accent palette: [base, ink, soft, line] → CSS --accent* vars. */
-export const ACCENTS: string[][] = [
-  ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5']
-]
+export const ACCENT: string[] = ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5']
 
 let opCounter = 0
 export function newOpId(): string {
@@ -123,10 +126,6 @@ interface AppStore {
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
-
-  density: Density
-  guidance: Guidance
-  accent: string[]
 
   gen: GenState
 
@@ -305,17 +304,13 @@ export const useStore = create<AppStore>((set, get) => {
     focusTarget: null,
     docPath: null,
 
-    density: 'comfortable',
-    guidance: 'guided',
-    accent: ACCENTS[0],
-
     gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null },
 
     async boot() {
       try {
-        // one-time migration of localStorage tweaks into the db
+        // one-time migration of localStorage prefs into the db
         if (!localStorage.getItem('lr-prefs-migrated')) {
-          for (const key of ['density', 'guidance', 'accent', 'engine']) {
+          for (const key of ['engine']) {
             const v = localStorage.getItem(`lr-${key}`)
             if (v != null) await window.api.setPref(key, v)
           }
@@ -328,9 +323,6 @@ export const useStore = create<AppStore>((set, get) => {
         // legacy formats: bare 'codex' (seeded from old config.json) or JSON '"codex"' (localStorage migration)
         const legacyEngine: EngineId = prefs['engine'] === 'codex' || prefs['engine'] === '"codex"' ? 'codex' : 'claude'
         set({
-          density: parse<Density>('density', 'comfortable'),
-          guidance: parse<Guidance>('guidance', 'guided'),
-          accent: parse<string[]>('accent', ACCENTS[0]),
           agent: parse<AgentRef>('agent', defaultAgent(legacyEngine))
         })
       } catch { /* prefs unavailable — visual defaults stand */ }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
 import { I, DiagramNodeBox, Flow } from '../kit'
-import { useStore } from '../store'
+import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { DiffView } from './DiffView'
@@ -14,7 +14,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   forceOpen?: boolean
   secRef: (el: HTMLDivElement | null) => void
 }) {
-  const { reviewedSections, collapsed, guidance, markReviewed, openSection, loaded, focusTarget } = useStore()
+  const { reviewedSections, collapsed, markReviewed, openSection, loaded, focusTarget } = useStore()
   const [commenting, setCommenting] = useState(false)
   const comments = loaded?.state.comments ?? []
 
@@ -24,7 +24,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const open = forceOpen || focused || (!done && !collapsed.has(s.id))
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
   const reReview = hasSince
-  const showCtx = guidance !== 'minimal'
+  const showCtx = GUIDANCE !== 'minimal'
   const sectionComments = comments.filter((c) => c.anchor.kind === 'section' && c.anchor.sectionId === s.id)
   const approvedAt = loaded?.state.approvedSha?.slice(0, 7)
 

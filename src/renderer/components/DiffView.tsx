@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { I, Delta, ficonClass } from '../kit'
-import { useStore } from '../store'
+import { GUIDANCE, useStore } from '../store'
 import { addComment, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
@@ -46,7 +46,7 @@ export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, guidance, loaded, gen, focusTarget, openDoc } = useStore()
+  const { viewedAt, toggleViewed, loaded, gen, focusTarget, openDoc } = useStore()
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
   // recognized spec/plan: this same file is reviewable rendered at the top
@@ -166,7 +166,7 @@ export function DiffView({ f, plainNote }: {
         </div>
       )}
 
-      {!isViewed && guidance === 'narrated' && plainNote && (
+      {!isViewed && GUIDANCE === 'narrated' && plainNote && (
         <div className="plain-note">
           <I.spark style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
           <span>{plainNote}</span>
