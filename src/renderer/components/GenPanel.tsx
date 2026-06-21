@@ -21,7 +21,7 @@ export async function startGenerateNow(): Promise<void> {
 
 /** CTA before annotations exist + live progress strip during any agent op. */
 /** Blocked / dirty banner shown in the generate CTA when the compare branch isn't
- *  safely checked out. Checkout itself lives in the worktree menu (header). */
+ *  safely checked out. Checkout itself lives in the Workspace menu (header). */
 function GateNote({ branch, dirty }: { branch: string | null; dirty?: boolean }) {
   if (dirty) {
     return (
@@ -34,7 +34,7 @@ function GateNote({ branch, dirty }: { branch: string | null; dirty?: boolean })
   return (
     <span className="gc-gate block">
       <I.warn style={{ width: 12, height: 12, color: 'var(--amber)' }} />
-      <b>{branch}</b> isn't checked out — use the worktree menu to check it out before the agent runs.
+      <b>{branch}</b> isn't checked out — use the Workspace menu to check it out before the agent runs.
     </span>
   )
 }
