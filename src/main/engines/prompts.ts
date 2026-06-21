@@ -43,7 +43,7 @@ Then produce the structured review:
 3. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
 4. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
 5. If a spec/plan artifact exists: fill "planMap" — acceptance criteria with met true/false/"partial", plan steps mapped to your section ids with status done/changed/missing, and "deviations" where the implementation diverged from the stated plan.
-6. "questions": open questions where you genuinely need the human's decision (empty array if none). Give each a short stable id like "q1".
+6. "questions": gaps in the author's *intent* that the code and specs cannot answer — decisions only the author can make (e.g. "was switching the retry policy from exponential to linear deliberate?"). Do NOT put bugs, inconsistencies, or risks you found here — those belong in the section narration. Empty array if none. Give each a short stable id like "q1".
 
 Be concrete and specific to this codebase. Do not invent files or content. Keep section count between 2 and 8.`
 }
@@ -94,4 +94,22 @@ Handle them using your tools:
 - For comments handled without a code change, call resolve_comment with the verdict and note.
 - Keep the existing code style. Answers to your earlier open questions are decisions, not code comments.
 - Finish with a 2-3 sentence summary of what you did.`
+}
+
+/** Read-only refine turn: the reviewer answered open intent question(s). Fold the
+ *  decisions into the review narration — never edit code. */
+export function buildAnswerPrompt(comments: Comment[], context?: ChatContext): string {
+  const list = comments
+    .map((c, i) => `${i + 1}. [id: ${c.id}] ${describeAnchor(c.anchor)}:\n   "${c.text}"`)
+    .join('\n')
+  const seed = context
+    ? `You are reviewing branch ${context.branch} against ${context.base}.${context.summary ? ` Review summary: ${context.summary}` : ''}\n\n`
+    : ''
+  return `${seed}The reviewer answered ${comments.length} of your open question(s) — each is a decision about the author's intent:
+${list}
+
+Fold these decisions into the guided review:
+- Where a decision changes how a section or the summary should read, update that narration with edit_review (fields: title, summary, section.what, section.desc).
+- Then call resolve_comment for each (verdict "addressed", with a one-line note on what you changed or confirmed).
+This is a read-only review refinement: you may read files and run read-only git commands, but do NOT modify any files and do NOT commit.`
 }

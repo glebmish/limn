@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { I } from '../kit'
-import { addComment } from '../lib/comments'
+import { addComment, sendAnswers } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 
 /** "Agent needs a decision" block — open questions from the review, answerable inline. */
@@ -34,10 +34,10 @@ export function Questions() {
               {answers.map((c) => <InlineThread key={c.id} c={c} locLabel="decision" />)}
               {answering === q.id && (
                 <Composer
-                  placeholder="Your decision — sent to the agent with the next iteration…"
+                  placeholder="Your decision — the agent folds it into the review (no code changes)…"
                   onCancel={() => setAnswering(null)}
                   onSubmit={(text) => {
-                    void addComment({ kind: 'question', questionId: q.id }, text)
+                    void addComment({ kind: 'question', questionId: q.id }, text).then((id) => { if (id) sendAnswers([id]) })
                     setAnswering(null)
                   }}
                 />

@@ -1,9 +1,9 @@
 import { useStore } from '../store'
 import type { Comment, CommentAnchor } from '../../shared/types'
 
-export async function addComment(anchor: CommentAnchor, text: string): Promise<void> {
+export async function addComment(anchor: CommentAnchor, text: string): Promise<string | null> {
   const sessionId = await useStore.getState().materialize()  // first comment mints the session
-  if (sessionId == null) return
+  if (sessionId == null) return null
   const loaded = useStore.getState().loaded
   const comment: Comment = {
     id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -17,6 +17,7 @@ export async function addComment(anchor: CommentAnchor, text: string): Promise<v
   }
   const state = await window.api.upsertComment(sessionId, comment)
   useStore.getState().setComments(state.comments)
+  return comment.id
 }
 
 export async function editComment(comment: Comment, text: string): Promise<void> {
@@ -41,6 +42,15 @@ export function sendComments(ids: string[], steer?: string): void {
   const target = loaded?.state.chats.find((c) => c.kind === 'review') ?? loaded?.state.chats[0]
   if (!target) return
   useStore.getState().sendBatch(target.id, ids, steer)
+}
+
+/** Answer(s) to the agent's open intent questions: a read-only refine turn on the
+ *  review agent that folds the decision into the narration — no code edits, no gate. */
+export function sendAnswers(ids: string[]): void {
+  const { loaded } = useStore.getState()
+  const target = loaded?.state.chats.find((c) => c.kind === 'review') ?? loaded?.state.chats[0]
+  if (!target) return
+  useStore.getState().sendBatch(target.id, ids, undefined, true)
 }
 
 export function queuedComments(): Comment[] {

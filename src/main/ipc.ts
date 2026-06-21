@@ -24,7 +24,7 @@ import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls } from '../shared/toolcalls.js'
 import { clearPending, resolveDecision } from './engines/approvals.js'
-import { buildBatchPrompt } from './engines/prompts.js'
+import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
@@ -392,7 +392,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
 
   // The unified batch turn: hand a thread's agent the queued comments; it edits &
   // commits code, resolves, or replies via its tools. Replaces the old fix flow.
-  handle('sendBatch', async (threadId: number, commentIds: string[], steer, opId: string) => {
+  handle('sendBatch', async (threadId: number, commentIds: string[], steer, opId: string, refine?: boolean) => {
     const sid = dao.chatThreadSessionId(db, threadId)
     const thread = dao.getChatThread(db, threadId)
     if (sid == null || !thread) throw new Error('chat thread not found')
@@ -405,9 +405,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       // side is a branch checked out (in primary OR a linked worktree) and that
       // worktree is clean. Edits + commits run in that worktree. When unmet, the
       // agent runs write-disabled (review/comment-only) rather than failing.
+      // A refine turn (answering an intent question) is always read-only.
       const workdir = await resolveWorkdir(repo, session.pair)
       let writeEnabled = false
-      if (session.pair.compare.kind === 'branch') {
+      if (!refine && session.pair.compare.kind === 'branch') {
         const branch = session.pair.compare.symbol
         writeEnabled = workdir !== repo
           ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
@@ -425,7 +426,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       })
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-        message: buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
+        message: refine
+          ? buildAnswerPrompt(comments, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary })
+          : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
         tools, writeEnabled, opId, executionMode: thread.executionMode
       })
       activeOps.set(opId, run.cancel)
@@ -444,7 +447,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const toolCalls = reduceToolCalls(events)
       dao.addChatMessage(db, threadId, {
         role: 'user', at,
-        text: steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
+        text: refine ? `Answered ${comments.length} open question(s).`
+          : steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
       })
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)

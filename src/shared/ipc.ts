@@ -85,7 +85,7 @@ export interface Api {
   deleteChat(threadId: number): Promise<ChatThread[]>
   /** The unified batch turn: send queued comments to a chat thread's agent, which
    *  handles them with its tools (edit+commit code, resolve, or reply). */
-  sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string): Promise<void>
+  sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>

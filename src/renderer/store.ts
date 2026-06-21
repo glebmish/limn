@@ -201,7 +201,7 @@ interface AppStore {
   cancelOp(): void
   sendChat(text: string, anchor?: CommentAnchor): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
-  sendBatch(threadId: number, commentIds: string[], steer?: string): void
+  sendBatch(threadId: number, commentIds: string[], steer?: string, refine?: boolean): void
   deleteChat(id: number): Promise<void>
 }
 
@@ -764,14 +764,16 @@ export const useStore = create<AppStore>((set, get) => {
       void window.api.sendChat(active.id, body, opId, anchor)
     },
 
-    sendBatch(threadId, commentIds, steer) {
+    sendBatch(threadId, commentIds, steer, refine) {
       if (get().gen.running) return
       const trimmed = steer?.trim() || undefined
       if (commentIds.length === 0 && !trimmed) return
       const opId = newOpId()
-      get().openChat(threadId)            // surface the batch in chat (wf-H)
+      // a refine turn (answering an intent question) stays in the review panel —
+      // the answer thread updates in place; don't yank the chat drawer open
+      if (!refine) get().openChat(threadId)   // surface the batch in chat (wf-H)
       get().startOp('chat', opId, threadId)
-      void window.api.sendBatch(threadId, commentIds, trimmed, opId)
+      void window.api.sendBatch(threadId, commentIds, trimmed, opId, refine)
     },
 
     async deleteChat(id) {
