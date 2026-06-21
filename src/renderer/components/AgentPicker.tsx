@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
-import { I } from '../kit'
+import { I, EngineGlyph } from '../kit'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
@@ -46,7 +46,7 @@ export function AgentPicker({ value, onChange, disabled }: {
   return (
     <div className="ag-wrap" ref={wrap}>
       <button className="ag-trigger" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label="agent">
-        <span className="ag-dot" />
+        <EngineGlyph engine={value.engine} style={{ width: 13, height: 13, flex: '0 0 auto', color: 'var(--accent)' }} />
         {engineLabel(value.engine)}
         <span className="ag-sub">· {sub}</span>
         {open ? <I.chevD className="ag-cv" style={{ width: 12, height: 12 }} /> : <I.chevR className="ag-cv" style={{ width: 12, height: 12 }} />}
@@ -60,7 +60,7 @@ export function AgentPicker({ value, onChange, disabled }: {
             const on = value.engine === c.engine
             return (
               <div key={c.engine} className={'ag-opt' + (on ? ' on' : '')} onClick={() => onChange({ engine: c.engine })}>
-                <span className={'ao-dot ' + (st ? (st.ok ? 'ok' : 'bad') : 'off')} />
+                <EngineGlyph engine={c.engine} style={{ width: 16, height: 16, flex: '0 0 auto' }} />
                 <div className="ao-main">
                   <div className="ao-name">{c.label}</div>
                   <div className={'ao-desc' + (st && !st.ok ? ' ao-auth bad' : '')}>{st?.hint ?? 'checking…'}</div>
@@ -79,7 +79,7 @@ export function AgentPicker({ value, onChange, disabled }: {
             return (
               <div key={m.id ?? 'auto'} className={'ag-opt' + (on ? ' on' : '')}
                 onClick={() => onChange({ engine: value.engine, model: m.id })}>
-                <span className="ao-dot off" style={{ visibility: 'hidden' }} />
+                <span style={{ width: 16, flex: '0 0 auto' }} />
                 <div className="ao-main">
                   <div className="ao-name">{m.label}{m.id === undefined && <span className="ao-fallback">fallback</span>}</div>
                   <div className="ao-desc">{m.desc}</div>

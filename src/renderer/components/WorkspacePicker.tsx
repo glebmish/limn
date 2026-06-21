@@ -42,7 +42,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
     targetPath
   )
 
-  const sessLabel = sessionId == null ? 'Session ‹new›' : (cur?.title ?? `Session #${sessionId}`)
+  const sessLabel = sessionId == null ? 'Session ‹new›' : `Session #${sessionId}`
   const locLabel = !isBranch ? 'commit' : loc.detached ? 'detached' : name(loc.host!)
   const detachedBranch = isBranch && loc.detached
 
@@ -54,7 +54,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       defaultOpen={Boolean(window.lrDev?.openWorkspace)}
       trigger={() => (
         <span className={'ws-trig' + (detachedBranch ? ' detached' : '')}>
-          <span className={'ws-ssn' + (sessionId == null ? ' new' : '')}>{sessLabel}</span>
+          <span className={'ws-ssn' + (sessionId == null ? ' new' : '')} title={cur?.title}>{sessLabel}</span>
           <span className="ws-dot-sep" />
           <span className={'ws-loc' + (detachedBranch ? ' det' : '')}>
             {locLabel}{!loc.detached && loc.dirty && <span className="gdot" title="uncommitted changes" />}
@@ -86,7 +86,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
             <button key={s.id} className={'rsw-item' + (s.id === sessionId ? ' on' : '')}
               onClick={() => { close(); if (s.id !== sessionId) void resumeExisting(s.id) }}>
               <I.doc style={{ width: 12, height: 12 }} />
-              <span className="rsw-item-t" title={s.title ?? `Session #${s.id}`}>{s.title ?? `Session #${s.id}`}</span>
+              <span className="rsw-item-t" title={s.title ?? `Session #${s.id}`}>Session #{s.id}</span>
               <span className="rsw-age">{ago(s.updatedAt)}</span>
               {s.id === sessionId && <I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} />}
             </button>

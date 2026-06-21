@@ -160,6 +160,9 @@ export default function Review() {
   return (
     <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
+        <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
+          <I.list style={{ width: 13, height: 13 }} />Sessions
+        </button>
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref" />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
