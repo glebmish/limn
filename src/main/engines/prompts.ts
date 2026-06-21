@@ -1,5 +1,15 @@
-import type { Comment, CommentAnchor } from '../../shared/types.js'
+import type { CommentAnchor, SelectionScope } from '../../shared/types.js'
+import type { Comment } from '../../shared/types.js'
 import type { ChatContext, ReviewRequest } from './types.js'
+
+function describeScope(s: SelectionScope): string {
+  switch (s.region) {
+    case 'summary': return 'the overall review summary'
+    case 'section': return `review section "${s.sectionId}"`
+    case 'artifact': return s.path
+    case 'file-note': return `the note for ${s.file}`
+  }
+}
 
 function describeAnchor(a: CommentAnchor): string {
   switch (a.kind) {
@@ -10,6 +20,11 @@ function describeAnchor(a: CommentAnchor): string {
     case 'summary': return 'the overall review summary'
     case 'file': return `file ${a.file}`
     case 'question': return `your open question ${a.questionId}`
+    case 'title': return 'the review title'
+    case 'acceptance': return `acceptance criterion ${a.index + 1}`
+    case 'deviation': return `plan deviation ${a.index + 1}`
+    case 'hunk': return `hunk ${a.hunkRange} in ${a.file}`
+    case 'selection': return `selected text “${a.quote}” in ${describeScope(a.scope)}`
   }
 }
 

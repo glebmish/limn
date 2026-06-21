@@ -4,6 +4,7 @@ import { I, DiagramNodeBox, Flow, EngineGlyph } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { Commentable, SelectionThreads } from './Commentable'
 import { DiffView } from './DiffView'
 
 export function SectionView({ s, n, total, files, forceOpen, secRef }: {
@@ -46,7 +47,9 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             {!done && !open && !reReview && <span className="pill pill-unrev">unreviewed</span>}
             {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />reviewed{approvedAt ? ` at ${approvedAt}` : ''}</span>}
           </div>
-          {open && showCtx && s.desc && <div className="d">{s.desc}</div>}
+          {open && showCtx && s.desc && (
+            <Commentable scope={{ region: 'section', sectionId: s.id }}><div className="d">{s.desc}</div></Commentable>
+          )}
           {!open && !done && (
             <div className="gsec-collapsed-sub" title={s.what || undefined}>
               {files.length} file{files.length > 1 ? 's' : ''}{s.what ? ` · ${s.what}` : ''}
@@ -70,6 +73,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
       {open && (
         <div className="gsec-body">
           {showCtx && (s.diagram || s.what) && (
+            <Commentable scope={{ region: 'section', sectionId: s.id }}>
             <div className="gsec-cols" style={!s.diagram ? { gridTemplateColumns: '1fr' } : undefined}>
               {s.diagram && (
                 <div className={(s.insight ? 'gsec-insight' : 'gsec-diagram') + ' gsec-diagram-cmt'}>
@@ -114,6 +118,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
                 </div>
               )}
             </div>
+            </Commentable>
           )}
 
           {diagramComments.map((c) => (
@@ -143,6 +148,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               }}
             />
           )}
+          <SelectionThreads scope={{ region: 'section', sectionId: s.id }} />
 
           {files.map((f) => (
             <DiffView

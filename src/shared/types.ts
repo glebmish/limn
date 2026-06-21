@@ -28,6 +28,12 @@ export interface ReviewAnnotations {
 }
 
 // ── comments ──────────────────────────────────────────────────
+/** A prose region a text selection can be anchored inside. */
+export type SelectionScope =
+  | { region: 'summary' }
+  | { region: 'section'; sectionId: string }
+  | { region: 'artifact'; path: string }
+  | { region: 'file-note'; file: string }
 export type CommentAnchor =
   | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; hunkRange: string; lineContent: string }
   | { kind: 'artifact'; path: string; line: number; lineContent: string }
@@ -36,6 +42,13 @@ export type CommentAnchor =
   | { kind: 'summary' }
   | { kind: 'file'; file: string }
   | { kind: 'question'; questionId: string }
+  | { kind: 'title' }
+  | { kind: 'acceptance'; index: number }
+  | { kind: 'deviation'; index: number }
+  | { kind: 'hunk'; file: string; hunkRange: string }
+  // content-addressed: carries the selected text + surrounding context so it needs
+  // no positional re-anchoring (reanchorComments leaves it untouched).
+  | { kind: 'selection'; scope: SelectionScope; quote: string; prefix: string; suffix: string }
 export interface CommentReply { author: 'user' | 'agent'; text: string; at: string; agentRef?: AgentRef; threadId?: number }
 export interface Comment {
   id: string; anchor: CommentAnchor; author: 'user' | 'agent'; text: string;

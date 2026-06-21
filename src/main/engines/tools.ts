@@ -96,6 +96,11 @@ function anchorLabel(a: CommentAnchor): string {
     case 'artifact': return `${a.path}:${a.line}`
     case 'plan-step': return `plan step ${a.stepN}`
     case 'question': return `question ${a.questionId}`
+    case 'title': return 'the title'
+    case 'acceptance': return `acceptance criterion ${a.index + 1}`
+    case 'deviation': return `plan deviation ${a.index + 1}`
+    case 'hunk': return `hunk ${a.hunkRange} in ${a.file}`
+    case 'selection': return `selected “${a.quote}”`
   }
 }
 

@@ -5,6 +5,7 @@ import { I, Delta, ficonClass, EngineGlyph } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { Commentable, SelectionThreads } from './Commentable'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 
@@ -143,10 +144,13 @@ export function DiffView({ f, plainNote }: {
       )}
 
       {!isViewed && GUIDANCE === 'narrated' && plainNote && (
-        <div className="plain-note">
-          <EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
-          <span>{plainNote}</span>
-        </div>
+        <Commentable scope={{ region: 'file-note', file: f.path }}>
+          <div className="plain-note">
+            <EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
+            <span>{plainNote}</span>
+          </div>
+          <SelectionThreads scope={{ region: 'file-note', file: f.path }} />
+        </Commentable>
       )}
 
       {showBody && (

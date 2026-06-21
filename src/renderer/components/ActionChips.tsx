@@ -34,6 +34,11 @@ function anchorShort(a: CommentAnchor): string {
     case 'artifact': return `${base(a.path)}:${a.line}`
     case 'plan-step': return `plan step ${a.stepN}`
     case 'question': return 'a question'
+    case 'title': return 'the title'
+    case 'acceptance': return `criterion ${a.index + 1}`
+    case 'deviation': return `deviation ${a.index + 1}`
+    case 'hunk': return `${base(a.file)} hunk`
+    case 'selection': return `“${a.quote.length > 24 ? a.quote.slice(0, 23) + '…' : a.quote}”`
   }
 }
 

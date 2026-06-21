@@ -48,7 +48,9 @@ export function reanchorComments(comments: Comment[], skeleton: DiffSkeleton, ar
         c.status = 'outdated'
       }
     }
-    // section/summary/file/question/plan-step anchors are stable — untouched
+    // all non-positional anchors are stable — untouched: section, summary, file,
+    // question, plan-step, title, acceptance, deviation, hunk, and selection
+    // (content-addressed via its own quote)
   }
 }
 

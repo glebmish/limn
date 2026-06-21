@@ -26,4 +26,23 @@ describe('describeAnchor (via buildChatPrompt)', () => {
     expect(buildChatPrompt('x', { kind: 'file', file: 'src/a.ts' })).toContain('file src/a.ts')
     expect(buildChatPrompt('x', { kind: 'plan-step', stepN: 3 })).toContain('plan step 3')
   })
+
+  it('labels the title, acceptance, deviation, and hunk anchors', () => {
+    expect(buildChatPrompt('x', { kind: 'title' })).toContain('the review title')
+    expect(buildChatPrompt('x', { kind: 'acceptance', index: 1 })).toContain('acceptance criterion 2')
+    expect(buildChatPrompt('x', { kind: 'deviation', index: 0 })).toContain('plan deviation 1')
+    expect(buildChatPrompt('x', { kind: 'hunk', file: 'src/a.ts', hunkRange: '@@ -1,4 +1,5 @@' }))
+      .toContain('hunk @@ -1,4 +1,5 @@ in src/a.ts')
+  })
+
+  it('labels a text-selection anchor with its quote and region', () => {
+    expect(buildChatPrompt('x', { kind: 'selection', scope: { region: 'summary' }, quote: 'token bucket', prefix: '', suffix: '' }))
+      .toContain('selected text “token bucket” in the overall review summary')
+    expect(buildChatPrompt('x', { kind: 'selection', scope: { region: 'section', sectionId: 's1' }, quote: 'guard', prefix: '', suffix: '' }))
+      .toContain('selected text “guard” in review section "s1"')
+    expect(buildChatPrompt('x', { kind: 'selection', scope: { region: 'artifact', path: 'docs/p.md' }, quote: 'cap', prefix: '', suffix: '' }))
+      .toContain('selected text “cap” in docs/p.md')
+    expect(buildChatPrompt('x', { kind: 'selection', scope: { region: 'file-note', file: 'src/a.ts' }, quote: 'limiter', prefix: '', suffix: '' }))
+      .toContain('selected text “limiter” in the note for src/a.ts')
+  })
 })

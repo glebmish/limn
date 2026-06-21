@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { I } from '../kit'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
+import { Commentable, SelectionThreads } from './Commentable'
 import { MD_PLUGINS, PreBlock, InlineCode, type HastNode } from '../lib/markdown'
 import { FORMAT_LABELS } from '../../shared/types'
 
@@ -122,9 +123,10 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
             <ul>{deviations.map((d, i) => <li key={i}>{d.text}</li>)}</ul>
           </div>
         )}
-        <div className="pdoc-md">
+        <Commentable scope={{ region: 'artifact', path }} className="pdoc-md">
           <ReactMarkdown remarkPlugins={MD_PLUGINS} components={components}>{art.lines.join('\n')}</ReactMarkdown>
-        </div>
+        </Commentable>
+        <SelectionThreads scope={{ region: 'artifact', path }} />
         {outdated.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div className="pdoc-eyebrow">outdated comments</div>
