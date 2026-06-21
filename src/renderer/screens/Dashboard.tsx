@@ -5,7 +5,7 @@ import { RepoTree, visiblePinRepos, type FlatRow } from '../components/RepoTree'
 import type { RecentSession } from '../../shared/types'
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting } = useStore()
+  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting, enterHub } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -139,9 +139,9 @@ export default function Dashboard() {
               const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
               return (
                 <div key={s.id} className={'lr-row' + (sel === idx ? ' sel' : '')} onClick={() => void resumeExisting(s.id)} title={s.title ?? `Session #${s.id}`}>
-                  <span className="r-name">{s.repo.split('/').pop()}</span>
+                  <button className="r-name r-name-link" title="All sessions for this repo"
+                    onClick={(e) => { e.stopPropagation(); void enterHub(s.repo) }}>{s.repo.split('/').pop()}</button>
                   <span className="lr-chip">{s.compareSymbol}</span>
-                  <span className="r-parent dim" style={{ flex: '0 0 auto' }}>over {s.baseSymbol}</span>
                   <span className="r-parent" style={{ minWidth: 0 }}>{s.title ?? `Session #${s.id}`}</span>
                   <span className="grow" />
                   <span className="lr-sess-age">{ago(s.updatedAt)}</span>

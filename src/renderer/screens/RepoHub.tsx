@@ -98,10 +98,7 @@ export default function RepoHub() {
     const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
     return (
       <div key={s.id} className={'lr-sess' + (grouped ? ' grouped' : '') + (onActive ? ' active' : '') + (s.archived ? ' archived' : '')} onClick={() => void resumeExisting(s.id)}>
-        {grouped ? (
-          // grouped under the compare branch header — only the base differs per row.
-          <span className="lr-sess-base" title="changes shown over this base"><span className="lsb-pre">over</span><span className="lsb-ref">{s.baseSymbol}</span></span>
-        ) : (
+        {!grouped && (
           <span className="lr-sess-refs" title="base ← compare (changes this branch adds over the base)">
             <span className="b-base">{s.baseSymbol}</span>
             <I.arrow style={{ width: 11, height: 11, color: 'var(--muted)', transform: 'rotate(180deg)' }} />
