@@ -30,6 +30,21 @@ const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', b
 for await (const _ of run.events) { /* drain */ }
 const { value, sessionId: engineSession } = await run.result
 const { annotations } = mergeAnnotations(sk, value)
+// the FakeEngine doesn't emit a planMap; synthesize one so the spec acceptance
+// list + plan steps (and the per-step comment affordance) render in the spine.
+const firstSection = annotations.sections[0]?.id ?? 's1'
+annotations.planMap = {
+  acceptance: [
+    { text: 'requests are capped per client', met: true },
+    { text: 'the cap is configurable', met: 'partial' }
+  ],
+  steps: [
+    { n: 1, text: 'add a token-bucket limiter', sectionId: firstSection, status: 'done' },
+    { n: 2, text: 'wire it into the request path', sectionId: firstSection, status: 'changed' },
+    { n: 3, text: 'expose the cap as config', sectionId: firstSection, status: 'missing' }
+  ],
+  deviations: []
+}
 
 const base = await resolveRefInput(fx.dir, 'main')
 const compare = await resolveRefInput(fx.dir, 'feature')
@@ -93,12 +108,21 @@ addChatMessage(db, userChat.id, {
   role: 'agent', at: 'now', text: [
     '## Security pass',
     '',
-    'Nothing high-risk in this diff. Two things worth a glance:',
+    'Nothing high-risk in this diff. Per-file read:',
     '',
-    '- `src/b.ts` returns a constant — no input handling, safe.',
-    '- The deleted `src/old.ts` had no exported secrets.',
+    '| File | Surface | Verdict |',
+    '| --- | --- | --- |',
+    '| `src/a.ts` | guard + constant | ~~risky~~ *safe* |',
+    '| `src/b.ts` | returns a constant | safe |',
+    '| `src/old.ts` | **deleted** | no exported secrets |',
     '',
-    'No injection, path, or auth surfaces changed. Looks clean.'
+    'Steps I checked, in order:',
+    '',
+    '1. input handling on the new guard',
+    '2. path / injection surfaces',
+    '3. auth boundaries',
+    '',
+    'No injection, path, or auth surfaces changed — see the [OWASP cheatsheet](https://cheatsheetseries.owasp.org/) for the checklist I follow. Looks clean.'
   ].join('\n')
 })
 
@@ -129,6 +153,34 @@ upsertComment(db, session.id, {
   id: 'user-q1',
   anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 4, hunkRange: '@@ -1,4 +1,5 @@', lineContent: 'export const K = 10' },
   author: 'user', text: 'Can you add a short test covering K?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+
+// comments on the non-diff agentic-review elements — these exercise the new
+// per-element commenting (summary / section diagram / file / plan step / doc block).
+upsertComment(db, session.id, {
+  id: 'user-summary1', anchor: { kind: 'summary' },
+  author: 'user', text: 'Please call out the rollout + runbook impact in this summary.',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-diagram1', anchor: { kind: 'section', sectionId: firstSection, part: 'diagram' },
+  author: 'user', text: 'The diagram should show the limiter sitting before auth, not after it.',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-file1', anchor: { kind: 'file', file: 'src/a.ts' },
+  author: 'user', text: 'Whole-file note: can we split the limiter from the request-path wiring?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-step1', anchor: { kind: 'plan-step', stepN: 1 },
+  author: 'user', text: 'Should step 1 use a sliding window instead of a token bucket?',
+  status: 'queued', replies: [], createdAt: 'now', iteration: 1
+})
+upsertComment(db, session.id, {
+  id: 'user-art1', anchor: { kind: 'artifact', path: PLAN, line: 3, lineContent: '1. add a token-bucket limiter' },
+  author: 'user', text: 'Note the default bucket size right here so reviewers see the chosen cap.',
   status: 'queued', replies: [], createdAt: 'now', iteration: 1
 })
 

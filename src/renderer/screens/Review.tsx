@@ -20,6 +20,7 @@ let devFlowRan = false
 let devFocusRan = false
 let devBatchRan = false
 let devGenRan = false
+let devDocRan = false
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
 function fakeGenState(): { running: true; opId: string; kind: 'review'; threadId: null; log: EngineEvent[]; error: null; startedAt: number } {
@@ -46,7 +47,7 @@ export default function Review() {
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
-  const [peek, setPeek] = useState<string | null>(null)
+  const [peek, setPeek] = useState<string | null>(window.lrDev?.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const chatOpen = store.chatOpen
@@ -89,6 +90,11 @@ export default function Review() {
     if (window.lrDev?.fakeGen && !devGenRan && loaded) {
       devGenRan = true
       useStore.setState({ gen: fakeGenState() })
+    }
+    // dev-only: LR_OPEN_DOC opens a spec/plan artifact doc once after mount
+    if (window.lrDev?.openDoc && !devDocRan && loaded) {
+      devDocRan = true
+      openDoc(window.lrDev.openDoc)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])

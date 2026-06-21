@@ -37,6 +37,10 @@ declare global {
       /** inject a synthetic running review op (tool calls + status) so the live
        *  generation panel can be captured without a real agent run */
       fakeGen?: boolean
+      /** dev-only: open a spec/plan artifact doc by path once the review mounts */
+      openDoc?: string | null
+      /** dev-only: expand a left-spine artifact peek panel by path for a static capture */
+      openPeek?: string | null
     }
   }
 }
