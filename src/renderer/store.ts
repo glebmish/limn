@@ -6,11 +6,9 @@ import { defaultAgent } from '../shared/agents'
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
 
+/** Brand accent palette: [base, ink, soft, line] → CSS --accent* vars. */
 export const ACCENTS: string[][] = [
-  ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5'],
-  ['#46505d', '#33363d', '#ecedf0', '#d2d6dc'],
-  ['#3a6ea5', '#2b5680', '#e6eef6', '#bdd2e6'],
-  ['#8a5a3c', '#6c4327', '#f3e9e0', '#e0cbb8']
+  ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5']
 ]
 
 let opCounter = 0
@@ -185,7 +183,6 @@ interface AppStore {
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
-  setTweak(key: 'density' | 'guidance' | 'accent', value: unknown): void
   startOp(kind: 'review' | 'chat' | 'fix', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
   finishOp(error?: string): void
@@ -674,11 +671,6 @@ export const useStore = create<AppStore>((set, get) => {
     },
     setFocusTarget(t) {
       set({ focusTarget: t })
-    },
-
-    setTweak(key, value) {
-      void window.api.setPref(key, JSON.stringify(value))
-      set({ [key]: value } as Partial<AppStore>)
     },
 
     startOp(kind, opId, threadId) {

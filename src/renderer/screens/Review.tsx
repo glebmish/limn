@@ -7,7 +7,6 @@ import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
-import { Tweaks } from '../components/Tweaks'
 import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { WorkspacePicker } from '../components/WorkspacePicker'
@@ -389,8 +388,6 @@ export default function Review() {
 
         <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
-
-      <Tweaks />
     </div>
   )
 }
