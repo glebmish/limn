@@ -5,24 +5,12 @@ import { agentLabel } from '../../shared/agents'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
-import type { AgentRef, ToolCall } from '../../shared/types'
+import type { AgentRef } from '../../shared/types'
 
 /** mm:ss for the live elapsed counter. */
 function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-/** path-like tokens with a slash + extension, so git refs (`main...x`) and flags
- *  (`--files`) don't get miscounted as files. */
-const FILE_RE = /[\w.@~-]*\/[\w./@~-]*\.\w{1,6}/g
-
-/** Files a tool call touched. Structured read/edit tools (Claude) carry a clean
- *  path in `arg`; bash-shelling engines (Codex run everything through bash) need
- *  the paths pulled out of the command string. */
-function filesInCall(c: ToolCall): string[] {
-  if (c.verb === 'read' || c.verb === 'edit') return c.arg ? [c.arg] : []
-  return c.arg?.match(FILE_RE) ?? []
 }
 
 export function startGenerate(sessionId: number, agent: AgentRef, opId: string): void {
@@ -86,7 +74,6 @@ export function GenPanel() {
     const verb = gen.kind === 'fix' ? 'is applying your comments' : gen.kind === 'review' ? 'is exploring the branch' : 'is thinking'
     const label = `${engineName} ${verb}…`
     const calls = reduceToolCalls(gen.log)
-    const filesExplored = new Set(calls.flatMap(filesInCall)).size
     return (
       <div className="gen-strip">
         <div className="gs-head">
@@ -100,7 +87,6 @@ export function GenPanel() {
           </button>
         </div>
         <div className="counts">
-          <span><b>{filesExplored}</b> file{filesExplored === 1 ? '' : 's'} explored</span>
           <span><b>{calls.length}</b> tool call{calls.length === 1 ? '' : 's'}</span>
           <span><b>{fmtElapsed(gen.startedAt ? now - gen.startedAt : 0)}</b> elapsed</span>
         </div>
