@@ -252,7 +252,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
-      await pump
+      const genEvents = await pump
       const { annotations, warnings } = mergeAnnotations(skeleton, value)
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
 
@@ -276,6 +276,21 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       })
       dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
       dao.reconcileChats(db, sessionId) // create default chats / resync review chat to the new engine session
+      // persist the generation itself as the review thread's first turn, so the chat
+      // is the review agent's full history (generation → later comment/decision turns),
+      // not just the post-generation interaction. The thread is the same engine session
+      // that produced the review.
+      const reviewThread = dao.listChatThreads(db, sessionId).find((t) => t.kind === 'review')
+      if (reviewThread) {
+        const at = new Date().toISOString()
+        const genTools = reduceToolCalls(genEvents)
+        dao.addChatMessage(db, reviewThread.id, { role: 'user', at, text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.` })
+        dao.addChatMessage(db, reviewThread.id, {
+          role: 'agent', at,
+          text: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
+          ...(genTools.length ? { tools: genTools } : {})
+        })
+      }
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
       notifyIfUnfocused('Guided review ready',
         `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
