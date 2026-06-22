@@ -344,6 +344,9 @@
 /* ---- agent-authored comments: identity chip + replies ---- */
 .dthread .box.agent { border-color: var(--accent-line); }
 .lr-agentid { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; padding: 0; font: inherit; color: var(--accent-ink); }
+/* "goes straight to this agent" destination chip on send-now composers */
+.lr-dest { display: inline-flex; align-items: center; gap: 5px; font: 600 10.5px var(--sans); color: var(--accent-ink);
+  background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; padding: 1px 8px 1px 6px; }
 .lr-agentid b { font-weight: 700; }
 .lr-agentid:hover { color: var(--accent); }
 .dthread .dreply { border-top: 1px solid var(--line); padding: 7px 12px 9px; background: var(--accent-soft); }

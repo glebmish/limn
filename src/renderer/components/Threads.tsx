@@ -25,6 +25,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   // engine a queued comment will be sent to = the review agent
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
   const reviewChat = useStore((s) => s.loaded?.state.chats.find((t) => t.kind === 'review') ?? s.loaded?.state.chats[0])
+  const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
 
   return (
@@ -41,12 +42,17 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               </button>
             </>
           )}
-          {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (
-            <button className="lr-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
-              <EngineGlyph engine={c.agentRef?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
-              {c.status === 'sent' ? 'with agent…' : 'agent chat'}<I.chevR style={{ width: 10, height: 10 }} />
-            </button>
-          )}
+          {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (() => {
+            const chipAgent = c.agentRef ?? reviewAgent
+            return (
+              <button className="lr-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
+                <EngineGlyph engine={chipAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
+                {chipAgent ? agentLabel(chipAgent) : 'agent'}
+                {c.status === 'sent' && <span className="dim" style={{ fontWeight: 400 }}> · with agent…</span>}
+                <I.chevR style={{ width: 10, height: 10 }} />
+              </button>
+            )
+          })()}
           {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
           {c.status === 'resolved' && c.resolution && (
             <span
@@ -116,13 +122,23 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
   sendNow?: boolean
 }) {
   const [text, setText] = useState('')
-  const headLabel = sendNow ? 'your decision' : 'new comment'
-  const submitLabel = sendNow ? 'Send to agent' : 'Add comment'
+  // send-now composers name the agent they go straight to (no queue)
+  const agent = useStore((s) => s.loaded?.state.agent)
+  const submitLabel = sendNow ? 'Send now' : 'Add comment'
   const hint = sendNow ? 'sent to the agent immediately — resolves this question' : 'queues for the agent — nothing is sent yet'
   return (
     <div className="dthread">
       <div className="box">
-        <div className="bh"><Ava>me</Ava><b>You</b><span className="dim">{headLabel}</span></div>
+        <div className="bh">
+          <Ava>me</Ava><b>You</b>
+          {sendNow && agent && (
+            <>
+              <span className="dim" style={{ margin: '0 1px' }}>→</span>
+              <span className="lr-dest" title="answering goes straight to this agent"><EngineGlyph engine={agent.engine} style={{ width: 11, height: 11 }} />{agentLabel(agent)}</span>
+            </>
+          )}
+          <span className="dim" style={sendNow ? { marginLeft: 'auto' } : undefined}>{sendNow ? 'your decision' : 'new comment'}</span>
+        </div>
         <div style={{ padding: '10px 12px' }}>
           <textarea
             className="rg-steer"
