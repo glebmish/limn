@@ -27,10 +27,10 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
 
   const pick = (id: number): void => { onSwitch(id); setOpen(false) }
 
-  // reviews pinned to the top (current first, then older history), user chats
-  // below — grouped under headers so the two are visually distinct. Labels are
-  // computed from the full `chats` (id order), so display order doesn't affect them.
-  const reviews = chats.filter((c) => c.kind === 'review').reverse()
+  // reviews pinned to the top in chronological order (oldest up, current last),
+  // user chats below — grouped under headers so the two are visually distinct.
+  // Labels come from the full `chats` (id order), so display order can't skew them.
+  const reviews = chats.filter((c) => c.kind === 'review')
   const userChats = chats.filter((c) => c.kind === 'user')
 
   const Opt = (c: ChatThread) => (
