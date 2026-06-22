@@ -272,7 +272,9 @@
 .rr-summary .rr-tx b{color:var(--amber)}
 .rr-summary .rr-lead{font-weight:700;color:var(--amber)}
 .seg-sm button{padding:3px 9px;font-size:10.5px}
-.wf.dz-compact .rr-summary{margin:10px 22px 2px}
+/* keep ≥30px left clearance so the gutter "+" (offset −26..−28px) clears
+   .gmain{overflow-x:hidden} in compact density too */
+.wf.dz-compact .rr-summary{margin:10px 30px 2px}
 .wf.dz-spacious .rr-summary{margin:18px 44px 4px}
 
 /* ---- per-file "Viewed" tick ---- */
@@ -301,10 +303,10 @@
 
 /* ---- density modes ---- */
 .wf.dz-compact{font-size:12px}
-.wf.dz-compact .page-head{padding:14px 22px 2px}
+.wf.dz-compact .page-head{padding:14px 30px 2px}
 .wf.dz-compact .gsec-head{padding:12px 22px}
 .wf.dz-compact .gsec.collapsed .gsec-head{padding:10px 22px}
-.wf.dz-compact .gsec-body{padding:0 22px 16px}
+.wf.dz-compact .gsec-body{padding:0 30px 16px}
 .wf.dz-compact .gsec-cols{gap:22px;margin-bottom:10px}
 .wf.dz-compact .gsec-diagram{padding:11px}
 .wf.dz-compact .gfile{margin-bottom:10px}

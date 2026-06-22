@@ -59,10 +59,10 @@ export function CmtPlus({ onClick, extra, stop }: {
     <button
       className={'spec-plus' + (extra ? ' ' + extra : '')}
       tabIndex={-1}
+      title="Comment"
       onClick={(e) => { if (stop) e.stopPropagation(); onClick() }}
     >
       <I.plus style={{ width: 12, height: 12 }} />
-      <span className="plus-tip">comment</span>
     </button>
   )
 }

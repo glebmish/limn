@@ -46,9 +46,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     )
     return (
       <Tag className={'cmt' + (className ? ` ${className}` : '')}>
-        <button className="spec-plus" tabIndex={-1} onClick={() => setComposerLine(line)}>
+        <button className="spec-plus" tabIndex={-1} title="Comment" onClick={() => setComposerLine(line)}>
           <I.plus style={{ width: 12, height: 12 }} />
-          <span className="plus-tip">comment</span>
         </button>
         {children}
         {threads.map((c) => <InlineThread key={c.id} c={c} locLabel={`on ${art.role} line ${line}`} />)}
