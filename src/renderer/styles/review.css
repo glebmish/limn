@@ -359,47 +359,47 @@
 
 /* ---- comment affordances on review elements ---- */
 /* One affordance everywhere: the green "+" (.spec-plus, styled in document.css)
-   revealed on hover in the element's LEFT gutter — never a bubble on the right.
-   Each context below makes its host position:relative, offsets the + into the
-   host's left gutter, and reveals it on hover. The lone exception is the
-   text-selection "comment" pill (.sel-cmt-pill), which floats over the selection. */
+   revealed on hover in the host's LEFT gutter — never a bubble on the right. The +
+   sits OUTSIDE the host box, so each host adds a transparent ::after "hover-bridge"
+   spanning the gutter: without it the pointer drops :hover while crossing from the
+   content out to the +, and the + vanishes before it can be clicked. Hosts whose +
+   is already inside their box (file header, section header) skip the bridge. The
+   lone exception is the selection "comment" pill (.sel-cmt-pill). */
 .rr-summary-threads { margin: 2px 30px 6px; }
 .wf.dz-compact .rr-summary-threads { margin: 2px 22px 6px; }
 .wf.dz-spacious .rr-summary-threads { margin: 4px 44px 8px; }
 .gfile-filecmt { padding: 8px 14px 2px; }
 .title-threads { margin-top: 10px; max-width: 660px; }
 
-/* review title */
-.page-h1-cmt { position: relative; }
+/* hosts whose + lives in an outside-the-box gutter — each gets a hover-bridge */
+.page-h1-cmt, .rr-summary-cmt, .spec-req, .plan-peek-step,
+.gsec-diagram-cmt, .gsec-what-cmt { position: relative; }
+.page-h1-cmt::after, .rr-summary-cmt::after, .spec-req::after, .plan-peek-step::after,
+.gsec-diagram-cmt::after, .gsec-what-cmt::after {
+  content: ""; position: absolute; left: -30px; top: 0; width: 30px; height: 100%; }
+/* narration's gutter is the inter-column gap (24px) — keep the bridge inside it */
+.gsec-what-cmt::after { left: -24px; width: 24px; }
+
 .page-h1-cmt .h1-plus { left: -28px; top: 7px; }
-.page-h1-cmt:hover .h1-plus { display: flex; }
-
-/* overall summary banner */
-.rr-summary-cmt { position: relative; }
 .rr-summary-cmt .summary-plus { left: -26px; top: 50%; margin-top: -9px; }
-.rr-summary-cmt:hover .summary-plus { display: flex; }
-
-/* acceptance criteria + plan steps (left-spine artifact peek; gutter = art-peek padding) */
-.spec-req { position: relative; }
-.spec-req .peek-plus { left: -26px; top: 1px; }
-.spec-req:hover .peek-plus { display: flex; }
-.plan-peek-step { position: relative; }
-.plan-peek-step .peek-plus { left: -26px; top: 1px; }
-.plan-peek-step:hover .peek-plus { display: flex; }
-
-/* section diagram / insight block (gutter = gsec-body padding) */
-.gsec-diagram-cmt { position: relative; }
+.spec-req .peek-plus, .plan-peek-step .peek-plus { left: -26px; top: 1px; }
 .gsec-diagram-cmt .diagram-plus { left: -26px; top: 6px; }
-.gsec-diagram-cmt:hover .diagram-plus { display: flex; }
-
-/* section narration ("What changed"); its gutter is the inter-column gap, widened
-   below so the + clears the diagram column */
-.gsec-what-cmt { position: relative; }
 .gsec-what-cmt .narration-plus { left: -22px; top: 9px; }
+.page-h1-cmt:hover .h1-plus,
+.rr-summary-cmt:hover .summary-plus,
+.spec-req:hover .peek-plus,
+.plan-peek-step:hover .peek-plus,
+.gsec-diagram-cmt:hover .diagram-plus,
 .gsec-what-cmt:hover .narration-plus { display: flex; }
 
-/* file-as-a-whole — the file card clips its overflow, so reserve a left slot inside
-   the header rather than a negative gutter */
+/* section header — comment on the whole change; + sits inside the header's left
+   padding (no bridge needed), rendered only while the section is open */
+.gsec-head { position: relative; }
+.gsec-head .section-plus { left: 3px; top: 19px; }
+.gsec-head:hover .section-plus { display: flex; }
+
+/* file-as-a-whole — the file card clips its overflow, so the + sits inside the
+   header's reserved left slot rather than a negative gutter */
 .gfile { position: relative; }
 .gfile .gfile-plus { left: 7px; top: 9px; }
 .gfile:hover .gfile-plus { display: flex; }

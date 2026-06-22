@@ -75,8 +75,11 @@
 .pdoc-md{padding-left:30px}
 .pdoc-md .cmt{position:relative;border-radius:7px}
 .pdoc-md .cmt>.spec-plus{left:-26px;top:3px}
+/* transparent hover-bridge across the gutter so the + stays reachable (see review.css) */
+.pdoc-md .cmt::after{content:"";position:absolute;left:-30px;top:0;width:30px;height:100%}
 .pdoc-md .cmt:hover{background:var(--panel-2)}
 .pdoc-md .cmt:hover>.spec-plus{display:flex}
+.pdoc-md li.cmt:hover::before{opacity:0}
 .pdoc-md .cmt>p:last-child,.pdoc-md .cmt>blockquote:last-child{margin-bottom:0}
 
 /* commentable line: hover reveals + gutter */
@@ -84,7 +87,7 @@
   margin:1px 0 1px -8px;border-radius:7px;font-size:13.5px;line-height:1.6;color:var(--ink-2)}
 .spec-line:hover{background:var(--panel-2)}
 .spec-plus{position:absolute;left:3px;top:5px;width:19px;height:19px;border-radius:5px;background:var(--accent);
-  color:#fff;border:none;align-items:center;justify-content:center;cursor:pointer;padding:0;
+  color:#fff;border:none;align-items:center;justify-content:center;cursor:pointer;padding:0;z-index:2;
   display:none;box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .spec-line:hover .spec-plus{display:flex}
 /* "comment" tooltip on the + */

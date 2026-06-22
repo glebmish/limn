@@ -13,6 +13,7 @@ import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
 import { addComment, queuedComments, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from '../components/Threads'
+import { Commentable, SelectionThreads } from '../components/Commentable'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 
@@ -423,10 +424,10 @@ export default function Review() {
                     <div className="rr-summary rr-summary-cmt" data-lr-summary>
                       <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
-                      <span className="rr-tx">
+                      <Commentable scope={{ region: 'summary' }} className="rr-tx">
                         <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
                         {lastIteration.summary}
-                      </span>
+                      </Commentable>
                       <span className="grow"></span>
                       <span className="seg seg-sm">
                         <button className={topFilter === 'changed' ? 'on' : ''} onClick={() => setTopFilter('changed')}>Just the changes</button>
@@ -437,7 +438,7 @@ export default function Review() {
                     <div className="rr-summary rr-summary-cmt" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
                       <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
-                      <span className="rr-tx">{annotations.summary}</span>
+                      <Commentable scope={{ region: 'summary' }} className="rr-tx">{annotations.summary}</Commentable>
                       <span className="grow"></span>
                     </div>
                   )}
@@ -453,6 +454,7 @@ export default function Review() {
                       )}
                     </div>
                   )}
+                  <div className="rr-summary-threads"><SelectionThreads scope={{ region: 'summary' }} /></div>
                 </>
               )}
 

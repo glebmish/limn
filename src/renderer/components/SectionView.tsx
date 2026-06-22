@@ -16,7 +16,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   secRef: (el: HTMLDivElement | null) => void
 }) {
   const { reviewedSections, collapsed, markReviewed, openSection, loaded, focusTarget } = useStore()
-  const [commenting, setCommenting] = useState<null | 'narration' | 'diagram'>(null)
+  const [commenting, setCommenting] = useState<null | 'header' | 'narration' | 'diagram'>(null)
   const comments = loaded?.state.comments ?? []
 
   const focused = focusTarget?.sectionId === s.id
@@ -38,6 +38,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   return (
     <div className={cls} ref={secRef} data-lr-section={s.id}>
       <div className="gsec-head" onClick={() => { if (!open) openSection(s.id) }} style={{ cursor: open ? 'default' : 'pointer' }}>
+        {open && <CmtPlus extra="section-plus" stop onClick={() => setCommenting('header')} />}
         <span className="gsec-no">{done ? <I.check style={{ width: 13, height: 13 }} /> : n}</span>
         <div className="gsec-h">
           {open && <div className="gsec-step">Change {n} of {total}</div>}
@@ -72,6 +73,16 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
 
       {open && (
         <div className="gsec-body">
+          {commenting === 'header' && (
+            <Composer
+              placeholder={`Comment on the “${s.name}” change…`}
+              onCancel={() => setCommenting(null)}
+              onSubmit={(text) => {
+                void addComment({ kind: 'section', sectionId: s.id }, text)
+                setCommenting(null)
+              }}
+            />
+          )}
           {showCtx && (s.diagram || s.what) && (
             <Commentable scope={{ region: 'section', sectionId: s.id }}>
             <div className="gsec-cols" style={!s.diagram ? { gridTemplateColumns: '1fr' } : undefined}>

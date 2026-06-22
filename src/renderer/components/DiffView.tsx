@@ -188,7 +188,7 @@ export function DiffView({ f, plainNote }: {
                         title="Comment on this line"
                         onClick={() => setComposerAt({ line: lineNo!, side, hunkRange: h.range, content: l.text })}
                       >
-                        <I.plus style={{ width: 10, height: 10 }} />
+                        <I.plus style={{ width: 12, height: 12 }} />
                       </button>
                     </div>
                     {threads.map((c) => (

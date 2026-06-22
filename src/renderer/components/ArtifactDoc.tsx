@@ -118,6 +118,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
           <span className="pp-file">{art.path}</span>
         </div>
         {deviations.length > 0 && (
+          <Commentable scope={{ region: 'artifact', path }}>
           <div className="pdoc-q" style={{ marginTop: 14 }}>
             <div className="pq-h"><I.flag style={{ width: 12, height: 12 }} />Where the implementation diverged</div>
             <ul>
@@ -142,6 +143,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
               })}
             </ul>
           </div>
+          </Commentable>
         )}
         <Commentable scope={{ region: 'artifact', path }} className="pdoc-md">
           <ReactMarkdown remarkPlugins={MD_PLUGINS} components={components}>{art.lines.join('\n')}</ReactMarkdown>
