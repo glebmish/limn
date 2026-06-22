@@ -22,7 +22,7 @@ describe('parseCliArgs', () => {
   })
 
   it('ignores unknown flags and tolerates flag order', () => {
-    const a = parseCliArgs(['/Applications/local-review.app/Contents/MacOS/local-review',
+    const a = parseCliArgs(['/Applications/limn.app/Contents/MacOS/limn',
       '--cli', '--compare', 'feature', '--dir', '/repo', '--unknown', 'x'])
     expect(a).toEqual({ dir: '/repo', compare: 'feature' })
   })

@@ -32,7 +32,7 @@ function write(dir: string, rel: string, content: string): void {
  *           changes img.bin, edits noeol.txt, then 2 more commits (for since-SHA tests).
  */
 export function makeFixtureRepo(): FixtureRepo {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-fix-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-fix-'))
   git(dir, 'init', '-b', 'main')
 
   write(dir, 'src/a.ts', ['export function a() {', '  return 1', '}', 'export const K = 10', ''].join('\n'))

@@ -80,12 +80,12 @@ export default function Dashboard() {
   }, [])
 
   return (
-    <div className="lr-dash">
+    <div className="limn-dash">
       <div className="wf-titlebar">
-        <span className="wf-title"><b>local-review</b></span>
+        <span className="wf-title"><b>limn</b></span>
       </div>
 
-      <div className="lr-dash-head">
+      <div className="limn-dash-head">
         <h1>Repositories</h1>
         <span className="grow" />
         <button className="btn btn-sm btn-primary" onClick={() => void pinDirectory()}>
@@ -96,7 +96,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <div className="lr-dash-filter">
+      <div className="limn-dash-filter">
         <input
           ref={filterRef}
           placeholder="Filter repositories…"
@@ -106,24 +106,24 @@ export default function Dashboard() {
         />
       </div>
 
-      {error && <div className="lr-error lr-toast">{error}</div>}
+      {error && <div className="limn-error limn-toast">{error}</div>}
 
-      <div className="lr-dash-scroll">
+      <div className="limn-dash-scroll">
         {!dashboard && <div className="dim" style={{ padding: 20 }}>Loading…</div>}
         {dashboard && dashboard.pins.length === 0 && dashboard.recents.length === 0 && (
-          <div className="lr-empty">No repositories yet. <b>Pin a directory</b> to scan it for git repos, or open one directly.</div>
+          <div className="limn-empty">No repositories yet. <b>Pin a directory</b> to scan it for git repos, or open one directly.</div>
         )}
         {dashboard && dashboard.pins.length === 0 && dashboard.recents.length > 0 && dashboard.recentSessions.length === 0 && (
-          <div className="lr-empty">No reviews yet. Use <b>Open repository…</b> to start one.</div>
+          <div className="limn-empty">No reviews yet. Use <b>Open repository…</b> to start one.</div>
         )}
         {dashboard?.pins.map((pin) => (
-          <div key={pin.id} className="lr-pin">
-            <div className="lr-pin-head">
+          <div key={pin.id} className="limn-pin">
+            <div className="limn-pin-head">
               <span className="pin-path" title={pin.path}>{pin.path}</span>
               <span className="pin-count">· {pin.repoCount} repo{pin.repoCount === 1 ? '' : 's'}</span>
               <span className="grow" />
-              <button className="lr-pin-btn" title="Rescan" onClick={() => void rescan(pin.id)}>⟳</button>
-              <button className="lr-pin-btn" title="Unpin" onClick={() => void unpin(pin.id)}>✕</button>
+              <button className="limn-pin-btn" title="Rescan" onClick={() => void rescan(pin.id)}>⟳</button>
+              <button className="limn-pin-btn" title="Unpin" onClick={() => void unpin(pin.id)}>✕</button>
             </div>
             {pin.tree
               ? <RepoTree pinPath={pin.path} node={pin.tree} filter={filter} indexOf={indexOf} statuses={statuses} />
@@ -131,7 +131,7 @@ export default function Dashboard() {
           </div>
         ))}
         {dashboard && recentRows.length > 0 && (
-          <div className="lr-recent-sec">
+          <div className="limn-recent-sec">
             <div className="rs-h">Recent sessions (outside pinned dirs)</div>
             {recentRows.map((s, i) => (
               <SessionRow key={s.id} s={s} selected={sel === flatPins.length + i}
@@ -142,7 +142,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="lr-foot-hint">↑↓ navigate · ⏎ open · type to filter · ⌘P pin directory</div>
+      <div className="limn-foot-hint">↑↓ navigate · ⏎ open · type to filter · ⌘P pin directory</div>
     </div>
   )
 }

@@ -37,7 +37,7 @@ describe('repoRoot', () => {
   })
 
   it('returns null outside any git repo', async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-notgit-'))
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-notgit-'))
     expect(await repoRoot(tmp)).toBeNull()
   })
 })

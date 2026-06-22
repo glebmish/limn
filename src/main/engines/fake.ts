@@ -4,7 +4,7 @@ import type { ApprovalRequest, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { awaitDecision } from './approvals.js'
 
-/** Deterministic engine for contract tests and demo mode (LR_DEMO=1). */
+/** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
   id = 'claude' as const
 
@@ -72,9 +72,9 @@ export class FakeEngine implements ReviewEngine {
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'run' } })
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'ok', meta: '40 lines', out: 'export function parseRefInput(input) {\n-  if (input == null) throw new Error()\n+  if (!input) return null // guard added in this branch\n  return resolve(input)\n}', outMore: 'show 31 more lines' } })
       q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", kv: [['pattern', "require('child_process')"]], state: 'run' } })
-      // dev-only: LR_HOLD_STREAM leaves t3 running + the stream open, for a static
-      // capture of the live running state (electron is killed by LR_SHOT_QUIT).
-      if (process.env.LR_HOLD_STREAM === '1') {
+      // dev-only: LIMN_HOLD_STREAM leaves t3 running + the stream open, for a static
+      // capture of the live running state (electron is killed by LIMN_SHOT_QUIT).
+      if (process.env.LIMN_HOLD_STREAM === '1') {
         q.push({ type: 'status', text: 'Reading reconcile.ts…' })
         return { value: '', sessionId: turn.engineSessionId || 'fake-chat-hold' }
       }
@@ -86,7 +86,7 @@ export class FakeEngine implements ReviewEngine {
         try { ids = (JSON.parse(listed.result) as { id: string }[]).map((c) => c.id) } catch { /* none */ }
         try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
         await turn.tools.call('commit_changes', {
-          message: 'local-review: batch fixes',
+          message: 'limn: batch fixes',
           resolutions: ids.map((id) => ({ commentId: id, verdict: 'addressed' as const, note: 'Done (demo).' }))
         })
       } else if (turn.tools) {
@@ -94,9 +94,9 @@ export class FakeEngine implements ReviewEngine {
         await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })
         await turn.tools.call('suggest_mark_viewed', { files: ['src/a.ts'], note: 'covered above' })
       }
-      // interactive approval round-trip (demo via LR_FAKE_APPROVAL=1 / test via the
+      // interactive approval round-trip (demo via LIMN_FAKE_APPROVAL=1 / test via the
       // '[approve]' token): park on a command approval, reflect the decision.
-      if (turn.opId && (process.env.LR_FAKE_APPROVAL === '1' || turn.message.includes('[approve]'))) {
+      if (turn.opId && (process.env.LIMN_FAKE_APPROVAL === '1' || turn.message.includes('[approve]'))) {
         const request: ApprovalRequest = {
           id: 'fake-1', engine: 'claude', kind: 'command',
           summary: 'Run `npm test`', detail: { command: 'npm test', cwd: turn.repo }, risk: 'low'

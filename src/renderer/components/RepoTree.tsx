@@ -65,7 +65,7 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
   // since the pin header already shows the path. Render children directly.
   if (node.relPath === '' && node.kind === 'dir') {
     if (node.empty) {
-      return <div className="lr-row empty"><span className="r-name">no repos found in this directory</span></div>
+      return <div className="limn-row empty"><span className="r-name">no repos found in this directory</span></div>
     }
     return (
       <>
@@ -94,22 +94,22 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
     const parent = slash >= 0 ? node.relPath.slice(0, slash + 1) : ''
     return (
       <div
-        className={'lr-row' + (sel === myIndex ? ' sel' : '')}
+        className={'limn-row' + (sel === myIndex ? ' sel' : '')}
         style={{ marginLeft: depth * 14 }}
         onClick={() => void openRepo(absPath)}
       >
         <span className="r-name">{node.name}</span>
         {parent && <span className="r-parent">{parent}</span>}
         <span className="grow" />
-        <span className="lr-chip">{st ? st.branch : '…'}</span>
-        <span className={'lr-dirty ' + (st ? (st.dirty ? 'on' : 'off') : 'off')} title={st?.dirty ? 'uncommitted changes' : 'clean'} />
+        <span className="limn-chip">{st ? st.branch : '…'}</span>
+        <span className={'limn-dirty ' + (st ? (st.dirty ? 'on' : 'off') : 'off')} title={st?.dirty ? 'uncommitted changes' : 'clean'} />
       </div>
     )
   }
 
   if (node.error) {
     return (
-      <div className="lr-row errrow" style={{ marginLeft: depth * 14 }} title="could not read this directory">
+      <div className="limn-row errrow" style={{ marginLeft: depth * 14 }} title="could not read this directory">
         <span className="r-name">{node.name}/</span>
         <span className="grow" />
         <span className="r-warn">⚠ unreadable</span>
@@ -119,7 +119,7 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
 
   if (node.empty) {
     return (
-      <div className="lr-row empty" style={{ marginLeft: depth * 14 }} title="no repos inside">
+      <div className="limn-row empty" style={{ marginLeft: depth * 14 }} title="no repos inside">
         <span className="r-name">{node.name}/</span>
       </div>
     )
@@ -129,7 +129,7 @@ export function RepoTree({ pinPath, node, filter, indexOf, statuses, depth = 0 }
   const { label, tail } = chainLabel(node)
   return (
     <>
-      <div className="lr-row dir" style={{ marginLeft: depth * 14 }}>
+      <div className="limn-row dir" style={{ marginLeft: depth * 14 }}>
         <span className="r-name">{label}</span>
       </div>
       {tail.children.map((c, i) => (

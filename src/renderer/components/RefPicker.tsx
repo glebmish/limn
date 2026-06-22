@@ -14,7 +14,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
    *  side (default) stays the quiet text button. */
   prominent?: boolean
 }) {
-  const [open, setOpen] = useState(Boolean(prominent && window.lrDev?.openCmpRef))
+  const [open, setOpen] = useState(Boolean(prominent && window.limnDev?.openCmpRef))
   // worktree a branch is checked out in (if any) — shown muted next to the row so
   // you can see at a glance which branches are already checked out, and where.
   const worktrees = useStore((s) => s.repoState?.worktrees) ?? []
@@ -96,14 +96,14 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   const commitsOpen = showCommits || shaLike
 
   return (
-    <div className="lr-refpick">
-      <button className={'lr-refpick-btn' + (prominent ? ' lr-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
+    <div className="limn-refpick">
+      <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         <span className="rp-val">{value || '—'}</span>
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
       </button>
       {open && (
-        <div className="lr-refpick-pop" ref={popRef}>
+        <div className="limn-refpick-pop" ref={popRef}>
           <input
             autoFocus
             value={draft}
@@ -112,9 +112,9 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             onChange={(e) => { setDraft(e.target.value); setShowAllBranches(false) }}
             onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) commit(draft.trim()) }}
           />
-          <div className="lr-refpick-list">
+          <div className="limn-refpick-list">
             {branches.length > 0 && (
-              <button type="button" className="lr-refpick-sec lr-refpick-sec-btn"
+              <button type="button" className="limn-refpick-sec limn-refpick-sec-btn"
                 onClick={() => setShowAllBranches((v) => !v)}>
                 <span>branches</span>
                 {!showAllBranches && hiddenBranches > 0 && <span className="rp-more">+{hiddenBranches} more</span>}
@@ -127,7 +127,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
                 // one title on the whole row (not per-span) — native tooltips reset
                 // when the pointer crosses child elements, which made hovering flicker
                 // and dropped the worktree detail. Row-level keeps it stable end to end.
-                <div key={b} className="lr-refpick-item" title={at ? `${b}\nchecked out in ${at}` : b} onClick={() => commit(b)}>
+                <div key={b} className="limn-refpick-item" title={at ? `${b}\nchecked out in ${at}` : b} onClick={() => commit(b)}>
                   <span className="ri-name">{b}</span>
                   {b === defaultBase && <span className="ri-tag">(default base)</span>}
                   {at && (
@@ -139,7 +139,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
               )
             })}
             {(commits === null || commits.length > 0) && (
-              <button type="button" className="lr-refpick-sec lr-refpick-sec-btn"
+              <button type="button" className="limn-refpick-sec limn-refpick-sec-btn"
                 onClick={() => setShowCommits((v) => !v)}>
                 <span>{matchedBranch ? `commits on ${matchedBranch}` : 'recent commits'}</span>
                 {!commitsOpen && commits && commits.length > 0 && <span className="rp-more">+{commits.length}</span>}
@@ -150,7 +150,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
               <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>loading…</div>
             )}
             {commitsOpen && commitList.map((c) => (
-              <div key={c.sha} className="lr-refpick-item" onClick={() => commit(c.sha)}>
+              <div key={c.sha} className="limn-refpick-item" onClick={() => commit(c.sha)}>
                 <span className="ri-name">{shortSha(c.sha)}</span>
                 <span className="ri-sub" title={c.subject}>{c.subject}</span>
                 <span className="ri-age">{ago(c.date)}</span>

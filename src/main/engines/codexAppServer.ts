@@ -16,7 +16,7 @@ import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
  *
  * ⚠️ LIVE-UNVERIFIED: built against the spec + the reference implementation reference
  * (`a reference implementation`), but not exercised against a real `codex app-server`
- * here (no Codex CLI/auth/network). It is gated behind `LR_CODEX_APP_SERVER=1`;
+ * here (no Codex CLI/auth/network). It is gated behind `LIMN_CODEX_APP_SERVER=1`;
  * the `codex exec` path in `codex.ts` stays the default fallback. The exact
  * method/param names should be pinned via `codex app-server generate-ts` against
  * the installed binary before flipping the default. The PURE helpers below
@@ -24,7 +24,7 @@ import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
  */
 
 export function appServerEnabled(): boolean {
-  return process.env.LR_CODEX_APP_SERVER === '1'
+  return process.env.LIMN_CODEX_APP_SERVER === '1'
 }
 
 // ── pure helpers (unit-tested) ────────────────────────────────
@@ -266,7 +266,7 @@ export class AppServerConn {
 
   /** initialize → initialized → thread/start|resume. */
   async handshake(resumeThreadId?: string): Promise<void> {
-    await this.request('initialize', { clientInfo: { name: 'local-review', version: '0' }, capabilities: { experimentalApi: true } })
+    await this.request('initialize', { clientInfo: { name: 'limn', version: '0' }, capabilities: { experimentalApi: true } })
     this.notify('initialized')
     const res = resumeThreadId
       ? await this.request('thread/resume', { threadId: resumeThreadId })
@@ -285,7 +285,7 @@ function modelEffort(model?: string, effort?: ReasoningEffort): Record<string, u
   return { ...(model ? { model } : {}), ...(effort && effort !== 'max' ? { effort } : {}) }
 }
 
-/** Run one chat turn over the app-server (the `LR_CODEX_APP_SERVER` path). Mirrors
+/** Run one chat turn over the app-server (the `LIMN_CODEX_APP_SERVER` path). Mirrors
  *  `codex.ts` `chat()` but with interactive approvals. ⚠️ live-unverified. */
 export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
   const q = new EventQueue()
@@ -306,7 +306,7 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
       if (turn.tools) {
         const mcp = await registerCodexTurn(turn.tools)
         release = mcp.release
-        mcpArgs = ['-c', `mcp_servers.localreview.url=${mcp.url}`]
+        mcpArgs = ['-c', `mcp_servers.limn.url=${mcp.url}`]
       }
       conn = new AppServerConn(mcpArgs)
       let resolveTurn: (() => void) | null = null
@@ -323,7 +323,7 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
         (id, method, params) => {
           // MCP tool-call approvals arrive as an RMCP elicitation (verified against
           // codex 0.135 app-server: method `mcpServer/elicitation/request`, _meta
-          // .codex_approval_kind='mcp_tool_call'). Our localreview tools only mutate
+          // .codex_approval_kind='mcp_tool_call'). Our limn tools only mutate
           // review metadata, so auto-ACCEPT them (response shape is {action,content,
           // _meta}, NOT {decision}). Without this the turn's tool calls are cancelled
           // ("user cancelled MCP tool call"). Non-tool-call elicitations: decline.

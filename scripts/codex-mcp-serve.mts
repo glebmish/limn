@@ -1,4 +1,4 @@
-/* Stand up ONLY the localreview MCP server (no Codex), print its URL, and log
+/* Stand up ONLY the limn MCP server (no Codex), print its URL, and log
  * every tool invocation. Lets us drive `codex exec` manually to isolate the
  * guardian/approval behavior from the SDK. Run: npx tsx scripts/codex-mcp-serve.mts */
 import fs from 'node:fs'
@@ -12,7 +12,7 @@ import { registerCodexTurn } from '../src/main/engines/codexMcp'
 import type { EngineEvent, RefPair } from '../src/shared/types'
 
 const fx = makeFixtureRepo()
-const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-serve-')), 'db')).db
+const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-serve-')), 'db')).db
 const pair: RefPair = {
   base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }

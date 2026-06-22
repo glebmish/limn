@@ -36,7 +36,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const cls = 'gsec ' + (done ? 'done ' : reReview ? 'amber ' : '') + (open ? '' : 'collapsed')
 
   return (
-    <div className={cls} ref={secRef} data-lr-section={s.id}>
+    <div className={cls} ref={secRef} data-limn-section={s.id}>
       <div className="gsec-head" onClick={() => { if (!open) openSection(s.id) }} style={{ cursor: open ? 'default' : 'pointer' }}>
         {open && <CmtPlus extra="section-plus" stop onClick={() => setCommenting('header')} />}
         <span className="gsec-no">{done ? <I.check style={{ width: 13, height: 13 }} /> : n}</span>

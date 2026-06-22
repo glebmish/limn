@@ -15,7 +15,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
   disabled?: boolean
   onChange: (m: ExecutionMode) => void
 }) {
-  const [open, setOpen] = useState(Boolean(window.lrDev?.openMode))
+  const [open, setOpen] = useState(Boolean(window.limnDev?.openMode))
   const [confirmFull, setConfirmFull] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 

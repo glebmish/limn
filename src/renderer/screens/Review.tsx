@@ -52,7 +52,7 @@ export default function Review() {
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
-  const [peek, setPeek] = useState<string | null>(window.lrDev?.openPeek ?? null)
+  const [peek, setPeek] = useState<string | null>(window.limnDev?.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [titleCommenting, setTitleCommenting] = useState(false)
@@ -63,45 +63,45 @@ export default function Review() {
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
   const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
 
-  // dev-only scripted flow: LR_FLOW=generate auto-runs the engine once
+  // dev-only scripted flow: LIMN_FLOW=generate auto-runs the engine once
   useEffect(() => {
-    if (window.lrDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
+    if (window.limnDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
       devFlowRan = true
       startGenerateNow()
     }
-    if (window.lrDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
+    if (window.limnDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
       if (ids.length > 0) {
         devFlowRan = true
         sendComments(ids)
       }
     }
-    // dev-only: LR_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
+    // dev-only: LIMN_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
     // the diffs render (scrollHeight grows over a few frames) to show the volatile band
-    if (window.lrDev?.scrollBottom && loaded) {
+    if (window.limnDev?.scrollBottom && loaded) {
       let n = 0
       const t = setInterval(() => { const b = scrollRef.current; if (b) b.scrollTo({ top: b.scrollHeight }); if (++n > 12) clearInterval(t) }, 350)
     }
-    // dev-only: LR_FOCUS=<json FocusTarget> focuses once after the review mounts
-    if (window.lrDev?.focus && !devFocusRan && loaded) {
+    // dev-only: LIMN_FOCUS=<json FocusTarget> focuses once after the review mounts
+    if (window.limnDev?.focus && !devFocusRan && loaded) {
       devFocusRan = true
-      try { setTimeout(() => focusAnchor(JSON.parse(window.lrDev!.focus!)), 600) } catch { /* bad json */ }
+      try { setTimeout(() => focusAnchor(JSON.parse(window.limnDev!.focus!)), 600) } catch { /* bad json */ }
     }
-    // dev-only: LR_RUN_BATCH runs the unified batch over all queued comments once
-    if (window.lrDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
+    // dev-only: LIMN_RUN_BATCH runs the unified batch over all queued comments once
+    if (window.limnDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
       if (ids.length > 0) { devBatchRan = true; setTimeout(() => sendComments(ids), 400) }
     }
-    // dev-only: LR_FAKE_GEN injects a synthetic running review op so the live
+    // dev-only: LIMN_FAKE_GEN injects a synthetic running review op so the live
     // generation panel (activity log + phase header + counters) can be captured
-    if (window.lrDev?.fakeGen && !devGenRan && loaded) {
+    if (window.limnDev?.fakeGen && !devGenRan && loaded) {
       devGenRan = true
       useStore.setState({ gen: fakeGenState() })
     }
-    // dev-only: LR_OPEN_DOC opens a spec/plan artifact doc once after mount
-    if (window.lrDev?.openDoc && !devDocRan && loaded) {
+    // dev-only: LIMN_OPEN_DOC opens a spec/plan artifact doc once after mount
+    if (window.limnDev?.openDoc && !devDocRan && loaded) {
       devDocRan = true
-      openDoc(window.lrDev.openDoc)
+      openDoc(window.limnDev.openDoc)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
@@ -246,10 +246,10 @@ export default function Review() {
         </button>
       </div>
 
-      {store.error && <div className="lr-error lr-toast" style={{ marginTop: 12 }}>{store.error}</div>}
+      {store.error && <div className="limn-error limn-toast" style={{ marginTop: 12 }}>{store.error}</div>}
 
       {loaded?.refMissing && (
-        <div className="lr-error" style={{ margin: '12px 24px' }}>
+        <div className="limn-error" style={{ margin: '12px 24px' }}>
           The {loaded.refMissing.side} ref "{loaded.refMissing.symbol}" no longer exists in this repository.
           Review is read-only — pick a new {loaded.refMissing.side} ref from the {loaded.refMissing.side === 'base' ? 'base picker' : 'branch picker'} in the header above.
         </div>
@@ -467,7 +467,7 @@ export default function Review() {
               {annotations && (
                 <>
                   {sinceTagged && lastIteration?.summary ? (
-                    <div className="rr-summary rr-summary-cmt" data-lr-summary>
+                    <div className="rr-summary rr-summary-cmt" data-limn-summary>
                       <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
                       <Commentable scope={{ region: 'summary' }} className="rr-tx">
@@ -481,7 +481,7 @@ export default function Review() {
                       </span>
                     </div>
                   ) : (
-                    <div className="rr-summary rr-summary-cmt" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+                    <div className="rr-summary rr-summary-cmt" data-limn-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
                       <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
                       <Commentable scope={{ region: 'summary' }} className="rr-tx">{annotations.summary}</Commentable>
@@ -518,7 +518,7 @@ export default function Review() {
                 />
               ))}
               {skeleton.files.length === 0 && !loaded.dirty && (
-                <div className="lr-empty">No changes between <b>{branch}</b> and <b>{base}</b>.</div>
+                <div className="limn-empty">No changes between <b>{branch}</b> and <b>{base}</b>.</div>
               )}
 
               {loaded.dirty && loaded.volatile.length > 0 && (

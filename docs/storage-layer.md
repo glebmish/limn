@@ -1,6 +1,6 @@
 # Storage Layer
 
-How local-review persists review state: SQLite schema, the session-identity model, migrations, and the data-access layer.
+How Limn persists review state: SQLite schema, the session-identity model, migrations, and the data-access layer.
 
 > **Audience:** developers working on the main process. This describes architecture and the invariants you can break, not every function. See the source in `src/main/db/` and the shapes in `src/shared/types.ts`.
 
@@ -9,7 +9,7 @@ How local-review persists review state: SQLite schema, the session-identity mode
 All review state — sessions, comments, chat, iterations, approvals, pinned dirs, scan caches, prefs — lives in a single SQLite file. Everything else (diffs, file content, branch SHAs) is read live from git and is **never** persisted; git is ground truth, the DB only stores the *review layer* on top of it.
 
 - **Engine:** Node's built-in `node:sqlite` (`DatabaseSync`). No third-party driver. All access is **synchronous**.
-- **Location:** `<app userData>/local-review.db`, opened once at app-ready in `src/main/index.ts` and threaded explicitly into `registerIpc(db, …)`.
+- **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/main/index.ts` and threaded explicitly into `registerIpc(db, …)`.
 - **No singleton:** the `db` handle is passed as the first argument to nearly every DAO function. There is no module-level global — this is deliberate, so tests open throwaway temp DBs.
 - **Concurrency model:** single writer. One connection, on the main process, in WAL mode. There is no `SQLITE_BUSY` retry logic and the design assumes nothing else writes the file.
 

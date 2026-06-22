@@ -16,7 +16,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
    *  trigger; 'left' opens rightward for triggers near a clipped column's left edge. */
   align?: 'left' | 'right'
 }) {
-  const [open, setOpen] = useState(Boolean(window.lrDev?.openPicker))
+  const [open, setOpen] = useState(Boolean(window.limnDev?.openPicker))
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
   const wrap = useRef<HTMLDivElement>(null)
 
@@ -29,7 +29,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   // dev-only: drive the real onChange once so a static capture can show selection
   const devPicked = useRef(false)
   useEffect(() => {
-    const e = window.lrDev?.pickEngine
+    const e = window.limnDev?.pickEngine
     if (e && !devPicked.current) { devPicked.current = true; onChange({ engine: e as EngineId }) }
   }, [onChange])
 

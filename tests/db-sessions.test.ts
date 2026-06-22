@@ -18,7 +18,7 @@ import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/type
 
 let db: DatabaseSync
 beforeEach(() => {
-  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-dao-')), 'db')).db
+  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-dao-')), 'db')).db
 })
 
 const pair: RefPair = {

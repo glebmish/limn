@@ -61,7 +61,7 @@ describe('FakeEngine contract', () => {
     expect(all).toEqual(sk.files.map((f) => f.path).sort())
 
     // a queued comment on a diff line of src/a.ts, sent into the unified batch turn
-    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-batch-')), 'db')).db
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-batch-')), 'db')).db
     const branchPair: RefPair = {
       base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
       compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
@@ -156,10 +156,10 @@ describe('FakeEngine approval round-trip', () => {
 })
 
 describe('claude canUseTool policy', () => {
-  it('auto-allows localreview + read-safe tools without prompting', async () => {
+  it('auto-allows limn + read-safe tools without prompting', async () => {
     const emit = vi.fn()
     const can = makeCanUseTool('opC', emit)
-    expect(await can('mcp__localreview__add_comment', {}, {} as never)).toEqual({ behavior: 'allow' })
+    expect(await can('mcp__limn__add_comment', {}, {} as never)).toEqual({ behavior: 'allow' })
     expect(await can('Read', { file_path: 'a' }, {} as never)).toEqual({ behavior: 'allow' })
     expect(await can('Grep', { pattern: 'x' }, {} as never)).toEqual({ behavior: 'allow' })
     expect(emit).not.toHaveBeenCalled()

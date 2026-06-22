@@ -34,7 +34,7 @@ export function toEvent(ev: ThreadEvent): EngineEvent | null {
     case 'item.completed': {
       const item = ev.item
       const done = ev.type === 'item.completed'
-      // localreview MCP tool calls + native tools: structured ToolCall lifecycle.
+      // limn MCP tool calls + native tools: structured ToolCall lifecycle.
       // The AgentActions themselves still flow separately via the host's emit.
       if (item.type === 'mcp_tool_call') {
         if (ev.type === 'item.started') {
@@ -130,7 +130,7 @@ function parseJson(text: string): unknown {
 }
 
 // The approval policy behind the "Auto" mode preset: the reviewer auto-approves safe
-// requests (incl. our localreview MCP tools) instead of `never`, which a guardian /
+// requests (incl. our limn MCP tools) instead of `never`, which a guardian /
 // auto-approval-review treats as auto-deny.
 const AUTO_APPROVAL = 'on-request' as const
 
@@ -184,7 +184,7 @@ export class CodexEngine implements ReviewEngine {
         if (turn.tools) {
           const mcp = await registerCodexTurn(turn.tools)
           release = mcp.release
-          codex = new Codex({ ...this.base, config: { mcp_servers: { localreview: { url: mcp.url } } } })
+          codex = new Codex({ ...this.base, config: { mcp_servers: { limn: { url: mcp.url } } } })
         }
         const opts: ThreadOptions = {
           workingDirectory: turn.repo,

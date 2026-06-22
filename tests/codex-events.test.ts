@@ -7,22 +7,22 @@ import { toEvent } from '../src/main/engines/codex'
 
 describe('codex toEvent — tool-call lifecycle', () => {
   it('surfaces a started MCP tool call as a running ToolCall', () => {
-    const ev = { type: 'item.started', item: { id: 'i1', type: 'mcp_tool_call', server: 'localreview', tool: 'add_comment', arguments: { file: 'src/a.ts' }, status: 'in_progress' } } as unknown as ThreadEvent
+    const ev = { type: 'item.started', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'add_comment', arguments: { file: 'src/a.ts' }, status: 'in_progress' } } as unknown as ThreadEvent
     expect(toEvent(ev)).toEqual({ type: 'tool', call: { id: 'i1', verb: 'edit', name: 'add_comment', kv: [['file', 'src/a.ts']], state: 'run' } })
   })
 
   it('settles a completed MCP tool call as ok', () => {
-    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'localreview', tool: 'add_comment', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: 'ok' }] } } } as unknown as ThreadEvent
+    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'add_comment', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: 'ok' }] } } } as unknown as ThreadEvent
     expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'ok', out: 'ok' } })
   })
 
   it('reports a failed MCP tool call as err (agent keeps going)', () => {
-    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'localreview', tool: 'resolve_comment', arguments: {}, status: 'failed', error: { message: 'No comment with id x' } } } as unknown as ThreadEvent
+    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'resolve_comment', arguments: {}, status: 'failed', error: { message: 'No comment with id x' } } } as unknown as ThreadEvent
     expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'err', out: 'No comment with id x' } })
   })
 
   it('does not double-report an in-progress update', () => {
-    const ev = { type: 'item.updated', item: { id: 'i1', type: 'mcp_tool_call', server: 'localreview', tool: 'focus', arguments: {}, status: 'in_progress' } } as unknown as ThreadEvent
+    const ev = { type: 'item.updated', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'focus', arguments: {}, status: 'in_progress' } } as unknown as ThreadEvent
     expect(toEvent(ev)).toBeNull()
   })
 

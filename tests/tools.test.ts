@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { createToolHost, LR_TOOLS, lrAllowedToolNames, type ToolHostCtx } from '../src/main/engines/tools'
+import { createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolHostCtx } from '../src/main/engines/tools'
 import { FakeEngine } from '../src/main/engines/fake'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta } from '../src/main/db/sessions'
@@ -32,20 +32,20 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
 
 const READ_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
 const ALL_TOOLS = [...READ_TOOLS, 'commit_changes'].sort()
-const mcp = (n: string): string => `mcp__localreview__${n}`
+const mcp = (n: string): string => `mcp__limn__${n}`
 
-describe('LR_TOOLS catalog', () => {
+describe('LIMN_TOOLS catalog', () => {
   it('exposes the focus/suggest + comment/review + commit tools', () => {
-    expect(LR_TOOLS.map((t) => t.name).sort()).toEqual(ALL_TOOLS)
-    for (const t of LR_TOOLS) {
+    expect(LIMN_TOOLS.map((t) => t.name).sort()).toEqual(ALL_TOOLS)
+    for (const t of LIMN_TOOLS) {
       expect(t.description.length).toBeGreaterThan(0)
       expect(typeof t.input).toBe('object')
     }
   })
 
   it('withholds write tools (commit_changes) unless the turn is write-enabled', () => {
-    expect(lrAllowedToolNames().sort()).toEqual(READ_TOOLS.map(mcp).sort()) // read-only default
-    expect(lrAllowedToolNames(true).sort()).toEqual(ALL_TOOLS.map(mcp).sort()) // write-enabled adds commit_changes
+    expect(limnAllowedToolNames().sort()).toEqual(READ_TOOLS.map(mcp).sort()) // read-only default
+    expect(limnAllowedToolNames(true).sort()).toEqual(ALL_TOOLS.map(mcp).sort()) // write-enabled adds commit_changes
   })
 })
 
@@ -157,7 +157,7 @@ describe('comment tools (real temp DB)', () => {
   }
 
   function setup(): { db: DatabaseSync; ctx: ToolHostCtx; events: EngineEvent[]; sessionId: number; threadId: number } {
-    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-tool-')), 'db')).db
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-tool-')), 'db')).db
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude', model: 'opus' } })
     upsertComment(db, s.id, userComment)
@@ -231,7 +231,7 @@ describe('review edit tools (real temp DB)', () => {
   }
 
   function setup(): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number } {
-    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-rev-')), 'db')).db
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-rev-')), 'db')).db
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     updateSessionMeta(db, s.id, { annotations, title: annotations.title, summary: annotations.summary })
@@ -280,7 +280,7 @@ describe('commit_changes (real git repo)', () => {
 
   function setup(writeEnabled: boolean): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number; dir: string } {
     const fx = makeFixtureRepo()
-    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-commit-')), 'db')).db
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-commit-')), 'db')).db
     const s = createSession(db, fx.dir, branchPair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     upsertComment(db, s.id, {
@@ -298,16 +298,16 @@ describe('commit_changes (real git repo)', () => {
     const { db, ctx, sessionId, dir } = setup(true)
     fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
     const { isError, action } = await createToolHost(ctx).call('commit_changes', {
-      message: 'local-review: batch fix', resolutions: [{ commentId: 'q1', verdict: 'addressed', note: 'done' }]
+      message: 'limn: batch fix', resolutions: [{ commentId: 'q1', verdict: 'addressed', note: 'done' }]
     })
     expect(isError).toBeFalsy()
     const st = loadReviewState(db, sessionId)
-    expect(st.iterations.at(-1)).toMatchObject({ summary: 'local-review: batch fix', engine: 'claude', sessionId: 'eng-1' })
+    expect(st.iterations.at(-1)).toMatchObject({ summary: 'limn: batch fix', engine: 'claude', sessionId: 'eng-1' })
     const c = st.comments.find((x) => x.id === 'q1')!
     expect(c.status).toBe('resolved')
     expect(c.resolution).toMatchObject({ verdict: 'addressed', note: 'done' })
     expect(c.resolution!.commit).toHaveLength(7)
-    expect(action).toMatchObject({ kind: 'code_committed', message: 'local-review: batch fix' })
+    expect(action).toMatchObject({ kind: 'code_committed', message: 'limn: batch fix' })
     expect((action as Extract<AgentAction, { kind: 'code_committed' }>).files).toContain('NEW.md')
   })
 

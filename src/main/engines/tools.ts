@@ -322,12 +322,12 @@ const TOOL_IMPLS: ToolImpl[] = [
 
 /** The tools as the model sees them, for Claude's `allowedTools` (the SDK prefixes
  *  in-process MCP tools with `mcp__<server>__`). */
-export const LR_TOOLS: ToolDef[] = TOOL_IMPLS.map(({ name, description, input }) => ({ name, description, input }))
+export const LIMN_TOOLS: ToolDef[] = TOOL_IMPLS.map(({ name, description, input }) => ({ name, description, input }))
 
 /** Tool names to allow this turn. Write tools (commit_changes) are withheld unless
  *  the turn is write-enabled, so the agent degrades to review/comment-only. */
-export function lrAllowedToolNames(writeEnabled = false): string[] {
-  return TOOL_IMPLS.filter((t) => writeEnabled || !t.write).map((t) => `mcp__localreview__${t.name}`)
+export function limnAllowedToolNames(writeEnabled = false): string[] {
+  return TOOL_IMPLS.filter((t) => writeEnabled || !t.write).map((t) => `mcp__limn__${t.name}`)
 }
 
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {

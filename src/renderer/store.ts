@@ -292,7 +292,7 @@ export const useStore = create<AppStore>((set, get) => {
     sessionId: null,
     hubReturn: null,
     activeChatId: null,
-    chatOpen: typeof window !== 'undefined' && window.lrDev?.flow === 'chat',
+    chatOpen: typeof window !== 'undefined' && window.limnDev?.flow === 'chat',
     error: null,
 
     dashboard: null,
@@ -331,13 +331,13 @@ export const useStore = create<AppStore>((set, get) => {
         const cli = await window.api.takeCliOpen()
         if (cli) get().applyCliOpen(cli)
       } catch { /* no pending cli open */ }
-      // dev/screenshot: LR_OPEN_SESSION auto-resumes a seeded session onto Review
-      const openSession = window.lrDev?.openSession
+      // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
+      const openSession = window.limnDev?.openSession
       if (openSession) await get().resumeExisting(Number(openSession))
-      // dev/screenshot: LR_OPEN_HUB lands on the repo hub for a given repo path
-      const openHub = window.lrDev?.openHub
+      // dev/screenshot: LIMN_OPEN_HUB lands on the repo hub for a given repo path
+      const openHub = window.limnDev?.openHub
       if (openHub) {
-        if (window.lrDev?.showArchived) set({ showArchived: true })
+        if (window.limnDev?.showArchived) set({ showArchived: true })
         await get().enterHub(openHub)
       }
     },
@@ -346,10 +346,10 @@ export const useStore = create<AppStore>((set, get) => {
       if (msg.error) { set({ error: msg.error }); return }
       const repo = msg.repo
       if (!repo) return
-      if (msg.hub) { void get().enterHub(repo); return }              // `lr --hub` → session list
+      if (msg.hub) { void get().enterHub(repo); return }              // `limn --hub` → session list
       if (msg.fresh) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }, { fresh: true }); return }
       if (msg.baseInput || msg.compareInput) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }); return }
-      // bare `lr` → behave like opening from the dashboard (resume the latest session
+      // bare `limn` → behave like opening from the dashboard (resume the latest session
       // on the current branch, else a transient review)
       void get().openRepo(repo)
     },

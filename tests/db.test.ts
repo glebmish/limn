@@ -6,7 +6,7 @@ import path from 'node:path'
 import { openDb } from '../src/main/db/db'
 
 function tmpFile(): string {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-db-')), 'local-review.db')
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-db-')), 'limn.db')
 }
 
 describe('openDb', () => {
@@ -37,7 +37,7 @@ describe('openDb', () => {
     const file = tmpFile()
     fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')
     const { db, recoveredFrom } = openDb(file)
-    expect(recoveredFrom).toMatch(/local-review\.db\.corrupt-/)
+    expect(recoveredFrom).toMatch(/limn\.db\.corrupt-/)
     expect(fs.existsSync(recoveredFrom!)).toBe(true)
     // fresh db is usable
     db.prepare(`INSERT INTO prefs (key, value) VALUES ('a', 'b')`).run()

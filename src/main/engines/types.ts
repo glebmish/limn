@@ -29,7 +29,7 @@ export interface ChatTurn {
   message: string
   anchor?: CommentAnchor
   context?: ChatContext
-  /** when set, the turn gets the localreview tool layer (focus/suggest/…). */
+  /** when set, the turn gets the limn tool layer (focus/suggest/…). */
   tools?: AgentToolHost
   /** allow code-editing tools this turn (branch + clean tree preconditions met). */
   writeEnabled?: boolean

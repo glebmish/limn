@@ -32,9 +32,9 @@ export default function RepoHub() {
   }
 
   return (
-    <div className="lr-hub">
+    <div className="limn-hub">
       <div className="wf-titlebar">
-        <span className="lr-cmp-repo" title={repo}><b>{repoName}</b> · {repo}</span>
+        <span className="limn-cmp-repo" title={repo}><b>{repoName}</b> · {repo}</span>
         <span className="grow" />
         {hubReturn != null && (
           <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void resumeExisting(hubReturn)} title="Back to the review you came from">
@@ -46,7 +46,7 @@ export default function RepoHub() {
         </button>
       </div>
 
-      <div className="lr-hub-bar">
+      <div className="limn-hub-bar">
         <span className="rv-refs">
           <RefPicker value={effBase} onChange={setBase} repo={repo} relativeTo={repoState?.current ?? 'HEAD'} label="base ref" />
           <span className="rv-arrow" title="base ← compare (changes the compare branch adds over the base)">←</span>
@@ -59,11 +59,11 @@ export default function RepoHub() {
         </button>
       </div>
 
-      {error && <div className="lr-error lr-toast">{error}</div>}
+      {error && <div className="limn-error limn-toast">{error}</div>}
 
-      <div className="lr-hub-scroll">
-        <div className="lr-hub-sech">
-          <button className="lr-sech-back" onClick={() => backToDashboard()} title="All sessions across repos">
+      <div className="limn-hub-scroll">
+        <div className="limn-hub-sech">
+          <button className="limn-sech-back" onClick={() => backToDashboard()} title="All sessions across repos">
             <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />Sessions
           </button>
           <span className="grow" />
@@ -72,11 +72,11 @@ export default function RepoHub() {
           </button>
         </div>
         {live.length === 0 && (
-          <div className="lr-empty">No reviews yet for this repo. <b>New review</b> to start one.</div>
+          <div className="limn-empty">No reviews yet for this repo. <b>New review</b> to start one.</div>
         )}
         {groupByBranch(live).map(([branch, sessions]) => (
-          <div key={branch} className="lr-hub-group">
-            <div className="lr-hub-branch">
+          <div key={branch} className="limn-hub-group">
+            <div className="limn-hub-branch">
               <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />
               <b title={branch}>{branch}</b>
             </div>
@@ -90,8 +90,8 @@ export default function RepoHub() {
 
         {showArchived && (
           <>
-            <div className="lr-hub-sech" style={{ marginTop: 22 }}><span>Archived</span></div>
-            {archived.length === 0 && <div className="lr-empty">No archived reviews.</div>}
+            <div className="limn-hub-sech" style={{ marginTop: 22 }}><span>Archived</span></div>
+            {archived.length === 0 && <div className="limn-empty">No archived reviews.</div>}
             {archived.map((s) => (
               <SessionRow key={s.id} s={s} onOpen={() => void resumeExisting(s.id)} onRestore={() => void restoreSession(s.id)} />
             ))}

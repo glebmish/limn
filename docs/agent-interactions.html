@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>local-review · Agentic Interactions Explainer</title>
+<title>Limn · Agentic Interactions Explainer</title>
 <style>
   :root {
     --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --line: #2a313c;
@@ -87,7 +87,7 @@
 <body>
 
 <nav>
-  <div class="brand">local-review<small>Agentic interactions</small></div>
+  <div class="brand">Limn<small>Agentic interactions</small></div>
   <a class="grp">Foundations</a>
   <a href="#overview">Overview</a>
   <a href="#ground-truth">Git is ground truth</a>
@@ -114,7 +114,7 @@
 
 <main>
   <h1>Agentic Interactions</h1>
-  <p class="sub">How <b>local-review</b> constructs prompts, propagates context, and exchanges structured inputs &amp; outputs with an AI agent — Claude (Agent SDK) or Codex (Codex SDK).</p>
+  <p class="sub">How <b>Limn</b> constructs prompts, propagates context, and exchanges structured inputs &amp; outputs with an AI agent — Claude (Agent SDK) or Codex (Codex SDK).</p>
   <p class="file">Source: <code>src/main/engines/</code> · orchestrated by <code>src/main/ipc.ts</code> · shared types in <code>src/shared/</code></p>
 
   <!-- ─────────────────────────────────────────── -->
@@ -164,7 +164,7 @@
   <table>
     <tr><th>Operation</th><th>Method</th><th>Access</th><th>Returns</th><th>Prompt builder</th></tr>
     <tr><td><b>Generate</b> — initial review</td><td><code>generateReview</code></td><td><span class="pill read">read-only</span></td><td><code>ReviewAnnotations</code> (structured)</td><td><code>buildReviewPrompt</code></td></tr>
-    <tr><td><b>Chat</b> — Q&amp;A next to the diff</td><td><code>chat</code></td><td><span class="pill read">read-only</span> + LR tools</td><td><code>string</code> (final text)</td><td><code>buildChatPrompt</code> / <code>buildSeededChatPrompt</code></td></tr>
+    <tr><td><b>Chat</b> — Q&amp;A next to the diff</td><td><code>chat</code></td><td><span class="pill read">read-only</span> + Limn tools</td><td><code>string</code> (final text)</td><td><code>buildChatPrompt</code> / <code>buildSeededChatPrompt</code></td></tr>
     <tr><td><b>Batch</b> — apply queued comments</td><td><code>chat</code></td><td><span class="pill write">write</span> when preconditions met</td><td><code>string</code> + side effects via tools</td><td><code>buildBatchPrompt</code></td></tr>
   </table>
   <div class="note"><b>Batch is just chat with write tools.</b> The old structured <code>FixResult</code> is gone — applying comments now flows through <code>chat()</code> with the <code>commit_changes</code> / <code>resolve_comment</code> tools enabled. One conversation surface; tools, not a separate method, decide what the agent can do.</div>
@@ -229,7 +229,7 @@
     <tr><td><b>Prompt body</b></td><td>Branch/base, changed-files list, artifact paths, comment list, anchor prose, review summary</td><td>Inlined as text by the prompt builders</td></tr>
     <tr><td><b>Engine session</b></td><td>The agent's <i>own</i> prior conversation (its exploration, its reasoning)</td><td><code>resume</code> (Claude) / <code>resumeThread</code> (Codex) — §<a class="ref" href="#sessions">07</a></td></tr>
     <tr><td><b>Working directory</b></td><td>The repo itself — full read access via Read/Grep/Glob/Bash</td><td><code>cwd</code> / <code>workingDirectory: repo</code></td></tr>
-    <tr><td><b>Live tool reads</b></td><td>DB state at call time (current comments, the review, iterations)</td><td>LR tools (<code>list_comments</code>, <code>get_review</code>) query the DB on demand</td></tr>
+    <tr><td><b>Live tool reads</b></td><td>DB state at call time (current comments, the review, iterations)</td><td>Limn tools (<code>list_comments</code>, <code>get_review</code>) query the DB on demand</td></tr>
   </table>
   <p>This is why the prompt can stay lean: it doesn't dump the whole repo or all prior comments. It names the branch and the changed files and lets the agent <b>pull</b> what it needs through tools and the filesystem. The <code>ChatTurn</code> struct is the carrier:</p>
 <pre><code><span class="k">interface</span> <span class="t">ChatTurn</span> {
@@ -237,7 +237,7 @@
   engineSessionId?: <span class="t">string</span>     <span class="c">// resume this session, else start fresh + seed</span>
   model?: <span class="t">string</span>; reasoningEffort?: <span class="t">ReasoningEffort</span>
   message: <span class="t">string</span>; anchor?: <span class="t">CommentAnchor</span>; context?: <span class="t">ChatContext</span>
-  tools?: <span class="t">AgentToolHost</span>         <span class="c">// the localreview tool layer for this turn</span>
+  tools?: <span class="t">AgentToolHost</span>         <span class="c">// the limn tool layer for this turn</span>
   writeEnabled?: <span class="t">boolean</span>        <span class="c">// branch + clean tree preconditions met</span>
   opId?: <span class="t">string</span>                 <span class="c">// keys the approval registry</span>
   executionMode?: <span class="t">ExecutionMode</span>  <span class="c">// the chat's autonomy tier</span>
@@ -246,7 +246,7 @@
 
   <!-- ─────────────────────────────────────────── -->
   <h2 id="sessions"><span class="n">06</span>Sessions &amp; resume</h2>
-  <p>Each agent SDK keeps its own conversation store keyed by a session/thread id. local-review captures that id and reuses it so chat and batch <b>continue the same conversation that produced the review</b> — the agent still "remembers" the files it read and the reasoning it did.</p>
+  <p>Each agent SDK keeps its own conversation store keyed by a session/thread id. Limn captures that id and reuses it so chat and batch <b>continue the same conversation that produced the review</b> — the agent still "remembers" the files it read and the reasoning it did.</p>
   <div class="flow">
     <div class="step"><div class="lbl">generate</div><div class="ttl">new session</div><div class="dsc">Claude: id from <code>system/init</code> + result · Codex: <code>thread.id</code></div></div>
     <div class="step"><div class="lbl">persist</div><div class="ttl">on iteration / thread</div><div class="dsc">stored as <code>engineSessionId</code></div></div>
@@ -321,14 +321,14 @@
     <tr><td><code>edit_review</code></td><td>Amend title / summary / a section's <code>what</code>/<code>desc</code> in place</td><td></td></tr>
     <tr><td><code>commit_changes</code></td><td><code>git add -A</code> + commit, record an iteration, attach resolutions</td><td><span class="pill write">write</span></td></tr>
   </table>
-  <p>The same <code>LR_TOOLS</code> array reaches each SDK differently:</p>
+  <p>The same <code>LIMN_TOOLS</code> array reaches each SDK differently:</p>
   <div class="chan">
-    <div class="box"><h4><span class="pill claude">Claude</span> in-process MCP</h4><p><code>createSdkMcpServer</code> + <code>tool(name, desc, shape, handler)</code> consumes the Zod shape directly. Allowed names are prefixed <code>mcp__localreview__*</code>.</p></div>
-    <div class="box"><h4><span class="pill codex">Codex</span> external MCP</h4><p>A per-turn localhost MCP server (<code>registerCodexTurn</code>) reflects the same shapes into JSON Schema; Codex is pointed at it via <code>config.mcp_servers.localreview.url</code>.</p></div>
+    <div class="box"><h4><span class="pill claude">Claude</span> in-process MCP</h4><p><code>createSdkMcpServer</code> + <code>tool(name, desc, shape, handler)</code> consumes the Zod shape directly. Allowed names are prefixed <code>mcp__limn__*</code>.</p></div>
+    <div class="box"><h4><span class="pill codex">Codex</span> external MCP</h4><p>A per-turn localhost MCP server (<code>registerCodexTurn</code>) reflects the same shapes into JSON Schema; Codex is pointed at it via <code>config.mcp_servers.limn.url</code>.</p></div>
   </div>
   <p>Write tools are <b>withheld</b> unless the turn is write-enabled — the agent silently degrades to review/comment-only rather than failing:</p>
-<pre><code><span class="k">export function</span> <span class="f">lrAllowedToolNames</span>(writeEnabled = <span class="p">false</span>): <span class="t">string</span>[] {
-  <span class="k">return</span> TOOL_IMPLS.filter(t =&gt; writeEnabled || !t.write).map(t =&gt; <span class="s">`mcp__localreview__${t.name}`</span>)
+<pre><code><span class="k">export function</span> <span class="f">limnAllowedToolNames</span>(writeEnabled = <span class="p">false</span>): <span class="t">string</span>[] {
+  <span class="k">return</span> TOOL_IMPLS.filter(t =&gt; writeEnabled || !t.write).map(t =&gt; <span class="s">`mcp__limn__${t.name}`</span>)
 }</code></pre>
   <p>Each tool call validates its args against the Zod shape, runs the handler, and — if the handler produced one — emits a live <code>AgentAction</code> event <i>and</i> collects it for persistence on the chat message (so chips rebuild on reload):</p>
 <pre><code><span class="k">async</span> <span class="f">call</span>(name, args) {
@@ -356,7 +356,7 @@
 }
 <span class="c">// respondApproval IPC → resolveDecision(opId, requestId, decision) → unblocks the promise</span>
 <span class="c">// clearPending(opId) auto-denies every parked request on cancel / turn end (no leak)</span></code></pre>
-  <p>On Claude, the SDK's <code>canUseTool</code> callback is the gate: localreview + read-safe tools auto-allow; Bash/Edit/Write park on <code>awaitDecision</code>. The raw tool call is normalized into an engine-agnostic <code>ApprovalRequest</code> (<code>toApprovalRequest</code>) so the same card renders for either engine.</p>
+  <p>On Claude, the SDK's <code>canUseTool</code> callback is the gate: limn + read-safe tools auto-allow; Bash/Edit/Write park on <code>awaitDecision</code>. The raw tool call is normalized into an engine-agnostic <code>ApprovalRequest</code> (<code>toApprovalRequest</code>) so the same card renders for either engine.</p>
   <div class="warn"><b>No timeout anywhere.</b> A parked approval — and a wedged run — waits until the reviewer answers or cancels.</div>
 
   <!-- ─────────────────────────────────────────── -->
@@ -366,7 +366,7 @@
   | { type: <span class="s">'status'</span>; text }              <span class="c">// "Codex is working…", reasoning snippets, notes</span>
   | { type: <span class="s">'tool'</span>; call: <span class="t">ToolCall</span> }       <span class="c">// tool-call lifecycle (run → ok/err), same id</span>
   | { type: <span class="s">'text'</span>; text }                <span class="c">// streamed assistant text (chat)</span>
-  | { type: <span class="s">'action'</span>; action: <span class="t">AgentAction</span> } <span class="c">// LR tool effect (focus, comment_added, code_committed…)</span>
+  | { type: <span class="s">'action'</span>; action: <span class="t">AgentAction</span> } <span class="c">// Limn tool effect (focus, comment_added, code_committed…)</span>
   | { type: <span class="s">'approval_request'</span>; request }  <span class="c">// needs reviewer go-ahead</span>
   | { type: <span class="s">'done'</span> }
   | { type: <span class="s">'error'</span>; message }</code></pre>
@@ -432,7 +432,7 @@
     <tr><td>Session id</td><td>from <code>system/init</code> + terminal <code>result</code></td><td><code>thread.id</code></td></tr>
     <tr><td>Structured output</td><td>first-class <code>structured_output</code></td><td>final message text → <code>parseJson</code> (fence-tolerant)</td></tr>
     <tr><td>Reasoning effort</td><td><code>effort</code> option, <code>low→max</code> (drops Codex-only <code>minimal</code>)</td><td><code>modelReasoningEffort</code>, <code>minimal→xhigh</code> (drops Claude-only <code>max</code>)</td></tr>
-    <tr><td>LR tools hosting</td><td>in-process MCP server (<code>createSdkMcpServer</code>)</td><td>per-turn localhost MCP server</td></tr>
+    <tr><td>Limn tools hosting</td><td>in-process MCP server (<code>createSdkMcpServer</code>)</td><td>per-turn localhost MCP server</td></tr>
     <tr><td>Approvals</td><td><code>canUseTool</code> parks on <code>awaitDecision</code></td><td>app-server path (opt-in) for interactive approvals; default one-shot</td></tr>
   </table>
   <p>The shared <code>ReasoningEffort</code> union spans both ladders (<code>minimal | low | medium | high | xhigh | max</code>); each model's <code>reasoningEfforts</code> in the catalog (<code>shared/agents.ts</code>) gates which values the UI offers. <code>model</code>/<code>effort</code> left undefined means <b>Auto</b> — let the CLI pick its default.</p>

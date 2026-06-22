@@ -17,22 +17,22 @@ export function SessionRow({ s, repoName, onRepoClick, onOpen, onDelete, onResto
 }) {
   const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'generated' : 'not generated'
   const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
-  const cls = 'lr-sess' + (active ? ' active' : '') + (selected ? ' sel' : '') + (s.archived ? ' archived' : '')
+  const cls = 'limn-sess' + (active ? ' active' : '') + (selected ? ' sel' : '') + (s.archived ? ' archived' : '')
   return (
     <div className={cls} onClick={onOpen} title={s.title ?? `Session #${s.id}`}>
       {repoName && (
-        <button className="lr-sess-repo" title="All sessions for this repo"
+        <button className="limn-sess-repo" title="All sessions for this repo"
           onClick={(e) => { e.stopPropagation(); onRepoClick?.() }}>{repoName}</button>
       )}
-      {repoName && <span className="lr-chip">{s.compareSymbol}</span>}
-      <span className="lr-sess-title">{s.title ?? `Session #${s.id}`}</span>
+      {repoName && <span className="limn-chip">{s.compareSymbol}</span>}
+      <span className="limn-sess-title">{s.title ?? `Session #${s.id}`}</span>
       <span className="grow" />
-      <span className="lr-sess-age">{ago(s.updatedAt)}</span>
-      <span className={'lr-sess-st ' + statusKind}>{status}</span>
+      <span className="limn-sess-age">{ago(s.updatedAt)}</span>
+      <span className={'limn-sess-st ' + statusKind}>{status}</span>
       {s.archived
-        ? onRestore && <button className="lr-sess-open" title="Restore review" onClick={(e) => { e.stopPropagation(); onRestore() }}>restore</button>
+        ? onRestore && <button className="limn-sess-open" title="Restore review" onClick={(e) => { e.stopPropagation(); onRestore() }}>restore</button>
         : onDelete && (
-          <button className="lr-sess-del" title="Delete review"
+          <button className="limn-sess-del" title="Delete review"
             onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this review? It moves to Archived (recoverable).')) onDelete() }}>
             <I.trash style={{ width: 13, height: 13 }} />
           </button>

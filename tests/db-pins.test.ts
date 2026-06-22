@@ -9,7 +9,7 @@ import type { PinNode } from '../src/shared/types.js'
 
 let db: DatabaseSync
 beforeEach(() => {
-  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-pins-')), 'db')).db
+  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-pins-')), 'db')).db
 })
 
 const tree: PinNode = { name: 'work', relPath: '', kind: 'dir', children: [

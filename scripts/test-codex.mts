@@ -12,7 +12,7 @@ import { CodexEngine } from '../src/main/engines/codex'
 import type { AgentAction, EngineEvent, RefPair } from '../src/shared/types'
 
 const fx = makeFixtureRepo()
-const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-codex-')), 'db')).db
+const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-codex-')), 'db')).db
 const pair: RefPair = {
   base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
@@ -29,7 +29,7 @@ const host = createToolHost({
 const engine = new CodexEngine()
 const run = engine.chat({
   repo: fx.dir,
-  message: 'Call the localreview "focus" tool with target {"kind":"diff","file":"src/a.ts","side":"new","line":2} to point the reviewer at the changed return. Then reply in one short sentence that you did it.',
+  message: 'Call the limn "focus" tool with target {"kind":"diff","file":"src/a.ts","side":"new","line":2} to point the reviewer at the changed return. Then reply in one short sentence that you did it.',
   tools: host
 })
 

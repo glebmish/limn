@@ -62,16 +62,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // dev-only: activate a specific seeded chat for screenshots
   const pinnedDev = useRef(false)
   useEffect(() => {
-    const want = window.lrDev?.activeChat
+    const want = window.limnDev?.activeChat
     if (pinnedDev.current || want == null || !chats.some((c) => c.id === want)) return
     pinnedDev.current = true
     store.switchChat(want)
   }, [chats, store])
 
-  // dev-only: LR_RUN_CHAT=<text> auto-sends one chat turn (screenshot the tool-call log)
+  // dev-only: LIMN_RUN_CHAT=<text> auto-sends one chat turn (screenshot the tool-call log)
   const ranChat = useRef(false)
   useEffect(() => {
-    const text = window.lrDev?.runChat
+    const text = window.limnDev?.runChat
     if (ranChat.current || !text || !active || gen.running) return
     ranChat.current = true
     setTimeout(() => store.sendChat(text), 400)
@@ -164,7 +164,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 <div className="chat-bubble">
                   <ToolCallLog calls={liveCalls} />
                   {partial ? <Markdown text={partial} /> : (
-                    <div className="tstatus"><span className="lr-spin" />{statusLine?.text ?? 'thinking…'}</div>
+                    <div className="tstatus"><span className="limn-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
                   {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} />}
                 </div>

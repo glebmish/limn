@@ -3,7 +3,7 @@ import type { RendererApi } from '../shared/ipc'
 declare global {
   interface Window {
     api: RendererApi
-    lrDev?: {
+    limnDev?: {
       flow: string | null
       openSession?: string | null
       /** dev-only: open the repo hub for this repo path */

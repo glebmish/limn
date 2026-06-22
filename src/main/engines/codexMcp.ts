@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { LR_TOOLS, type AgentToolHost } from './tools.js'
+import { LIMN_TOOLS, type AgentToolHost } from './tools.js'
 
 // Codex hosts custom tools only through external MCP servers: the `codex exec`
 // subprocess (not our process) opens the connection, so we run a localhost
@@ -38,7 +38,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
   for await (const c of req) chunks.push(c as Buffer)
   let body: unknown
   if (chunks.length) { try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { /* GET / no body */ } }
-  if (process.env.LR_MCP_DEBUG) {
+  if (process.env.LIMN_MCP_DEBUG) {
     const method = (body as { method?: string } | undefined)?.method
     console.error(`[mcp] ${req.method} ${req.url} → ${method ?? '(no method)'} session=${req.headers['mcp-session-id'] ?? '-'}`)
   }
@@ -50,10 +50,10 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
 export async function registerCodexTurn(host: AgentToolHost): Promise<{ url: string; release: () => Promise<void> }> {
   const port = await ensureServer()
   const token = randomUUID()
-  const server = new McpServer({ name: 'localreview', version: '1.0.0' })
-  for (const td of LR_TOOLS) {
+  const server = new McpServer({ name: 'limn', version: '1.0.0' })
+  for (const td of LIMN_TOOLS) {
     server.registerTool(td.name, { description: td.description, inputSchema: td.input }, async (args: unknown) => {
-      if (process.env.LR_MCP_DEBUG) console.error(`[mcp] tool ${td.name} invoked: ${JSON.stringify(args)}`)
+      if (process.env.LIMN_MCP_DEBUG) console.error(`[mcp] tool ${td.name} invoked: ${JSON.stringify(args)}`)
       const { result, isError } = await host.call(td.name, args)
       return { content: [{ type: 'text' as const, text: result }], isError }
     })

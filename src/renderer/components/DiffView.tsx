@@ -88,7 +88,7 @@ export function DiffView({ f, plainNote }: {
       <span className="gfile-cmt-zone" />
       <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
       <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
-      <div className="gfile-head" data-lr-file={f.path}>
+      <div className="gfile-head" data-limn-file={f.path}>
         <span className="pth">
           <span className={'ficon ' + ficonClass(f.path)}></span>
           <span><span className="dim">{dir}</span>{name}</span>
@@ -180,13 +180,13 @@ export function DiffView({ f, plainNote }: {
                   <Fragment key={j}>
                     <div
                       className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}
-                      data-lr-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
+                      data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
                     >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
                       <CodeLine text={l.text} lang={lang} ranges={wordMarks[i]?.get(j)} />
                       <button
-                        className="gutter-add lr-line-add"
+                        className="gutter-add limn-line-add"
                         title="Comment on this line"
                         onClick={() => setComposerAt({ line: lineNo!, side, hunkRange: h.range, content: l.text })}
                       >

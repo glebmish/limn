@@ -1,6 +1,6 @@
 /* Screenshot seed (dev only) for the transient-review default entry: builds a
  * fixture repo (main..feature diff + a recognized spec/plan) and an EMPTY db (no
- * sessions). Launch Electron with LR_DB=<db> LR_OPEN_REPO=<repo> to land directly
+ * sessions). Launch Electron with LIMN_DB=<db> LIMN_OPEN_REPO=<repo> to land directly
  * on the transient review (no session row) — the default entry. Prints {repo, db}. */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -17,7 +17,7 @@ fixtureGit(fx.dir, 'add', '-A')
 fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
 
 // fresh, empty db — no sessions, so opening the repo lands on a transient review
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-transient-')), 'local-review.db')
+const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-transient-')), 'limn.db')
 openDb(dbFile)
 
 console.log(JSON.stringify({ repo: fx.dir, db: dbFile }))

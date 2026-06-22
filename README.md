@@ -1,4 +1,4 @@
-# local-review
+# limn
 
 A native macOS app for **agentic review of local git branches** — before the code leaves your machine.
 
@@ -10,13 +10,13 @@ Git is ground truth throughout: diffs are always parsed from `git diff`; the age
 
 ```bash
 npm install
-npm run package          # → dist/mac-arm64/local-review.app
+npm run package          # → dist/mac-arm64/limn.app
 ```
 
-Move `local-review.app` to `/Applications` (or run in place). The build is unsigned — on first launch, right-click → Open, or:
+Move `limn.app` to `/Applications` (or run in place). The build is unsigned — on first launch, right-click → Open, or:
 
 ```bash
-xattr -dr com.apple.quarantine dist/mac-arm64/local-review.app
+xattr -dr com.apple.quarantine dist/mac-arm64/limn.app
 ```
 
 ## Prerequisites
@@ -53,22 +53,22 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 ### Command-line tool
 
-Install the `lr` shim from the app menu (**local-review → Install Command-Line Tool…**).
+Install the `limn` shim from the app menu (**Limn → Install Command-Line Tool…**).
 Then, from any git repo:
 
 ```bash
-lr                            # review the current branch of the repo containing the cwd
-lr --branch wip               # review a specific branch
-lr --base main --branch wip   # set the base too
-lr /path/to/repo              # a specific repo
-lr --new                      # a fresh review (don't resume an existing one)
-lr --hub                      # open the repo's session list
-lr --help                     # usage
+limn                            # review the current branch of the repo containing the cwd
+limn --branch wip               # review a specific branch
+limn --base main --branch wip   # set the base too
+limn /path/to/repo              # a specific repo
+limn --new                      # a fresh review (don't resume an existing one)
+limn --hub                      # open the repo's session list
+limn --help                     # usage
 ```
 
-Bare `lr` lands on the review for the current branch — resuming the latest saved
+Bare `limn` lands on the review for the current branch — resuming the latest saved
 session for it, or a fresh (unsaved) **Draft** otherwise (`--compare` is still accepted
-as an alias for `--branch`). `lr` reuses the running app (focusing and navigating it) or
+as an alias for `--branch`). `limn` reuses the running app (focusing and navigating it) or
 launches it. Outside a git repo, the app opens on the Dashboard with an explanatory toast.
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), the drift banner and "since you reviewed" diffs update live, and you get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
@@ -83,8 +83,8 @@ npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO,
 npm run typecheck
 ```
 
-Useful dev env vars: `LR_DEMO=1` (deterministic fake engine), `LR_OPEN_REPO` / `LR_OPEN_BRANCH` (open straight to the review for a repo/branch — these map onto the `lr` CLI open path), `LR_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LR_SHOT=/path.png` (capture the window, with `LR_SHOT_DELAY` / `LR_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch — these map onto the `limn` CLI open path), `LIMN_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LIMN_SHOT=/path.png` (capture the window, with `LIMN_SHOT_DELAY` / `LIMN_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
 
-**Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LR_DB` / `LR_OPEN_SESSION` + the dev hooks `LR_ACTIVE_CHAT=<id>` (activate a chat), `LR_OPEN_PICKER=1` (open the agent popover), `LR_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
+**Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LIMN_DB` / `LIMN_OPEN_SESSION` + the dev hooks `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 
 Design source: the Guided Review wireframes in `docs/superpowers/specs/` (see the design spec for architecture and decisions).

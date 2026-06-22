@@ -6,15 +6,15 @@ function attr(v: string): string {
   return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-/** The `data-lr-*` selector a FocusTarget resolves to inside `.gmain`. The diff
+/** The `data-limn-*` selector a FocusTarget resolves to inside `.gmain`. The diff
  *  case keys on `file:side:line` only — `focusAnchor` never needs the anchor's
  *  hunkRange/lineContent. */
-export function lrSelector(a: FocusTarget): string {
+export function limnSelector(a: FocusTarget): string {
   switch (a.kind) {
-    case 'summary': return '[data-lr-summary]'
-    case 'section': return `[data-lr-section="${attr(a.sectionId)}"]`
-    case 'file': return `[data-lr-file="${attr(a.file)}"]`
-    case 'diff': return `[data-lr-line="${attr(`${a.file}:${a.side}:${a.line}`)}"]`
+    case 'summary': return '[data-limn-summary]'
+    case 'section': return `[data-limn-section="${attr(a.sectionId)}"]`
+    case 'file': return `[data-limn-file="${attr(a.file)}"]`
+    case 'diff': return `[data-limn-line="${attr(`${a.file}:${a.side}:${a.line}`)}"]`
   }
 }
 
@@ -27,24 +27,24 @@ function scrollWithin(main: HTMLElement, el: HTMLElement): void {
 
 function flash(el: HTMLElement): void {
   const badge = document.createElement('div')
-  badge.className = 'lr-focus-badge'
+  badge.className = 'limn-focus-badge'
   badge.textContent = 'focus'
   document.body.appendChild(badge)
   const r = el.getBoundingClientRect()
   badge.style.top = `${Math.max(8, r.top + 4)}px`
   badge.style.left = `${Math.max(8, r.right - 52)}px`
 
-  if (window.lrDev?.holdFocus) {
+  if (window.limnDev?.holdFocus) {
     // dev: a static highlight (the animation ends transparent) for a clean capture
-    el.classList.add('lr-flash-hold')
+    el.classList.add('limn-flash-hold')
     return
   }
   // re-trigger the CSS animation even if the element is already flashed
-  el.classList.remove('lr-flash')
+  el.classList.remove('limn-flash')
   void el.offsetWidth
-  el.classList.add('lr-flash')
+  el.classList.add('limn-flash')
   window.setTimeout(() => {
-    el.classList.remove('lr-flash')
+    el.classList.remove('limn-flash')
     badge.remove()
   }, FLASH_MS)
 }
@@ -52,7 +52,7 @@ function flash(el: HTMLElement): void {
 /** Scroll the review to a target and briefly highlight it. Ensures the target is
  *  rendered first (a collapsed/viewed file or a reviewed section is force-shown via
  *  a transient `focusTarget`, without touching `viewedAt`/`reviewedSections`), then
- *  resolves the `data-lr-*` node and flashes it. Reused by focus chips. */
+ *  resolves the `data-limn-*` node and flashes it. Reused by focus chips. */
 export function focusAnchor(anchor: FocusTarget): void {
   const st = useStore.getState()
   st.setFocusTarget(
@@ -60,7 +60,7 @@ export function focusAnchor(anchor: FocusTarget): void {
       : anchor.kind === 'file' || anchor.kind === 'diff' ? { file: anchor.file }
         : null
   )
-  const sel = lrSelector(anchor)
+  const sel = limnSelector(anchor)
   let tries = 0
   const tick = (): void => {
     const main = document.querySelector<HTMLElement>('.gmain')

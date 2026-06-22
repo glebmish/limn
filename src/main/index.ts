@@ -55,28 +55,28 @@ function createWindow(): void {
     win.loadFile(path.join(import.meta.dirname, '../renderer/index.html'))
   }
 
-  if (process.env.LR_SHOT || process.env.ELECTRON_RENDERER_URL) {
+  if (process.env.LIMN_SHOT || process.env.ELECTRON_RENDERER_URL) {
     win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
       console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
     })
   }
 
-  // dev-only visual smoke: LR_SHOT=/path.png captures the window after load
+  // dev-only visual smoke: LIMN_SHOT=/path.png captures the window after load
   // (and quits, so a harness can take several shots sequentially).
-  const shot = process.env.LR_SHOT
+  const shot = process.env.LIMN_SHOT
   if (shot) {
     setTimeout(() => {
       void win.webContents.capturePage().then((img) => {
         fsWriteShot(shot, img.toPNG())
-        if (process.env.LR_SHOT_QUIT) setTimeout(() => app.quit(), 200)
+        if (process.env.LIMN_SHOT_QUIT) setTimeout(() => app.quit(), 200)
       })
-    }, parseInt(process.env.LR_SHOT_DELAY ?? '9000', 10))
+    }, parseInt(process.env.LIMN_SHOT_DELAY ?? '9000', 10))
   }
 }
 
 function devCliArgs(): CliArgs | null {
-  if (process.env.LR_OPEN_REPO) {
-    return { dir: process.env.LR_OPEN_REPO, compare: process.env.LR_OPEN_BRANCH || undefined }
+  if (process.env.LIMN_OPEN_REPO) {
+    return { dir: process.env.LIMN_OPEN_REPO, compare: process.env.LIMN_OPEN_BRANCH || undefined }
   }
   return null
 }
@@ -122,8 +122,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     bootstrapPath()
-    // LR_DB (dev/screenshot only) points the app at a pre-seeded database.
-    const { db, recoveredFrom } = openDb(process.env.LR_DB || path.join(app.getPath('userData'), 'local-review.db'))
+    // LIMN_DB (dev/screenshot only) points the app at a pre-seeded database.
+    const { db, recoveredFrom } = openDb(process.env.LIMN_DB || path.join(app.getPath('userData'), 'limn.db'))
     const notices = recoveredFrom
       ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
       : []

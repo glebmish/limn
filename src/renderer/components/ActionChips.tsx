@@ -44,7 +44,7 @@ function anchorShort(a: CommentAnchor): string {
 function CommentChip({ anchor, verb, badge }: { anchor: CommentAnchor; verb: string; badge?: React.ReactNode }) {
   const ft = asFocusTarget(anchor)
   return (
-    <button className="lr-chip" title={ft ? 'Show in the review' : undefined} disabled={!ft} onClick={() => ft && focusAnchor(ft)}>
+    <button className="limn-chip" title={ft ? 'Show in the review' : undefined} disabled={!ft} onClick={() => ft && focusAnchor(ft)}>
       <I.bubble style={{ width: 11, height: 11 }} />{verb} {anchorShort(anchor)}{badge}
     </button>
   )
@@ -61,13 +61,13 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
   const targets = [...files.map(base), ...sectionIds.map(() => 'section')].join(', ')
 
   if (state === 'done') {
-    return <div className="lr-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {count === 1 ? targets : `${count} viewed`}</div>
+    return <div className="limn-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {count === 1 ? targets : `${count} viewed`}</div>
   }
   if (state === 'dismissed') {
-    return <div className="lr-suggest dismissed">Suggestion dismissed</div>
+    return <div className="limn-suggest dismissed">Suggestion dismissed</div>
   }
   return (
-    <div className="lr-suggest">
+    <div className="limn-suggest">
       <div className="ls-head"><I.eye style={{ width: 12, height: 12 }} />Mark viewed?<span className="ls-targets" title={targets}>{targets}</span></div>
       {action.note && <div className="ls-note">{action.note}</div>}
       <div className="ls-sub">A suggestion only — nothing changes until you confirm.</div>
@@ -87,7 +87,7 @@ function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
   switch (action.kind) {
     case 'focus':
       return (
-        <button className="lr-chip" title="Re-focus this in the review" onClick={() => focusAnchor(action.anchor)}>
+        <button className="limn-chip" title="Re-focus this in the review" onClick={() => focusAnchor(action.anchor)}>
           <I.eye style={{ width: 11, height: 11 }} />jumped to {focusLabel(action.anchor)}
         </button>
       )
@@ -99,21 +99,21 @@ function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
       return <CommentChip anchor={action.anchor} verb="replied to" />
     case 'comment_resolved':
       return <CommentChip anchor={action.anchor} verb="resolved"
-        badge={<span className={'lr-verdict ' + action.verdict}>{VERDICT_ICON[action.verdict]} {action.verdict}</span>} />
+        badge={<span className={'limn-verdict ' + action.verdict}>{VERDICT_ICON[action.verdict]} {action.verdict}</span>} />
     case 'review_edited': {
       const target: FocusTarget = action.sectionId ? { kind: 'section', sectionId: action.sectionId } : { kind: 'summary' }
       const what = action.field === 'title' ? 'the title'
         : action.field === 'summary' ? 'the summary'
           : 'a section'
       return (
-        <button className="lr-chip" title="Show in the review" onClick={() => focusAnchor(target)}>
+        <button className="limn-chip" title="Show in the review" onClick={() => focusAnchor(target)}>
           <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />edited {what}
         </button>
       )
     }
     case 'code_committed':
       return (
-        <span className="lr-chip committed" title={action.message}>
+        <span className="limn-chip committed" title={action.message}>
           <I.changed style={{ width: 11, height: 11 }} />committed {action.sha} · {action.files.length} file{action.files.length === 1 ? '' : 's'}
         </span>
       )
@@ -126,7 +126,7 @@ function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
 export function ActionChips({ actions, engine }: { actions: AgentAction[]; engine?: EngineId }) {
   if (!actions.length) return null
   return (
-    <div className="lr-chips">
+    <div className="limn-chips">
       {actions.map((a, i) => <Chip key={i} action={a} engine={engine} />)}
     </div>
   )

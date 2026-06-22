@@ -12,7 +12,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
   onSwitch: (id: number) => void
   onNew: () => void
 }) {
-  const [open, setOpen] = useState(Boolean(window.lrDev?.openChatList))
+  const [open, setOpen] = useState(Boolean(window.limnDev?.openChatList))
   const wrap = useRef<HTMLDivElement>(null)
   const active = chats.find((c) => c.id === activeId) ?? null
 

@@ -19,7 +19,7 @@ beforeAll(() => {
   fx = makeFixtureRepo()
   // make sure the primary tree is clean and on main for predictable switching
   git(fx.dir, 'checkout', '-q', 'main')
-  linked = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-wt-'))
+  linked = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-wt-'))
   git(fx.dir, 'worktree', 'add', '-q', linked, 'feature')
 })
 

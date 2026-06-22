@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>local-review · Data Model & Entity Lifecycle</title>
+<title>Limn · Data Model & Entity Lifecycle</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -129,7 +129,7 @@
 <body>
 <div class="wrap">
 <nav>
-  <div class="brand">local<span class="dot">·</span>review</div>
+  <div class="brand">Limn</div>
   <div class="tag">data model & lifecycle</div>
   <a href="#overview">Overview</a>
   <a href="#graph">Entity graph</a>
@@ -154,7 +154,7 @@
 
 <main>
   <h1>Data Model &amp; Entity Lifecycle</h1>
-  <p class="lede"><code>local-review</code> is an Electron app for agentic review of local git branches. Its data lives in two places at once — and that split is the whole architecture.</p>
+  <p class="lede"><code>limn</code> is an Electron app for agentic review of local git branches. Its data lives in two places at once — and that split is the whole architecture.</p>
   <p class="muted" style="font-size:13px;font-family:var(--mono)">Generated from <code>src/shared/types.ts</code> · <code>src/main/db/migrations.ts</code> · <code>src/main/ipc.ts</code></p>
 
   <h2 id="overview">Two persistence philosophies</h2>
@@ -168,7 +168,7 @@
     <div class="card db">
       <div class="ic">one SQLite file · WAL · single-writer</div>
       <h4>The review layer is stored</h4>
-      <p style="margin:6px 0 0;font-size:13.5px">Sessions, comments, chat threads/messages, iterations, approvals, viewed/reviewed sets and prefs live in <code>&lt;userData&gt;/local-review.db</code> via Node's built-in <code>node:sqlite</code> (<code>DatabaseSync</code>).</p>
+      <p style="margin:6px 0 0;font-size:13.5px">Sessions, comments, chat threads/messages, iterations, approvals, viewed/reviewed sets and prefs live in <code>&lt;userData&gt;/limn.db</code> via Node's built-in <code>node:sqlite</code> (<code>DatabaseSync</code>).</p>
     </div>
   </div>
   <div class="note key">
@@ -409,12 +409,12 @@
     <div class="card db">
       <div class="ic">primary store</div>
       <h4>SQLite</h4>
-      <p style="margin:6px 0 0;font-size:13.5px"><code>&lt;userData&gt;/local-review.db</code> (WAL; <code>-wal</code>/<code>-shm</code> sidecars). Opened once at app-ready; the handle is threaded explicitly into every DAO (no module global, so tests use throwaway temp DBs). Forward-only integer <code>MIGRATIONS[]</code> against <code>meta.schema_version</code>, each in a <code>BEGIN/COMMIT</code>.</p>
+      <p style="margin:6px 0 0;font-size:13.5px"><code>&lt;userData&gt;/limn.db</code> (WAL; <code>-wal</code>/<code>-shm</code> sidecars). Opened once at app-ready; the handle is threaded explicitly into every DAO (no module global, so tests use throwaway temp DBs). Forward-only integer <code>MIGRATIONS[]</code> against <code>meta.schema_version</code>, each in a <code>BEGIN/COMMIT</code>.</p>
     </div>
     <div class="card git">
       <div class="ic">import-only legacy</div>
       <h4>Filesystem JSON</h4>
-      <p style="margin:6px 0 0;font-size:13.5px">The old format was per-file <code>&lt;repo&gt;/.local-review/review-*.json</code>. On <code>openRepo</code>/<code>startSession</code> these are migrated into SQLite, then renamed <code>*.imported</code> (idempotent: skip if a session already exists).</p>
+      <p style="margin:6px 0 0;font-size:13.5px">The old format was per-file <code>&lt;repo&gt;/.limn/review-*.json</code>. On <code>openRepo</code>/<code>startSession</code> these are migrated into SQLite, then renamed <code>*.imported</code> (idempotent: skip if a session already exists).</p>
     </div>
   </div>
 
@@ -436,7 +436,7 @@
   </div>
 
   <footer>
-    local-review · data model &amp; entity lifecycle · generated from source. Open this file in a browser or serve the <code>docs/</code> folder over HTTP.
+    Limn · data model &amp; entity lifecycle · generated from source. Open this file in a browser or serve the <code>docs/</code> folder over HTTP.
   </footer>
 </main>
 </div>

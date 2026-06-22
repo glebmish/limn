@@ -342,7 +342,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
-      // the localreview tool layer for this turn: focus/suggest run live (read-only
+      // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled: false,

@@ -1,5 +1,5 @@
 {
-  "name": "local-review",
+  "name": "limn",
   "version": "1.0.0",
   "description": "Agentic local branch review — guided code review backed by Claude or Codex",
   "main": "out/main/index.js",

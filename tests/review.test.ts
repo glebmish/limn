@@ -15,7 +15,7 @@ let db: DatabaseSync
 /** A repo with a recognized superpowers spec added on the feature branch, so the
  *  artifact detector surfaces it from the diff (exercises the persist flag). */
 function makeRepoWithArtifact(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-rev-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-rev-'))
   git(dir, 'init', '-b', 'main')
   write(dir, 'src/a.ts', 'export const a = 1\n')
   git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'base')
@@ -32,7 +32,7 @@ const count = (table: string): number =>
   (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
 
 beforeEach(() => {
-  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-revdb-')), 'db')).db
+  db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-revdb-')), 'db')).db
 })
 
 describe('previewReview', () => {

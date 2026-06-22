@@ -1,5 +1,5 @@
-appId: dev.glebmish.local-review
-productName: local-review
+appId: dev.glebmish.limn
+productName: limn
 directories:
   output: dist
   buildResources: build

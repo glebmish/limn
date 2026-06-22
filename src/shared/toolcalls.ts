@@ -8,8 +8,8 @@ const VERB_TABLE: [RegExp, ToolVerb][] = [
   [/^(bash|shell|command_execution|commit_changes)$/i, 'bash'],
 ]
 
-/** Map a raw engine/tool name to a display verb. localreview MCP tools
- *  (`mcp__localreview__add_comment`, `reply_to_comment`, …) fall through to a
+/** Map a raw engine/tool name to a display verb. limn MCP tools
+ *  (`mcp__limn__add_comment`, `reply_to_comment`, …) fall through to a
  *  sensible bucket; anything unrecognised is `other`. */
 export function deriveVerb(name: string): ToolVerb {
   const bare = name.replace(/^mcp__[^_]+__/, '')

@@ -1,6 +1,6 @@
 # Agent (Engine) Layer
 
-How local-review drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
+How Limn drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
 > **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives in `src/main/engines/` and is orchestrated by `src/main/ipc.ts`.
 >
@@ -34,7 +34,7 @@ interface EngineRun<T> {
 
 The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC channel `op:event`) for live progress while awaiting `result` for the terminal payload (the validated `ReviewAnnotations` for generate; the final assistant text for chat/batch).
 
-- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (an LR-tool side effect — focus, comment_added, code_committed…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its SDK's native event stream into this union via a local `toEvents()`/`toEvent()` mapper.
+- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, code_committed…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its SDK's native event stream into this union via a local `toEvents()`/`toEvent()` mapper.
 - **`EventQueue`** bridges push-style SDK callbacks to a pull-style `AsyncIterable`. It is **single-consumer** (one FIFO waiter queue) and **drops events pushed after `close()`**. It does not surface errors as rejections — errors travel as an `{type:'error'}` event plus a rejected `result` promise.
 
 **`ChatTurn`** (`engines/types.ts`) is the carrier for both chat and batch. Beyond `repo`/`message`/`anchor`/`model`/`reasoningEffort` it threads the context that distinguishes the two: `engineSessionId` (resume this session, else start fresh + seed from `context`), `tools` (the per-turn `AgentToolHost`), `writeEnabled` (code-editing tools allowed this turn), `opId` (keys the approval registry), and `executionMode` (the autonomy tier).
@@ -42,11 +42,11 @@ The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC 
 **Selection** — `makeEngine(id)`:
 
 ```ts
-if (process.env.LR_DEMO === '1') return new FakeEngine()
+if (process.env.LIMN_DEMO === '1') return new FakeEngine()
 return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
 ```
 
-A fresh engine instance is constructed per operation. `LR_DEMO=1` overrides everything.
+A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides everything.
 
 **FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it calls `resolve_comment` and `commit_changes` so the actual commit/iteration/resolution path runs offline. Read-only chat turns exercise the `focus` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
 
@@ -58,8 +58,8 @@ A fresh engine instance is constructed per operation. `LR_DEMO=1` overrides ever
 - **Auth:** delegated to the CLI. `authStatus` reports healthy if `ANTHROPIC_API_KEY` is set or `~/.claude` exists.
 - **Tools / permissions:**
   - `generateReview`: `allowedTools: [Read, Grep, Glob, Bash]`, `permissionMode: 'auto'`. (Bash is allowed even in review, for `git log` / `git show`.)
-  - `chat`/batch: read-safe tools (`Read, Grep, Glob`) auto-allow; the LR MCP tools are added to `allowedTools` (write tools only when `writeEnabled`). `permissionMode` comes from the turn's execution tier (`executionPolicy(...).claudePermissionMode`). `Bash`/`Edit`/`Write` are left out of `allowedTools` so the mode + the `canUseTool` callback gate them; read-only chat additionally sets `disallowedTools: [Edit, Write]`.
-- **Approvals:** the SDK's `canUseTool` callback (`makeCanUseTool`) auto-allows LR + read-safe tools and **parks** every other tool on a reviewer decision via `awaitDecision` (see *Execution modes & approvals*).
+  - `chat`/batch: read-safe tools (`Read, Grep, Glob`) auto-allow; the Limn MCP tools are added to `allowedTools` (write tools only when `writeEnabled`). `permissionMode` comes from the turn's execution tier (`executionPolicy(...).claudePermissionMode`). `Bash`/`Edit`/`Write` are left out of `allowedTools` so the mode + the `canUseTool` callback gate them; read-only chat additionally sets `disallowedTools: [Edit, Write]`.
+- **Approvals:** the SDK's `canUseTool` callback (`makeCanUseTool`) auto-allows Limn + read-safe tools and **parks** every other tool on a reviewer decision via `awaitDecision` (see *Execution modes & approvals*).
 - **Working dir:** the user's repo (`cwd: repo`).
 - **Structured output:** `outputFormat: { type: 'json_schema', schema }`; the terminal `result` message carries `structured_output` (first-class).
 - **Sessions:** the Claude session id is captured from `system/init` and the terminal `result`. A resuming chat/batch turn passes `resume: engineSessionId` to continue the review's conversation; a turn with no session starts fresh (seeded prompt).
@@ -69,8 +69,8 @@ A fresh engine instance is constructed per operation. `LR_DEMO=1` overrides ever
 
 - **SDK:** `@openai/codex-sdk` — `new Codex(...)`, `startThread` / `resumeThread`, `thread.runStreamed(prompt, { outputSchema, signal })` yielding `ThreadEvent`s.
 - **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
-- **Sandbox (the permission analogue):** `sandboxMode: 'read-only'` for review/read-only chat, `'workspace-write'` for write-enabled batch turns. `approvalPolicy` is `'on-request'` (`AUTO_APPROVAL`) throughout the default path — *not* `'never'`, which a guardian/auto-approval-review treats as auto-deny (and would block the localreview MCP tools). `workingDirectory: repo`.
-- **Tools:** the engine-agnostic LR tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and Codex is pointed at it via `config.mcp_servers.localreview.url`; because Codex config is constructor-scoped, a fresh `Codex` is built per tool-enabled turn and released after.
+- **Sandbox (the permission analogue):** `sandboxMode: 'read-only'` for review/read-only chat, `'workspace-write'` for write-enabled batch turns. `approvalPolicy` is `'on-request'` (`AUTO_APPROVAL`) throughout the default path — *not* `'never'`, which a guardian/auto-approval-review treats as auto-deny (and would block the limn MCP tools). `workingDirectory: repo`.
+- **Tools:** the engine-agnostic Limn tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and Codex is pointed at it via `config.mcp_servers.limn.url`; because Codex config is constructor-scoped, a fresh `Codex` is built per tool-enabled turn and released after.
 - **Interactive approvals (opt-in):** when `appServerEnabled()`, chat routes through the bidirectional **app-server** path (`codexAppServer.ts`) which maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events. The default stays the verified one-shot `runStreamed` path.
 - **Sessions:** the thread id is the session id (`startThread` for generate / a fresh chat, `resumeThread` for a continued chat/batch).
 - **Model & effort:** `modelOpts(model, reasoningEffort)` sets `model` and `modelReasoningEffort` on `ThreadOptions` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
@@ -137,8 +137,8 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 | `edit_review` | amend title / summary / a section's `what`/`desc` in place | |
 | `commit_changes` | `git add -A` + commit, record an iteration, attach resolutions | **write** |
 
-- **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex's per-turn localhost MCP server reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__localreview__<name>`.
-- **Withholding writes:** `lrAllowedToolNames(writeEnabled)` drops `write` tools unless the turn is write-enabled, so the agent degrades to review/comment-only rather than failing.
+- **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex's per-turn localhost MCP server reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__limn__<name>`.
+- **Withholding writes:** `limnAllowedToolNames(writeEnabled)` drops `write` tools unless the turn is write-enabled, so the agent degrades to review/comment-only rather than failing.
 - **Call path:** `createToolHost(ctx).call(name, args)` validates args against the Zod shape at the boundary, runs the handler, and — if it produced an `AgentAction` — emits it live (`type:'action'`) *and* collects it for persistence on the chat message (so chips rebuild on reload). A handler throw becomes `{isError:true}` text, not a crash.
 - **The comment id is the join key** that survives the whole batch round-trip: prompt → the agent's `resolve_comment`/`commit_changes` call → the DB row's `resolution`.
 

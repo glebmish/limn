@@ -34,7 +34,7 @@ function allRepoPaths(node: PinNode): string[] {
 }
 
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-scan-'))
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-scan-'))
 })
 afterEach(() => {
   for (const p of chmodded.splice(0)) {
@@ -131,7 +131,7 @@ describe('scanPin', () => {
   })
 
   it.runIf(process.platform !== 'win32')('follows symlinked directories to find repos', () => {
-    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'lr-scan-target-'))
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-scan-target-'))
     fs.mkdirSync(path.join(target, 'linked-repo', '.git'), { recursive: true })
     fs.symlinkSync(target, path.join(root, 'link'))
     const tree = scanPin(root)

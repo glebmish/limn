@@ -8,10 +8,10 @@ const VERB_ICON: Record<ToolVerb, keyof typeof I> = {
   read: 'doc', grep: 'search', edit: 'edit', bash: 'term', list: 'list', other: 'doc',
 }
 
-/** Dev-only: LR_EXPAND_TOOL force-opens rows for a static screenshot
+/** Dev-only: LIMN_EXPAND_TOOL force-opens rows for a static screenshot
  *  ("all" or a comma list of indices like "1,4"). */
 function devExpanded(): Set<number> {
-  const raw = window.lrDev?.expandTool
+  const raw = window.limnDev?.expandTool
   if (!raw) return new Set()
   if (raw === 'all') return new Set(Array.from({ length: 99 }, (_, i) => i))
   return new Set(String(raw).split(',').map((n) => Number(n.trim())).filter((n) => !Number.isNaN(n)))
@@ -38,7 +38,7 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
               <Ico className="tcall-ico" />
               <span className="tcall-verb">{c.verb}</span>
               <span className="tcall-arg" title={c.arg}>{c.arg}</span>
-              {c.state === 'run' && <span className="tcall-stat run"><span className="lr-spin" />running</span>}
+              {c.state === 'run' && <span className="tcall-stat run"><span className="limn-spin" />running</span>}
               {c.state === 'ok' && <span className="tcall-stat ok">{c.meta ?? 'done'}</span>}
               {c.state === 'err' && <span className="tcall-stat err"><I.warn style={{ width: 10, height: 10 }} />failed</span>}
               <Caret className="tcall-cv" />

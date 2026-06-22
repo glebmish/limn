@@ -32,7 +32,7 @@ export function Commentable({ scope, className, children }: {
   }, [])
 
   return (
-    <div ref={ref} className={'lr-commentable' + (className ? ` ${className}` : '')} onMouseUp={() => ref.current && setPill(captureSelection(ref.current))}>
+    <div ref={ref} className={'limn-commentable' + (className ? ` ${className}` : '')} onMouseUp={() => ref.current && setPill(captureSelection(ref.current))}>
       {children}
       {pill && (
         <button

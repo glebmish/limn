@@ -50,7 +50,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       align="right"
       width={320}
       popClass="ws-pop"
-      defaultOpen={Boolean(window.lrDev?.openWorkspace)}
+      defaultOpen={Boolean(window.limnDev?.openWorkspace)}
       trigger={() => (
         <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title="Where this branch is checked out">
           <I.folder style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />

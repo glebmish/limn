@@ -4,7 +4,7 @@ import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type Revi
 import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
-import { LR_TOOLS, lrAllowedToolNames, type AgentToolHost } from './tools.js'
+import { LIMN_TOOLS, limnAllowedToolNames, type AgentToolHost } from './tools.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 import { executionPolicy, DEFAULT_EXECUTION_MODE } from '../../shared/executionMode.js'
 import { awaitDecision } from './approvals.js'
@@ -34,10 +34,10 @@ export function toApprovalRequest(engine: string, toolName: string, input: Recor
  *  shell tools park on a reviewer approval and route the decision back. */
 export function makeCanUseTool(opId: string, emit: (e: EngineEvent) => void): CanUseTool {
   return async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
-    if (toolName.startsWith('mcp__localreview__') || READ_SAFE.includes(toolName)) {
+    if (toolName.startsWith('mcp__limn__') || READ_SAFE.includes(toolName)) {
       return { behavior: 'allow' }
     }
-    const request = toApprovalRequest('claude', toolName, input, `lr-approval-${++approvalSeq}`)
+    const request = toApprovalRequest('claude', toolName, input, `limn-approval-${++approvalSeq}`)
     const decision = await awaitDecision(opId, request, emit)
     return decision === 'deny'
       ? { behavior: 'deny', message: 'Reviewer denied this action.' }
@@ -47,19 +47,19 @@ export function makeCanUseTool(opId: string, emit: (e: EngineEvent) => void): Ca
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 
-/** Host the engine-agnostic LR_TOOLS as an in-process MCP server bound to this
+/** Host the engine-agnostic LIMN_TOOLS as an in-process MCP server bound to this
  *  turn's tool host. The handler runs in main: it performs the side effect, emits
  *  the live action event, and returns the text the model sees. */
-function localReviewMcp(host: AgentToolHost, writeEnabled: boolean): Pick<Options, 'mcpServers' | 'allowedTools'> {
-  const tools = LR_TOOLS.map((td) =>
+function limnMcp(host: AgentToolHost, writeEnabled: boolean): Pick<Options, 'mcpServers' | 'allowedTools'> {
+  const tools = LIMN_TOOLS.map((td) =>
     tool(td.name, td.description, td.input, async (args) => {
       const { result, isError } = await host.call(td.name, args)
       return { content: [{ type: 'text' as const, text: result }], isError }
     })
   )
   return {
-    mcpServers: { localreview: createSdkMcpServer({ name: 'localreview', tools }) },
-    allowedTools: lrAllowedToolNames(writeEnabled)
+    mcpServers: { limn: createSdkMcpServer({ name: 'limn', tools }) },
+    allowedTools: limnAllowedToolNames(writeEnabled)
   }
 }
 
@@ -198,7 +198,7 @@ export class ClaudeEngine implements ReviewEngine {
       : turn.engineSessionId
         ? buildChatPrompt(turn.message, turn.anchor)
         : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
-    const lr = turn.tools ? localReviewMcp(turn.tools, write) : undefined
+    const limn = turn.tools ? limnMcp(turn.tools, write) : undefined
     const permissionMode = executionPolicy(turn.executionMode ?? DEFAULT_EXECUTION_MODE).claudePermissionMode
     // Read-safe tools auto-allow; Bash/Edit/Write are left out of allowedTools so the
     // mode + canUseTool gate them. The reviewer's tier (executionMode) sets the mode.
@@ -209,12 +209,12 @@ export class ClaudeEngine implements ReviewEngine {
         cwd: turn.repo,
         ...(turn.engineSessionId ? { resume: turn.engineSessionId } : {}),
         ...modelOpt(turn.model, turn.reasoningEffort),
-        allowedTools: [...READ_SAFE, ...(lr?.allowedTools ?? [])],
+        allowedTools: [...READ_SAFE, ...(limn?.allowedTools ?? [])],
         permissionMode,
         ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
         ...(canUseTool ? { canUseTool } : {}),
         ...(write ? {} : { disallowedTools: ['Edit', 'Write'] }),
-        ...(lr ? { mcpServers: lr.mcpServers } : {})
+        ...(limn ? { mcpServers: limn.mcpServers } : {})
       },
       q
     )

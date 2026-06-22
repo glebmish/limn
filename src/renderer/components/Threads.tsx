@@ -12,7 +12,7 @@ function AgentId({ agentRef, threadId }: { agentRef?: AgentRef; threadId?: numbe
   const openChat = useStore((s) => s.openChat)
   if (!agentRef) return <><Ava ai>AI</Ava><b>Agent</b></>
   return (
-    <button className="lr-agentid" title="Open this agent's chat" onClick={() => openChat(threadId)}>
+    <button className="limn-agentid" title="Open this agent's chat" onClick={() => openChat(threadId)}>
       <Ava ai>AI</Ava><b>{agentLabel(agentRef)}</b><I.chevR style={{ width: 10, height: 10 }} />
     </button>
   )
@@ -45,7 +45,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (() => {
             const chipAgent = c.agentRef ?? reviewAgent
             return (
-              <button className="lr-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
+              <button className="limn-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
                 <EngineGlyph engine={chipAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
                 {chipAgent ? agentLabel(chipAgent) : 'agent'}
                 {c.status === 'sent' && <span className="dim" style={{ fontWeight: 400 }}> · with agent…</span>}
@@ -135,7 +135,7 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
           {sendNow && agent && (
             <>
               <span className="dim" style={{ margin: '0 1px' }}>→</span>
-              <span className="lr-dest" title="answering goes straight to this agent"><EngineGlyph engine={agent.engine} style={{ width: 11, height: 11 }} />{agentLabel(agent)}</span>
+              <span className="limn-dest" title="answering goes straight to this agent"><EngineGlyph engine={agent.engine} style={{ width: 11, height: 11 }} />{agentLabel(agent)}</span>
             </>
           )}
           <span className="dim" style={sendNow ? { marginLeft: 'auto' } : undefined}>{sendNow ? 'your decision' : 'new comment'}</span>

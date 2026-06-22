@@ -23,7 +23,7 @@ const pair: RefPair = {
   compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
 }
 
-const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lr-seed-')), 'local-review.db')
+const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-seed-')), 'limn.db')
 const { db } = openDb(dbFile)
 const session = createSession(db, fx.dir, pair, { engine: 'claude' })
 updateSessionMeta(db, session.id, {

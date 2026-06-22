@@ -24,7 +24,7 @@ export function Questions() {
   const allDone = questions.every((q) => isResolved(q.id))
 
   return (
-    <div className="gen-cta lr-decision-cmt" style={{ borderStyle: 'solid', borderColor: allDone ? 'var(--line)' : 'var(--amber-line)', background: allDone ? 'var(--panel-2)' : 'var(--amber-soft)' }}>
+    <div className="gen-cta limn-decision-cmt" style={{ borderStyle: 'solid', borderColor: allDone ? 'var(--line)' : 'var(--amber-line)', background: allDone ? 'var(--panel-2)' : 'var(--amber-soft)' }}>
       {nextOpen && !answering && (
         <CmtPlus extra="decision-plus" onClick={() => setAnswering(nextOpen.id)} />
       )}
