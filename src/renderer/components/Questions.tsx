@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { I } from '../kit'
+import { I, CmtPlus } from '../kit'
 import { addComment, sendAnswers } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 
@@ -21,15 +21,14 @@ export function Questions() {
         {questions.map((q) => {
           const answers = comments.filter((c) => c.anchor.kind === 'question' && c.anchor.questionId === q.id)
           return (
-            <div key={q.id} style={{ marginBottom: 8 }}>
+            <div key={q.id} className="lr-qrow">
+              {answers.length === 0 && answering !== q.id && (
+                <CmtPlus extra="decision-plus" onClick={() => setAnswering(q.id)} />
+              )}
               <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}>
                 • {q.text}
                 {q.context && <span className="dim" style={{ marginLeft: 6, fontSize: 11 }}>({q.context})</span>}
-                {answers.length === 0 && answering !== q.id && (
-                  <button className="gfile-regen" style={{ marginLeft: 8 }} onClick={() => setAnswering(q.id)}>
-                    <I.bubble style={{ width: 11, height: 11 }} />Answer
-                  </button>
-                )}
+                <span className="qdecision-tag">decision · sent now</span>
               </div>
               {answers.map((c) => <InlineThread key={c.id} c={c} locLabel="decision" />)}
               {answering === q.id && (

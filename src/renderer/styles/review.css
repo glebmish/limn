@@ -404,6 +404,16 @@
 .gfile .gfile-plus { left: 7px; top: 9px; }
 .gfile:hover .gfile-plus { display: flex; }
 
+/* "Agent needs a decision" — same left +, but AMBER: answering sends to the agent
+   immediately (resolving the question), not a queued comment. + sits inside the
+   row's reserved left padding, so no bridge is needed. */
+.lr-qrow { position: relative; padding-left: 22px; margin-bottom: 8px; }
+.lr-qrow .decision-plus { left: 0; top: 1px; }
+.lr-qrow:hover .decision-plus { display: flex; }
+.spec-plus.decision-plus { background: var(--amber); }
+.qdecision-tag { margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--amber); opacity: .75; white-space: nowrap; }
+
 /* text-selection commenting (Commentable wrapper) */
 .lr-commentable { position: relative; }
 .sel-cmt-pill { position: absolute; transform: translate(-50%, 6px); z-index: 20; display: inline-flex; align-items: center;
