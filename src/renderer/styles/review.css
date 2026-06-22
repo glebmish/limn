@@ -404,15 +404,14 @@
 .gfile .gfile-plus { left: 7px; top: 9px; }
 .gfile:hover .gfile-plus { display: flex; }
 
-/* "Agent needs a decision" — same left +, but AMBER: answering sends to the agent
-   immediately (resolving the question), not a queued comment. + sits inside the
-   row's reserved left padding, so no bridge is needed. */
-.lr-qrow { position: relative; padding-left: 22px; margin-bottom: 8px; }
-.lr-qrow .decision-plus { left: 0; top: 1px; }
-.lr-qrow:hover .decision-plus { display: flex; }
+/* "Agent needs a decision" — one AMBER + for the whole block, in its left gutter
+   (answering sends to the agent now, resolving the question — not a queued comment).
+   Same outside-gutter + hover-bridge pattern as the summary banner. */
+.lr-decision-cmt { position: relative; }
+.lr-decision-cmt::after { content: ""; position: absolute; left: -30px; top: 0; width: 30px; height: 100%; }
+.lr-decision-cmt .decision-plus { left: -26px; top: 50%; margin-top: -9px; }
+.lr-decision-cmt:hover .decision-plus { display: flex; }
 .spec-plus.decision-plus { background: var(--amber); }
-.qdecision-tag { margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .05em;
-  text-transform: uppercase; color: var(--amber); opacity: .75; white-space: nowrap; }
 
 /* text-selection commenting (Commentable wrapper) */
 .lr-commentable { position: relative; }
