@@ -302,6 +302,9 @@ button.lr-chip:hover { background: var(--accent-line); }
 /* anchored to the trigger's right edge so it opens leftward — the agent bar
  * lives in the right sidebar, so a left-anchored popover would overflow. */
 .ag-pop { position: absolute; top: calc(100% + 5px); right: 0; z-index: 30; width: 280px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 14px 40px rgba(0,0,0,.18); padding: 6px; font-family: var(--sans); }
+/* trigger near a horizontally-clipped column's left edge (e.g. the GenPanel
+   regenerate row in .gmain, which is overflow-x:hidden) — open rightward instead. */
+.ag-pop.ag-pop--left { left: 0; right: auto; }
 .ag-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 8px 7px 4px; }
 .ag-opt { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: var(--r-sm); cursor: pointer; }
 .ag-opt:hover { background: var(--panel-2); }

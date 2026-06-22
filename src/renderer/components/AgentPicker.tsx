@@ -8,10 +8,13 @@ import { I, EngineGlyph } from '../kit'
  *  is shown for whichever engine/model declares it — Claude Opus/Sonnet and all
  *  Codex models — and hidden for "Auto" and Haiku. Replaces the old three bare
  *  <select>s. */
-export function AgentPicker({ value, onChange, disabled }: {
+export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   value: AgentRef
   onChange: (a: AgentRef) => void
   disabled?: boolean
+  /** which edge the popover anchors to. 'right' (default) suits a right-sidebar
+   *  trigger; 'left' opens rightward for triggers near a clipped column's left edge. */
+  align?: 'left' | 'right'
 }) {
   const [open, setOpen] = useState(Boolean(window.lrDev?.openPicker))
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
@@ -53,7 +56,7 @@ export function AgentPicker({ value, onChange, disabled }: {
       </button>
 
       {open && (
-        <div className="ag-pop">
+        <div className={'ag-pop' + (align === 'left' ? ' ag-pop--left' : '')}>
           <div className="ag-sec">Engine</div>
           {AGENT_CATALOG.map((c) => {
             const st = auth[c.engine]

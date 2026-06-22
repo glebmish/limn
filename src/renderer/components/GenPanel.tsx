@@ -135,7 +135,7 @@ export function GenPanel() {
           then groups this diff into narrated sections with risk flags.
         </span>
         <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
-        <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
+        <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
         <button className="btn btn-primary" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
         </button>
@@ -153,7 +153,7 @@ export function GenPanel() {
         Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
       </span>
       <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
-      <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
+      <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
       <button className="btn btn-sm" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
         <I.changed style={{ width: 12, height: 12 }} />Regenerate review
       </button>
