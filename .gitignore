@@ -3,7 +3,7 @@ out/
 dist/
 .DS_Store
 *.log
-.local-review/
+.limn/
 
 # brainstorming companion artifacts
 .superpowers/
