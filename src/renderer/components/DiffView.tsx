@@ -84,8 +84,9 @@ export function DiffView({ f, plainNote }: {
         )
 
   return (
-    <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
+    <div className="gfile-wrap">
       <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
+      <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
       <div className="gfile-head" data-lr-file={f.path}>
         <span className="pth">
           <span className={'ficon ' + ficonClass(f.path)}></span>
@@ -222,6 +223,7 @@ export function DiffView({ f, plainNote }: {
           )}
         </div>
       )}
+      </div>
     </div>
   )
 }

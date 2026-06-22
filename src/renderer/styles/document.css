@@ -75,10 +75,10 @@
 .pdoc-md{padding-left:30px}
 .pdoc-md .cmt{position:relative;border-radius:7px}
 .pdoc-md .cmt>.spec-plus{left:-26px;top:3px}
-/* transparent hover-bridge across the gutter so the + stays reachable (see review.css) */
-.pdoc-md .cmt::after{content:"";position:absolute;left:-30px;top:0;width:30px;height:100%}
+/* transparent ::before bridge across the gutter so the + stays reachable (see review.css) */
+.pdoc-md .cmt>.spec-plus::before{content:"";position:absolute;top:-4px;bottom:-4px;left:0;right:-12px}
 .pdoc-md .cmt:hover{background:var(--panel-2)}
-.pdoc-md .cmt:hover>.spec-plus{display:flex}
+.pdoc-md .cmt:hover>.spec-plus,.pdoc-md .cmt>.spec-plus:hover{display:flex}
 .pdoc-md li.cmt:hover::before{opacity:0}
 .pdoc-md .cmt>p:last-child,.pdoc-md .cmt>blockquote:last-child{margin-bottom:0}
 

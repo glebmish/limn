@@ -227,9 +227,8 @@
   border:1px solid var(--amber-line);border-radius:var(--r-md);margin-bottom:14px}
 
 /* file diff block */
-.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel);margin-bottom:14px}
-.gfile:last-child{margin-bottom:0}
-.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px 9px 30px;background:var(--panel-2);border-bottom:1px solid var(--line)}
+.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}
+.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel-2);border-bottom:1px solid var(--line)}
 .gfile-head .pth{font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
 .gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65}
 .nodiff{padding:14px;color:var(--muted);font-family:var(--sans);font-size:12px}
@@ -360,37 +359,39 @@
 /* ---- comment affordances on review elements ---- */
 /* One affordance everywhere: the green "+" (.spec-plus, styled in document.css)
    revealed on hover in the host's LEFT gutter — never a bubble on the right. The +
-   sits OUTSIDE the host box, so each host adds a transparent ::after "hover-bridge"
-   spanning the gutter: without it the pointer drops :hover while crossing from the
-   content out to the +, and the + vanishes before it can be clicked. Hosts whose +
-   is already inside their box (file header, section header) skip the bridge. The
-   lone exception is the selection "comment" pill (.sel-cmt-pill). */
+   sits OUTSIDE the host box, so it carries a transparent ::before that extends right
+   across the gutter gap: host-hover reveals the +, and that bridge then keeps it
+   hoverable all the way to the click (without it the + vanishes as the pointer leaves
+   the host box). The selection "comment" pill (.sel-cmt-pill) is the lone exception. */
 .rr-summary-threads { margin: 2px 30px 6px; }
 .wf.dz-compact .rr-summary-threads { margin: 2px 22px 6px; }
 .wf.dz-spacious .rr-summary-threads { margin: 4px 44px 8px; }
 .gfile-filecmt { padding: 8px 14px 2px; }
 .title-threads { margin-top: 10px; max-width: 660px; }
 
-/* hosts whose + lives in an outside-the-box gutter — each gets a hover-bridge */
-.page-h1-cmt, .rr-summary-cmt, .spec-req, .plan-peek-step,
-.gsec-diagram-cmt, .gsec-what-cmt { position: relative; }
-.page-h1-cmt::after, .rr-summary-cmt::after, .spec-req::after, .plan-peek-step::after,
-.gsec-diagram-cmt::after, .gsec-what-cmt::after {
-  content: ""; position: absolute; left: -30px; top: 0; width: 30px; height: 100%; }
-/* narration's gutter is the inter-column gap (24px) — keep the bridge inside it */
-.gsec-what-cmt::after { left: -24px; width: 24px; }
+/* the gutter bridge, shared by every outside "+" */
+.h1-plus::before, .summary-plus::before, .peek-plus::before, .diagram-plus::before,
+.narration-plus::before, .decision-plus::before, .gfile-plus::before {
+  content: ""; position: absolute; top: -4px; bottom: -4px; left: 0; right: -12px; }
 
+.page-h1-cmt, .rr-summary-cmt, .spec-req, .plan-peek-step,
+.gsec-diagram-cmt, .gsec-what-cmt, .lr-decision-cmt { position: relative; }
 .page-h1-cmt .h1-plus { left: -28px; top: 7px; }
-.rr-summary-cmt .summary-plus { left: -26px; top: 50%; margin-top: -9px; }
+.rr-summary-cmt .summary-plus { left: -26px; top: 13px; }
 .spec-req .peek-plus, .plan-peek-step .peek-plus { left: -26px; top: 1px; }
 .gsec-diagram-cmt .diagram-plus { left: -26px; top: 6px; }
 .gsec-what-cmt .narration-plus { left: -22px; top: 9px; }
-.page-h1-cmt:hover .h1-plus,
-.rr-summary-cmt:hover .summary-plus,
-.spec-req:hover .peek-plus,
-.plan-peek-step:hover .peek-plus,
-.gsec-diagram-cmt:hover .diagram-plus,
-.gsec-what-cmt:hover .narration-plus { display: flex; }
+/* one AMBER + for the whole decision block (answering sends to the agent now,
+   resolving the question — not a queued comment), top-aligned with its header */
+.lr-decision-cmt .decision-plus { left: -26px; top: 13px; }
+.spec-plus.decision-plus { background: var(--amber); }
+.page-h1-cmt:hover .h1-plus, .page-h1-cmt .h1-plus:hover,
+.rr-summary-cmt:hover .summary-plus, .rr-summary-cmt .summary-plus:hover,
+.spec-req:hover .peek-plus, .spec-req .peek-plus:hover,
+.plan-peek-step:hover .peek-plus, .plan-peek-step .peek-plus:hover,
+.gsec-diagram-cmt:hover .diagram-plus, .gsec-diagram-cmt .diagram-plus:hover,
+.gsec-what-cmt:hover .narration-plus, .gsec-what-cmt .narration-plus:hover,
+.lr-decision-cmt:hover .decision-plus, .lr-decision-cmt .decision-plus:hover { display: flex; }
 
 /* section header — comment on the whole change; + sits inside the header's left
    padding (no bridge needed), rendered only while the section is open */
@@ -398,21 +399,14 @@
 .gsec-head .section-plus { left: 3px; top: 19px; }
 .gsec-head:hover .section-plus { display: flex; }
 
-/* file-as-a-whole — the file card clips its overflow, so the + sits inside the
-   header's reserved left slot rather than a negative gutter */
-.gfile { position: relative; }
-.gfile .gfile-plus { left: 7px; top: 9px; }
-.gfile:hover .gfile-plus { display: flex; }
-
-/* "Agent needs a decision" — one AMBER + for the whole block, in its left gutter
-   (answering sends to the agent now, resolving the question — not a queued comment).
-   Same outside-gutter + hover-bridge pattern as the summary banner. */
-.lr-decision-cmt { position: relative; }
-.lr-decision-cmt::after { content: ""; position: absolute; left: -30px; top: 0; width: 30px; height: 100%; }
-/* top-aligned with the first question line (below the block's header row) */
-.lr-decision-cmt .decision-plus { left: -26px; top: 33px; }
-.lr-decision-cmt:hover .decision-plus { display: flex; }
-.spec-plus.decision-plus { background: var(--amber); }
+/* file-as-a-whole — the card clips its overflow, so the + lives OUTSIDE it on a
+   non-clipping wrapper, in the same left gutter as every other section. It reveals
+   only while the FILENAME row (header) is hovered — not the diff body. */
+.gfile-wrap { position: relative; margin-bottom: 14px; }
+.gfile-wrap:last-child { margin-bottom: 0; }
+.gfile-wrap .gfile-plus { left: -26px; top: 9px; display: none; }
+.gfile-wrap:has(.gfile-head:hover) .gfile-plus,
+.gfile-wrap .gfile-plus:hover { display: flex; }
 
 /* text-selection commenting (Commentable wrapper) */
 .lr-commentable { position: relative; }

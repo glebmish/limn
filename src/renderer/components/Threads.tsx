@@ -24,6 +24,8 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const isAgent = c.author === 'agent'
   // engine a queued comment will be sent to = the review agent
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
+  const reviewChat = useStore((s) => s.loaded?.state.chats.find((t) => t.kind === 'review') ?? s.loaded?.state.chats[0])
+  const openChat = useStore((s) => s.openChat)
 
   return (
     <div className="dthread">
@@ -39,7 +41,11 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               </button>
             </>
           )}
-          {!isAgent && c.status === 'sent' && <span className="agentq"><I.changed style={{ width: 11, height: 11 }} />with agent…</span>}
+          {!isAgent && c.status === 'sent' && (
+            <button className="lr-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
+              <EngineGlyph engine={c.agentRef?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />with agent…<I.chevR style={{ width: 10, height: 10 }} />
+            </button>
+          )}
           {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
           {c.status === 'resolved' && c.resolution && (
             <span
