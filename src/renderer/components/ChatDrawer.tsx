@@ -22,6 +22,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const { loaded, gen, activeChatId } = store
   const chats = loaded?.state.chats ?? []
   const active = activeChat(loaded, activeChatId) ?? chats[chats.length - 1] ?? null
+  const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
+  // viewing a superseded review session (an older generation) — offer to switch
+  const onOldReview = active?.kind === 'review' && latestReview != null && active.id !== latestReview.id
   const hasReview = (loaded?.state.iterations.length ?? 0) > 0
   // block agent submissions while the compare branch isn't checked out anywhere —
   // edits would have nowhere safe to land (see checkoutGate).
@@ -114,6 +117,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   <I.trash style={{ width: 12, height: 12 }} />
                 </button>
               )}
+            </div>
+          )}
+
+          {onOldReview && latestReview && (
+            <div className="chat-oldsession">
+              <I.changed style={{ width: 12, height: 12 }} />
+              <span>You're viewing an older review session. A newer one was generated.</span>
+              <button className="btn btn-sm btn-primary" onClick={() => store.switchChat(latestReview.id)}>
+                Switch to current<I.chevR style={{ width: 11, height: 11 }} />
+              </button>
             </div>
           )}
 

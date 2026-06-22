@@ -167,12 +167,16 @@ describe('chat threads DAO', () => {
     reconcileChats(db, s.id)                            // idempotent — no duplicate chats
     expect(listChatThreads(db, s.id)).toHaveLength(2)
 
-    // regenerate → review chat re-syncs to the new engine session
+    // regenerate → a NEW review session thread (its own engine session); the old
+    // one is kept as history so you can switch back to it
     resetIterations(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-2', endSha: sha, at: 'T2' })
     reconcileChats(db, s.id)
     chats = listChatThreads(db, s.id)
-    expect(chats).toHaveLength(2)
-    expect(chats.find((c) => c.kind === 'review')!.engineSessionId).toBe('es-2')
+    const reviews = chats.filter((c) => c.kind === 'review')
+    expect(chats).toHaveLength(3)                       // old review + user + new review
+    expect(reviews.map((c) => c.engineSessionId)).toEqual(['es-1', 'es-2'])
+    reconcileChats(db, s.id)                            // still idempotent for the current session
+    expect(listChatThreads(db, s.id)).toHaveLength(3)
   })
 
   it('threadIsEmpty: review chat (bound session) is never empty; fresh user chat is until a message lands', () => {

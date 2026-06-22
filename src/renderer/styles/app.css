@@ -272,6 +272,12 @@ button.lr-chip:hover { background: var(--accent-line); }
 .chat-agentbar .ca-lab { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
 .chat-agentbar .ca-del { margin-left: auto; color: var(--muted); }
 .chat-agentbar .ca-del:hover { color: var(--red); }
+/* banner shown when viewing a superseded (older) review session */
+.chat-oldsession { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px;
+  background: var(--amber-soft); border-bottom: 1px solid var(--amber-line); }
+.chat-oldsession > svg { color: var(--amber); flex: 0 0 auto; }
+.chat-oldsession > span { flex: 1 1 auto; font-size: 11.5px; color: var(--ink-2); line-height: 1.35; }
+.chat-oldsession .btn { flex: 0 0 auto; }
 .agent-pick { display: inline-flex; gap: 5px; align-items: center; }
 .agent-sel { border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); border-radius: var(--r-sm); padding: 3px 6px; font-size: 11px; font-family: var(--sans); cursor: pointer; }
 .agent-sel:disabled { opacity: .55; cursor: default; }

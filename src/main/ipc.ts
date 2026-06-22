@@ -280,7 +280,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       // is the review agent's full history (generation → later comment/decision turns),
       // not just the post-generation interaction. The thread is the same engine session
       // that produced the review.
-      const reviewThread = dao.listChatThreads(db, sessionId).find((t) => t.kind === 'review')
+      const reviewThread = [...dao.listChatThreads(db, sessionId)].reverse().find((t) => t.kind === 'review')
       if (reviewThread) {
         const at = new Date().toISOString()
         const genTools = reduceToolCalls(genEvents)

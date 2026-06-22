@@ -317,14 +317,17 @@ export function reconcileChats(db: DatabaseSync, sessionId: number): void {
     .get(sessionId) as { engine: EngineId; engine_session_id: string } | undefined
   if (!last) return // no review generated yet → no chats
   const reviewAgent: AgentRef = meta.agent ?? { engine: last.engine }
-  const existing = db.prepare(`SELECT id FROM chat_threads WHERE session_id = ? AND kind = 'review'`)
-    .get(sessionId) as { id: number } | undefined
-  if (existing) {
-    setThreadEngineSession(db, existing.id, last.engine_session_id)
-  } else {
-    createChatThread(db, sessionId, { kind: 'review', agent: reviewAgent, engineSessionId: last.engine_session_id, title: 'Review agent' })
-    createChatThread(db, sessionId, { kind: 'user', agent: reviewAgent, title: 'New chat' })
-  }
+  // each generation is its own review session: the latest review thread is the
+  // current one. When a new generation produces a fresh engine session, spin up a
+  // NEW review thread (the old ones stay as history) rather than re-pointing the
+  // existing thread — so regenerating is an obvious, switchable new session.
+  const reviews = db.prepare(`SELECT id, engine_session_id FROM chat_threads WHERE session_id = ? AND kind = 'review' ORDER BY id`)
+    .all(sessionId) as { id: number; engine_session_id: string | null }[]
+  const current = reviews[reviews.length - 1]
+  if (current && current.engine_session_id === last.engine_session_id) return // already reconciled
+  createChatThread(db, sessionId, { kind: 'review', agent: reviewAgent, engineSessionId: last.engine_session_id, title: 'Review agent' })
+  const hasUserChat = db.prepare(`SELECT 1 FROM chat_threads WHERE session_id = ? AND kind = 'user' LIMIT 1`).get(sessionId)
+  if (!hasUserChat) createChatThread(db, sessionId, { kind: 'user', agent: reviewAgent, title: 'New chat' })
 }
 
 export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration): void {

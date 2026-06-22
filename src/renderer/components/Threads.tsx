@@ -3,7 +3,7 @@ import type { AgentRef, Comment } from '../../shared/types'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import { useStore } from '../store'
-import { deleteComment, editComment, sendComments } from '../lib/comments'
+import { currentReviewChat, deleteComment, editComment, sendComments } from '../lib/comments'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
 
@@ -24,7 +24,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const isAgent = c.author === 'agent'
   // engine a queued comment will be sent to = the review agent
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
-  const reviewChat = useStore((s) => s.loaded?.state.chats.find((t) => t.kind === 'review') ?? s.loaded?.state.chats[0])
+  const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? []))
   const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
 

@@ -54,7 +54,13 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
 }
 
 function chatName(c: ChatThread, all: ChatThread[]): string {
-  if (c.kind === 'review') return 'Review'
+  if (c.kind === 'review') {
+    // each generation is its own review session; the latest is current, older ones
+    // are kept as history and labelled so they read as past sessions
+    const reviews = all.filter((x) => x.kind === 'review')
+    if (c.id === reviews[reviews.length - 1]?.id) return reviews.length > 1 ? 'Review · current' : 'Review'
+    return `Review · old ${reviews.findIndex((x) => x.id === c.id) + 1}`
+  }
   if (c.title) return c.title
   const userChats = all.filter((x) => x.kind === 'user')
   const n = userChats.findIndex((x) => x.id === c.id)

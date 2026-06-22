@@ -37,9 +37,15 @@ export async function deleteComment(id: string): Promise<void> {
 /** Send queued comments to the review agent's chat as one unified batch turn. The
  *  agent edits & commits code, resolves, or replies via its tools; the chat drawer
  *  opens to show the rollup + commit chip (wf-H). */
+/** The current review session = the LATEST review thread (each generation makes a
+ *  new one; older review threads stay as history). */
+export function currentReviewChat(chats: { kind: string; id: number }[]): { id: number } | undefined {
+  return [...chats].reverse().find((c) => c.kind === 'review') ?? chats[0]
+}
+
 export function sendComments(ids: string[], steer?: string): void {
   const { loaded } = useStore.getState()
-  const target = loaded?.state.chats.find((c) => c.kind === 'review') ?? loaded?.state.chats[0]
+  const target = currentReviewChat(loaded?.state.chats ?? [])
   if (!target) return
   useStore.getState().sendBatch(target.id, ids, steer)
 }
@@ -48,7 +54,7 @@ export function sendComments(ids: string[], steer?: string): void {
  *  review agent that folds the decision into the narration — no code edits, no gate. */
 export function sendAnswers(ids: string[]): void {
   const { loaded } = useStore.getState()
-  const target = loaded?.state.chats.find((c) => c.kind === 'review') ?? loaded?.state.chats[0]
+  const target = currentReviewChat(loaded?.state.chats ?? [])
   if (!target) return
   useStore.getState().sendBatch(target.id, ids, undefined, true)
 }
