@@ -8,6 +8,7 @@ import { codexBinaryPath } from './binaries.js'
 import { EventQueue, type ChatTurn, type EngineRun } from './types.js'
 import { registerCodexTurn } from './codexMcp.js'
 import { buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
+import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 
 /**
  * Hand-written `codex app-server` JSON-RPC-over-stdio client (the bidirectional
@@ -129,6 +130,56 @@ export function appServerNotifToEvent(method: string, params: unknown): EngineEv
   }
   if (method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta') {
     return typeof p.delta === 'string' ? { type: 'status', text: p.delta.slice(0, 160) } : null
+  }
+  // tool-call lifecycle → the same structured ToolCall chips as the exec path, so
+  // the agent's work (MCP review tools, shell, edits) is visible in the chat.
+  if (method === 'item/started' || method === 'item/completed') {
+    return appServerItemToEvent(p.item, method === 'item/completed')
+  }
+  return null
+}
+
+/** Codex tool arguments → kv pairs for the expanded tool-call row. */
+function kvOf(args: unknown): [string, string][] {
+  if (!args || typeof args !== 'object') return []
+  return Object.entries(args as Record<string, unknown>)
+    .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
+    .map(([k, v]) => [k, String(v)] as [string, string])
+}
+
+function resultText(result: unknown): string {
+  const content = (result as { content?: unknown })?.content
+  if (!Array.isArray(content)) return ''
+  return content.map((b) => (b && typeof b === 'object' && 'text' in b ? String((b as { text: unknown }).text) : '')).join('')
+}
+
+/** Map a v2 ThreadItem (mcpToolCall | commandExecution | fileChange) to a ToolCall
+ *  event. `done` = item/completed (else item/started). Other item types → null. */
+export function appServerItemToEvent(rawItem: unknown, done: boolean): EngineEvent | null {
+  const item = (rawItem && typeof rawItem === 'object' ? rawItem : {}) as Record<string, unknown>
+  if (item.type === 'mcpToolCall') {
+    const tool = String(item.tool ?? '')
+    const base = { id: String(item.id ?? ''), verb: deriveVerb(tool), name: tool }
+    if (!done) return { type: 'tool', call: { ...base, kv: kvOf(item.arguments), state: 'run' } }
+    if (item.error != null || item.status === 'failed') {
+      const msg = (item.error as { message?: string } | null)?.message
+      return { type: 'tool', call: { ...base, state: 'err', out: msg ?? `${tool} failed` } }
+    }
+    const { out, outMore } = clampOut(resultText(item.result))
+    return { type: 'tool', call: { ...base, state: 'ok', ...(out ? { out } : {}), ...(outMore ? { outMore } : {}) } }
+  }
+  if (item.type === 'commandExecution') {
+    const arg = String(item.command ?? '').slice(0, 120)
+    const base = { id: String(item.id ?? ''), verb: 'bash' as const, name: 'command_execution', arg }
+    if (!done) return { type: 'tool', call: { ...base, state: 'run' } }
+    const failed = item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0)
+    const { out, outMore } = clampOut(String(item.aggregatedOutput ?? ''))
+    return { type: 'tool', call: { ...base, state: failed ? 'err' : 'ok', ...(out ? { out } : {}), ...(outMore ? { outMore } : {}) } }
+  }
+  if (item.type === 'fileChange' && done) {
+    const changes = Array.isArray(item.changes) ? (item.changes as Array<{ path?: string }>) : []
+    const paths = changes.map((c) => String(c.path ?? ''))
+    return { type: 'tool', call: { id: String(item.id ?? ''), verb: 'edit', name: 'file_change', arg: paths.join(', ').slice(0, 120), meta: `${paths.length} file${paths.length === 1 ? '' : 's'}`, state: item.status === 'failed' ? 'err' : 'ok' } }
   }
   return null
 }
