@@ -99,7 +99,10 @@
 .sc-menu button b{font-size:12.5px;font-weight:600}
 .sc-menu button small{font-size:11px;color:var(--muted);line-height:1.35}
 
-.gmain{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper);scroll-behavior:smooth}
+/* no scroll-behavior:smooth — it makes section jumps and doc open/close animate
+   (it even applies to direct scrollTop assignments in Chromium). focusAnchor passes
+   behavior:'smooth' explicitly where a smooth scroll IS wanted. */
+.gmain{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper)}
 .gmain::-webkit-scrollbar{width:10px}
 .gmain::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:5px;border:3px solid var(--paper)}
 
