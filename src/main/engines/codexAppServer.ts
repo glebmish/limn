@@ -270,6 +270,17 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
           if (ev) { if (ev.type === 'text') finalText += ev.text; q.push(ev) }
         },
         (id, method, params) => {
+          // MCP tool-call approvals arrive as an RMCP elicitation (verified against
+          // codex 0.135 app-server: method `mcpServer/elicitation/request`, _meta
+          // .codex_approval_kind='mcp_tool_call'). Our localreview tools only mutate
+          // review metadata, so auto-ACCEPT them (response shape is {action,content,
+          // _meta}, NOT {decision}). Without this the turn's tool calls are cancelled
+          // ("user cancelled MCP tool call"). Non-tool-call elicitations: decline.
+          if (method === 'mcpServer/elicitation/request') {
+            const kind = (params as { _meta?: { codex_approval_kind?: string } } | null)?._meta?.codex_approval_kind
+            conn?.respond(id, { action: kind === 'mcp_tool_call' ? 'accept' : 'decline', content: null, _meta: null })
+            return
+          }
           if (isApprovalMethod(method) && turn.opId) {
             const req = approvalRequestFromParams(String(id), params)
             void awaitDecision(turn.opId, req, (e) => q.push(e))
