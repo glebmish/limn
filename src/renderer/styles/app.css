@@ -132,6 +132,11 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-cta .gc-gate.block { color: var(--amber); }
 .gen-cta .gc-gate.block b { color: var(--ink); }
 .gen-cta .gc-gate.warn { color: var(--muted); }
+/* optional one-shot steer for the (re)generation pass — sits on its own row */
+.gen-cta .gc-steer { flex: 1 1 100%; font-family: var(--sans); font-size: 12.5px; color: var(--ink); padding: 7px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); }
+.gen-cta .gc-steer::placeholder { color: var(--muted); }
+.gen-cta .gc-steer:focus { outline: none; border-color: var(--accent-line); }
+.gen-cta.gen-regen .gc-steer { font-size: 12px; padding: 6px 9px; }
 
 /* empty diff state */
 .lr-empty { padding: 60px 30px; text-align: center; color: var(--muted); font-size: 13px; }

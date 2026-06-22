@@ -12,18 +12,19 @@ function fmtElapsed(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-export function startGenerate(sessionId: number, agent: AgentRef, opId: string): void {
+export function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string): void {
   useStore.getState().startOp('review', opId)
-  void window.api.generate(sessionId, agent, opId)
+  void window.api.generate(sessionId, agent, opId, steer)
 }
 
 /** Materialize the (possibly transient) review, then run the agent with the chosen
- *  review agent. The first generate from a transient entry mints the session. */
-export async function startGenerateNow(): Promise<void> {
+ *  review agent. The first generate from a transient entry mints the session.
+ *  `steer` is an optional one-shot note that focuses the pass. */
+export async function startGenerateNow(steer?: string): Promise<void> {
   const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const { loaded, agent } = useStore.getState()
-  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId())
+  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined)
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */
@@ -46,12 +47,30 @@ function GateNote({ branch, dirty }: { branch: string | null; dirty?: boolean })
   )
 }
 
+/** Optional one-shot steer for a generation pass. Enter submits when not gated. */
+function SteerInput({ value, onChange, onSubmit, disabled }: {
+  value: string; onChange: (v: string) => void; onSubmit: () => void; disabled?: boolean
+}) {
+  return (
+    <input
+      className="gc-steer"
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => { if (e.key === 'Enter' && !disabled) { e.preventDefault(); onSubmit() } }}
+      placeholder="Steer this pass (optional) — e.g. focus on error handling, skip test churn"
+      aria-label="Steer this generation pass"
+    />
+  )
+}
+
 export function GenPanel() {
   const { loaded, gen, agent } = useStore()
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
+  const [steer, setSteer] = useState('')
 
   // keep the latest tool call in view (gen.log is a fresh array each event, so
   // this fires on every event — gen.log.length plateaus at the 200 cap)
@@ -102,7 +121,7 @@ export function GenPanel() {
         <div className="gs-head">
           <I.flag style={{ width: 13, height: 13, color: 'var(--red)' }} />
           <span className="gs-title">Agent run failed: {gen.error}</span>
-          <button className="btn btn-sm" onClick={startGenerateNow}>Retry</button>
+          <button className="btn btn-sm" onClick={() => startGenerateNow(steer)}>Retry</button>
         </div>
       </div>
     )
@@ -115,8 +134,9 @@ export function GenPanel() {
           <b>Generate a guided review.</b> The agent explores the repo — callers, tests, history, specs —
           then groups this diff into narrated sections with risk flags.
         </span>
+        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
-        <button className="btn btn-primary" disabled={gate.blocked} onClick={startGenerateNow}>
+        <button className="btn btn-primary" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
         </button>
         {gate.blocked && <GateNote branch={gate.branch} />}
@@ -132,8 +152,9 @@ export function GenPanel() {
       <span className="gc-tx dim" style={{ fontSize: 11.5 }}>
         Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
       </span>
+      <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
       <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} />
-      <button className="btn btn-sm" disabled={gate.blocked} onClick={startGenerateNow}>
+      <button className="btn btn-sm" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
         <I.changed style={{ width: 12, height: 12 }} />Regenerate review
       </button>
       {gate.blocked && <GateNote branch={gate.branch} />}

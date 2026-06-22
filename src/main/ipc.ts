@@ -232,7 +232,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     stopWatch()
   })
 
-  handle('generate', async (sessionId: number, agent: AgentRef, opId: string) => {
+  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, steer?: string) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
@@ -247,7 +247,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
         repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
-        model: agent.model, reasoningEffort: agent.reasoningEffort
+        model: agent.model, reasoningEffort: agent.reasoningEffort,
+        steer: steer?.trim() || undefined
       })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)

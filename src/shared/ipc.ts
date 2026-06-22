@@ -68,7 +68,9 @@ export interface Api {
   previewReview(repo: string, baseInput: string, compareInput: string, agent: AgentRef): Promise<LoadedReview>
   loadSession(sessionId: number): Promise<LoadedReview>
   archiveSession(sessionId: number): Promise<void>
-  generate(sessionId: number, agent: AgentRef, opId: string): Promise<void>
+  /** `steer` is an optional reviewer note that focuses this generation pass
+   *  (e.g. "go deeper on error handling"). One-shot — not persisted. */
+  generate(sessionId: number, agent: AgentRef, opId: string, steer?: string): Promise<void>
   cancel(opId: string): Promise<void>
   /** Answer a pending approval request (routes to the parked engine-side promise). */
   respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>

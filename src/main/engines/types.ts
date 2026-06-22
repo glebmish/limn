@@ -12,6 +12,8 @@ export interface ReviewRequest {
   artifacts: Artifact[]
   model?: string
   reasoningEffort?: ReasoningEffort
+  /** optional reviewer steer — focuses this generation pass (one-shot). */
+  steer?: string
 }
 
 /** Brief review context used to seed a fresh chat session when the chat agent

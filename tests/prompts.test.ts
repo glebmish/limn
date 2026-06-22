@@ -1,5 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { buildChatPrompt } from '../src/main/engines/prompts'
+import { buildChatPrompt, buildReviewPrompt } from '../src/main/engines/prompts'
+import type { ReviewRequest } from '../src/main/engines/types'
+
+const baseReq: ReviewRequest = {
+  repo: '/tmp/repo', branch: 'feat/x', base: 'main', artifacts: [],
+  diff: { base: 'main', branch: 'feat/x', mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40), files: [] }
+}
+
+describe('buildReviewPrompt steer', () => {
+  it('embeds the reviewer steer when provided', () => {
+    const p = buildReviewPrompt({ ...baseReq, steer: 'focus on error handling' })
+    expect(p).toContain('STEER FROM THE REVIEWER')
+    expect(p).toContain('focus on error handling')
+  })
+  it('omits the steer block when no steer is given', () => {
+    expect(buildReviewPrompt(baseReq)).not.toContain('STEER FROM THE REVIEWER')
+  })
+})
 
 // describeAnchor is module-private; exercise it through buildChatPrompt, which
 // embeds "the user is asking about <describeAnchor(anchor)>".

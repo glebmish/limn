@@ -40,6 +40,10 @@ export function buildReviewPrompt(req: ReviewRequest): string {
     ? `\nProject artifacts to read (the intent this change is judged against):\n${req.artifacts.map((a) => `- ${a.path} (${a.role})`).join('\n')}\n`
     : '\nNo spec/plan artifacts were detected. If you find one in the repo (docs/, .claude/), list its path in artifactPaths.\n'
 
+  const steerBlock = req.steer
+    ? `\nSTEER FROM THE REVIEWER — weight this pass toward their focus while still covering the whole diff: ${req.steer}\n`
+    : ''
+
   return `You are the review guide for a local branch. Your job is to help a human review the branch \`${req.branch}\` against \`${req.base}\` in the repository at your working directory.
 
 EXPLORE FIRST — you have full read access to the repo:
@@ -47,7 +51,7 @@ EXPLORE FIRST — you have full read access to the repo:
 - Find callers/usages of changed functions (grep), related tests, and read them.
 - Use \`git log ${req.base}..${req.branch} --oneline\` and \`git show\` to understand the change history.
 - Read the artifacts listed below if any.
-${artifactBlock}
+${artifactBlock}${steerBlock}
 Changed files (${req.diff.files.length}) between merge-base ${req.diff.mergeBase.slice(0, 7)} and ${req.diff.headSha.slice(0, 7)}:
 ${fileList}
 
