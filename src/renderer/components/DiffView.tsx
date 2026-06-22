@@ -85,6 +85,7 @@ export function DiffView({ f, plainNote }: {
 
   return (
     <div className="gfile-wrap">
+      <span className="gfile-cmt-zone" />
       <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
       <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
       <div className="gfile-head" data-lr-file={f.path}>

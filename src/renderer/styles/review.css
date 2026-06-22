@@ -364,23 +364,25 @@
 /* ---- comment affordances on review elements ---- */
 /* One affordance everywhere: the green "+" (.spec-plus, styled in document.css)
    revealed on hover in the host's LEFT gutter — never a bubble on the right. The +
-   sits OUTSIDE the host box, so it carries a transparent ::before that extends right
-   across the gutter gap: host-hover reveals the +, and that bridge then keeps it
-   hoverable all the way to the click (without it the + vanishes as the pointer leaves
-   the host box). The selection "comment" pill (.sel-cmt-pill) is the lone exception. */
+   sits OUTSIDE the host box, so each host carries a transparent ::after that covers
+   that left gutter. It does two jobs: (1) hovering the LEFT SIDE / gutter of the
+   element reveals the + (the ::after is part of the host, so it triggers :hover),
+   and (2) it bridges the gap so the + stays reachable from the content to the click.
+   The + is z-index:6, above the ::after, so clicks land on it. The selection
+   "comment" pill (.sel-cmt-pill) is the lone exception. */
 .rr-summary-threads { margin: 2px 30px 6px; }
 .wf.dz-compact .rr-summary-threads { margin: 2px 22px 6px; }
 .wf.dz-spacious .rr-summary-threads { margin: 4px 44px 8px; }
 .gfile-filecmt { padding: 8px 14px 2px; }
 .title-threads { margin-top: 10px; max-width: 660px; }
 
-/* the gutter bridge, shared by every outside "+" */
-.h1-plus::before, .summary-plus::before, .peek-plus::before, .diagram-plus::before,
-.narration-plus::before, .decision-plus::before, .gfile-plus::before {
-  content: ""; position: absolute; top: -4px; bottom: -4px; left: 0; right: -12px; }
-
 .page-h1-cmt, .rr-summary-cmt, .spec-req, .plan-peek-step,
 .gsec-diagram-cmt, .gsec-what-cmt, .lr-decision-cmt { position: relative; }
+/* the persistent gutter hover-zone */
+.page-h1-cmt::after, .rr-summary-cmt::after, .spec-req::after, .plan-peek-step::after,
+.gsec-diagram-cmt::after, .gsec-what-cmt::after, .lr-decision-cmt::after {
+  content: ""; position: absolute; left: -32px; top: 0; width: 32px; height: 100%; }
+.gsec-what-cmt::after { left: -24px; width: 24px; }  /* narration gutter = column gap */
 .page-h1-cmt .h1-plus { left: -28px; top: 7px; }
 .rr-summary-cmt .summary-plus { left: -26px; top: 13px; }
 .spec-req .peek-plus, .plan-peek-step .peek-plus { left: -26px; top: 1px; }
@@ -390,13 +392,13 @@
    resolving the question — not a queued comment), top-aligned with its header */
 .lr-decision-cmt .decision-plus { left: -26px; top: 13px; }
 .spec-plus.decision-plus { background: var(--amber); }
-.page-h1-cmt:hover .h1-plus, .page-h1-cmt .h1-plus:hover,
-.rr-summary-cmt:hover .summary-plus, .rr-summary-cmt .summary-plus:hover,
-.spec-req:hover .peek-plus, .spec-req .peek-plus:hover,
-.plan-peek-step:hover .peek-plus, .plan-peek-step .peek-plus:hover,
-.gsec-diagram-cmt:hover .diagram-plus, .gsec-diagram-cmt .diagram-plus:hover,
-.gsec-what-cmt:hover .narration-plus, .gsec-what-cmt .narration-plus:hover,
-.lr-decision-cmt:hover .decision-plus, .lr-decision-cmt .decision-plus:hover { display: flex; }
+.page-h1-cmt:hover .h1-plus,
+.rr-summary-cmt:hover .summary-plus,
+.spec-req:hover .peek-plus,
+.plan-peek-step:hover .peek-plus,
+.gsec-diagram-cmt:hover .diagram-plus,
+.gsec-what-cmt:hover .narration-plus,
+.lr-decision-cmt:hover .decision-plus { display: flex; }
 
 /* section header — comment on the whole change; + sits inside the header's left
    padding (no bridge needed), rendered only while the section is open */
@@ -406,11 +408,14 @@
 
 /* file-as-a-whole — the card clips its overflow, so the + lives OUTSIDE it on a
    non-clipping wrapper, in the same left gutter as every other section. It reveals
-   only while the FILENAME row (header) is hovered — not the diff body. */
+   only around the FILENAME row — its header OR the gutter beside it (.gfile-cmt-zone,
+   a transparent strip only as tall as the header) — never the diff body. */
 .gfile-wrap { position: relative; margin-bottom: 14px; }
 .gfile-wrap:last-child { margin-bottom: 0; }
 .gfile-wrap .gfile-plus { left: -26px; top: 9px; display: none; }
+.gfile-wrap .gfile-cmt-zone { position: absolute; left: -32px; top: 0; width: 32px; height: 40px; }
 .gfile-wrap:has(.gfile-head:hover) .gfile-plus,
+.gfile-wrap:has(.gfile-cmt-zone:hover) .gfile-plus,
 .gfile-wrap .gfile-plus:hover { display: flex; }
 
 /* text-selection commenting (Commentable wrapper) */
