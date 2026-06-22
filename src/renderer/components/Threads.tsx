@@ -41,9 +41,10 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               </button>
             </>
           )}
-          {!isAgent && c.status === 'sent' && (
+          {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (
             <button className="lr-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
-              <EngineGlyph engine={c.agentRef?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />with agent…<I.chevR style={{ width: 10, height: 10 }} />
+              <EngineGlyph engine={c.agentRef?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
+              {c.status === 'sent' ? 'with agent…' : 'agent chat'}<I.chevR style={{ width: 10, height: 10 }} />
             </button>
           )}
           {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
