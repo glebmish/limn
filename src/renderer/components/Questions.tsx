@@ -14,18 +14,24 @@ export function Questions() {
 
   const isAnswered = (id: string): boolean =>
     comments.some((c) => c.anchor.kind === 'question' && c.anchor.questionId === id)
+  // a question is "addressed" once the agent resolves its answer comment
+  const isResolved = (id: string): boolean =>
+    comments.some((c) => c.anchor.kind === 'question' && c.anchor.questionId === id && c.status === 'resolved')
   // one + for the whole block: it opens the next still-open question (usually the
   // only one). Answering sends to the agent immediately, so it's amber, not green.
   const nextOpen = questions.find((q) => !isAnswered(q.id))
+  // once every question is addressed, drop the amber "needs attention" highlight
+  const allDone = questions.every((q) => isResolved(q.id))
 
   return (
-    <div className="gen-cta lr-decision-cmt" style={{ borderStyle: 'solid', borderColor: 'var(--amber-line)', background: 'var(--amber-soft)' }}>
+    <div className="gen-cta lr-decision-cmt" style={{ borderStyle: 'solid', borderColor: allDone ? 'var(--line)' : 'var(--amber-line)', background: allDone ? 'var(--panel-2)' : 'var(--amber-soft)' }}>
       {nextOpen && !answering && (
         <CmtPlus extra="decision-plus" onClick={() => setAnswering(nextOpen.id)} />
       )}
       <div style={{ flex: '1 1 100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 6 }}>
-          <I.flag style={{ width: 12, height: 12 }} />Agent needs a decision
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: allDone ? 'var(--muted)' : 'var(--amber)', marginBottom: 6 }}>
+          {allDone ? <I.check style={{ width: 12, height: 12 }} /> : <I.flag style={{ width: 12, height: 12 }} />}
+          {allDone ? 'Decision addressed' : 'Agent needs a decision'}
         </div>
         {questions.map((q) => {
           const answers = comments.filter((c) => c.anchor.kind === 'question' && c.anchor.questionId === q.id)
