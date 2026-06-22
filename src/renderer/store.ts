@@ -631,16 +631,17 @@ export const useStore = create<AppStore>((set, get) => {
       const prevReviews = (get().loaded?.state.chats ?? []).filter((c) => c.kind === 'review')
       const loaded = await window.api.loadSession(sessionId)
       const reviews = loaded.state.chats.filter((c) => c.kind === 'review')
-      // a regenerate created a new review session: land on the now-superseded one so
-      // the "switch to current" banner is shown (manual switch, per the UX choice)
-      const supersededId = reviews.length > prevReviews.length && prevReviews.length > 0
-        ? prevReviews[prevReviews.length - 1].id
+      // a regenerate created a new review session: open the NEW (latest) review so it
+      // appears and opens in the chat sidebar. (The "switch to current" banner still
+      // shows if you later navigate back to an older session manually.)
+      const regeneratedId = reviews.length > prevReviews.length && prevReviews.length > 0
+        ? reviews[reviews.length - 1].id
         : null
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
         reviewedSections: new Set(loaded.state.reviewedSections),
-        activeChatId: supersededId ?? pickActiveChat(loaded.state.chats, get().activeChatId)
+        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId)
       })
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     },

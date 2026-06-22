@@ -26,6 +26,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // viewing a superseded review session (an older generation) — offer to switch
   const onOldReview = active?.kind === 'review' && latestReview != null && active.id !== latestReview.id
   const hasReview = (loaded?.state.iterations.length ?? 0) > 0
+  // a review (re)generation is running — surface it in the open sidebar; the fresh
+  // session opens here automatically when it completes (see store.reload).
+  const regenerating = gen.running && gen.kind === 'review'
   // block agent submissions while the compare branch isn't checked out anywhere —
   // edits would have nowhere safe to land (see checkoutGate).
   const gate = checkoutGate(loaded)
@@ -120,7 +123,14 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
-          {onOldReview && latestReview && (
+          {regenerating && (
+            <div className="chat-regen">
+              <span className="gen-spinner" />
+              <span>Regenerating the review… the new session opens here when it's ready.</span>
+            </div>
+          )}
+
+          {onOldReview && latestReview && !regenerating && (
             <div className="chat-oldsession">
               <I.changed style={{ width: 12, height: 12 }} />
               <span>You're viewing an older review session. A newer one was generated.</span>
