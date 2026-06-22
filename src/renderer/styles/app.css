@@ -260,14 +260,17 @@ button.lr-chip:hover { background: var(--accent-line); }
 .chatdd { position: relative; width: 100%; }
 .chatdd-trig { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 6px 10px; cursor: pointer; font-family: var(--sans); }
 .chatdd-trig:hover { border-color: var(--line-3); }
-.chatdd-trig .cd-dot, .chatdd-opt .cd-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--faint); }
-.cd-dot.review { background: var(--accent); }
-.cd-dot.user { background: var(--muted-2); }
+/* agent brand mark replaces the status dot; review marks take the accent, user
+   marks stay muted so the two kinds read apart at a glance */
+.cd-glyph { flex: 0 0 auto; color: var(--muted); }
+.chatdd-opt.is-review .cd-glyph { color: var(--accent); }
 .chatdd-trig .cd-name { font-size: 12px; font-weight: 700; color: var(--ink); }
 .chatdd-trig .cd-sub { font-size: 10.5px; color: var(--muted); }
 .chatdd-trig .cd-car { margin-left: auto; color: var(--muted); display: inline-flex; }
 .chatdd-menu { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(40,40,40,.14); overflow: hidden; }
+.chatdd-grp { font-family: var(--mono); font-size: 9.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); padding: 8px 11px 4px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
 .chatdd-opt { display: flex; align-items: center; gap: 8px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.chatdd-opt.is-review { background: var(--accent-soft-2, rgba(58,125,84,.05)); }
 .chatdd-opt:hover, .chatdd-opt.on { background: var(--accent-soft); }
 .chatdd-opt .cd-name { font-size: 12px; font-weight: 600; color: var(--ink); }
 .chatdd-opt .cd-sub { font-size: 10px; color: var(--muted); margin-left: auto; font-family: var(--mono); }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { I } from '../kit'
+import { I, EngineGlyph } from '../kit'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
 
@@ -27,23 +27,34 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
 
   const pick = (id: number): void => { onSwitch(id); setOpen(false) }
 
+  // reviews pinned to the top (current first, then older history), user chats
+  // below — grouped under headers so the two are visually distinct. Labels are
+  // computed from the full `chats` (id order), so display order doesn't affect them.
+  const reviews = chats.filter((c) => c.kind === 'review').reverse()
+  const userChats = chats.filter((c) => c.kind === 'user')
+
+  const Opt = (c: ChatThread) => (
+    <div key={c.id} className={'chatdd-opt' + (c.kind === 'review' ? ' is-review' : '') + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}>
+      <EngineGlyph engine={c.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
+      <span className="cd-name">{chatName(c, chats)}</span>
+      <span className="cd-sub">{agentSub(c)}</span>
+    </div>
+  )
+
   return (
     <div className="chatdd" ref={wrap}>
       <button className="chatdd-trig" onClick={() => setOpen((o) => !o)}>
-        <span className={'cd-dot ' + (active?.kind ?? 'user')} />
+        <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>
         <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevD style={{ width: 13, height: 13, transform: 'rotate(-90deg)' }} />}</span>
       </button>
       {open && (
         <div className="chatdd-menu">
-          {chats.map((c) => (
-            <div key={c.id} className={'chatdd-opt' + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}>
-              <span className={'cd-dot ' + c.kind} />
-              <span className="cd-name">{chatName(c, chats)}</span>
-              <span className="cd-sub">{agentSub(c)}</span>
-            </div>
-          ))}
+          {reviews.length > 0 && <div className="chatdd-grp">Review{reviews.length > 1 ? ' sessions' : ''}</div>}
+          {reviews.map(Opt)}
+          {userChats.length > 0 && <div className="chatdd-grp">Chats</div>}
+          {userChats.map(Opt)}
           <div className="chatdd-new" onClick={() => { onNew(); setOpen(false) }}>
             <I.plus style={{ width: 12, height: 12 }} />New chat
           </div>
