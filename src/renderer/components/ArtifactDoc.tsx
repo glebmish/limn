@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { useStore } from '../store'
-import { I } from '../kit'
+import { I, CmtPlus } from '../kit'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -126,10 +126,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
                 return (
                   <Fragment key={i}>
                     <li className="dev-li">
+                      <CmtPlus extra="dev-plus" onClick={() => setCommentDeviation(i)} />
                       <span className="dev-t">{d.text}</span>
-                      <button className="pps-cmt" title="Comment on this deviation" onClick={() => setCommentDeviation(i)}>
-                        <I.bubble style={{ width: 10, height: 10 }} />
-                      </button>
                     </li>
                     {threads.map((c) => <InlineThread key={c.id} c={c} locLabel={`on plan deviation ${i + 1}`} />)}
                     {commentDeviation === i && (

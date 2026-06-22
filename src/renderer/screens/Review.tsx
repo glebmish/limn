@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
-import { I, ficonClass, shortSha, EngineGlyph } from '../kit'
+import { I, ficonClass, shortSha, EngineGlyph, CmtPlus } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
@@ -247,12 +247,10 @@ export default function Review() {
                         annotations.planMap.acceptance.map((crit, i) => (
                           <Fragment key={i}>
                             <div className={'spec-req' + (crit.met === true ? ' met' : '')}>
+                              <CmtPlus extra="peek-plus" onClick={() => setCommentCriterion(i)} />
                               <span className="req-dot"></span>
                               <span className="req-t">{crit.text}</span>
                               <span className="req-st">{crit.met === true ? 'done' : crit.met === 'partial' ? 'partial' : 'open'}</span>
-                              <button className="pps-cmt" title="Comment on this criterion" onClick={() => setCommentCriterion(i)}>
-                                <I.bubble style={{ width: 10, height: 10 }} />
-                              </button>
                             </div>
                             {criterionComments(i).map((c) => <InlineThread key={c.id} c={c} locLabel={`on acceptance criterion ${i + 1}`} />)}
                             {commentCriterion === i && (
@@ -268,14 +266,12 @@ export default function Review() {
                         annotations.planMap.steps.map((st) => (
                           <Fragment key={st.n}>
                             <div className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} onClick={() => st.sectionId && jumpTo(st.sectionId)}>
+                              <CmtPlus extra="peek-plus" stop onClick={() => setCommentStep(st.n)} />
                               <span className="pps-n">{st.n}</span>
                               <span className="pps-t" title={st.text}>{st.text}</span>
                               {st.status === 'done' && <I.check style={{ width: 10, height: 10, color: 'var(--accent)' }} />}
                               {st.status === 'changed' && <I.changed style={{ width: 10, height: 10, color: 'var(--amber)' }} />}
                               {st.status === 'missing' && <I.flag style={{ width: 10, height: 10, color: 'var(--red)' }} />}
-                              <button className="pps-cmt" title="Comment on this step" onClick={(e) => { e.stopPropagation(); setCommentStep(st.n) }}>
-                                <I.bubble style={{ width: 10, height: 10 }} />
-                              </button>
                             </div>
                             {stepComments(st.n).map((c) => <InlineThread key={c.id} c={c} locLabel={`on plan step ${st.n}`} />)}
                             {commentStep === st.n && (
@@ -401,13 +397,9 @@ export default function Review() {
             <>
               <div className="page-head">
                 <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
-                <h1>
+                <h1 className="page-h1-cmt">
+                  {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
                   {annotations?.title ?? `Changes on ${branch}`}
-                  {annotations && (
-                    <button className="gfile-regen title-cmt" title="Comment on the review title" onClick={() => setTitleCommenting(true)}>
-                      <I.bubble style={{ width: 13, height: 13 }} />
-                    </button>
-                  )}
                 </h1>
                 {(titleComments.length > 0 || titleCommenting) && (
                   <div className="title-threads">
@@ -428,7 +420,8 @@ export default function Review() {
               {annotations && (
                 <>
                   {sinceTagged && lastIteration?.summary ? (
-                    <div className="rr-summary" data-lr-summary>
+                    <div className="rr-summary rr-summary-cmt" data-lr-summary>
+                      <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
                       <span className="rr-tx">
                         <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
@@ -439,18 +432,13 @@ export default function Review() {
                         <button className={topFilter === 'changed' ? 'on' : ''} onClick={() => setTopFilter('changed')}>Just the changes</button>
                         <button className={topFilter === 'all' ? 'on' : ''} onClick={() => setTopFilter('all')}>Everything</button>
                       </span>
-                      <button className="rr-cmt" title="Comment on the summary" onClick={() => setSummaryCommenting(true)}>
-                        <I.bubble style={{ width: 12, height: 12 }} />
-                      </button>
                     </div>
                   ) : (
-                    <div className="rr-summary" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+                    <div className="rr-summary rr-summary-cmt" data-lr-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+                      <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />
                       <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
                       <span className="rr-tx">{annotations.summary}</span>
                       <span className="grow"></span>
-                      <button className="rr-cmt" title="Comment on the summary" onClick={() => setSummaryCommenting(true)}>
-                        <I.bubble style={{ width: 12, height: 12 }} />
-                      </button>
                     </div>
                   )}
                   {(summaryComments.length > 0 || summaryCommenting) && (

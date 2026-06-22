@@ -175,7 +175,7 @@
   font-size:9.5px;font-weight:600;color:var(--amber);display:flex;align-items:center;gap:4px}
 
 /* context band: diagram + what-changed side by side */
-.gsec-cols{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;align-items:stretch;margin-bottom:14px}
+.gsec-cols{display:grid;grid-template-columns:1.5fr 1fr;gap:24px;align-items:stretch;margin-bottom:14px}
 .gsec-diagram{border:1px solid var(--line-2);border-radius:var(--r-md);background:var(--panel-2);
   padding:16px 14px;display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap}
 
@@ -229,7 +229,7 @@
 /* file diff block */
 .gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel);margin-bottom:14px}
 .gfile:last-child{margin-bottom:0}
-.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel-2);border-bottom:1px solid var(--line)}
+.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px 9px 30px;background:var(--panel-2);border-bottom:1px solid var(--line)}
 .gfile-head .pth{font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
 .gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65}
 .nodiff{padding:14px;color:var(--muted);font-family:var(--sans);font-size:12px}
@@ -306,7 +306,7 @@
 .wf.dz-compact .gsec-head{padding:12px 22px}
 .wf.dz-compact .gsec.collapsed .gsec-head{padding:10px 22px}
 .wf.dz-compact .gsec-body{padding:0 22px 16px}
-.wf.dz-compact .gsec-cols{gap:10px;margin-bottom:10px}
+.wf.dz-compact .gsec-cols{gap:22px;margin-bottom:10px}
 .wf.dz-compact .gsec-diagram{padding:11px}
 .wf.dz-compact .gfile{margin-bottom:10px}
 .wf.dz-compact .gfile-diff{font-size:11px;line-height:1.5}
@@ -318,7 +318,7 @@
 .wf.dz-spacious .gsec-head{padding:26px 44px 18px}
 .wf.dz-spacious .gsec.collapsed .gsec-head{padding:18px 44px}
 .wf.dz-spacious .gsec-body{padding:0 44px 34px}
-.wf.dz-spacious .gsec-cols{gap:18px;margin-bottom:20px}
+.wf.dz-spacious .gsec-cols{gap:28px;margin-bottom:20px}
 .wf.dz-spacious .gsec-diagram{padding:22px}
 .wf.dz-spacious .gfile{margin-bottom:20px}
 .wf.dz-spacious .gfile-diff{line-height:1.9}
@@ -358,32 +358,51 @@
 .lr-verdict.skipped { color: var(--red); }
 
 /* ---- comment affordances on review elements ---- */
-/* summary banner */
-.rr-cmt { display: inline-flex; align-items: center; justify-content: center; background: none; border: none;
-  cursor: pointer; color: var(--muted); padding: 3px; border-radius: 6px; flex: 0 0 auto; }
-.rr-cmt:hover { color: var(--accent-ink); background: var(--panel-2); }
+/* One affordance everywhere: the green "+" (.spec-plus, styled in document.css)
+   revealed on hover in the element's LEFT gutter — never a bubble on the right.
+   Each context below makes its host position:relative, offsets the + into the
+   host's left gutter, and reveals it on hover. The lone exception is the
+   text-selection "comment" pill (.sel-cmt-pill), which floats over the selection. */
 .rr-summary-threads { margin: 2px 30px 6px; }
 .wf.dz-compact .rr-summary-threads { margin: 2px 22px 6px; }
 .wf.dz-spacious .rr-summary-threads { margin: 4px 44px 8px; }
-/* plan steps (left spine peek) — reveal on row hover */
-.plan-peek-step { position: relative; }
-.pps-cmt { display: none; align-items: center; justify-content: center; background: none; border: none;
-  cursor: pointer; color: var(--muted); padding: 2px; border-radius: 5px; margin-left: auto; flex: 0 0 auto; }
-.plan-peek-step:hover .pps-cmt { display: inline-flex; }
-.pps-cmt:hover { color: var(--accent-ink); }
-/* file-level comments (between the file header and its diff) */
 .gfile-filecmt { padding: 8px 14px 2px; }
-/* diagram/insight comment bubble — reveal on hover of the diagram block */
-.gsec-diagram-cmt { position: relative; }
-.gsec-diagram-cmt .diagram-cmt-btn { position: absolute; top: 6px; right: 8px; display: none; z-index: 1; }
-.gsec-diagram-cmt:hover .diagram-cmt-btn { display: inline-flex; }
-
-/* reuse .pps-cmt (hover-reveal bubble) on acceptance criteria + deviations */
-.spec-req { position: relative; }
-.spec-req:hover .pps-cmt { display: inline-flex; }
-/* review title */
-.page-head h1 .title-cmt { vertical-align: middle; margin-left: 9px; }
 .title-threads { margin-top: 10px; max-width: 660px; }
+
+/* review title */
+.page-h1-cmt { position: relative; }
+.page-h1-cmt .h1-plus { left: -28px; top: 7px; }
+.page-h1-cmt:hover .h1-plus { display: flex; }
+
+/* overall summary banner */
+.rr-summary-cmt { position: relative; }
+.rr-summary-cmt .summary-plus { left: -26px; top: 50%; margin-top: -9px; }
+.rr-summary-cmt:hover .summary-plus { display: flex; }
+
+/* acceptance criteria + plan steps (left-spine artifact peek; gutter = art-peek padding) */
+.spec-req { position: relative; }
+.spec-req .peek-plus { left: -26px; top: 1px; }
+.spec-req:hover .peek-plus { display: flex; }
+.plan-peek-step { position: relative; }
+.plan-peek-step .peek-plus { left: -26px; top: 1px; }
+.plan-peek-step:hover .peek-plus { display: flex; }
+
+/* section diagram / insight block (gutter = gsec-body padding) */
+.gsec-diagram-cmt { position: relative; }
+.gsec-diagram-cmt .diagram-plus { left: -26px; top: 6px; }
+.gsec-diagram-cmt:hover .diagram-plus { display: flex; }
+
+/* section narration ("What changed"); its gutter is the inter-column gap, widened
+   below so the + clears the diagram column */
+.gsec-what-cmt { position: relative; }
+.gsec-what-cmt .narration-plus { left: -22px; top: 9px; }
+.gsec-what-cmt:hover .narration-plus { display: flex; }
+
+/* file-as-a-whole — the file card clips its overflow, so reserve a left slot inside
+   the header rather than a negative gutter */
+.gfile { position: relative; }
+.gfile .gfile-plus { left: 7px; top: 9px; }
+.gfile:hover .gfile-plus { display: flex; }
 
 /* text-selection commenting (Commentable wrapper) */
 .lr-commentable { position: relative; }

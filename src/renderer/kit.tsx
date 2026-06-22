@@ -49,6 +49,24 @@ export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {
   return <span className={'ava' + (ai ? ' ava-ai' : '')}>{children}</span>
 }
 
+/** The one comment affordance for any review element: a green "+" that reveals on
+ *  hover in the element's left gutter (never a bubble on the right). `extra` adds a
+ *  per-context positioning class; the host element drives the hover reveal. */
+export function CmtPlus({ onClick, extra, stop }: {
+  onClick: () => void; extra?: string; stop?: boolean
+}) {
+  return (
+    <button
+      className={'spec-plus' + (extra ? ' ' + extra : '')}
+      tabIndex={-1}
+      onClick={(e) => { if (stop) e.stopPropagation(); onClick() }}
+    >
+      <I.plus style={{ width: 12, height: 12 }} />
+      <span className="plus-tip">comment</span>
+    </button>
+  )
+}
+
 /** The brand mark for the engine an action is attributed to — Anthropic sunburst
  *  (claude) or OpenAI knot (codex). Falls back to the Claude mark (the default
  *  engine) when the engine is unknown. */

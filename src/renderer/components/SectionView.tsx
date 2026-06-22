@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
-import { I, DiagramNodeBox, Flow, EngineGlyph } from '../kit'
+import { I, DiagramNodeBox, Flow, EngineGlyph, CmtPlus } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
@@ -77,13 +77,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <div className="gsec-cols" style={!s.diagram ? { gridTemplateColumns: '1fr' } : undefined}>
               {s.diagram && (
                 <div className={(s.insight ? 'gsec-insight' : 'gsec-diagram') + ' gsec-diagram-cmt'}>
-                  <button
-                    className="gfile-regen diagram-cmt-btn"
-                    title="Comment on this diagram"
-                    onClick={() => setCommenting('diagram')}
-                  >
-                    <I.bubble style={{ width: 11, height: 11 }} />
-                  </button>
+                  <CmtPlus extra="diagram-plus" onClick={() => setCommenting('diagram')} />
                   {s.insight && (
                     <div className="ins-switch">
                       <span className="ins-switch-lab">mechanism</span>
@@ -102,18 +96,11 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
                 </div>
               )}
               {s.what && (
-                <div className="agent-note gsec-what">
+                <div className="agent-note gsec-what gsec-what-cmt">
+                  <CmtPlus extra="narration-plus" onClick={() => setCommenting('narration')} />
                   <span className="ai"><EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 11, height: 11 }} /></span>
                   <span className="txt">
                     <b>What changed: </b>{s.what}
-                    <button
-                      className="gfile-regen"
-                      style={{ marginLeft: 8 }}
-                      title="Comment on this section's narration"
-                      onClick={() => setCommenting('narration')}
-                    >
-                      <I.bubble style={{ width: 11, height: 11 }} />
-                    </button>
                   </span>
                 </div>
               )}

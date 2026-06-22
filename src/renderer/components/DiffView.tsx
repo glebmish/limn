@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
-import { I, Delta, ficonClass, EngineGlyph } from '../kit'
+import { I, Delta, ficonClass, EngineGlyph, CmtPlus } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
@@ -85,6 +85,7 @@ export function DiffView({ f, plainNote }: {
 
   return (
     <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
+      <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
       <div className="gfile-head" data-lr-file={f.path}>
         <span className="pth">
           <span className={'ficon ' + ficonClass(f.path)}></span>
@@ -115,9 +116,6 @@ export function DiffView({ f, plainNote }: {
             {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
-        <button className="gfile-regen" title="Comment on this file" onClick={() => setFileCommenting(true)}>
-          <I.bubble style={{ width: 11, height: 11 }} />
-        </button>
         <label className="file-viewed">
           <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path, isViewed)} />
           <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
