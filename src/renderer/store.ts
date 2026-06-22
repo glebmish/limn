@@ -777,9 +777,9 @@ export const useStore = create<AppStore>((set, get) => {
       const trimmed = steer?.trim() || undefined
       if (commentIds.length === 0 && !trimmed) return
       const opId = newOpId()
-      // a refine turn (answering an intent question) stays in the review panel —
-      // the answer thread updates in place; don't yank the chat drawer open
-      if (!refine) get().openChat(threadId)   // surface the batch in chat (wf-H)
+      // sending to the agent (queued comments OR a decision answer) opens the chat
+      // so the turn + its tool calls are visible as they run
+      get().openChat(threadId)
       get().startOp('chat', opId, threadId)
       void window.api.sendBatch(threadId, commentIds, trimmed, opId, refine)
     },
