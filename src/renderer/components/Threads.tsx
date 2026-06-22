@@ -99,16 +99,23 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   )
 }
 
-export function Composer({ placeholder, onSubmit, onCancel }: {
+/** Inline composer. Defaults describe a *queued* comment (folded into the next
+ *  batch). `sendNow` flips the labels for the decision flow, where submitting sends
+ *  to the agent immediately and resolves the question. */
+export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
   placeholder: string
   onSubmit: (text: string) => void
   onCancel: () => void
+  sendNow?: boolean
 }) {
   const [text, setText] = useState('')
+  const headLabel = sendNow ? 'your decision' : 'new comment'
+  const submitLabel = sendNow ? 'Send to agent' : 'Add comment'
+  const hint = sendNow ? 'sent to the agent immediately — resolves this question' : 'queues for the agent — nothing is sent yet'
   return (
     <div className="dthread">
       <div className="box">
-        <div className="bh"><Ava>me</Ava><b>You</b><span className="dim">new comment</span></div>
+        <div className="bh"><Ava>me</Ava><b>You</b><span className="dim">{headLabel}</span></div>
         <div style={{ padding: '10px 12px' }}>
           <textarea
             className="rg-steer"
@@ -125,10 +132,10 @@ export function Composer({ placeholder, onSubmit, onCancel }: {
           />
           <div style={{ display: 'flex', gap: 7, marginTop: 8, alignItems: 'center' }}>
             <button className="btn btn-sm btn-primary" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
-              <I.bubble style={{ width: 12, height: 12 }} />Add comment
+              {sendNow ? <I.send style={{ width: 12, height: 12 }} /> : <I.bubble style={{ width: 12, height: 12 }} />}{submitLabel}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
-            <span className="dim" style={{ fontSize: 10.5 }}>queues for the agent — nothing is sent yet</span>
+            <span className="dim" style={{ fontSize: 10.5 }}>{hint}</span>
           </div>
         </div>
       </div>

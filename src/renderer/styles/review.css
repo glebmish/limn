@@ -409,7 +409,8 @@
    Same outside-gutter + hover-bridge pattern as the summary banner. */
 .lr-decision-cmt { position: relative; }
 .lr-decision-cmt::after { content: ""; position: absolute; left: -30px; top: 0; width: 30px; height: 100%; }
-.lr-decision-cmt .decision-plus { left: -26px; top: 50%; margin-top: -9px; }
+/* top-aligned with the first question line (below the block's header row) */
+.lr-decision-cmt .decision-plus { left: -26px; top: 33px; }
 .lr-decision-cmt:hover .decision-plus { display: flex; }
 .spec-plus.decision-plus { background: var(--amber); }
 

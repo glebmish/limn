@@ -38,7 +38,8 @@ export function Questions() {
               {answers.map((c) => <InlineThread key={c.id} c={c} locLabel="decision" />)}
               {answering === q.id && (
                 <Composer
-                  placeholder="Your decision — sent to the agent now, resolving this question (no code changes)…"
+                  sendNow
+                  placeholder="Your decision — the agent folds it into the review (no code changes)…"
                   onCancel={() => setAnswering(null)}
                   onSubmit={(text) => {
                     void addComment({ kind: 'question', questionId: q.id }, text).then((id) => { if (id) sendAnswers([id]) })
