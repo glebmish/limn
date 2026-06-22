@@ -45,6 +45,10 @@ export default function Review() {
   const { loaded, branch, base, reviewedSections, viewedAt, cur, gen, docPath, openDoc, closeDoc } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  // scroll memory: the review position to return to when a doc closes, plus each
+  // doc's own scroll position (per file — a different doc opens from its own top)
+  const reviewScrollRef = useRef(0)
+  const docScrollRef = useRef<Record<string, number>>({})
   const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
   const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
@@ -152,7 +156,10 @@ export default function Review() {
     // Selecting a section while a spec/plan doc is open exits the doc back to
     // the changes view — the changes list then has to remount before its
     // section refs exist, so the scroll retries across a few frames.
-    if (docPath) closeDoc()
+    if (docPath) {
+      if (scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
+      closeDoc()
+    }
     store.openSection(id)
     let tries = 0
     const scroll = (): void => {
@@ -163,12 +170,51 @@ export default function Review() {
         return
       }
       const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12
-      // Jump straight to the section. A smooth scroll fires the scroll-sync
-      // handler on every animation frame, which re-selects each section the
-      // viewport passes over — the sidebar flickers through the whole list.
-      box.scrollTo({ top: Math.max(0, top), behavior: 'auto' })
+      // 'instant' (NOT 'auto' — auto resolves to the CSS scroll-behavior:smooth on
+      // .gmain, which animates and makes the sidebar flicker through every section
+      // the viewport passes). We want the section to appear in a single jump.
+      box.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
     }
     requestAnimationFrame(scroll)
+  }
+
+  // restore a saved scroll position after the doc/review view swaps in (its content
+  // lays out over a few frames, so re-apply across them). Direct scrollTop assignment
+  // is instant regardless of .gmain's scroll-behavior:smooth.
+  const restoreScroll = (target: number): void => {
+    let tries = 0
+    const apply = (): void => {
+      if (scrollRef.current) scrollRef.current.scrollTop = target
+      if (tries++ < 10) requestAnimationFrame(apply)
+    }
+    requestAnimationFrame(apply)
+  }
+
+  // open a doc (and its sidebar dropdown), remembering where we left the prior view
+  const goToDoc = (path: string): void => {
+    const box = scrollRef.current
+    if (box) {
+      if (docPath) docScrollRef.current[docPath] = box.scrollTop
+      else reviewScrollRef.current = box.scrollTop
+    }
+    setPeek(path)
+    openDoc(path)
+    restoreScroll(docScrollRef.current[path] ?? 0)
+  }
+
+  // close the open doc and land back at the same spot in the review
+  const closeDocBack = (): void => {
+    if (docPath && scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
+    setPeek(null)
+    closeDoc()
+    restoreScroll(reviewScrollRef.current)
+  }
+
+  // clicking the spec/plan name: open it (+ dropdown), or — a second click on the
+  // one already open — close it and return to the review
+  const toggleDoc = (path: string): void => {
+    if (docPath === path) closeDocBack()
+    else goToDoc(path)
   }
 
   const rootStyle = {
@@ -223,7 +269,7 @@ export default function Review() {
                     {items.map((a) => (
                 <div key={a.path}>
                   <div className={'art-row' + (peek === a.path ? ' open' : '')}>
-                    <span className="art-open" onClick={() => openDoc(a.path)} title="Open the rendered document">
+                    <span className="art-open" onClick={() => toggleDoc(a.path)} title="Open the rendered document (click again to close)">
                       <span className="art-ic">{a.role === 'plan' ? <I.plan style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
                       <span className="art-fmt" title={`${FORMAT_LABELS[a.format]} format`}>{FORMAT_LABELS[a.format]}</span>
@@ -287,7 +333,7 @@ export default function Review() {
                       ) : (
                         <div className="art-goal">{a.lines.find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 140)}</div>
                       )}
-                      <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => openDoc(a.path)}>
+                      <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => goToDoc(a.path)}>
                         <I.doc style={{ width: 11, height: 11 }} />Open &amp; comment
                       </button>
                     </div>
@@ -393,7 +439,7 @@ export default function Review() {
         {/* MAIN */}
         <div className="gmain" ref={scrollRef}>
           {docPath ? (
-            <ArtifactDoc path={docPath} onClose={closeDoc} />
+            <ArtifactDoc path={docPath} onClose={closeDocBack} />
           ) : (
             <>
               <div className="page-head">
