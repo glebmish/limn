@@ -125,7 +125,8 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
   // send-now composers name the agent they go straight to (no queue)
   const agent = useStore((s) => s.loaded?.state.agent)
   const submitLabel = sendNow ? 'Send now' : 'Add comment'
-  const hint = sendNow ? 'sent to the agent immediately — resolves this question' : 'queues for the agent — nothing is sent yet'
+  // send-now needs no hint — the "→ agent" destination chip already says it all
+  const hint = sendNow ? '' : 'queues for the agent — nothing is sent yet'
   return (
     <div className="dthread">
       <div className="box">
@@ -158,7 +159,7 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
               {sendNow ? <I.send style={{ width: 12, height: 12 }} /> : <I.bubble style={{ width: 12, height: 12 }} />}{submitLabel}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
-            <span className="dim" style={{ fontSize: 10.5 }}>{hint}</span>
+            {hint && <span className="dim" style={{ fontSize: 10.5 }}>{hint}</span>}
           </div>
         </div>
       </div>
