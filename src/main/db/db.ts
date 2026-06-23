@@ -44,10 +44,19 @@ function open(file: string): DatabaseSync {
   return db
 }
 
+/** Parse a stored schema_version. A missing or corrupt (non-numeric) value
+ *  becomes 0 — never NaN, which would make `m.version <= version` false for
+ *  every migration and silently re-run them all on a healthy db. */
+export function parseSchemaVersion(raw: string | undefined): number {
+  if (raw == null) return 0
+  const v = parseInt(raw, 10)
+  return Number.isNaN(v) ? 0 : v
+}
+
 function migrate(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
   const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | undefined
-  let version = row ? parseInt(row.value, 10) : 0
+  let version = parseSchemaVersion(row?.value)
   for (const m of MIGRATIONS) {
     if (m.version <= version) continue
     db.exec('BEGIN')
