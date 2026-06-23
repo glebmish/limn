@@ -3,7 +3,7 @@ import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, Artifact, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  branchCheckedOutAt, describeSide, diffSince, getDiff, headSha, isDirty, log, markSince,
+  branchCheckedOutAt, describeSide, diffSince, getDiff, headSha, isDirty, locateSide, log, markSince,
   resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
@@ -70,6 +70,8 @@ export async function assembleReview(
         sessionId: session.id, session, state,
         baseContext: await describeSide(repo, pair.base),
         compareContext: await describeSide(repo, pair.compare),
+        baseLoc: await locateSide(repo, pair.base),
+        compareLoc: await locateSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
         artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [], compareCheckedOut: false,
         refMissing: { side, symbol }
@@ -129,6 +131,8 @@ export async function assembleReview(
     sessionId: session.id, session,
     baseContext: await describeSide(repo, pair.base),
     compareContext: await describeSide(repo, pair.compare),
+    baseLoc: await locateSide(repo, pair.base),
+    compareLoc: await locateSide(repo, pair.compare),
     skeleton, state, artifacts, commits, sinceTagged, dirty, volatile,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).

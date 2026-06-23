@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
-import type { CommitInfo } from '../../shared/types'
+import type { CommitInfo, RefLoc } from '../../shared/types'
 
-export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false, dist, tipSha }: {
+export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false, loc }: {
   value: string
   onChange: (v: string) => void
   repo: string
@@ -13,12 +13,10 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   /** Compare side: render the trigger as a bold chip with a branch icon. Base
    *  side (default) stays the quiet text button. */
   prominent?: boolean
-  /** commits this ref is from the selected (compare) branch — shown as "~n", in
-   *  the branch accent colour. Omitted/zero on the compare ref itself (the anchor). */
-  dist?: number
-  /** resolved tip sha (already shortened) shown in grey after the name — only used
-   *  for branch refs; a commit ref already shows its sha as the value. */
-  tipSha?: string
+  /** structured locator: render the chip as "branch ~n sha" — the branch the ref
+   *  lives on, how far behind that branch's HEAD it sits (~n, hidden at the tip),
+   *  and its sha in grey. Omitted (e.g. the setup screen) → plain value display. */
+  loc?: RefLoc
 }) {
   const [open, setOpen] = useState(Boolean(prominent && window.limnDev?.openCmpRef))
   // worktree a branch is checked out in (if any) — shown muted next to the row so
@@ -111,9 +109,15 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     <div className="limn-refpick">
       <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
-        <span className="rp-val">{display || '—'}</span>
-        {dist != null && dist > 0 && <span className="rp-dist">~{dist}</span>}
-        {tipSha && !valueShaLike && <span className="rp-tip">{tipSha}</span>}
+        {loc ? (
+          <>
+            <span className="rp-val">{loc.onBranch ?? shortSha(loc.sha)}</span>
+            {loc.behind > 0 && <span className="rp-dist">~{loc.behind}</span>}
+            {loc.onBranch && <span className="rp-tip">{shortSha(loc.sha)}</span>}
+          </>
+        ) : (
+          <span className="rp-val">{display || '—'}</span>
+        )}
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
       </button>
       {open && (

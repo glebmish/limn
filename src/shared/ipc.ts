@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, PinNode, RecentSession, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
+  ExecutionMode, FileDiff, PinNode, RecentSession, RefLoc, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
 } from './types.js'
 
 export interface LoadedReview {
@@ -9,6 +9,9 @@ export interface LoadedReview {
   /** human context lines (describeSide) for the compare bar / review header */
   baseContext: string
   compareContext: string
+  /** structured locators for the header ref chips ("branch ~n sha") */
+  baseLoc: RefLoc
+  compareLoc: RefLoc
   skeleton: DiffSkeleton
   state: ReviewState
   artifacts: Artifact[]

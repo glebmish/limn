@@ -214,6 +214,10 @@ export type RefKind = 'branch' | 'commit'
  *  Commit sides are frozen at anchorSha; symbol keeps what the user typed. */
 export interface RefSide { kind: RefKind; symbol: string; anchorSha: string }
 export interface RefPair { base: RefSide; compare: RefSide }
+/** Where a session side sits: the branch it lives on (null if none/detached),
+ *  how many commits it is behind that branch's HEAD (0 for a branch tip), and
+ *  its resolved sha. Drives the header ref-chip locator "branch ~n sha". */
+export interface RefLoc { onBranch: string | null; behind: number; sha: string }
 
 /** Stable identity for session keying: branches by name, commits by sha. */
 export function refIdentity(side: RefSide): string {

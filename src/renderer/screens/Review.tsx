@@ -260,10 +260,10 @@ export default function Review() {
       <div className="wf-titlebar">
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref"
-            dist={commits.length} tipSha={shortSha(loaded.session.pair.base.anchorSha)} />
+            loc={loaded.baseLoc} />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
           <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={base || 'HEAD'} label="compare ref" prominent
-            tipSha={shortSha(skeleton.headSha)} />
+            loc={loaded.compareLoc} />
         </span>
         <span className="grow"></span>
         {sinceTagged && baseline && (
