@@ -528,7 +528,7 @@ export default function Review() {
                 />
               ))}
               {skeleton.files.length === 0 && !loaded.dirty && (
-                <div className="limn-empty">No changes between <b>{branch}</b> and <b>{base}</b>.</div>
+                <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
               )}
 
               {loaded.dirty && loaded.volatile.length > 0 && (

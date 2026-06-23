@@ -109,7 +109,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
 
   return (
     <div className="limn-refpick">
-      <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
+      <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         <span className="rp-val">{display || '—'}</span>
         {dist != null && dist > 0 && <span className="rp-dist">~{dist}</span>}
