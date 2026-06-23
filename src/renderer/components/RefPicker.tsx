@@ -108,12 +108,17 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   return (
     <div className="limn-refpick">
       <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
-        {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
+        {prominent && loc?.kind !== 'commit' && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         {loc ? (
           <>
             <span className="rp-val">{loc.onBranch ?? shortSha(loc.sha)}</span>
             {loc.behind > 0 && <span className="rp-dist">~{loc.behind}</span>}
             {loc.onBranch && <span className="rp-tip">{shortSha(loc.sha)}</span>}
+            {loc.kind === 'commit' && (
+              <span className="rp-pin" title="Pinned to this commit — reviews exactly this state; won't follow new commits. Pick a branch to track the tip.">
+                <I.pin style={{ width: 11, height: 11 }} />
+              </span>
+            )}
           </>
         ) : (
           <span className="rp-val">{display || '—'}</span>

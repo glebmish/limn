@@ -418,6 +418,8 @@ button.limn-chip:hover { background: var(--accent-line); }
 /* ref locator: "~n" = distance from the selected branch (branch accent), tip sha grey */
 .rp-dist { font-family: var(--mono); font-weight: 500; color: var(--accent); margin-left: 4px; }
 .rp-tip { font-family: var(--mono); font-weight: 400; color: var(--muted); margin-left: 5px; }
+/* frozen-commit pin — sits after the sha; hover the pin for the explanation */
+.rp-pin { display: inline-flex; align-items: center; margin-left: 5px; color: var(--amber); cursor: help; }
 .limn-refpick-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; width: 300px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; }
 .limn-refpick-pop input { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); margin-bottom: 6px; }
 .limn-refpick-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 6px 4px 3px; }
