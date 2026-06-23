@@ -34,6 +34,11 @@ function write(dir: string, rel: string, content: string): void {
 export function makeFixtureRepo(): FixtureRepo {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-fix-'))
   git(dir, 'init', '-b', 'main')
+  // Pin a repo-local identity so commits made by the app's own git calls (which
+  // don't carry our GIT_AUTHOR_* env) succeed on machines with no global git
+  // identity — e.g. CI runners, where git otherwise fails with "empty ident".
+  git(dir, 'config', 'user.name', 'Fixture')
+  git(dir, 'config', 'user.email', 'fix@test')
 
   write(dir, 'src/a.ts', ['export function a() {', '  return 1', '}', 'export const K = 10', ''].join('\n'))
   write(dir, 'src/old.ts', 'export const gone = true\n')
