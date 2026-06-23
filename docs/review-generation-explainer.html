@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Review generation — first run vs regenerate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper:#EEF1EB; --paper-2:#F7F9F4; --card:#FCFDFB;
+    --ink:#16201A; --ink-soft:#4C584F; --ink-faint:#7E887F;
+    --line:#D3DBD1; --line-soft:#E3E8E0;
+    --green:#2E6B4B; --green-br:#3E9266; --green-wash:#E4EFE7;
+    --clay:#A85A2C; --clay-br:#C47A45; --clay-wash:#F2E6DC;
+    --amber:#C98A2E;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
+    --disp:'Space Grotesk',var(--sans);
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
+    font-size:16px; line-height:1.55; -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 10% -5%, rgba(62,146,102,.08), transparent 42%),
+      radial-gradient(circle at 96% 6%, rgba(168,90,44,.06), transparent 40%);
+  }
+  .wrap { max-width:1040px; margin:0 auto; padding:0 28px; }
+  h1,h2,h3 { font-family:var(--disp); font-weight:600; letter-spacing:-.02em; line-height:1.08; margin:0; }
+  code,.mono { font-family:var(--mono); font-size:.85em; }
+  .ref { font-family:var(--mono); font-size:11px; color:var(--ink-faint); white-space:nowrap; }
+  .ref b { color:var(--green); font-weight:500; }
+
+  /* hero */
+  header.hero { padding:84px 0 44px; }
+  .eyebrow { font-family:var(--mono); font-size:12px; letter-spacing:.3em; text-transform:uppercase; color:var(--green); margin:0 0 20px; display:flex; align-items:center; gap:12px; }
+  .eyebrow::before { content:""; width:34px; height:2px; background:var(--green); }
+  header.hero h1 { font-size:clamp(38px,6vw,66px); font-weight:700; max-width:15ch; }
+  .accent { color:var(--green); } .accent.alt { color:var(--clay); }
+  .dek { font-size:18px; color:var(--ink-soft); max-width:52ch; margin:22px 0 0; }
+
+  /* shared two-tone key */
+  .key { display:flex; gap:22px; margin-top:30px; flex-wrap:wrap; }
+  .key .k { display:flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12px; color:var(--ink-soft); }
+  .key .sw { width:26px; height:8px; border-radius:5px; }
+  .sw.g { background:var(--green); } .sw.c { background:var(--clay); }
+
+  /* sections */
+  section { padding:54px 0; border-top:1px solid var(--line-soft); }
+  .sec-head { display:flex; align-items:baseline; gap:16px; margin-bottom:26px; }
+  .sec-num { font-family:var(--mono); font-size:13px; color:var(--green); font-weight:500; }
+  .sec-head h2 { font-size:clamp(24px,3.2vw,32px); }
+
+  /* ---- mental model: nested boxes, minimal text ---- */
+  .model { background:var(--card); border:2px solid var(--ink); border-radius:14px; padding:18px 16px 16px; position:relative; }
+  .model .tag { position:absolute; top:-12px; left:18px; background:var(--ink); color:#fff; font-family:var(--mono); font-size:11px; padding:3px 11px; border-radius:20px; }
+  .model .cols { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .pane { border:1px solid var(--line); border-radius:10px; background:var(--paper-2); padding:13px; }
+  .pane h5 { font-family:var(--disp); font-size:13px; font-weight:600; margin:0 0 9px; display:flex; align-items:center; gap:8px; }
+  .pane .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  .dot.clay{background:var(--clay);} .dot.green{background:var(--green);} .dot.amber{background:var(--amber);}
+  .pane ul { margin:0; padding:0; list-style:none; }
+  .pane li { font-family:var(--mono); font-size:11.5px; padding:4px 0; border-bottom:1px dashed var(--line-soft); display:flex; justify-content:space-between; gap:8px; }
+  .pane li:last-child { border-bottom:0; }
+  .pane li .fate { font-size:9.5px; padding:1px 6px; border-radius:10px; }
+  .fate.keep { background:var(--green-wash); color:var(--green); }
+  .fate.new { background:var(--clay-wash); color:var(--clay); }
+
+  /* ---- the flow / circuit ---- */
+  .phase { display:grid; grid-template-columns:118px 1fr; gap:0; }
+  .rail { padding:8px 18px 8px 0; text-align:right; border-right:2px solid var(--line); }
+  .rail .ph { font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--green); font-weight:600; display:inline-flex; align-items:center; gap:7px; }
+  .rail .ph svg { width:14px; height:14px; }
+  .rail small { display:block; font-family:var(--sans); font-size:10.5px; color:var(--ink-faint); letter-spacing:0; text-transform:none; margin-top:3px; }
+  .track { padding:0 0 0 26px; position:relative; }
+  .track::before { content:""; position:absolute; left:-1px; top:0; bottom:0; width:2px; background:var(--line); }
+  .phase:first-child .track::before { top:16px; }
+  .phase:last-child .track::before { bottom:auto; height:18px; }
+
+  .node { position:relative; padding:11px 0; }
+  .node .bullet { position:absolute; left:-33px; top:14px; width:13px; height:13px; border-radius:50%; background:var(--card); border:2px solid var(--green-br); }
+  .node .head { display:flex; align-items:center; gap:10px; }
+  .node .lbl { font-family:var(--disp); font-size:15.5px; font-weight:600; }
+  .node .lbl code { font-family:var(--mono); font-size:13px; font-weight:500; background:var(--paper-2); padding:1px 6px; border-radius:5px; border:1px solid var(--line-soft); }
+  .node .ref { margin-left:auto; }
+
+  /* fork node: branch the regen path */
+  .node.fork .bullet { border-color:var(--clay); background:var(--clay-wash); width:15px; height:15px; left:-34px; transform:rotate(45deg); border-radius:3px; }
+  .node.fork .lbl::after { content:"fork"; font-family:var(--mono); font-size:9px; color:var(--clay); background:var(--clay-wash); border:1px solid var(--clay-br); padding:1px 7px; border-radius:20px; margin-left:9px; font-weight:500; vertical-align:middle; }
+  .splits { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:9px; }
+  .split { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; font-size:12px; }
+  .split .b { font-family:var(--mono); font-size:9.5px; padding:1px 6px; border-radius:10px; font-weight:500; flex:none; }
+  .split.first { background:var(--green-wash); }   .split.first .b { background:var(--green); color:#fff; }
+  .split.regen { background:var(--clay-wash); }     .split.regen .b { background:var(--clay); color:#fff; }
+  .split .t { color:var(--ink); }
+
+  /* live-events sidecar */
+  .live { font-family:var(--mono); font-size:11px; color:var(--ink-faint); display:inline-flex; align-items:center; gap:7px; margin-top:6px; }
+  .live .pulse { width:8px; height:8px; border-radius:50%; background:var(--green-br); animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.35;} 50%{opacity:1;} }
+
+  /* ---- after: interactive comparison ---- */
+  .toggle { display:inline-flex; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:4px; margin-bottom:24px; gap:4px; }
+  .toggle button { font-family:var(--mono); font-size:12.5px; border:0; background:transparent; color:var(--ink-soft); padding:8px 16px; border-radius:7px; cursor:pointer; transition:background .18s,color .18s; font-weight:500; }
+  .toggle button .sw2 { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:7px; vertical-align:middle; }
+  .toggle button[data-k="first"] .sw2 { background:var(--green); }
+  .toggle button[data-k="regen"] .sw2 { background:var(--clay); }
+  .toggle button.on { background:var(--ink); color:#fff; }
+
+  .stage { display:grid; grid-template-columns:1.05fr 1fr; gap:18px; align-items:start; }
+  .stack { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .stack .cap { font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; }
+  .stack .cap .badge { font-size:10px; padding:2px 9px; border-radius:20px; letter-spacing:.02em; }
+  .badge.first { background:var(--green-wash); color:var(--green); }
+  .badge.regen { background:var(--clay-wash); color:var(--clay); }
+
+  .chip { display:flex; align-items:center; gap:11px; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:var(--paper-2); margin-bottom:9px; position:relative; }
+  .chip .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .chip .nm { font-family:var(--disp); font-weight:600; font-size:14px; }
+  .chip .meta { font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); margin-left:auto; }
+  .chip.review-cur { border-color:var(--green); background:var(--green-wash); }
+  .chip.review-old { border-color:var(--clay-br); background:var(--clay-wash); }
+  .chip.review-old .nm { color:var(--clay); }
+  .chip .view { position:absolute; right:10px; top:-9px; font-family:var(--mono); font-size:9.5px; background:var(--ink); color:#fff; padding:2px 8px; border-radius:12px; }
+
+  .ledger .lr { display:flex; justify-content:space-between; gap:12px; font-size:12.5px; padding:6px 0; border-bottom:1px dashed var(--line-soft); }
+  .ledger .lr:last-child { border-bottom:0; }
+  .ledger .lr .lk { color:var(--ink-soft); }
+  .ledger .lr .lv { font-family:var(--mono); font-size:11px; text-align:right; }
+  .ledger .lr .lv.new { color:var(--green); } .ledger .lr .lv.old { color:var(--clay); }
+
+  .banner { display:flex; gap:10px; align-items:center; background:var(--clay-wash); border:1px solid var(--clay-br); border-radius:10px; padding:11px 13px; font-size:12.5px; margin-top:14px; }
+  .banner .ic { width:14px; height:14px; flex:none; color:var(--clay); }
+  .banner button { margin-left:auto; font-family:var(--mono); font-size:11px; background:var(--green); color:#fff; border:0; padding:5px 11px; border-radius:7px; cursor:default; }
+
+  /* file map */
+  .filemap { display:grid; grid-template-columns:repeat(2,1fr); gap:7px 26px; }
+  .filemap .fr { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line-soft); font-size:12.5px; }
+  .filemap .fr .fp { font-family:var(--mono); font-size:12px; color:var(--green); }
+  .filemap .fr .fd { color:var(--ink-soft); text-align:right; }
+
+  footer { padding:40px 0 70px; color:var(--ink-faint); font-size:12px; font-family:var(--mono); }
+
+  @media (max-width:820px) {
+    .model .cols, .stage, .filemap, .splits { grid-template-columns:1fr; }
+    .phase { grid-template-columns:1fr; }
+    .rail { text-align:left; border-right:0; border-bottom:1px solid var(--line); padding:14px 0 8px; }
+    .track::before { left:5px; }
+    .node .bullet { left:-1px; } .node.fork .bullet { left:-2px; }
+    .track { padding-left:24px; }
+  }
+  @media (prefers-reduced-motion:reduce) { html{scroll-behavior:auto;} *{animation:none!important;transition:none!important;} }
+  :focus-visible { outline:2px solid var(--green); outline-offset:2px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Limn · generate vs regenerate</p>
+    <h1><span class="accent">Generate</span> and <span class="accent alt">regenerate</span> run one track.</h1>
+    <p class="dek">Same twelve steps, same session. Regenerate just branches at three points — here they are.</p>
+    <div class="key">
+      <div class="k"><span class="sw g"></span>first generation</div>
+      <div class="k"><span class="sw c"></span>regeneration · diverges</div>
+    </div>
+  </div>
+</header>
+
+<!-- 01 · model -->
+<section>
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">01</span><h2>One session holds three things</h2></div>
+    <div class="model">
+      <span class="tag">sessions · id = 42 — the whole review</span>
+      <div class="cols">
+        <div class="pane">
+          <h5><span class="dot clay"></span>Session state</h5>
+          <ul>
+            <li><span>comments</span><span class="fate keep">stays</span></li>
+            <li><span>viewed_files</span><span class="fate keep">stays</span></li>
+            <li><span>reviewed_sections</span><span class="fate keep">stays</span></li>
+            <li><span>annotations</span><span class="fate new">replaced</span></li>
+          </ul>
+        </div>
+        <div class="pane">
+          <h5><span class="dot amber"></span>iterations</h5>
+          <ul>
+            <li><span>n=1 → engine session</span></li>
+            <li><span>n=2 → fix turn</span></li>
+            <li><span>reset on regen</span><span class="fate new">→ n=1</span></li>
+          </ul>
+        </div>
+        <div class="pane">
+          <h5><span class="dot green"></span>chat_threads</h5>
+          <ul>
+            <li><span>review · old 1</span><span class="fate keep">kept</span></li>
+            <li><span>user · New chat</span><span class="fate keep">kept</span></li>
+            <li><span>review · current</span><span class="fate new">added</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 02 · the flow -->
+<section>
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">02</span><h2>The track, top to bottom</h2></div>
+
+    <!-- TRIGGER -->
+    <div class="phase">
+      <div class="rail">
+        <span class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-6 1 3 7-3 1-3-7-5 4z"/></svg>Trigger</span>
+        <small>UI → store</small>
+      </div>
+      <div class="track">
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Click the button</span><span class="ref">GenPanel <b>:136</b></span></div>
+        </div>
+        <div class="node fork">
+          <div class="head"><span class="bullet"></span><span class="lbl"><code>materialize()</code></span><span class="ref">store <b>:538</b></span></div>
+          <div class="splits">
+            <div class="split first"><span class="b">1st</span><span class="t">mints a new session</span></div>
+            <div class="split regen"><span class="b">regen</span><span class="t">reuses the existing id</span></div>
+          </div>
+        </div>
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl"><code>startOp</code> → IPC</span><span class="ref">store <b>:687</b></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RUN -->
+    <div class="phase">
+      <div class="rail">
+        <span class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>Run</span>
+        <small>main → engine</small>
+      </div>
+      <div class="track">
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Build diff + request</span><span class="ref">ipc <b>:235</b></span></div>
+        </div>
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Agent runs <span style="color:var(--ink-faint);font-weight:400;font-size:13px">(read-only)</span></span><span class="ref">codex <b>:142</b></span></div>
+          <span class="live"><span class="pulse"></span>tool-call events stream → live strip</span>
+        </div>
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Result + annotations</span><span class="ref">ipc <b>:254</b></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PERSIST -->
+    <div class="phase">
+      <div class="rail">
+        <span class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>Persist</span>
+        <small>SQLite</small>
+      </div>
+      <div class="track">
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Write narration</span><span class="ref">ipc <b>:272</b></span></div>
+        </div>
+        <div class="node fork">
+          <div class="head"><span class="bullet"></span><span class="lbl"><code>resetIterations()</code></span><span class="ref">sessions <b>:345</b></span></div>
+          <div class="splits">
+            <div class="split first"><span class="b">1st</span><span class="t">insert n=1</span></div>
+            <div class="split regen"><span class="b">regen</span><span class="t">wipe all → fresh n=1</span></div>
+          </div>
+        </div>
+        <div class="node fork">
+          <div class="head"><span class="bullet"></span><span class="lbl"><code>reconcileChats()</code></span><span class="ref">sessions <b>:313</b></span></div>
+          <div class="splits">
+            <div class="split first"><span class="b">1st</span><span class="t">create review + user thread</span></div>
+            <div class="split regen"><span class="b">regen</span><span class="t">add a NEW review thread</span></div>
+          </div>
+        </div>
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Save gen as first turn</span><span class="ref">ipc <b>:283</b></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SURFACE -->
+    <div class="phase">
+      <div class="rail">
+        <span class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10a8 8 0 0 0-14-3M4 14a8 8 0 0 0 14 3"/></svg>Surface</span>
+        <small>renderer</small>
+      </div>
+      <div class="track">
+        <div class="node fork">
+          <div class="head"><span class="bullet"></span><span class="lbl"><code>reload()</code> → land</span><span class="ref">store <b>:628</b></span></div>
+          <div class="splits">
+            <div class="split first"><span class="b">1st</span><span class="t">land on the new review</span></div>
+            <div class="split regen"><span class="b">regen</span><span class="t">land on the OLD one + banner</span></div>
+          </div>
+        </div>
+        <div class="node">
+          <div class="head"><span class="bullet"></span><span class="lbl">Label: current / old N</span><span class="ref">ChatDropdown</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 · after -->
+<section>
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">03</span><h2>What the session looks like after</h2></div>
+    <div class="toggle" role="tablist" aria-label="Which case">
+      <button data-k="first" class="on" role="tab" aria-selected="true"><span class="sw2"></span>First generation</button>
+      <button data-k="regen" role="tab" aria-selected="false"><span class="sw2"></span>Regeneration</button>
+    </div>
+
+    <div class="stage">
+      <div class="stack">
+        <div class="cap"><span>chat switcher</span><span class="badge first" id="badge">first run</span></div>
+        <div id="threads-first">
+          <div class="chip review-cur"><span class="dot" style="background:var(--green)"></span><span class="nm">Review</span><span class="meta">Codex · gpt-5.5</span><span class="view">you're here</span></div>
+          <div class="chip"><span class="dot" style="background:var(--ink-faint)"></span><span class="nm">New chat</span><span class="meta">created with it</span></div>
+        </div>
+        <div id="threads-regen" hidden>
+          <div class="chip review-old"><span class="dot" style="background:var(--clay)"></span><span class="nm">Review · old 1</span><span class="meta">gen #1</span><span class="view">you're here</span></div>
+          <div class="chip"><span class="dot" style="background:var(--ink-faint)"></span><span class="nm">New chat</span><span class="meta">unchanged</span></div>
+          <div class="chip review-cur"><span class="dot" style="background:var(--green)"></span><span class="nm">Review · current</span><span class="meta">gen #2</span></div>
+        </div>
+        <div class="banner" id="banner" hidden>
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10a8 8 0 0 0-14-3M4 14a8 8 0 0 0 14 3"/></svg>
+          <span>Viewing an older review session.</span>
+          <button>Switch to current ›</button>
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="cap"><span>session row</span></div>
+        <div class="ledger">
+          <div class="lr"><span class="lk">session</span><span class="lv new" id="s-sess">minted</span></div>
+          <div class="lr"><span class="lk">annotations</span><span class="lv new" id="s-anno">written</span></div>
+          <div class="lr"><span class="lk">iterations</span><span class="lv new" id="s-iter">insert n=1</span></div>
+          <div class="lr"><span class="lk">review threads</span><span class="lv new" id="s-thr">1</span></div>
+          <div class="lr"><span class="lk">comments · viewed</span><span class="lv" id="s-keep">— none yet</span></div>
+          <div class="lr"><span class="lk">comments route to</span><span class="lv" id="s-route">the review thread</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 · files -->
+<section>
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Where it lives</h2></div>
+    <div class="filemap">
+      <div class="fr"><span class="fp">GenPanel.tsx</span><span class="fd">CTA + trigger</span></div>
+      <div class="fr"><span class="fp">store.ts</span><span class="fd">materialize · reload</span></div>
+      <div class="fr"><span class="fp">ipc.ts</span><span class="fd">handle('generate')</span></div>
+      <div class="fr"><span class="fp">engines/codex.ts</span><span class="fd">generateReview</span></div>
+      <div class="fr"><span class="fp">db/sessions.ts</span><span class="fd">resetIterations · reconcileChats</span></div>
+      <div class="fr"><span class="fp">db/migrations.ts</span><span class="fd">schema</span></div>
+      <div class="fr"><span class="fp">lib/comments.ts</span><span class="fd">currentReviewChat</span></div>
+      <div class="fr"><span class="fp">ChatDropdown · ChatDrawer</span><span class="fd">labels · banner</span></div>
+    </div>
+  </div>
+</section>
+
+<footer><div class="wrap">Limn · traced from commit 841fd58</div></footer>
+
+<script>
+  (function () {
+    var btns = document.querySelectorAll('.toggle button');
+    var tf = document.getElementById('threads-first'), tr = document.getElementById('threads-regen');
+    var badge = document.getElementById('badge'), banner = document.getElementById('banner');
+    function set(k){
+      var r = k === 'regen';
+      btns.forEach(function(b){ var on=b.dataset.k===k; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); });
+      tf.hidden=r; tr.hidden=!r; banner.hidden=!r;
+      badge.textContent = r?'regenerate':'first run'; badge.className='badge '+(r?'regen':'first');
+      var m = {
+        's-sess':  r?['reused','']:['minted','new'],
+        's-anno':  r?['overwritten','old']:['written','new'],
+        's-iter':  r?['wipe → fresh n=1','old']:['insert n=1','new'],
+        's-thr':   r?['+1 (old kept)','new']:['1','new'],
+        's-keep':  r?['preserved','']:['— none yet',''],
+        's-route': r?['the current thread','']:['the review thread','']
+      };
+      Object.keys(m).forEach(function(id){ var e=document.getElementById(id); e.textContent=m[id][0]; e.className='lv'+(m[id][1]?' '+m[id][1]:''); });
+    }
+    btns.forEach(function(b){ b.addEventListener('click', function(){ set(b.dataset.k); }); });
+    set('first');
+  })();
+</script>
+</body>
+</html>
