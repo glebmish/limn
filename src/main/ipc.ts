@@ -579,7 +579,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
     try {
       dao.retargetSession(db, sessionId, side, refSide)
     } catch (err) {
-      if (String(err).includes('UNIQUE')) throw new Error('A live session for that exact ref pair already exists — resume it instead')
+      if (String(err).includes('UNIQUE')) throw new Error('A live session for that exact ref pair already exists — resume it instead', { cause: err })
       throw err
     }
   })

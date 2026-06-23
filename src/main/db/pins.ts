@@ -21,7 +21,7 @@ export function addPin(db: DatabaseSync, dirPath: string): number {
       .run(dirPath, row.m + 1, now())
     return Number(res.lastInsertRowid)
   } catch (err) {
-    if (String(err).includes('UNIQUE')) throw new Error(`${dirPath} is already pinned`)
+    if (String(err).includes('UNIQUE')) throw new Error(`${dirPath} is already pinned`, { cause: err })
     throw err
   }
 }

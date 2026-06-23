@@ -3,11 +3,23 @@
   "version": "1.0.0",
   "description": "Agentic local branch review — guided code review backed by Claude or Codex",
   "main": "out/main/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glebmish/limn.git"
+  },
+  "homepage": "https://github.com/glebmish/limn#readme",
+  "bugs": {
+    "url": "https://github.com/glebmish/limn/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "package": "electron-vite build && electron-builder --mac"
   },
   "license": "ISC",
@@ -24,6 +36,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -31,8 +44,12 @@
     "electron": "^42.4.0",
     "electron-builder": "^26.15.2",
     "electron-vite": "^5.0.0",
+    "eslint": "^10.5.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.0",
     "vite": "^7.3.5",
     "vitest": "^4.1.8"
   },

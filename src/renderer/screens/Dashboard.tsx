@@ -11,7 +11,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     void boot()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boot])
 
   // pinned-dir repos (flat, absPath-keyed) — drive RepoTree highlight + the first

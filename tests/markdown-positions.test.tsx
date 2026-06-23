@@ -8,7 +8,7 @@ import { MD_PLUGINS, type HastNode } from '../src/renderer/lib/markdown'
 describe('react-markdown source positions', () => {
   it('exposes node.position.start.line to block component overrides', () => {
     const seen: Record<string, number> = {}
-    const record = (tag: string) => ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
+    const record = (_tag: string) => ({ node, children }: { node?: HastNode; children?: React.ReactNode }) => {
       seen[String(children)] = node?.position?.start.line ?? -1
       return <div>{children}</div>
     }

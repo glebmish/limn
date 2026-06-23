@@ -371,7 +371,6 @@ export default function Review() {
                     {sFiles.map((f) => {
                       const fSince = f.hunks.some((h) => h.since)
                       const dot = done ? 'dot-rev' : fSince ? 'dot-amber' : 'dot-unrev'
-                      const { } = f
                       const idx = f.path.lastIndexOf('/')
                       return (
                         <div key={f.path} className="gnav-file">

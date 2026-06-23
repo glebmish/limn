@@ -72,18 +72,15 @@ export class EventQueue {
   }
 
   iterable(): AsyncIterable<EngineEvent> {
-    const self = this
     return {
-      [Symbol.asyncIterator](): AsyncIterator<EngineEvent> {
-        return {
-          next(): Promise<IteratorResult<EngineEvent>> {
-            const ev = self.buffer.shift()
-            if (ev) return Promise.resolve({ value: ev, done: false })
-            if (self.closed) return Promise.resolve({ value: undefined as never, done: true })
-            return new Promise((res) => self.waiters.push(res))
-          }
+      [Symbol.asyncIterator]: (): AsyncIterator<EngineEvent> => ({
+        next: (): Promise<IteratorResult<EngineEvent>> => {
+          const ev = this.buffer.shift()
+          if (ev) return Promise.resolve({ value: ev, done: false })
+          if (this.closed) return Promise.resolve({ value: undefined as never, done: true })
+          return new Promise((res) => this.waiters.push(res))
         }
-      }
+      })
     }
   }
 }

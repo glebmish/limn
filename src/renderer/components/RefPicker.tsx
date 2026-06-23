@@ -58,7 +58,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
       setCommits(r.commits)
     })
     return () => { ignore = true }
-  }, [open, repo, scope]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, repo, scope])
 
   // close on outside click / Esc
   useEffect(() => {
