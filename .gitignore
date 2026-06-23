@@ -7,3 +7,15 @@ dist/
 
 # brainstorming companion artifacts
 .superpowers/
+
+# env files (none used today; guard against future ones)
+.env
+.env.*
+!.env.example
+
+# db + coverage safety nets
+*.db
+*.sqlite
+*.sqlite3
+coverage/
+.vitest/
