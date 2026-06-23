@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']            # e.g. v1.0.0 — triggers a published release
+  workflow_dispatch:        # manual dry-run: build + upload a workflow artifact, no Release
+    inputs:
+      dry_run:
+        description: 'Build only, do not create a GitHub Release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write           # create the Release and upload assets
+
+jobs:
+  build-mac:
+    name: Build & release macOS (arm64)
+    runs-on: macos-14       # Apple-silicon runner → arm64 build matches the target
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          test "$TAG" = "$PKG" || { echo "::error::tag $TAG != package.json version $PKG"; exit 1; }
+
+      - name: Build & package (.app → zip + dmg, arm64)
+        run: npm run package
+        # The app ships UNSIGNED (electron-builder.yml has identity: null → ad-hoc
+        # signed only). Users clear Gatekeeper with `xattr -dr com.apple.quarantine`
+        # (documented in the README). To sign + notarize instead, set the secrets
+        # below as repo secrets and remove `identity: null` from electron-builder.yml.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- wired but UNUSED until signing is enabled ---
+          # CSC_LINK: ${{ secrets.MAC_CSC_LINK }}                      # base64 Developer ID .p12
+          # CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload build artifact (dry-run / inspection)
+        uses: actions/upload-artifact@v7
+        with:
+          name: limn-macos-arm64
+          path: |
+            dist/*-arm64-mac.zip
+            dist/*-arm64-mac.zip.blockmap
+            dist/*-arm64.dmg
+            dist/*-arm64.dmg.blockmap
+
+      - name: Create GitHub Release and attach assets
+        if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*-arm64-mac.zip
+            dist/*-arm64-mac.zip.blockmap
+            dist/*-arm64.dmg
+            dist/*-arm64.dmg.blockmap
+          generate_release_notes: true
+          fail_on_unmatched_files: true
