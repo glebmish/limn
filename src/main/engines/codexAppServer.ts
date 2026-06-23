@@ -14,8 +14,8 @@ import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
  * Hand-written `codex app-server` JSON-RPC-over-stdio client (the bidirectional
  * protocol that *can* answer approval server-requests — unlike `codex exec`).
  *
- * ⚠️ LIVE-UNVERIFIED: built against the spec + the reference implementation reference
- * (`a reference implementation`), but not exercised against a real `codex app-server`
+ * ⚠️ LIVE-UNVERIFIED: built against the spec + a reference implementation,
+ * but not exercised against a real `codex app-server`
  * here (no Codex CLI/auth/network). It is gated behind `LIMN_CODEX_APP_SERVER=1`;
  * the `codex exec` path in `codex.ts` stays the default fallback. The exact
  * method/param names should be pinned via `codex app-server generate-ts` against
