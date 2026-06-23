@@ -10,7 +10,7 @@ Git is ground truth throughout: diffs are always parsed from `git diff`; the age
 
 ```bash
 npm install
-npm run package          # → dist/mac-arm64/limn.app
+npm run package          # builds dist/mac-arm64/limn.app, plus a .dmg and .zip in dist/
 ```
 
 Move `limn.app` to `/Applications` (or run in place). The build is unsigned — on first launch, right-click → Open, or:
@@ -26,6 +26,21 @@ xattr -dr com.apple.quarantine dist/mac-arm64/limn.app
 - **Codex engine**: `codex login` (ChatGPT plan) or `OPENAI_API_KEY`.
 
 Either engine alone is enough — the picker shows what's authenticated. Subscription logins are inherited from the CLI credentials; usage is billed to them.
+
+## Trust & safety
+
+limn runs a coding agent against your repo. The execution tier (set per review)
+controls how much it can do on its own:
+
+- **Ask for approval** / **Accept edits** — the agent confirms before running
+  commands; safe defaults for unfamiliar code.
+- **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
+  without confirming each step; **Full access** also lifts the sandbox (network and
+  any file).
+
+The agent reads the repository to do its job, so a repo's contents can influence
+what it does. Only use **Auto mode** or **Full access** on repos you trust. For code
+you haven't vetted, stay on **Ask for approval** or **Accept edits**.
 
 ## Using it
 
@@ -75,16 +90,27 @@ The app **watches the branch** — when commits land from outside (e.g. a Claude
 
 Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData.
 
+## Limitations
+
+- **macOS, Apple Silicon (arm64) only** — the build target is arm64; there is no Intel or non-macOS build.
+- **Unsigned build** — distributed ad-hoc signed, so first launch needs the `xattr` / right-click → Open step above.
+- **Local credentials required** — a `claude` and/or `codex` CLI login (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) must be present on the machine.
+- **Single-machine state** — review state is a local SQLite file; it does not sync across machines.
+- Early, active development — storage layout and APIs may change.
+
 ## Development
+
+Requires Node 20+.
 
 ```bash
 npm run dev        # live-reload app
 npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO, CLI args, anchoring, engine contract
 npm run typecheck
+npm run lint
 ```
 
-Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch — these map onto the `limn` CLI open path), `LIMN_FLOW=generate|fix|chat` (auto-run a flow / open the chat drawer), `LIMN_SHOT=/path.png` (capture the window, with `LIMN_SHOT_DELAY` / `LIMN_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch — these map onto the `limn` CLI open path), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer), `LIMN_SHOT=/path.png` (capture the window, with `LIMN_SHOT_DELAY` / `LIMN_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
 
 **Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LIMN_DB` / `LIMN_OPEN_SESSION` + the dev hooks `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 
-Design source: the Guided Review wireframes in `docs/superpowers/specs/` (see the design spec for architecture and decisions).
+Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dives in [docs/agent-layer.md](docs/agent-layer.md) and [docs/storage-layer.md](docs/storage-layer.md).
