@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph } from '../kit'
-import { useStore } from '../store'
+import { effectiveSections, useStore } from '../store'
 import { focusAnchor } from '../lib/focus'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
@@ -51,9 +51,10 @@ function CommentChip({ anchor, verb, badge }: { anchor: CommentAnchor; verb: str
 }
 
 /** suggest_mark_viewed renders as a button — nothing happens until the reviewer
- *  confirms, at which point the existing markReviewed / toggleViewed run. */
+ *  confirms, at which point the files (and every file of a suggested section) get
+ *  their viewed mark; a section is "viewed" exactly when all its files are. */
 function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest_viewed' }> }) {
-  const { markReviewed, toggleViewed } = useStore()
+  const { toggleViewed, setSectionViewed, loaded } = useStore()
   const [state, setState] = useState<'idle' | 'done' | 'dismissed'>('idle')
   const files = action.files ?? []
   const sectionIds = action.sectionIds ?? []
@@ -74,7 +75,13 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
       <div className="ls-act">
         <button className="btn btn-sm btn-primary" onClick={() => {
           for (const f of files) toggleViewed(f, false)
-          for (const sid of sectionIds) markReviewed(sid)
+          if (sectionIds.length) {
+            const secs = effectiveSections(loaded)
+            for (const sid of sectionIds) {
+              const sec = secs.find((s) => s.id === sid)
+              if (sec) setSectionViewed(sec.files, true)
+            }
+          }
           setState('done')
         }}><I.check style={{ width: 11, height: 11 }} />Mark viewed</button>
         <button className="btn btn-sm btn-ghost" onClick={() => setState('dismissed')}>Dismiss</button>

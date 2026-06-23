@@ -20,6 +20,7 @@ function AgentId({ agentRef, threadId }: { agentRef?: AgentRef; threadId?: numbe
 
 export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) {
   const [editing, setEditing] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
   const [draft, setDraft] = useState(c.text)
   const isAgent = c.author === 'agent'
   // engine a queued comment will be sent to = the review agent
@@ -27,6 +28,17 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? []))
   const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
+
+  // delete is destructive with no undo, so confirm inline before removing
+  const deleteControl = confirmDel ? (
+    <>
+      <span className="dim">Delete this comment?</span>
+      <button className="del-confirm" onClick={() => void deleteComment(c.id)}>Confirm</button>
+      <button onClick={() => setConfirmDel(false)}>Cancel</button>
+    </>
+  ) : (
+    <button onClick={() => setConfirmDel(true)}>Delete</button>
+  )
 
   return (
     <div className="dthread">
@@ -100,12 +112,12 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         ))}
         {!editing && !isAgent && c.status !== 'sent' && (
           <div className="bf">
-            {c.status !== 'resolved' && <button onClick={() => setEditing(true)}>Edit</button>}
-            <button onClick={() => void deleteComment(c.id)}>Delete</button>
+            {c.status !== 'resolved' && !confirmDel && <button onClick={() => setEditing(true)}>Edit</button>}
+            {deleteControl}
           </div>
         )}
         {!editing && isAgent && (
-          <div className="bf"><button onClick={() => void deleteComment(c.id)}>Delete</button></div>
+          <div className="bf">{deleteControl}</div>
         )}
       </div>
     </div>

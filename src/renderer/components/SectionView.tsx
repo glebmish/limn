@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
 import { I, DiagramNodeBox, Flow, EngineGlyph, CmtPlus } from '../kit'
-import { GUIDANCE, useStore } from '../store'
+import { GUIDANCE, sectionViewState, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -15,14 +15,16 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   forceOpen?: boolean
   secRef: (el: HTMLDivElement | null) => void
 }) {
-  const { reviewedSections, collapsed, markReviewed, openSection, loaded, focusTarget } = useStore()
+  const { viewedAt, collapsed, expanded, setSectionViewed, openSection, loaded, focusTarget } = useStore()
   const [commenting, setCommenting] = useState<null | 'header' | 'narration' | 'diagram'>(null)
   const comments = loaded?.state.comments ?? []
 
   const focused = focusTarget?.sectionId === s.id
-  const done = reviewedSections.has(s.id)
-  // focus force-shows a reviewed/collapsed section without clearing its reviewed state
-  const open = forceOpen || focused || (!done && !collapsed.has(s.id))
+  // section completion is derived: a section is "viewed" when all its files are.
+  const viewState = sectionViewState(files, viewedAt)
+  const done = viewState === 'all'
+  // focus / explicit re-open force-shows a completed section without un-viewing it
+  const open = forceOpen || focused || expanded.has(s.id) || (!done && !collapsed.has(s.id))
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
   const reReview = hasSince
   const showCtx = GUIDANCE !== 'minimal'
@@ -31,7 +33,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   // section comments with no part) shows under the narration.
   const diagramComments = sectionComments.filter((c) => c.anchor.kind === 'section' && c.anchor.part === 'diagram')
   const narrationComments = sectionComments.filter((c) => !(c.anchor.kind === 'section' && c.anchor.part === 'diagram'))
-  const approvedAt = loaded?.state.approvedSha?.slice(0, 7)
 
   const cls = 'gsec ' + (done ? 'done ' : reReview ? 'amber ' : '') + (open ? '' : 'collapsed')
 
@@ -41,12 +42,12 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
         {open && <CmtPlus extra="section-plus" stop onClick={() => setCommenting('header')} />}
         <span className="gsec-no">{done ? <I.check style={{ width: 13, height: 13 }} /> : n}</span>
         <div className="gsec-h">
-          {open && <div className="gsec-step">Change {n} of {total}</div>}
+          {open && <div className="gsec-step">Section {n} of {total}</div>}
           <div className="t">
             {s.name}
             {!done && !open && reReview && <span className="pill pill-amber"><I.changed />needs re-review</span>}
             {!done && !open && !reReview && <span className="pill pill-unrev">unreviewed</span>}
-            {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />reviewed{approvedAt ? ` at ${approvedAt}` : ''}</span>}
+            {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />viewed</span>}
           </div>
           {open && showCtx && s.desc && (
             <Commentable scope={{ region: 'section', sectionId: s.id }}><div className="d">{s.desc}</div></Commentable>
@@ -58,12 +59,21 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
           )}
         </div>
         {open ? (
-          <button
-            className={'btn btn-sm gsec-tick ' + (reReview ? 'btn-amber' : 'btn-primary')}
-            onClick={(e) => { e.stopPropagation(); markReviewed(s.id) }}
+          <label
+            className={'file-viewed gsec-viewed' + (viewState !== 'none' ? ' on' : '') + (reReview ? ' amber' : '')}
+            title={viewState === 'all' ? 'Mark all files in this section unviewed' : 'Mark all files in this section viewed'}
+            onClick={(e) => e.stopPropagation()}
           >
-            <I.check />{reReview ? 'Re-approve section' : 'Mark reviewed'}
-          </button>
+            <input
+              type="checkbox"
+              checked={done}
+              onChange={() => setSectionViewed(files.map((f) => f.path), viewState !== 'all')}
+            />
+            <span className={'fv-box' + (viewState === 'some' ? ' some' : '')}>
+              {viewState === 'all' ? <I.check style={{ width: 10, height: 10 }} /> : viewState === 'some' ? <span className="fv-dash" /> : null}
+            </span>
+            Viewed
+          </label>
         ) : (
           <button className="btn btn-sm gsec-tick" onClick={(e) => { e.stopPropagation(); openSection(s.id) }}>
             {done ? 'Re-open' : 'Review'}<I.chevR />

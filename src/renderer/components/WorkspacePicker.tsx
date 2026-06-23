@@ -108,7 +108,10 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                   <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">.worktrees/{pendingWt}</span><span className="ws-tag">new</span>
                 </button>
               ) : (
-                <button className="rsw-item" onClick={() => setNewName(branch)} disabled={!!loc.host}>
+                <button className="rsw-item" onClick={() => setNewName(branch)} disabled={!!loc.host}
+                  title={loc.host
+                    ? `${branch} is already checked out in ${name(loc.host)} — a branch can live in only one worktree.`
+                    : `Create a new linked worktree under .worktrees/ for ${branch}`}>
                   <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">New worktree…</span>
                 </button>
               )}

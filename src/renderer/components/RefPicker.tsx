@@ -68,10 +68,11 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     }
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
+    // capture phase on window so Escape closes the picker before anything else
+    window.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [open])
 
@@ -95,11 +96,16 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   const shaLike = /^[0-9a-f]{4,40}$/i.test(trimmed) && !matchedBranch
   const commitsOpen = showCommits || shaLike
 
+  // the trigger shows a long full SHA truncated to 7 chars; branch names and
+  // HEAD~N stay verbatim. (Hovering the trigger still shows the full value.)
+  const valueShaLike = /^[0-9a-f]{7,40}$/i.test(value)
+  const display = valueShaLike ? shortSha(value) : value
+
   return (
     <div className="limn-refpick">
       <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
-        <span className="rp-val">{value || '—'}</span>
+        <span className="rp-val">{display || '—'}</span>
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
       </button>
       {open && (

@@ -11,19 +11,29 @@ export function Dropdown({ trigger, children, align = 'left', width, defaultOpen
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const ref = useRef<HTMLDivElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
+    // focus the popover on open so Escape lands here regardless of prior focus
+    popRef.current?.focus()
     const onDown = (e: MouseEvent): void => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    // capture phase on window so nothing can swallow Escape before we see it
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+    window.addEventListener('keydown', onKey, true)
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
   }, [open])
   return (
     <div className="rsw" ref={ref}>
       <button className="rsw-btn" onClick={() => setOpen((o) => !o)}>{trigger(open)}</button>
       {open && (
-        <div className={'rsw-pop ' + align + (popClass ? ' ' + popClass : '')} style={width ? { width } : undefined}>
+        <div
+          ref={popRef}
+          tabIndex={-1}
+          onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
+          className={'rsw-pop ' + align + (popClass ? ' ' + popClass : '')}
+          style={{ outline: 'none', ...(width ? { width } : {}) }}
+        >
           {children(() => setOpen(false))}
         </div>
       )}

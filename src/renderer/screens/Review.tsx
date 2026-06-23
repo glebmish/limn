@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { ACCENT, checkoutGate, DENSITY, effectiveSections, GUIDANCE, useStore } from '../store'
+import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
 import { I, ficonClass, shortSha, EngineGlyph, CmtPlus } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { FORMAT_LABELS } from '../../shared/types'
@@ -11,7 +11,7 @@ import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
-import { addComment, queuedComments, sendComments } from '../lib/comments'
+import { addComment, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from '../components/Threads'
 import { Commentable, SelectionThreads } from '../components/Commentable'
 import { agentLabel } from '../../shared/agents'
@@ -42,15 +42,13 @@ function fakeGenState(): { running: true; opId: string; kind: 'review'; threadId
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, reviewedSections, viewedAt, cur, gen, docPath, openDoc, closeDoc } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   // scroll memory: the review position to return to when a doc closes, plus each
   // doc's own scroll position (per file — a different doc opens from its own top)
   const reviewScrollRef = useRef(0)
   const docScrollRef = useRef<Record<string, number>>({})
-  const [verdict, setVerdict] = useState<'changes' | 'approve'>('changes')
-  const [verdictOpen, setVerdictOpen] = useState(false)
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
   const [peek, setPeek] = useState<string | null>(window.limnDev?.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
@@ -62,6 +60,11 @@ export default function Review() {
   const sections = useMemo(() => effectiveSections(loaded), [loaded])
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
   const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
+  // a section is done when all its files are viewed (derived — no separate flag)
+  const isSectionDone = (s: Section): boolean => {
+    const fs = filesFor(s)
+    return fs.length > 0 && fs.every((f) => fileViewed(f, viewedAt))
+  }
 
   // dev-only scripted flow: LIMN_FLOW=generate auto-runs the engine once
   useEffect(() => {
@@ -106,7 +109,8 @@ export default function Review() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
 
-  // scroll-sync current section
+  // scroll-sync: keep the sidebar's current section AND current file in step with
+  // the scroll position, so the tree always shows where you are in the diff.
   useEffect(() => {
     const box = scrollRef.current
     if (!box) return
@@ -115,18 +119,30 @@ export default function Review() {
       // not re-track the (unmounted) changes sections in the sidebar
       if (useStore.getState().docPath) return
       const baseTop = box.getBoundingClientRect().top + 90
-      const reviewed = useStore.getState().reviewedSections
-      const firstOpen = sections.find((s) => !reviewed.has(s.id))
+      const va = useStore.getState().viewedAt
+      const sectionDone = (s: Section): boolean => {
+        const fs = filesFor(s)
+        return fs.length > 0 && fs.every((f) => fileViewed(f, va))
+      }
+      const firstOpen = sections.find((s) => !sectionDone(s))
       let active = firstOpen ? firstOpen.id : sections[0]?.id
       for (const s of sections) {
-        if (reviewed.has(s.id)) continue
+        if (sectionDone(s)) continue
         const el = secRefs.current[s.id]
         if (el && el.getBoundingClientRect().top <= baseTop) active = s.id
       }
       if (active) useStore.getState().setCur(active)
+      // current file: the last file header at or above the fold line
+      let activeFile: string | null = null
+      for (const el of box.querySelectorAll<HTMLElement>('[data-limn-file]')) {
+        if (el.getBoundingClientRect().top <= baseTop) activeFile = el.dataset.limnFile ?? null
+        else break
+      }
+      useStore.getState().setCurFile(activeFile)
     }
     box.addEventListener('scroll', onScroll, { passive: true })
     return () => box.removeEventListener('scroll', onScroll)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections])
 
   if (!loaded) return null
@@ -136,10 +152,9 @@ export default function Review() {
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
   const totalAdd = skeleton.files.reduce((n, f) => n + f.add, 0)
   const totalDel = skeleton.files.reduce((n, f) => n + f.del, 0)
-  const reviewedCount = sections.filter((s) => reviewedSections.has(s.id)).length
+  const reviewedCount = sections.filter(isSectionDone).length
   const fileCount = skeleton.files.length
-  const viewedCount = skeleton.files.filter((f) => viewedAt[f.path]).length
-  const queued = queuedComments()
+  const viewedCount = skeleton.files.filter((f) => fileViewed(f, viewedAt)).length
   const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -148,9 +163,6 @@ export default function Review() {
   const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
   const lastIteration = state.iterations[state.iterations.length - 1]
   const approved = state.approvedSha === skeleton.headSha
-  // detached compare branch ⇒ agent locked: sending queued comments is blocked
-  // until checkout (the agent edits real files). Comments stay saved meanwhile.
-  const gate = checkoutGate(loaded)
 
   const jumpTo = (id: string): void => {
     // Selecting a section while a spec/plan doc is open exits the doc back to
@@ -173,6 +185,28 @@ export default function Review() {
       // 'instant' (NOT 'auto' — auto resolves to the CSS scroll-behavior:smooth on
       // .gmain, which animates and makes the sidebar flicker through every section
       // the viewport passes). We want the section to appear in a single jump.
+      box.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
+    }
+    requestAnimationFrame(scroll)
+  }
+
+  // jump straight to a file's diff (not just its section): force-open the section
+  // so a collapsed/completed one still renders, then scroll its file header to top.
+  const jumpToFile = (sectionId: string, path: string): void => {
+    if (docPath) {
+      if (scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
+      closeDoc()
+    }
+    store.openSection(sectionId)
+    let tries = 0
+    const scroll = (): void => {
+      const box = scrollRef.current
+      const el = box?.querySelector<HTMLElement>(`[data-limn-file="${CSS.escape(path)}"]`)
+      if (!box || !el) {
+        if (tries++ < 12) requestAnimationFrame(scroll)
+        return
+      }
+      const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12
       box.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
     }
     requestAnimationFrame(scroll)
@@ -243,6 +277,19 @@ export default function Review() {
         </button>
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
+        </button>
+        <button
+          className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost' : 'btn-primary')}
+          disabled={gen.running || approved}
+          title={loaded.dirty
+            ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
+            : 'Record the current commit as reviewed & approved'}
+          onClick={async () => {
+            const id = await store.materialize()   // approving a transient mints the session
+            if (id != null) void window.api.approve(id).then(() => store.reload())
+          }}
+        >
+          <I.check style={{ width: 13, height: 13 }} />{approved ? 'Approved ✓' : 'Approve'}
         </button>
       </div>
 
@@ -348,11 +395,11 @@ export default function Review() {
 
           <div className="gnav">
             <div className="gnav-planlabel">
-              <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />Changes</span>
+              <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />Sections</span>
               <span className="pl-prog">{reviewedCount}/{sections.length} sections · {viewedCount}/{fileCount} files</span>
             </div>
             {sections.map((s, i) => {
-              const done = reviewedSections.has(s.id)
+              const done = isSectionDone(s)
               const sFiles = filesFor(s)
               const hasSince = sFiles.some((f) => f.hunks.some((h) => h.since))
               return (
@@ -370,13 +417,19 @@ export default function Review() {
                   <div className="gnav-files">
                     {sFiles.map((f) => {
                       const fSince = f.hunks.some((h) => h.since)
-                      const dot = done ? 'dot-rev' : fSince ? 'dot-amber' : 'dot-unrev'
+                      const fViewed = fileViewed(f, viewedAt)
+                      const dot = fViewed ? 'dot-rev' : fSince ? 'dot-amber' : 'dot-unrev'
                       const idx = f.path.lastIndexOf('/')
                       return (
-                        <div key={f.path} className="gnav-file">
+                        <div
+                          key={f.path}
+                          className={'gnav-file' + (curFile === f.path ? ' cur' : '')}
+                          title={f.path}
+                          onClick={(e) => { e.stopPropagation(); jumpToFile(s.id, f.path) }}
+                        >
                           <span className={'dot ' + dot}></span>
                           <span className={'ficon ' + ficonClass(f.path)}></span>
-                          <span className="nm" title={f.path}>
+                          <span className="nm">
                             {idx >= 0 && <span className="dim">{f.path.slice(0, idx + 1)}</span>}
                             {idx >= 0 ? f.path.slice(idx + 1) : f.path}
                           </span>
@@ -389,50 +442,6 @@ export default function Review() {
             })}
           </div>
 
-          <div className="gside-foot">
-            <div className={'split-cta ' + (verdict === 'changes' ? 'changes' : 'approve')}>
-              <button
-                className="sc-main"
-                disabled={gen.running || (verdict === 'changes' && gate.blocked && queued.length > 0)}
-                onClick={async () => {
-                  if (verdict === 'changes') {
-                    if (queued.length > 0) sendComments(queued.map((c) => c.id))
-                  } else {
-                    const id = await store.materialize()   // approving a transient mints the session
-                    if (id != null) void window.api.approve(id).then(() => store.reload())
-                  }
-                }}
-              >
-                {verdict === 'changes'
-                  ? (gate.blocked && queued.length > 0
-                    ? <><I.warn />Check out to send {queued.length} change{queued.length === 1 ? '' : 's'}</>
-                    : <><I.send />Send {queued.length || 'no'} change{queued.length === 1 ? '' : 's'} to agent</>)
-                  : <><I.check />{approved ? 'Approved ✓' : 'Approve this review'}</>}
-              </button>
-              <button className="sc-caret" onClick={() => setVerdictOpen((o) => !o)} aria-label="Change verdict">
-                <I.chevD style={{ width: 13, height: 13 }} />
-              </button>
-              {verdictOpen && (
-                <div className="sc-menu">
-                  <button onClick={() => { setVerdict('changes'); setVerdictOpen(false) }}>
-                    <I.changed style={{ width: 13, height: 13 }} /><span><b>Request changes</b><small>Send your queued comments back to the agent</small></span>
-                  </button>
-                  <button onClick={() => { setVerdict('approve'); setVerdictOpen(false) }}>
-                    <I.check style={{ width: 13, height: 13 }} /><span><b>Approve</b><small>Record this state as reviewed &amp; approved</small></span>
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="gside-note">
-              {verdict === 'changes'
-                ? gate.blocked
-                  ? <>Detached — check out <b>{branch}</b> (Workspace ▸) to send comments to the agent.</>
-                  : queued.length > 0 ? 'Inline comments batch up — sent in one prompt.' : 'Comment on lines, sections, or the spec first.'
-                : loaded.dirty
-                  ? `Records the committed state. ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
-                  : 'Records the current commit as approved.'}
-            </div>
-          </div>
         </div>
 
         {/* MAIN */}

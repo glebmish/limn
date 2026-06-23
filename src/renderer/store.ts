@@ -56,6 +56,20 @@ export function effectiveSections(loaded: LoadedReview | null): Section[] {
   return loaded.state.annotations?.sections ?? synthesizeSections(loaded.skeleton.files)
 }
 
+/** A file counts as "viewed" once it has a viewed mark AND hasn't changed since —
+ *  a later edit clears the tick (the hunk carries `sinceViewed`). */
+export function fileViewed(f: FileDiff, viewedAt: Record<string, string>): boolean {
+  return Boolean(viewedAt[f.path]) && !f.hunks.some((h) => h.sinceViewed)
+}
+
+/** Section completion is derived from its files: a section is viewed when all of
+ *  its files are viewed. Returns the tri-state for the section's checkbox. */
+export function sectionViewState(files: FileDiff[], viewedAt: Record<string, string>): 'none' | 'some' | 'all' {
+  if (files.length === 0) return 'none'
+  const n = files.filter((f) => fileViewed(f, viewedAt)).length
+  return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
+}
+
 export interface GenState {
   running: boolean
   opId: string | null
@@ -121,11 +135,16 @@ interface AppStore {
   transientFresh: boolean
 
   viewedAt: Record<string, string>
-  reviewedSections: Set<string>
   collapsed: Set<string>
+  /** sections force-opened for re-viewing after they were completed (all files
+   *  viewed). Lets you re-open a done section without un-viewing its files. */
+  expanded: Set<string>
   cur: string | null
-  /** transient: force-render a focus target (a viewed file / reviewed section)
-   *  without mutating viewedAt/reviewedSections. Set by focusAnchor. */
+  /** the file nearest the top of the viewport — highlighted in the sidebar tree
+   *  and kept in sync as you scroll. */
+  curFile: string | null
+  /** transient: force-render a focus target (a viewed file / done section)
+   *  without mutating viewedAt. Set by focusAnchor. */
   focusTarget: { file?: string; sectionId?: string } | null
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
@@ -180,9 +199,11 @@ interface AppStore {
   setAgent(a: AgentRef): void
   reload(): Promise<void>
   toggleViewed(file: string, currentlyViewed: boolean): void
-  markReviewed(id: string): void
+  /** Bulk-set the viewed mark for a section's files (the section-level checkbox). */
+  setSectionViewed(paths: string[], viewed: boolean): void
   openSection(id: string): void
   setCur(id: string): void
+  setCurFile(file: string | null): void
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
@@ -209,10 +230,10 @@ interface AppStore {
 
 export const useStore = create<AppStore>((set, get) => {
   const persistUi = async (): Promise<void> => {
-    const id = await get().materialize()        // first viewed/reviewed mark mints the session
+    const id = await get().materialize()        // first viewed mark mints the session
     if (id == null) return
-    const { viewedAt, reviewedSections } = get()
-    void window.api.saveUiState(id, { viewedAt, reviewedSections: [...reviewedSections] })
+    const { viewedAt } = get()
+    void window.api.saveUiState(id, { viewedAt })
   }
 
   /** Splice an updated chat-thread list into the loaded review. */
@@ -303,9 +324,10 @@ export const useStore = create<AppStore>((set, get) => {
     transientFresh: false,
 
     viewedAt: {},
-    reviewedSections: new Set<string>(),
     collapsed: new Set<string>(),
+    expanded: new Set<string>(),
     cur: null,
+    curFile: null,
     focusTarget: null,
     docPath: null,
 
@@ -526,7 +548,7 @@ export const useStore = create<AppStore>((set, get) => {
         set({
           screen: 'review', sessionId: null, loaded, repo: repoPath,
           branch: loaded.state.branch, base: loaded.state.base,
-          viewedAt: {}, reviewedSections: new Set<string>(), collapsed: new Set<string>(), cur: null,
+          viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
           activeChatId: null, transientFresh: opts?.fresh ?? false, error: null
         })
         void loadRepoContext(repoPath)
@@ -571,8 +593,7 @@ export const useStore = create<AppStore>((set, get) => {
           sessionId, loaded, error: null, screen: 'review',
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
-          reviewedSections: new Set(loaded.state.reviewedSections),
-          collapsed: new Set<string>(), cur: null,
+          collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
           agent: loaded.state.agent ?? get().agent,
           activeChatId: pickActiveChat(loaded.state.chats, null)
         })
@@ -640,7 +661,6 @@ export const useStore = create<AppStore>((set, get) => {
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
-        reviewedSections: new Set(loaded.state.reviewedSections),
         activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId)
       })
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
@@ -655,24 +675,33 @@ export const useStore = create<AppStore>((set, get) => {
       persistUi()
     },
 
-    markReviewed(id) {
-      const reviewedSections = new Set(get().reviewedSections)
-      reviewedSections.add(id)
-      set({ reviewedSections })
+    setSectionViewed(paths, viewed) {
+      const viewedAt = { ...get().viewedAt }
+      const head = get().loaded?.skeleton.headSha ?? ''
+      for (const p of paths) {
+        if (viewed) viewedAt[p] = head
+        else delete viewedAt[p]
+      }
+      // re-viewing a completed section also drops its force-open override so it
+      // collapses again once every file is ticked.
+      set({ viewedAt })
       persistUi()
     },
 
     openSection(id) {
-      const reviewedSections = new Set(get().reviewedSections)
-      const collapsed = new Set(get().collapsed)
-      reviewedSections.delete(id)
-      collapsed.delete(id)
-      set({ reviewedSections, collapsed, cur: id })
-      persistUi()
+      // force-open a (possibly completed) section for re-viewing — without
+      // touching viewed marks. This is UI-only, so it isn't persisted.
+      const expanded = new Set(get().expanded)
+      expanded.add(id)
+      set({ expanded, cur: id })
     },
 
     setCur(id) {
       if (get().cur !== id) set({ cur: id })
+    },
+
+    setCurFile(file) {
+      if (get().curFile !== file) set({ curFile: file })
     },
 
     openDoc(path) {

@@ -56,6 +56,9 @@ export function DiffView({ f, plainNote }: {
   const [mode, setMode] = useState<DiffMode>('branch')
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [fileCommenting, setFileCommenting] = useState(false)
+  // manual open/collapse override for this file's diff. null = follow the default
+  // (open when unviewed, collapsed when viewed); true/false = explicitly toggled.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
@@ -65,8 +68,10 @@ export function DiffView({ f, plainNote }: {
   const viewedSha = viewedAt[f.path]
   // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself
   const isViewed = Boolean(viewedSha) && !hasSinceViewed
-  // a focus on a viewed file force-shows its diff body without clearing the viewed tick
-  const showBody = !isViewed || focused
+  // open by default, collapsed once viewed — unless the header was clicked to
+  // override it. A focus always force-shows the body (without clearing the tick).
+  const effectiveOpen = manualOpen ?? !isViewed
+  const showBody = focused || effectiveOpen
   const effectiveMode: DiffMode =
     (mode === 'approved' && !hasSince) || (mode === 'viewed' && !hasSinceViewed) ? 'branch' : mode
   const hunks =
@@ -88,8 +93,15 @@ export function DiffView({ f, plainNote }: {
       <span className="gfile-cmt-zone" />
       <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
       <div className={'gfile' + (isViewed && !focused ? ' viewed' : '')}>
-      <div className="gfile-head" data-limn-file={f.path}>
+      <div
+        className="gfile-head"
+        data-limn-file={f.path}
+        onClick={() => setManualOpen(!effectiveOpen)}
+        title={effectiveOpen ? 'Collapse this file' : 'Expand this file'}
+        style={{ cursor: 'pointer' }}
+      >
         <span className="pth">
+          <I.chevR className="gfile-caret" style={{ width: 11, height: 11, transform: showBody ? 'rotate(90deg)' : '', transition: 'transform .12s' }} />
           <span className={'ficon ' + ficonClass(f.path)}></span>
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
@@ -98,7 +110,7 @@ export function DiffView({ f, plainNote }: {
             <button
               className="art-badge"
               title={`Recognized ${FORMAT_LABELS[artifact.format]} ${artifact.role} — open the rendered document`}
-              onClick={() => openDoc(f.path)}
+              onClick={(e) => { e.stopPropagation(); openDoc(f.path) }}
             >
               {artifact.role === 'plan' ? <I.plan style={{ width: 10, height: 10 }} /> : <I.doc style={{ width: 10, height: 10 }} />}
               {artifact.role === 'plan' ? 'Plan' : 'Spec'}
@@ -112,14 +124,16 @@ export function DiffView({ f, plainNote }: {
         {!isViewed && !hasSince && hasSinceViewed && <span className="pill pill-amber"><I.eye />changed since viewed</span>}
         <span className="grow"></span>
         {!isViewed && (hasSince || hasSinceViewed) && (
-          <span className="seg seg-sm gfile-seg">
+          <span className="seg seg-sm gfile-seg" onClick={(e) => e.stopPropagation()}>
             <button className={effectiveMode === 'branch' ? 'on' : ''} onClick={() => setMode('branch')}>Full diff</button>
             {hasSince && <button className={effectiveMode === 'approved' ? 'on' : ''} onClick={() => setMode('approved')}>Since approved</button>}
             {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
-        <label className="file-viewed">
-          <input type="checkbox" checked={isViewed} onChange={() => toggleViewed(f.path, isViewed)} />
+        <label className="file-viewed" onClick={(e) => e.stopPropagation()}>
+          {/* viewed drives the default collapse, so clear any manual override and
+              let it follow the new viewed state (tick → collapse, untick → open) */}
+          <input type="checkbox" checked={isViewed} onChange={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }} />
           <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
           Viewed
         </label>
