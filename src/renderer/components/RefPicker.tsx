@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo } from '../../shared/types'
 
-export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false }: {
+export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false, dist, tipSha }: {
   value: string
   onChange: (v: string) => void
   repo: string
@@ -13,6 +13,12 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   /** Compare side: render the trigger as a bold chip with a branch icon. Base
    *  side (default) stays the quiet text button. */
   prominent?: boolean
+  /** commits this ref is from the selected (compare) branch — shown as "~n", in
+   *  the branch accent colour. Omitted/zero on the compare ref itself (the anchor). */
+  dist?: number
+  /** resolved tip sha (already shortened) shown in grey after the name — only used
+   *  for branch refs; a commit ref already shows its sha as the value. */
+  tipSha?: string
 }) {
   const [open, setOpen] = useState(Boolean(prominent && window.limnDev?.openCmpRef))
   // worktree a branch is checked out in (if any) — shown muted next to the row so
@@ -106,6 +112,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
       <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(value); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         <span className="rp-val">{display || '—'}</span>
+        {dist != null && dist > 0 && <span className="rp-dist">~{dist}</span>}
+        {tipSha && !valueShaLike && <span className="rp-tip">{tipSha}</span>}
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
       </button>
       {open && (
@@ -157,7 +165,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             )}
             {commitsOpen && commitList.map((c) => (
               <div key={c.sha} className="limn-refpick-item" onClick={() => commit(c.sha)}>
-                <span className="ri-name">{shortSha(c.sha)}</span>
+                <span className="ri-name ri-sha">{shortSha(c.sha)}</span>
                 <span className="ri-sub" title={c.subject}>{c.subject}</span>
                 <span className="ri-age">{ago(c.date)}</span>
               </div>
