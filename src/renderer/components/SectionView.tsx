@@ -67,7 +67,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <input
               type="checkbox"
               checked={done}
-              onChange={() => setSectionViewed(files.map((f) => f.path), viewState !== 'all')}
+              onChange={() => setSectionViewed(s.id, files.map((f) => f.path), viewState !== 'all')}
             />
             <span className={'fv-box' + (viewState === 'some' ? ' some' : '')}>
               {viewState === 'all' ? <I.check style={{ width: 10, height: 10 }} /> : viewState === 'some' ? <span className="fv-dash" /> : null}

@@ -199,8 +199,9 @@ interface AppStore {
   setAgent(a: AgentRef): void
   reload(): Promise<void>
   toggleViewed(file: string, currentlyViewed: boolean): void
-  /** Bulk-set the viewed mark for a section's files (the section-level checkbox). */
-  setSectionViewed(paths: string[], viewed: boolean): void
+  /** Bulk-set the viewed mark for a section's files (the section-level checkbox).
+   *  Marking viewed also collapses the section (clears its force-open override). */
+  setSectionViewed(sectionId: string, paths: string[], viewed: boolean): void
   openSection(id: string): void
   setCur(id: string): void
   setCurFile(file: string | null): void
@@ -675,16 +676,18 @@ export const useStore = create<AppStore>((set, get) => {
       persistUi()
     },
 
-    setSectionViewed(paths, viewed) {
+    setSectionViewed(sectionId, paths, viewed) {
       const viewedAt = { ...get().viewedAt }
       const head = get().loaded?.skeleton.headSha ?? ''
       for (const p of paths) {
         if (viewed) viewedAt[p] = head
         else delete viewedAt[p]
       }
-      // re-viewing a completed section also drops its force-open override so it
-      // collapses again once every file is ticked.
-      set({ viewedAt })
+      // marking the section viewed collapses it (and, on remount, its files):
+      // drop the force-open override so the now-complete section folds away.
+      const expanded = new Set(get().expanded)
+      if (viewed) expanded.delete(sectionId)
+      set({ viewedAt, expanded })
       persistUi()
     },
 

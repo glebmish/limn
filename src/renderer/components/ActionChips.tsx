@@ -79,7 +79,7 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
             const secs = effectiveSections(loaded)
             for (const sid of sectionIds) {
               const sec = secs.find((s) => s.id === sid)
-              if (sec) setSectionViewed(sec.files, true)
+              if (sec) setSectionViewed(sec.id, sec.files, true)
             }
           }
           setState('done')
