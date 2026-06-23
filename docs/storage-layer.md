@@ -47,7 +47,7 @@ One migration (v1) creates the whole schema. `meta(key, value)` is created separ
 
 ### Core entity graph
 
-```
+```text
 repos ──1:N──> sessions ──1:N──> comments
                         ├──1:N──> chat_messages
                         ├──1:N──> iterations
