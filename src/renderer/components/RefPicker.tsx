@@ -99,6 +99,9 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // when the input reads as a SHA (and isn't an exact branch name).
   const shaLike = /^[0-9a-f]{4,40}$/i.test(trimmed) && !matchedBranch
   const commitsOpen = showCommits || shaLike
+  // the branch the commit list is scoped to (matched input, else the side's own
+  // ref) — names the "commits on <branch>" header so you know whose history it is.
+  const scopeBranch = branches.includes(scope) ? scope : null
 
   // the trigger shows a long full SHA truncated to 7 chars; branch names and
   // HEAD~N stay verbatim. (Hovering the trigger still shows the full value.)
@@ -164,7 +167,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             {(commits === null || commits.length > 0) && (
               <button type="button" className="limn-refpick-sec limn-refpick-sec-btn"
                 onClick={() => setShowCommits((v) => !v)}>
-                <span>{matchedBranch ? `commits on ${matchedBranch}` : 'recent commits'}</span>
+                <span>{scopeBranch ? `commits on ${scopeBranch}` : 'recent commits'}</span>
                 {!commitsOpen && commits && commits.length > 0 && <span className="rp-more">+{commits.length}</span>}
                 <I.chevD style={{ width: 10, height: 10, transform: commitsOpen ? 'none' : 'rotate(-90deg)' }} />
               </button>

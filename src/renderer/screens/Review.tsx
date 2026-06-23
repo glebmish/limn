@@ -259,7 +259,7 @@ export default function Review() {
     <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
         <span className="rv-refs">
-          <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={branch || 'HEAD'} label="base ref"
+          <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={base || branch || 'HEAD'} label="base ref"
             loc={loaded.baseLoc} />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
           <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={base || 'HEAD'} label="compare ref" prominent
