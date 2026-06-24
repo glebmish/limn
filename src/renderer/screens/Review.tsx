@@ -262,7 +262,7 @@ export default function Review() {
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={base || branch || 'HEAD'} label="base ref"
             loc={loaded.baseLoc} />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
-          <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={base || 'HEAD'} label="compare ref" prominent
+          <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={branch || 'HEAD'} label="compare ref" prominent
             loc={loaded.compareLoc} />
         </span>
         <span className="grow"></span>
