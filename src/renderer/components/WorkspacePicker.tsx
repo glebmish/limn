@@ -52,8 +52,11 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       popClass="ws-pop"
       defaultOpen={Boolean(window.limnDev?.openWorkspace)}
       trigger={() => (
-        <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title="Where this branch is checked out">
+        <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title={`Worktree this branch is checked out in (${locLabel})`}>
           <I.folder style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />
+          {/* name the value so "primary" isn't a bare, cryptic label; the detached/
+              commit cases already read as words, so only label a real worktree. */}
+          {isBranch && !loc.detached && <span className="ws-kind">worktree</span>}
           <span className={'ws-loc' + (detachedBranch ? ' det' : '')}>
             {locLabel}{!loc.detached && loc.dirty && <span className="gdot" title="uncommitted changes" />}
           </span>

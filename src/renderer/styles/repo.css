@@ -163,6 +163,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .ws-ssn { font-weight: 700; color: var(--ink); }
 .ws-ssn.new { font-weight: 600; font-style: italic; color: var(--muted); }
 .ws-dot-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--muted-2); flex: 0 0 auto; }
+.ws-kind { font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-2); margin-right: -3px; }
 .ws-loc { font-family: var(--mono); font-size: 10.5px; color: var(--muted); display: inline-flex; align-items: center; }
 .ws-loc.det { color: var(--amber); }
 .ws-sec { margin-top: 2px; }
