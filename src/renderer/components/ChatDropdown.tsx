@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { I, EngineGlyph } from '../kit'
+import { useDismiss } from '../lib/useDismiss'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
 
@@ -16,14 +17,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
   const wrap = useRef<HTMLDivElement>(null)
   const active = chats.find((c) => c.id === activeId) ?? null
 
-  useEffect(() => {
-    if (!open) return
-    const off = (e: PointerEvent): void => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', off, true)
-    return () => document.removeEventListener('pointerdown', off, true)
-  }, [open])
+  useDismiss(open, () => setOpen(false), wrap)
 
   const pick = (id: number): void => { onSwitch(id); setOpen(false) }
 

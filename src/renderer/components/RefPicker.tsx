@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
+import { useDismiss } from '../lib/useDismiss'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
@@ -39,6 +40,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // default), opened by the toggle or automatically once the query looks like a SHA.
   const [showCommits, setShowCommits] = useState(false)
   const popRef = useRef<HTMLDivElement>(null)
+  // wraps trigger + popover; useDismiss keeps pointers inside it from closing.
+  const wrap = useRef<HTMLDivElement>(null)
   const loadedFor = useRef<string>('')
 
   // The branch the input currently names (if any). When set, the commit list is
@@ -64,21 +67,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     return () => { ignore = true }
   }, [open, repo, scope])
 
-  // close on outside click / Esc
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    // capture phase on window so Escape closes the picker before anything else
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [open])
+  // close on outside pointer-down / Esc (shared with every other popover)
+  useDismiss(open, () => setOpen(false), wrap)
 
   const commit = (v: string): void => {
     onChange(v)
@@ -109,7 +99,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   const display = valueShaLike ? shortSha(value) : value
 
   return (
-    <div className="limn-refpick">
+    <div className="limn-refpick" ref={wrap}>
       <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && loc?.kind !== 'commit' && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         {loc ? (

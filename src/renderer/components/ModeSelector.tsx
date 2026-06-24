@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { I } from '../kit'
+import { useDismiss } from '../lib/useDismiss'
 import { EXECUTION_TIERS } from '../../shared/executionMode'
 import type { ExecutionMode } from '../../shared/types'
 
@@ -19,12 +20,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
   const [confirmFull, setConfirmFull] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent): void => { if (!ref.current?.contains(e.target as Node)) { setOpen(false); setConfirmFull(false) } }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  useDismiss(open, () => { setOpen(false); setConfirmFull(false) }, ref)
 
   const active = EXECUTION_TIERS.find((t) => t.key === mode) ?? EXECUTION_TIERS[0]
   const Trig = I[TIER_ICON[active.key]]

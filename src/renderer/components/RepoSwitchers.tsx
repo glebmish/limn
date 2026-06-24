@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useDismiss } from '../lib/useDismiss'
 
 /** A small button + outside-click popover, shared by the repo switchers. */
 export function Dropdown({ trigger, children, align = 'left', width, defaultOpen = false, popClass }: {
@@ -12,17 +13,9 @@ export function Dropdown({ trigger, children, align = 'left', width, defaultOpen
   const [open, setOpen] = useState(defaultOpen)
   const ref = useRef<HTMLDivElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    // focus the popover on open so Escape lands here regardless of prior focus
-    popRef.current?.focus()
-    const onDown = (e: MouseEvent): void => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    // capture phase on window so nothing can swallow Escape before we see it
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
-  }, [open])
+  // focus the popover on open so keyboard lands here regardless of prior focus
+  useEffect(() => { if (open) popRef.current?.focus() }, [open])
+  useDismiss(open, () => setOpen(false), ref)
   return (
     <div className="rsw" ref={ref}>
       <button className="rsw-btn" onClick={() => setOpen((o) => !o)}>{trigger(open)}</button>

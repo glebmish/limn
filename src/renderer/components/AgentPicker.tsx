@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
 import { I, EngineGlyph } from '../kit'
+import { useDismiss } from '../lib/useDismiss'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
@@ -33,14 +34,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
     if (e && !devPicked.current) { devPicked.current = true; onChange({ engine: e as EngineId }) }
   }, [onChange])
 
-  useEffect(() => {
-    if (!open) return
-    const off = (e: PointerEvent): void => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', off, true)
-    return () => document.removeEventListener('pointerdown', off, true)
-  }, [open])
+  useDismiss(open, () => setOpen(false), wrap)
 
   const model = modelOption(value)
   const efforts = model?.reasoningEfforts
