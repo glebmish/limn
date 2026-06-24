@@ -166,9 +166,11 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
               <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>loading…</div>
             )}
             {commitsOpen && commitList.map((c) => (
-              <div key={c.sha} className="limn-refpick-item" onClick={() => commit(c.sha)}>
+              // row-level title (like the branch rows above) so hovering anywhere
+              // on the commit — sha, subject, or age — shows the full message.
+              <div key={c.sha} className="limn-refpick-item" title={`${c.subject}\n${shortSha(c.sha)} · ${ago(c.date)}`} onClick={() => commit(c.sha)}>
                 <span className="ri-name ri-sha">{shortSha(c.sha)}</span>
-                <span className="ri-sub" title={c.subject}>{c.subject}</span>
+                <span className="ri-sub">{c.subject}</span>
                 <span className="ri-age">{ago(c.date)}</span>
               </div>
             ))}
