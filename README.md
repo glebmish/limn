@@ -90,12 +90,40 @@ The app **watches the branch** — when commits land from outside (e.g. a Claude
 
 Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData.
 
+### Remote access in a browser (Tailscale)
+
+The same app can run headless and be used from a browser — handy for reviewing from
+a laptop or phone while the repos, git, and agent logins all stay on one machine
+(e.g. your desktop, reached over [Tailscale](https://tailscale.com)).
+
+```bash
+npm run serve                 # builds the renderer, then serves it over HTTP
+```
+
+By default it listens on `0.0.0.0:8787`. Open `http://<machine-name-or-tailscale-ip>:8787`
+from any device on your tailnet. It shares the desktop app's SQLite database, so
+sessions and pins are the same whether you're in the app or the browser.
+
+Environment variables:
+
+- `LIMN_WEB_PORT` (default `8787`), `LIMN_WEB_HOST` (default `0.0.0.0`; set
+  `127.0.0.1` to keep it local-only).
+- `LIMN_WEB_TOKEN` — a shared secret. When set, every request must carry it; open
+  the app as `http://…:8787/?token=<secret>` (the token is remembered for the tab).
+- `LIMN_DB` — point at a specific database file.
+
+> **The server exposes the host's repositories, git working trees, and the locally
+> installed `claude`/`codex` credentials to whoever can reach it.** Keep it on a
+> trusted network: bind it to your tailnet and rely on Tailscale ACLs, and/or set
+> `LIMN_WEB_TOKEN`. It is single-user by design — all clients share one host,
+> one database, and one set of agent credentials.
+
 ## Limitations
 
 - **macOS, Apple Silicon (arm64) only** — the build target is arm64; there is no Intel or non-macOS build.
 - **Unsigned build** — distributed ad-hoc signed, so first launch needs the `xattr` / right-click → Open step above.
 - **Local credentials required** — a `claude` and/or `codex` CLI login (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) must be present on the machine.
-- **Single-machine state** — review state is a local SQLite file; it does not sync across machines.
+- **Single-machine state** — review state is a local SQLite file; it does not sync across machines. The browser/Tailscale mode serves that one machine's state to remote clients rather than syncing.
 - Early, active development — storage layout and APIs may change.
 
 ## Development

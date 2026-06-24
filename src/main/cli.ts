@@ -1,9 +1,16 @@
-import { app, dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import type { CliOpenMsg } from '../shared/ipc.js'
 import { repoRoot } from './git.js'
+
+// Resolve Electron lazily so this module also imports cleanly under plain Node —
+// the headless web server pulls in takeCliOpen/installCli through the IPC layer,
+// and a static `import … from 'electron'` would throw there (Node's electron shim
+// has no `app`/`dialog`). `el` is null off-Electron; CLI install is desktop-only.
+const el: typeof import('electron') | null =
+  process.versions.electron ? createRequire(import.meta.url)('electron') : null
 
 export interface CliArgs {
   dir: string
@@ -116,20 +123,21 @@ function shimContent(): string {
     '[ -n "$NEW" ] && set -- "$@" "--new"',
     ''
   ].join('\n')
-  if (app.isPackaged) {
+  if (el!.app.isPackaged) {
     // process.execPath = …/limn.app/Contents/MacOS/limn
     const bundle = process.execPath.slice(0, process.execPath.indexOf('.app/') + 4)
     return `${header}${pickDir}${normalize}exec open -n -a "${bundle}" --args "$@"\n`
   }
-  return `${header}${pickDir}${normalize}exec "${process.execPath}" "${app.getAppPath()}" "$@"\n`
+  return `${header}${pickDir}${normalize}exec "${process.execPath}" "${el!.app.getAppPath()}" "$@"\n`
 }
 
 /** Install the `limn` shim to ~/.local/bin (fallback /usr/local/bin). On failure,
  *  write the shim to userData and tell the user how to install it manually. */
 export function installCli(): { ok: boolean; message: string } {
+  if (!el) return { ok: false, message: 'Installing the `limn` command-line tool is available in the desktop app only.' }
   const content = shimContent()
   const targets = [
-    path.join(app.getPath('home'), '.local', 'bin', 'limn'),
+    path.join(el.app.getPath('home'), '.local', 'bin', 'limn'),
     path.join('/usr', 'local', 'bin', 'limn')
   ]
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter)
@@ -153,7 +161,7 @@ export function installCli(): { ok: boolean; message: string } {
       // try the next target
     }
   }
-  const fallback = path.join(app.getPath('userData'), 'limn-shim.sh')
+  const fallback = path.join(el.app.getPath('userData'), 'limn-shim.sh')
   try {
     fs.writeFileSync(fallback, content)
     fs.chmodSync(fallback, 0o755)
@@ -167,7 +175,7 @@ export function installCli(): { ok: boolean; message: string } {
 /** Used by the app-menu item. */
 export function installCliWithDialog(): void {
   const res = installCli()
-  void dialog.showMessageBox({
+  void el!.dialog.showMessageBox({
     type: res.ok ? 'info' : 'warning',
     title: 'Install Command-Line Tool',
     message: res.ok ? 'limn installed' : 'limn not installed',

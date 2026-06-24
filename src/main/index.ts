@@ -1,9 +1,10 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import { registerIpc } from './ipc.js'
+import type { Transport, BroadcastChannel, BroadcastMsg } from './transport.js'
 import { openDb } from './db/db.js'
 import { parseCliArgs, handleCliArgs, installCliWithDialog } from './cli.js'
 import type { CliArgs } from './cli.js'
@@ -24,6 +25,35 @@ let mainWindow: BrowserWindow | null = null
 function getWindow(): BrowserWindow | null {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
   return null
+}
+
+// The desktop carrier for the IPC handlers: ipcMain for request/response, every
+// window for broadcasts, a focus-gated native Notification, and a native directory
+// dialog. The headless web server (src/server) provides the same Transport shape
+// over HTTP + SSE.
+const electronTransport: Transport = {
+  handle(name, fn) {
+    ipcMain.handle(name, (_ev, ...args) => fn(...args))
+  },
+  broadcast(channel: BroadcastChannel, msg: BroadcastMsg) {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, msg)
+  },
+  // only when the user isn't looking — agent runs take minutes
+  notify(title, body) {
+    const focused = BrowserWindow.getAllWindows().some((w) => w.isFocused())
+    if (focused || !Notification.isSupported()) return
+    const n = new Notification({ title, body, silent: false })
+    n.on('click', () => {
+      const w = BrowserWindow.getAllWindows()[0]
+      if (w) { w.show(); w.focus() }
+    })
+    n.show()
+  },
+  async pickDirectory() {
+    const res = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return res.filePaths[0]
+  }
 }
 
 function createWindow(): void {
@@ -127,7 +157,7 @@ if (!app.requestSingleInstanceLock()) {
     const notices = recoveredFrom
       ? [`Database was corrupted and recreated. The old file was saved to ${recoveredFrom}.`]
       : []
-    registerIpc(db, notices)
+    registerIpc(db, notices, electronTransport)
     buildMenu()
     createWindow()
     const args = parseCliArgs(process.argv) ?? devCliArgs()

@@ -1,9 +1,9 @@
-import { BrowserWindow, Notification, dialog, ipcMain } from 'electron'
 import { installCli, takeCliOpen } from './cli.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
+import type { Transport } from './transport.js'
 import type {
   Api, DashboardData, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
@@ -31,6 +31,10 @@ import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
+
+// Set once by registerIpc. All push/notify/dialog calls route through it, so this
+// module is identical whether it's carried by Electron IPC or the web server.
+let transport: Transport
 
 // ── watch mode: poll the open review's branch head; push when it moves ──
 let watcher: { timer: NodeJS.Timeout; repo: string; branch: string; lastSha: string } | null = null
@@ -60,23 +64,14 @@ function stopWatch(): void {
 }
 
 function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMsg | OpResultMsg | RepoChangedMsg): void {
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, msg)
+  transport.broadcast(channel, msg)
 }
 
-/** Notify when the user isn't looking at the app (agent runs take minutes). */
+/** Notify that a long-running agent op finished. Whether this surfaces (and the
+ *  "only when unfocused" gate) is the transport's call — desktop shows a native
+ *  notification when the window is in the background; the web server no-ops. */
 function notifyIfUnfocused(title: string, body: string): void {
-  const focused = BrowserWindow.getAllWindows().some((w) => w.isFocused())
-  if (!focused && Notification.isSupported()) {
-    const n = new Notification({ title, body, silent: false })
-    n.on('click', () => {
-      const w = BrowserWindow.getAllWindows()[0]
-      if (w) {
-        w.show()
-        w.focus()
-      }
-    })
-    n.show()
-  }
+  transport.notify(title, body)
 }
 
 /** Forward engine events to the renderer and collect them, so the caller can fold
@@ -137,16 +132,13 @@ function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData 
   return { pins: pinData, recents, recentSessions, notices: bootNotices }
 }
 
-export function registerIpc(db: DatabaseSync, bootNotices: string[]): void {
+export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transport): void {
+  transport = t
   const handle = <K extends keyof Api>(name: K, fn: Api[K]): void => {
-    ipcMain.handle(name, (_ev, ...args) => (fn as (...a: unknown[]) => unknown)(...args))
+    transport.handle(name, (...args) => (fn as (...a: unknown[]) => unknown)(...args))
   }
 
-  handle('pickRepo', async () => {
-    const res = await dialog.showOpenDialog({ properties: ['openDirectory'] })
-    if (res.canceled || res.filePaths.length === 0) return null
-    return res.filePaths[0]
-  })
+  handle('pickRepo', async () => transport.pickDirectory())
 
   handle('recentRepos', async () => dao.recentRepoPaths(db, 8).filter((r) => fs.existsSync(r)))
 
