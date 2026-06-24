@@ -413,7 +413,6 @@ export default function Review() {
                   <div className="gnav-head">
                     <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
                     <span className="gnav-name" title={s.name}>{s.name}</span>
-                    {hasSince && !done && <I.changed style={{ width: 12, height: 12, color: 'var(--amber)' }} />}
                   </div>
                   {cur === s.id && !done && s.desc && <div className="gnav-intent">{s.desc}</div>}
                   <div className="gnav-files">
