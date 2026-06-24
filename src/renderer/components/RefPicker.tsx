@@ -119,7 +119,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             {loc.onBranch && <span className="rp-tip">{shortSha(loc.sha)}</span>}
             {loc.kind === 'commit' && (
               <span className="rp-pin" title="Pinned to this commit — reviews exactly this state; won't follow new commits. Pick a branch to track the tip.">
-                <I.pin style={{ width: 11, height: 11 }} />
+                <I.pin style={{ width: 9, height: 9, transform: 'rotate(45deg)' }} />
               </span>
             )}
           </>
