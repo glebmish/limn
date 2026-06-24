@@ -176,3 +176,115 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .ws-note { font-size: 11px; color: var(--muted); padding: 4px 13px 10px; line-height: 1.45; }
 .ws-settled { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--ink-2); padding: 6px 13px 10px; }
 .bwp-foot-note { font-size: 10px; color: var(--muted); text-align: center; margin-top: 6px; }
+
+/* ════════════════ dashboard · Level 1 (repository index) ════════════════ */
+/* keep both heads the same height so the filter bar doesn't shift between levels */
+.limn-dash-head { min-height: 60px; box-sizing: border-box; }
+.limn-dash-head .limn-back { flex: 0 0 auto; }
+
+.limn-repo-row {
+  display: flex; align-items: center; gap: 10px; padding: 13px 14px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); cursor: pointer;
+}
+.limn-repo-row:hover { border-color: var(--line-3); background: var(--panel-2); }
+.limn-repo-row:hover .rr-chev { color: var(--accent-ink); transform: translateX(2px); }
+.limn-repo-row.sel { border-color: var(--accent-line); background: var(--accent-soft); }
+.limn-repo-row .rr-glyph { color: var(--accent); flex: 0 0 auto; }
+.limn-repo-row .rr-name { font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px; flex: 0 0 auto; }
+.limn-repo-row .rr-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.limn-repo-row .rr-age { font-family: var(--mono); font-size: 11px; color: var(--muted-2); flex: 0 0 auto; min-width: 34px; text-align: right; }
+.limn-repo-row .rr-chev { color: var(--muted-2); flex: 0 0 auto; transition: transform .12s, color .12s; }
+.limn-repo-row.sel .rr-chev { color: var(--accent-ink); }
+
+/* branch chip → click opens the main ← branch review; hover previews the target */
+.limn-repo-row .limn-chip { position: relative; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.limn-repo-row .limn-chip:hover { border-color: var(--accent-line); color: var(--accent-ink); background: var(--panel); }
+.chip-tip {
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 80; white-space: nowrap;
+  background: var(--ink); color: #fff; font-family: var(--mono); font-size: 10.5px; padding: 5px 9px; border-radius: var(--r-sm);
+  opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 0 8px 22px rgba(40,38,32,.28);
+}
+.chip-tip::after { content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
+.limn-repo-row .limn-chip:hover .chip-tip { opacity: 1; }
+
+/* linked-worktree pill → click reveals the repo's worktrees; each opens its review */
+.rr-worktrees {
+  position: relative; display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; cursor: pointer;
+  font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 8px;
+}
+.rr-worktrees:hover { border-color: var(--line-3); color: var(--ink-2); }
+.rr-worktrees.open { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-soft); }
+.wt-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 70; width: 340px; padding: 5px; text-align: left; cursor: default;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); font-family: var(--sans);
+}
+.wt-menu .wm-h { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); padding: 5px 8px; }
+.wt-opt { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-radius: var(--r-sm); cursor: pointer; }
+.wt-opt:hover { background: var(--panel-2); }
+.wt-opt .wo-ico { color: var(--accent); flex: 0 0 auto; }
+.wt-opt .wo-branch { font-family: var(--mono); font-size: 11px; color: var(--ink); font-weight: 600; flex: 0 0 auto; }
+.wt-opt .wo-path { font-family: var(--mono); font-size: 9.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.wt-opt .wo-cur { font-family: var(--mono); font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; padding: 0 6px; flex: 0 0 auto; }
+
+/* ── first-run / empty state ── */
+.limn-firstrun { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 30px 56px; min-height: 0; }
+.limn-firstrun .fr-glyph { width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent); margin-bottom: 20px; }
+.limn-firstrun h2 { margin: 0 0 7px; font-size: 17px; font-weight: 700; letter-spacing: -.3px; color: var(--ink); }
+.limn-firstrun .fr-sub { margin: 0 0 22px; font-size: 12.5px; line-height: 1.55; color: var(--muted); max-width: 340px; }
+.limn-firstrun .fr-cta { display: inline-flex; align-items: center; gap: 9px; }
+.limn-firstrun .fr-kbd { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); }
+.limn-firstrun .fr-kbd kbd { font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+
+/* ════════════════ dashboard · Level 2 (one repo's sessions) ════════════════ */
+/* repo-switcher: the repo identity is a dropdown to hop between repos without backing out */
+.limn-repo-switchwrap { position: relative; flex: 0 1 auto; min-width: 0; }
+.limn-repo-switch { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); cursor: pointer; }
+.limn-repo-switch:hover { border-color: var(--line-3); }
+.limn-repo-switchwrap.open .limn-repo-switch { border-color: var(--accent-line); background: var(--accent-soft); }
+.limn-repo-switch .rs-glyph { color: var(--accent); flex: 0 0 auto; }
+.limn-repo-switch .rs-name { font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px; flex: 0 0 auto; }
+.limn-repo-switch .rs-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-repo-switch .rs-caret { color: var(--muted-2); flex: 0 0 auto; display: inline-flex; }
+
+.limn-repo-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; }
+.limn-repo-menu .rm-search { display: flex; margin: 2px 2px 6px; }
+.limn-repo-menu .rm-search input { flex: 1 1 auto; font-family: var(--sans); font-size: 12.5px; color: var(--ink); padding: 6px 9px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); outline: none; }
+.limn-repo-menu .rm-search input:focus { border-color: var(--accent-line); }
+.limn-repo-opt { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: var(--r-sm); cursor: pointer; }
+.limn-repo-opt:hover { background: var(--panel-2); }
+.limn-repo-opt.cur { background: var(--accent-soft); }
+.limn-repo-opt .ro-glyph { color: var(--accent); flex: 0 0 auto; }
+.limn-repo-opt .ro-name { font-size: 12.5px; font-weight: 600; color: var(--ink); flex: 0 0 auto; }
+.limn-repo-opt .ro-path { font-family: var(--mono); font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.limn-repo-opt .ro-age { font-size: 10px; color: var(--muted-2); flex: 0 0 auto; font-family: var(--mono); }
+.limn-repo-opt .ro-check { color: var(--accent); flex: 0 0 auto; margin-left: 2px; }
+.limn-repo-menu .rm-sep { height: 1px; background: var(--line); margin: 5px 2px; }
+.limn-repo-menu .rm-open { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; color: var(--muted); }
+.limn-repo-menu .rm-open:hover { background: var(--accent-soft); color: var(--accent-ink); }
+
+.limn-filter-arch { flex: 0 0 auto; }
+.limn-dash-head .btn.on { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
+
+/* flat session list (within one repo) */
+.limn-sesslist { display: flex; flex-direction: column; gap: 3px; }
+.limn-sesslist .limn-sess { margin-bottom: 0; }
+.limn-sess-eph { font-family: var(--mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line-3); border-radius: 999px; padding: 1px 7px; flex: 0 0 auto; }
+
+/* new-review split control + base←compare popover */
+.limn-repo-newwrap { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.limn-repo-new { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 6px 11px; border: 1px solid var(--accent-line); background: var(--accent-soft); cursor: pointer; font: 600 12px var(--sans); color: var(--accent-ink); border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.limn-repo-new:hover { background: var(--accent-line); }
+.limn-repo-new-caret { display: inline-flex; align-items: center; padding: 7px 7px; border: 1px solid var(--accent-line); border-left: none; background: var(--accent-soft); cursor: pointer; color: var(--accent-ink); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.limn-repo-new-caret:hover, .limn-repo-newwrap.open .limn-repo-new-caret, .limn-repo-newwrap.open .limn-repo-new { background: var(--accent-line); }
+.limn-repo-new-pop { position: absolute; top: calc(100% + 5px); right: 0; z-index: 50; width: 330px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 13px; }
+.limn-repo-new-pop .np-h { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); margin: 0 0 10px; }
+.limn-repo-new-pop .np-refs { margin-bottom: 12px; }
+.limn-repo-new-pop .np-act { display: flex; gap: 9px; align-items: center; }
+.limn-repo-new-pop .np-hint { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+/* archived sub-section */
+.limn-arch-sech { display: flex; align-items: center; gap: 9px; margin: 14px 0 6px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); }
+.limn-arch-sech::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+.limn-sess-restore { font-family: var(--sans); font-size: 11.5px; color: var(--accent-ink); background: none; border: 1px solid var(--accent-line); border-radius: var(--r-sm); padding: 3px 11px; cursor: pointer; flex: 0 0 auto; }
+.limn-sess-restore:hover { background: var(--accent-soft); }

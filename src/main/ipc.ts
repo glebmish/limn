@@ -8,7 +8,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpResultMsg, PinData, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, RepoStatus, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   addWorktree, checkoutBranch, currentBranch, defaultBase, getDiff, headSha, isDirty,
@@ -108,9 +108,10 @@ function repoCount(node: PinData['tree']): number {
   return n
 }
 
-/** Blocking by design: scanPin is a sync depth-capped walk and results are
- *  cached — do not async-ify without preserving the cache contract. */
-function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData {
+/** scanPin is a sync depth-capped walk with cached results — the pin part stays
+ *  synchronous. The repo index reads light git state per repo (repoState), so the
+ *  whole builder is async; the only caller is the (already async) dashboard handler. */
+async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<DashboardData> {
   const pinRows = pins.listPins(db)
   const pinData: PinData[] = pinRows.map((p) => {
     let cached = pins.getScanCache(db, p.id)
@@ -129,7 +130,23 @@ function buildDashboard(db: DatabaseSync, bootNotices: string[]): DashboardData 
   // session-level "Recent": the most recent sessions across these repos, each a
   // row you can resume directly (a repo with several sessions lists each one)
   const recentSessions = dao.recentSessions(db, recents, 25)
-  return { pins: pinData, recents, recentSessions, notices: bootNotices }
+  // Level-1 index: every repo with ≥1 live session, newest-activity first, each
+  // carrying the light git state its row shows. Repos whose path has vanished or
+  // no longer reads as a git repo are skipped rather than shown broken.
+  const repoRows = dao.reposWithSessions(db)
+  const repos: RepoIndexEntry[] = []
+  for (const row of repoRows) {
+    if (!fs.existsSync(row.path)) continue
+    try {
+      const st = await repoState(row.path)
+      repos.push({
+        path: row.path, current: st.current, defaultBase: st.defaultBase,
+        worktrees: st.worktrees,
+        sessionCount: row.sessionCount, lastActivity: row.lastActivity
+      })
+    } catch { /* unreadable repo — leave it out of the index */ }
+  }
+  return { repos, pins: pinData, recents, recentSessions, notices: bootNotices }
 }
 
 export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transport): void {
@@ -525,7 +542,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
   })
 
-  handle('dashboard', async () => buildDashboard(db, bootNotices))
+  handle('dashboard', async () => await buildDashboard(db, bootNotices))
 
   handle('addPin', async (dirPath: string) => {
     const id = pins.addPin(db, dirPath)

@@ -46,6 +46,17 @@ export function recentRepoPaths(db: DatabaseSync, limit: number): string[] {
   ).all(limit) as { path: string }[]).map((r) => r.path)
 }
 
+/** Repos that have ≥1 live (non-archived) session — the membership rule for the
+ *  dashboard's Level-1 index. Each row carries its live-session count and the most
+ *  recent session activity; ordered most-recent first (the index's default sort). */
+export function reposWithSessions(db: DatabaseSync): { path: string; sessionCount: number; lastActivity: string }[] {
+  return db.prepare(`SELECT r.path AS path, COUNT(*) AS sessionCount, MAX(s.updated_at) AS lastActivity
+    FROM repos r JOIN sessions s ON s.repo_id = r.id
+    WHERE s.archived_at IS NULL
+    GROUP BY r.id
+    ORDER BY lastActivity DESC`).all() as { path: string; sessionCount: number; lastActivity: string }[]
+}
+
 // ── sessions ──────────────────────────────────────────────────
 interface SessionDbRow {
   id: number; repo_id: number

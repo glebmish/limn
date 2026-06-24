@@ -1,82 +1,137 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { I } from '../kit'
-import { RepoTree, visiblePinRepos, type FlatRow } from '../components/RepoTree'
-import { SessionRow } from '../components/SessionRow'
-import type { RecentSession } from '../../shared/types'
+import { useDismiss } from '../lib/useDismiss'
+import type { RepoIndexEntry, WorktreeInfo } from '../../shared/types'
+
+/** Collapse the user's home prefix to ~ for the path line (cosmetic only). */
+const tilde = (p: string): string => p.replace(/^\/(?:Users|home)\/[^/]+/, '~')
+const repoName = (p: string): string => p.split('/').filter(Boolean).pop() ?? p
+
+/** Repo glyph (folder with fold) — shared by index rows and the empty state. */
+function RepoGlyph({ size = 14 }: { size?: number }) {
+  return (
+    <svg className="rr-glyph" viewBox="0 0 14 14" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path d="M3 2.4h6.4a1 1 0 0 1 1 1v8.2H4.3A1.3 1.3 0 0 1 3 10.3V2.4Z M3 9.7h6.7" />
+    </svg>
+  )
+}
+
+/** The "+n worktrees" pill on a repo row: a count plus a dropdown of the repo's
+ *  linked checkouts. Each entry opens that branch's review. */
+function WorktreePill({ entry, onOpen }: { entry: RepoIndexEntry; onOpen: (branch: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  useDismiss(open, () => setOpen(false), ref)
+  const linked = entry.worktrees.filter((w) => !w.primary)
+  if (linked.length === 0) return null
+  // current first, then the linked ones in their listed order
+  const ordered = [...entry.worktrees].sort((a, b) => Number(b.primary) - Number(a.primary))
+  return (
+    <span ref={ref} className={'rr-worktrees' + (open ? ' open' : '')} title={`${linked.length} linked worktree${linked.length === 1 ? '' : 's'}`}
+      onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}>
+      <I.folder style={{ width: 10, height: 10 }} />+{linked.length} worktree{linked.length === 1 ? '' : 's'}
+      {open && (
+        <span className="wt-menu" onClick={(e) => e.stopPropagation()}>
+          <span className="wm-h">Worktrees · {repoName(entry.path)}</span>
+          {ordered.map((w: WorktreeInfo) => (
+            <span key={w.path} className="wt-opt"
+              onClick={() => { if (w.branch) onOpen(w.branch) }}>
+              <I.folder className="wo-ico" style={{ width: 12, height: 12 }} />
+              <span className="wo-branch">{w.branch ?? '(detached)'}</span>
+              <span className="wo-path">{tilde(w.path)}</span>
+              {w.primary && <span className="wo-cur">current</span>}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** One repository row in the Level-1 index. */
+function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
+  entry: RepoIndexEntry
+  selected: boolean
+  onEnter: () => void
+  onOpenBranch: (branch: string) => void
+}) {
+  const detached = entry.current === 'HEAD'
+  const sameAsBase = entry.current === entry.defaultBase
+  const tip = detached ? 'detached HEAD' : sameAsBase ? `review · ${entry.current}` : `${entry.defaultBase} ← ${entry.current}`
+  return (
+    <div className={'limn-repo-row' + (selected ? ' sel' : '')} onClick={onEnter} title={`${repoName(entry.path)} — open sessions`}>
+      <RepoGlyph />
+      <span className="rr-name">{repoName(entry.path)}</span>
+      <span className="rr-path">{tilde(entry.path)}</span>
+      <span className="grow" />
+      <span className="limn-chip" title="Open this branch's review"
+        onClick={(e) => { e.stopPropagation(); if (!detached) onOpenBranch(entry.current) }}>
+        <I.branch style={{ width: 10, height: 10 }} />{detached ? 'detached' : entry.current}
+        <span className="chip-tip">{tip}</span>
+      </span>
+      <WorktreePill entry={entry} onOpen={onOpenBranch} />
+      <I.chevR className="rr-chev" style={{ width: 13, height: 13 }} />
+    </div>
+  )
+}
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, statuses, error, boot, setFilter, pinDirectory, openRepository, unpin, rescan, resumeExisting, enterHub, deleteSession } = useStore()
+  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, enterHub, openReview } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    void boot()
-  }, [boot])
+  useEffect(() => { void boot() }, [boot])
 
-  // pinned-dir repos (flat, absPath-keyed) — drive RepoTree highlight + the first
-  // run of the keyboard nav. Pure, so StrictMode-safe.
-  const flatPins: FlatRow[] = useMemo(() => {
-    if (!dashboard) return []
-    const out: FlatRow[] = []
-    for (const pin of dashboard.pins) {
-      if (pin.tree) out.push(...visiblePinRepos(pin.path, pin.tree, filter))
-    }
-    return out
+  // pre-select the repo you last drilled into, so returning from a repo's sessions
+  // (Back) lands the cursor where you were rather than at the top.
+  useEffect(() => {
+    if (!dashboard) return
+    const idx = repo ? dashboard.repos.findIndex((r) => r.path === repo) : -1
+    useStore.setState({ sel: idx >= 0 ? idx : 0 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboard])
+
+  const repos: RepoIndexEntry[] = useMemo(() => {
+    const all = dashboard?.repos ?? []
+    const f = filter.trim().toLowerCase()
+    if (!f) return all
+    return all.filter((r) =>
+      repoName(r.path).toLowerCase().includes(f) || r.path.toLowerCase().includes(f) || r.current.toLowerCase().includes(f)
+    )
   }, [dashboard, filter])
 
-  // recent sessions (outside pinned dirs), filtered by repo name / branch / title
-  const recentRows: RecentSession[] = useMemo(() => {
-    if (!dashboard) return []
-    const f = filter.toLowerCase()
-    if (!f) return dashboard.recentSessions
-    return dashboard.recentSessions.filter((s) => {
-      const name = s.repo.split('/').pop() ?? s.repo
-      return name.toLowerCase().includes(f) || s.repo.toLowerCase().includes(f)
-        || s.compareSymbol.toLowerCase().includes(f) || s.baseSymbol.toLowerCase().includes(f)
-        || (s.title?.toLowerCase().includes(f) ?? false)
-    })
-  }, [dashboard, filter])
+  // keep the keyboard cursor in range as the filtered list shrinks
+  const reposRef = useRef(repos)
+  reposRef.current = repos
 
-  const indexByPath = useMemo(() => new Map(flatPins.map((row, i) => [row.absPath, i] as const)), [flatPins])
-  const indexOf = (absPath: string): number => indexByPath.get(absPath) ?? -1   // pins only
+  const openRepoSessions = (path: string): void => { void enterHub(path) }
+  const openBranch = (path: string, branch: string): void => { void openReview(path, { compare: branch }) }
 
-  // the keydown effect mounts once — read the current lists through a ref so the
-  // handler never closes over stale data. Nav order: pins, then recent sessions.
-  const navRef = useRef<{ pins: FlatRow[]; sessions: RecentSession[] }>({ pins: flatPins, sessions: recentRows })
-  navRef.current = { pins: flatPins, sessions: recentRows }
-
-  // keyboard: ↑↓ select (works while the filter is focused), ⏎ open,
-  // ⌘P pin, Esc clears, plain typing focuses the filter
+  // keyboard: ↑↓ select, ⏎ open the repo's sessions, ⌘O open a repository,
+  // Esc clears the filter, plain typing focuses it.
   useEffect(() => {
-    const navLen = (): number => navRef.current.pins.length + navRef.current.sessions.length
-    const moveSel = (delta: number): void => {
-      const max = Math.max(0, navLen() - 1)
-      const next = Math.min(max, Math.max(0, useStore.getState().sel + delta))
-      useStore.setState({ sel: next })
-    }
     const onKey = (e: KeyboardEvent): void => {
       const active = document.activeElement
       const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      const list = reposRef.current
       if (e.key === 'Escape') { setFilter(''); if (filterRef.current) filterRef.current.value = ''; return }
-      if (e.key === 'ArrowDown') { e.preventDefault(); moveSel(1); return }
-      if (e.key === 'ArrowUp') { e.preventDefault(); moveSel(-1); return }
+      if (e.key === 'ArrowDown') { e.preventDefault(); useStore.setState({ sel: Math.min(list.length - 1, useStore.getState().sel + 1) }); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); useStore.setState({ sel: Math.max(0, useStore.getState().sel - 1) }); return }
       if (e.key === 'Enter') {
         e.preventDefault()
-        const i = useStore.getState().sel
-        const { pins, sessions } = navRef.current
-        if (i < pins.length) { const row = pins[i]; if (row) void useStore.getState().openRepo(row.absPath) }
-        else { const s = sessions[i - pins.length]; if (s) void useStore.getState().resumeExisting(s.id) }
+        const r = reposRef.current[useStore.getState().sel]
+        if (r) void useStore.getState().enterHub(r.path)
         return
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); void useStore.getState().pinDirectory(); return }
-      if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        filterRef.current?.focus()
-      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void useStore.getState().openRepository(); return }
+      if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) filterRef.current?.focus()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const hasRepos = (dashboard?.repos.length ?? 0) > 0
 
   return (
     <div className="limn-dash">
@@ -86,62 +141,64 @@ export default function Dashboard() {
 
       <div className="limn-dash-head">
         <h1>Repositories</h1>
+        <button className="btn btn-sm btn-ghost" onClick={() => void openRepository()} title="Open a Git repository (⌘O)">
+          <I.folder style={{ width: 12, height: 12 }} />Open…
+        </button>
         <span className="grow" />
-        <button className="btn btn-sm btn-primary" onClick={() => void pinDirectory()}>
-          <I.plus style={{ width: 12, height: 12 }} />Pin directory…
-        </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => void openRepository()}>
-          <I.branch style={{ width: 12, height: 12 }} />Open repository…
-        </button>
       </div>
 
-      <div className="limn-dash-filter">
-        <input
-          ref={filterRef}
-          placeholder="Filter repositories…"
-          aria-label="Filter repositories"
-          defaultValue={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-      </div>
+      {hasRepos && (
+        <div className="limn-dash-filter">
+          <input
+            ref={filterRef}
+            placeholder="Filter repositories…"
+            aria-label="Filter repositories"
+            defaultValue={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+      )}
 
       {error && <div className="limn-error limn-toast">{error}</div>}
 
       <div className="limn-dash-scroll">
         {!dashboard && <div className="dim" style={{ padding: 20 }}>Loading…</div>}
-        {dashboard && dashboard.pins.length === 0 && dashboard.recents.length === 0 && (
-          <div className="limn-empty">No repositories yet. <b>Pin a directory</b> to scan it for git repos, or open one directly.</div>
-        )}
-        {dashboard && dashboard.pins.length === 0 && dashboard.recents.length > 0 && dashboard.recentSessions.length === 0 && (
-          <div className="limn-empty">No reviews yet. Use <b>Open repository…</b> to start one.</div>
-        )}
-        {dashboard?.pins.map((pin) => (
-          <div key={pin.id} className="limn-pin">
-            <div className="limn-pin-head">
-              <span className="pin-path" title={pin.path}>{pin.path}</span>
-              <span className="pin-count">· {pin.repoCount} repo{pin.repoCount === 1 ? '' : 's'}</span>
-              <span className="grow" />
-              <button className="limn-pin-btn" title="Rescan" onClick={() => void rescan(pin.id)}>⟳</button>
-              <button className="limn-pin-btn" title="Unpin" onClick={() => void unpin(pin.id)}>✕</button>
+
+        {dashboard && !hasRepos && (
+          <div className="limn-firstrun">
+            <div className="fr-glyph">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round">
+                <path d="M3 19V6a1.3 1.3 0 0 1 1.3-1.3h4.6l2 2.5h8.5a1.3 1.3 0 0 1 1.3 1.3V19a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 19z" />
+                <path d="M9 13.5h6M12 10.5v6" />
+              </svg>
             </div>
-            {pin.tree
-              ? <RepoTree pinPath={pin.path} node={pin.tree} filter={filter} indexOf={indexOf} statuses={statuses} />
-              : <div className="dim" style={{ padding: 6 }}>scanning…</div>}
-          </div>
-        ))}
-        {dashboard && recentRows.length > 0 && (
-          <div className="limn-recent-sec">
-            <div className="rs-h">Recent sessions (outside pinned dirs)</div>
-            {recentRows.map((s, i) => (
-              <SessionRow key={s.id} s={s} selected={sel === flatPins.length + i}
-                repoName={s.repo.split('/').pop()} onRepoClick={() => void enterHub(s.repo)}
-                onOpen={() => void resumeExisting(s.id)} onDelete={() => void deleteSession(s.id)} />
-            ))}
+            <h2>No repositories yet</h2>
+            <p className="fr-sub">Open a Git repository to start your first review. limn adds it here and drops you straight into the diff for the current branch.</p>
+            <div className="fr-cta">
+              <button className="btn btn-primary" onClick={() => void openRepository()}>
+                <I.branch style={{ width: 13, height: 13 }} />Open repository…
+              </button>
+              <span className="fr-kbd"><kbd>⌘</kbd><kbd>O</kbd></span>
+            </div>
           </div>
         )}
+
+        {dashboard && hasRepos && repos.length === 0 && (
+          <div className="limn-empty">No repositories match <b>{filter}</b>.</div>
+        )}
+
+        {repos.map((r, i) => (
+          <RepoRow
+            key={r.path}
+            entry={r}
+            selected={sel === i}
+            onEnter={() => openRepoSessions(r.path)}
+            onOpenBranch={(branch) => openBranch(r.path, branch)}
+          />
+        ))}
       </div>
 
-      <div className="limn-foot-hint">↑↓ navigate · ⏎ open · type to filter · ⌘P pin directory</div>
+      <div className="limn-foot-hint">↑↓ navigate · ⏎ open repo · type to filter · ⌘O open repository</div>
     </div>
   )
 }
