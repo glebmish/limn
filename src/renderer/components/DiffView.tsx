@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
-import { I, Delta, ficonClass, EngineGlyph, CmtPlus } from '../kit'
+import { I, Delta, EngineGlyph, CmtPlus } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
@@ -108,7 +108,7 @@ export function DiffView({ f, plainNote }: {
       >
         <span className="pth">
           <I.chevR className="gfile-caret" style={{ width: 11, height: 11, transform: showBody ? 'rotate(90deg)' : '', transition: 'transform .12s' }} />
-          <span className={'ficon ' + ficonClass(f.path) + ' ' + fileStatus}></span>
+          <span className={'ficon ' + fileStatus}></span>
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}

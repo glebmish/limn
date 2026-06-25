@@ -172,6 +172,7 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
             </button>
             <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
             {hint && <span className="dim" style={{ fontSize: 10.5 }}>{hint}</span>}
+            <span className="dim" style={{ fontSize: 10.5, marginLeft: 'auto' }}>⌘⏎ send · Esc cancel</span>
           </div>
         </div>
       </div>

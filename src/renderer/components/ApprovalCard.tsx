@@ -15,7 +15,7 @@ export function ApprovalCard({ request, index, total, onDecide, onStop }: {
     <div className="approval-card">
       <div className="ac-head">
         <I.warn className="ac-ico" />
-        <span className="ac-kind">{request.kind.replace('_', ' ')}</span>
+        <span className="ac-kind">{request.kind.replace(/_/g, ' ')}</span>
         {request.risk && <span className={'ac-risk ' + request.risk}>{request.risk} risk</span>}
         {total > 1 && <span className="ac-count">{index + 1}/{total}</span>}
       </div>

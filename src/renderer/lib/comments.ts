@@ -34,15 +34,15 @@ export async function deleteComment(id: string): Promise<void> {
   useStore.getState().setComments(state.comments)
 }
 
-/** Send queued comments to the review agent's chat as one unified batch turn. The
- *  agent edits & commits code, resolves, or replies via its tools; the chat drawer
- *  opens to show the rollup + commit chip (wf-H). */
 /** The current review session = the LATEST review thread (each generation makes a
  *  new one; older review threads stay as history). */
 export function currentReviewChat(chats: { kind: string; id: number }[]): { id: number } | undefined {
   return [...chats].reverse().find((c) => c.kind === 'review') ?? chats[0]
 }
 
+/** Send queued comments to the review agent's chat as one unified batch turn. The
+ *  agent edits & commits code, resolves, or replies via its tools; the chat drawer
+ *  opens to show the rollup + commit chip (wf-H). */
 export function sendComments(ids: string[], steer?: string): void {
   const { loaded } = useStore.getState()
   const target = currentReviewChat(loaded?.state.chats ?? [])

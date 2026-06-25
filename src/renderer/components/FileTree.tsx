@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { FileDiff, ViewMark } from '../../shared/types'
-import { I, ficonClass } from '../kit'
+import { I } from '../kit'
 import { fileViewed } from '../store'
 
 interface TreeDir {
@@ -41,7 +41,10 @@ function countFiles(dir: TreeDir): number {
 
 function fileStatusClass(f: FileDiff, viewedAt: Record<string, ViewMark>): string {
   if (f.status === 'deleted') return 'st-risk'
-  if (f.hunks.some((h) => h.since || h.sinceViewed)) return 'st-amber'
+  const mark = viewedAt[f.path]
+  // amber on commit-level marks OR uncommitted hash-drift since viewing (mirrors DiffView)
+  const drift = f.hunks.some((h) => h.since || h.sinceViewed) || (Boolean(mark) && mark.hash !== f.fileHash)
+  if (drift) return 'st-amber'
   return fileViewed(f, viewedAt) ? 'st-rev' : 'st-unrev'
 }
 
@@ -100,7 +103,7 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className 
             title={f.path}
             onClick={(e) => { e.stopPropagation(); onFileClick(f.path, f) }}
           >
-            <span className={'ficon ' + ficonClass(f.path) + ' ' + fileStatusClass(f, viewedAt)}></span>
+            <span className={'ficon ' + fileStatusClass(f, viewedAt)}></span>
             <span className="nm">{name}</span>
           </div>
         )

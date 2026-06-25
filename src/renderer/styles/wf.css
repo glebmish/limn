@@ -30,9 +30,7 @@
   --red-line:#e2c2b8;
 
   --add-bg:#e9f2eb;
-  --add-rail:#7fb38f;
   --del-bg:#f6e9e5;
-  --del-rail:#d0a99e;
   --add-wd:#c2e2cc;          /* word-level add highlight */
   --del-wd:#eccabd;          /* word-level del highlight */
   --del-ink:#9c4636;         /* deleted-line code text */
@@ -120,8 +118,9 @@
 .frow.sel{background:var(--accent-soft);border-left-color:var(--accent)}
 .frow.sel.amber-sel{background:var(--amber-soft);border-left-color:var(--amber)}
 .ficon{width:14px;height:14px;flex:0 0 auto}
-.fi-ts,.fi-js,.fi-css,.fi-md,.fi-json,.fi-go,.fi-sql,.fi-tsx,.fi-yml{
-  background:var(--muted);border-radius:0;
+/* file-glyph spans always carry a st-* status class — mask scoped here so the
+   shared .ficon (also used by inline SVG icons) stays un-masked */
+.ficon.st-unrev,.ficon.st-rev,.ficon.st-amber,.ficon.st-risk{
   -webkit-mask:var(--file-glyph) center/contain no-repeat;
   mask:var(--file-glyph) center/contain no-repeat}
 .ficon.st-unrev{background:var(--line-3)}
@@ -226,7 +225,7 @@
   width:18px;height:18px;border-radius:5px;background:var(--accent);color:#fff;border:none;padding:0;
   cursor:pointer;display:none;align-items:center;justify-content:center;z-index:4;
   box-shadow:0 1px 3px rgba(0,0,0,.22)}
-.dline:hover .gutter-add{display:flex}
+.dline:hover .gutter-add,.dline:focus-within .gutter-add,.gutter-add:focus-visible{display:flex}
 
 /* inline composer thread inside diff */
 .thread{margin:0 14px;border:1px solid var(--line-2);border-radius:var(--r-md);overflow:hidden;

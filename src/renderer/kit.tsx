@@ -63,7 +63,6 @@ export function CmtPlus({ onClick, extra, stop }: {
   return (
     <button
       className={'spec-plus' + (extra ? ' ' + extra : '')}
-      tabIndex={-1}
       title="Comment"
       onClick={(e) => { if (stop) e.stopPropagation(); onClick() }}
     >
@@ -90,20 +89,6 @@ export function Flow() {
 
 export function Delta({ add, del }: { add: number; del: number }) {
   return <span className="delta"><span className="add">+{add}</span> <span className="del">−{del}</span></span>
-}
-
-export function ficonClass(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? ''
-  const map: Record<string, string> = {
-    ts: 'fi-ts', tsx: 'fi-ts', mts: 'fi-ts',
-    js: 'fi-js', jsx: 'fi-js', mjs: 'fi-js', cjs: 'fi-js',
-    css: 'fi-css', scss: 'fi-css', less: 'fi-css',
-    md: 'fi-md', markdown: 'fi-md', txt: 'fi-md',
-    json: 'fi-json', yaml: 'fi-json', yml: 'fi-json', toml: 'fi-json',
-    sql: 'fi-sql',
-    go: 'fi-go', py: 'fi-go', rb: 'fi-go', rs: 'fi-go', java: 'fi-go'
-  }
-  return map[ext] ?? 'fi-md'
 }
 
 export function shortSha(sha: string): string {
