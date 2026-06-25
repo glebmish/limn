@@ -588,6 +588,9 @@ export const useStore = create<AppStore>((set, get) => {
         const loaded = await window.api.loadSession(sessionId)
         set({
           sessionId, loaded, error: null, screen: 'review',
+          // reset the (global) gen state so a previous session's running/errored op
+          // doesn't bleed its strip or error banner onto the one being opened.
+          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false },
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
