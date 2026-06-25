@@ -8,7 +8,6 @@ import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 import { MD_PLUGINS, PreBlock, InlineCode, type HastNode } from '../lib/markdown'
-import { FORMAT_LABELS } from '../../shared/types'
 
 /** Commentable document view for spec/plan artifacts. The doc renders through the
  *  full markdown pipeline; each rendered block is a hover-"+" comment target,
@@ -85,7 +84,6 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     <>
       <div className="plan-stage-banner">
         <span className="psb-ic">{art.role === 'plan' ? <I.plan style={{ width: 14, height: 14 }} /> : <I.doc style={{ width: 14, height: 14 }} />}</span>
-        <span className="art-fmt" title={`${FORMAT_LABELS[art.format]} format`}>{FORMAT_LABELS[art.format]}</span>
         <span className="psb-tx">
           {approvedAt
             ? <><b>{art.role === 'plan' ? 'Plan' : 'Spec'} — approved.</b> Comments still queue for the agent; re-approve if it changes.</>

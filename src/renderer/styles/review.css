@@ -33,9 +33,6 @@
   font-size:10px;font-weight:700;letter-spacing:.02em;border-radius:999px;cursor:pointer;
   background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--accent-line)}
 .art-badge:hover{filter:brightness(.96)}
-.art-fmt{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  padding:1px 5px;border-radius:999px;background:var(--chip,rgba(127,127,127,.14));
-  color:var(--muted);border:1px solid var(--line,rgba(127,127,127,.22));white-space:nowrap}
 .art-peek{padding:2px 13px 10px 34px;display:flex;flex-direction:column;gap:2px}
 .art-peek .art-goal{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-bottom:6px}
 .art-peek .spec-req{padding:3px 0}
@@ -435,6 +432,18 @@
 .gsec-diagram-cmt:hover .diagram-plus,
 .gsec-what-cmt:hover .narration-plus,
 .limn-decision-q:hover .decision-plus { display: flex; }
+
+/* interactive decision options — selectable radio-style pills + batch submit */
+.dc-opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
+.dc-opt { font: 600 12px sans-serif; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 6px 13px 6px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: .12s; }
+.dc-opt:hover { border-color: var(--accent-line); color: var(--ink); }
+.dc-opt .dc-tick { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line-3); flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; transition: .12s; }
+.dc-opt .dc-tick svg { width: 8px; height: 8px; color: #fff; opacity: 0; transition: .12s; }
+.dc-opt.sel { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.dc-opt.sel .dc-tick { background: var(--accent); border-color: var(--accent); }
+.dc-opt.sel .dc-tick svg { opacity: 1; }
+.dc-submit { margin-top: 10px; }
+.dc-count { font-size: 11px; color: var(--muted); }
 
 /* section header — comment on the whole change; + sits inside the header's left
    padding (no bridge needed), rendered only while the section is open */

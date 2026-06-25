@@ -161,12 +161,10 @@ export type EngineEvent =
 
 // ── artifacts / chat / state ─────────────────────────────────
 /** A recognized spec/plan format. A markdown file is only treated as an
- *  artifact when its path matches one of these formats' conventions. */
+ *  artifact when its path matches one of these formats' conventions. The format
+ *  drives discovery only — it is deliberately never surfaced as a per-row badge
+ *  or label in the UI (retired: "No artifact format flag" design decision). */
 export type ArtifactFormat = 'superpowers' | 'sdd'
-export const FORMAT_LABELS: Record<ArtifactFormat, string> = {
-  superpowers: 'Superpowers',
-  sdd: 'Spec Kit'
-}
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactFormat; path: string; title: string; lines: string[] }
 /** An ordered slice of an agent message: either a run of prose or a reference to a
  *  tool call (by id, resolved against `ChatMessage.tools`). Preserves the
