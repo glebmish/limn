@@ -76,9 +76,11 @@ function chatName(c: ChatThread, all: ChatThread[]): string {
   // a draft or an as-yet-untitled empty chat shows the placeholder; a titled chat
   // shows its (auto-derived) title; the `Chat N` form is the remaining fallback.
   if (c.id < 0 || c.messages.length === 0) return 'New chat'
+  // number across all threads: the review session(s) come first, then user chats.
+  const reviews = all.filter((x) => x.kind === 'review')
   const userChats = all.filter((x) => x.kind === 'user' && x.id >= 0)
   const n = userChats.findIndex((x) => x.id === c.id)
-  return `Chat ${n + 2}` // review is chat 1
+  return `Chat ${reviews.length + n + 1}`
 }
 
 function agentSub(c: ChatThread): string {

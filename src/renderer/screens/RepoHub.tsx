@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
@@ -114,13 +114,42 @@ export default function RepoHub() {
     backToDashboard, enterHub, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview, openRepository
   } = useStore()
   const [q, setQ] = useState('')
-  if (!repo) return null
+  const [sel, setSel] = useState(0)
 
   const f = q.trim().toLowerCase()
   const match = (s: typeof repoSessions[number]): boolean =>
     !f || (s.title?.toLowerCase().includes(f) ?? false) || s.compareSymbol.toLowerCase().includes(f)
   const live = repoSessions.filter((s) => !s.archived && match(s))
   const archived = repoSessions.filter((s) => s.archived && match(s))
+
+  // keep the keyboard cursor over the currently-visible (filtered) live rows
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const selRef = useRef(sel)
+  selRef.current = sel
+
+  // keyboard: ↑↓ move the cursor over live rows, ⏎ open the selected review,
+  // ⌫ back to repositories, ⌘O open a repository. Skip nav keys while typing in
+  // the filter so ⌫ deletes text rather than navigating away.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const active = document.activeElement
+      const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void openRepository(); return }
+      if (typing) return
+      const list = liveRef.current
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(list.length - 1, s + 1)); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)); return }
+      if (e.key === 'Enter') { e.preventDefault(); const s = liveRef.current[selRef.current]; if (s) void resumeExisting(s.id); return }
+      if (e.key === 'Backspace') { e.preventDefault(); void backToDashboard(); return }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (!repo) return null
+
   // other repos for the switcher (self is shown as current); fall back to just self
   const repos = dashboard?.repos ?? []
 
@@ -158,8 +187,8 @@ export default function RepoHub() {
           {live.length === 0 && (
             <div className="limn-empty">{f ? <>No sessions match <b>{q}</b>.</> : <>No reviews yet for this repo. <b>New review</b> to start one.</>}</div>
           )}
-          {live.map((s) => (
-            <SessionRow key={s.id} s={s} chip
+          {live.map((s, i) => (
+            <SessionRow key={s.id} s={s} chip selected={sel === i}
               onOpen={() => void resumeExisting(s.id)} onDelete={() => void deleteSession(s.id)} />
           ))}
 

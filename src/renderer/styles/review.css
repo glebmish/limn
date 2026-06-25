@@ -129,6 +129,10 @@
 .wf .page-head .page-title-row{display:flex;align-items:flex-end;gap:16px}
 .wf .page-head .page-h1-cmt{flex:1 1 auto;min-width:0}
 .wf .page-head .rv-approve{margin-left:auto;align-self:flex-end;flex:0 0 auto}
+/* once recorded, "Approved" reads ghost-GREEN — approval is a green review signal,
+   not a muted/disabled grey (overrides .btn-ghost's --muted color). */
+.wf .rv-approve.rv-approved{color:var(--accent-ink);border-color:var(--accent-line)}
+.wf .rv-approve.rv-approved:hover{background:var(--accent-soft);color:var(--accent-ink)}
 
 /* ---- raw draft/generating diff ---- */
 .flat-toolbar{display:flex;align-items:center;gap:10px;padding:9px 2px 11px;border-bottom:1px solid var(--line);margin:6px 30px 12px}

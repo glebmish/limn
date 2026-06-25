@@ -231,9 +231,13 @@ export function GenPanel() {
   // review exists — freshness stamp + follow-up/regenerate controls. Follow-up
   // keeps the existing review chat; regenerate starts a fresh narration pass.
   const generatedSha = loaded?.state.reviewedAtSha ?? loaded?.state.iterations.at(-1)?.endSha
-  const driftCount = generatedSha && generatedSha !== loaded?.skeleton.headSha
-    ? loaded?.commits.findIndex((c) => c.sha === generatedSha) ?? 0
+  // drift = commits between the generated SHA and HEAD. When that SHA is no longer
+  // in history (rebase/squash/force-push) findIndex returns -1 — treat it as
+  // drifted (basis gone), NOT "up to date", mirroring Review.tsx's timeline fallback.
+  const genIdx = generatedSha && generatedSha !== loaded?.skeleton.headSha
+    ? loaded?.commits.findIndex((c) => c.sha === generatedSha) ?? -1
     : 0
+  const driftCount = genIdx < 0 ? (loaded?.commits.length ?? 0) : genIdx
   const behind = driftCount > 0
   const submitFollowUp = (): void => {
     const t = steer.trim()

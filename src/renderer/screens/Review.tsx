@@ -370,7 +370,7 @@ export default function Review() {
 
   const approveButton = (
     <button
-      className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost' : 'btn-primary')}
+      className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost rv-approved' : 'btn-primary')}
       disabled={gen.running || approved}
       title={loaded.dirty
         ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
