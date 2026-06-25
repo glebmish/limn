@@ -44,12 +44,11 @@ you haven't vetted, stay on **Ask for approval** or **Accept edits**.
 
 ## Using it
 
-1. **Pin a directory** (📌 *Pin directory…*) — the app scans it recursively for git
-   repos and shows them as a tree on the **Dashboard**; pinned dirs persist across
-   launches and rescan on demand (⟳). *Open repository…* opens a one-off repo via the
-   native dialog; it lands under **Recent**.
-2. On the Dashboard: type to filter, ↑/↓ to move, ⏎ (or click) to open a repo.
-   Each repo row shows its current branch and a dot when the working tree is dirty.
+1. **Open a repository** (*Open repository…* / ⌘O) via the native dialog — Limn adds
+   it to the **Dashboard**'s repository index and remembers it across launches.
+2. On the Dashboard: type to filter the list, ↑/↓ to move, ⏎ (or click) to open a
+   repo's sessions. Each row shows its current branch (click the branch chip to open
+   that branch's review) and when it was last active.
 3. **Opening a repo lands directly on the review** for its current branch — the diff
    against the default base (`main` → `master` → first branch), already loaded. No
    session is minted until you act (comment, mark something viewed, generate, or
@@ -88,7 +87,7 @@ Dashboard with an explanatory toast.
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), the drift banner and "since you reviewed" diffs update live, and you get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
-Review state (sessions, comments, chat, approvals, pinned dirs) lives in a SQLite database in the app's userData.
+Review state (sessions, comments, chat, approvals) lives in a SQLite database in the app's userData.
 
 ### Remote access in a browser (Tailscale)
 
@@ -102,7 +101,7 @@ npm run serve                 # builds the renderer, then serves it over HTTP
 
 By default it listens on `0.0.0.0:8787`. Open `http://<machine-name-or-tailscale-ip>:8787`
 from any device on your tailnet. It shares the desktop app's SQLite database, so
-sessions and pins are the same whether you're in the app or the browser.
+sessions are the same whether you're in the app or the browser.
 
 Environment variables:
 
@@ -132,7 +131,7 @@ Requires Node 20+.
 
 ```bash
 npm run dev        # live-reload app
-npm test           # vitest: diff parser, scanner, ref resolution, sessions DAO, CLI args, anchoring, engine contract
+npm test           # vitest: diff parser, ref resolution, sessions DAO, CLI args, anchoring, engine contract
 npm run typecheck
 npm run lint
 ```
@@ -141,4 +140,4 @@ Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO`
 
 **Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LIMN_DB` / `LIMN_OPEN_SESSION` + the dev hooks `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 
-Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dives in [docs/agent-layer.md](docs/agent-layer.md) and [docs/storage-layer.md](docs/storage-layer.md).
+Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dives in [docs/agent-layer.md](docs/agent-layer.md), [docs/storage-layer.md](docs/storage-layer.md), and the [Codex app-server protocol](docs/codex-app-server.md).

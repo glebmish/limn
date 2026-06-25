@@ -65,6 +65,28 @@ Approvals (when an execution tier requires a go-ahead) ride this same channel as
 `approval_request` events and are answered back over a dedicated IPC call; see
 [agent-layer.md](agent-layer.md) for the approval registry.
 
+## Transport: Electron and the headless web server
+
+The orchestrator (`registerIpc`) never touches Electron. It speaks a small
+`Transport` seam (`src/main/transport.ts`) — `handle` (register a request/response
+channel), `broadcast` (fan a push message to every client), `notify` (out-of-band
+OS notification), `pickDirectory` (host directory picker) — and two backings
+implement it:
+
+- **Electron** (`src/main/index.ts`) — `ipcMain.handle` / `BrowserWindow.webContents.send`
+  / `Notification` / `dialog`. The preload bridge mirrors `API_CHANNELS` onto
+  `ipcRenderer.invoke` and relays `op:event` / `op:result` / `repo:changed`.
+- **Headless web server** (`src/server/index.ts`) — the same channels over HTTP
+  **POST** (request/response) and **Server-Sent Events** (the three broadcast
+  streams). It serves the built renderer from `out/renderer`, shares the desktop
+  app's SQLite database (same userData path), and gates on an optional
+  `LIMN_WEB_TOKEN`. The renderer reaches it through `src/renderer/web-api.ts`, which
+  presents the identical `Api` over `fetch` + `EventSource`.
+
+So the renderer is transport-agnostic: `renderer → (preload bridge | web-api) →
+Transport → {git, db, engines}`. `cli:open` is the one exception — it's pushed
+directly by Electron main and is desktop-only.
+
 ## External dependencies
 
 - **`git`** (subprocess) — the source of truth for all diff, ref, and worktree

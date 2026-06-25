@@ -67,6 +67,11 @@ A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides ev
 
 ## Codex engine (`codex.ts`)
 
+> The bidirectional `codex app-server` wire protocol — framing, handshake, the v2
+> approval methods and their `accept`/`decline` vocabulary — has its own reference:
+> [codex-app-server.md](codex-app-server.md). It is not publicly documented; that doc
+> is pinned to a `generate-ts` capture of the bundled binary.
+
 - **SDK:** generation uses `@openai/codex-sdk` — `new Codex(...)`, `startThread`, `thread.runStreamed(prompt, { outputSchema, signal })` yielding `ThreadEvent`s. Chat/batch use `codex app-server` over JSON-RPC stdio so Limn can answer approval requests.
 - **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
 - **Sandbox (the permission analogue):** generation uses `sandboxMode: 'workspace-write'` with `approvalPolicy: 'on-request'`, matching Claude's command-capable review exploration. Chat/batch map the reviewer's execution tier through `codexAppServer.ts`: read-only for ordinary chat, workspace-write for write-enabled batch, and danger-full-access for Full access.
