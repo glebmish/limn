@@ -158,9 +158,11 @@ describe('claude canUseTool policy', () => {
   it('auto-allows limn + read-safe tools without prompting', async () => {
     const emit = vi.fn()
     const can = makeCanUseTool('opC', emit)
-    expect(await can('mcp__limn__add_comment', {}, {} as never)).toEqual({ behavior: 'allow' })
-    expect(await can('Read', { file_path: 'a' }, {} as never)).toEqual({ behavior: 'allow' })
-    expect(await can('Grep', { pattern: 'x' }, {} as never)).toEqual({ behavior: 'allow' })
+    // 'allow' echoes the tool input back as updatedInput (without it the SDK
+    // forwards undefined to the tool → ZodError on its input schema).
+    expect(await can('mcp__limn__add_comment', {}, {} as never)).toEqual({ behavior: 'allow', updatedInput: {} })
+    expect(await can('Read', { file_path: 'a' }, {} as never)).toEqual({ behavior: 'allow', updatedInput: { file_path: 'a' } })
+    expect(await can('Grep', { pattern: 'x' }, {} as never)).toEqual({ behavior: 'allow', updatedInput: { pattern: 'x' } })
     expect(emit).not.toHaveBeenCalled()
   })
 
@@ -181,7 +183,7 @@ describe('claude canUseTool policy', () => {
     const p = can('Edit', { file_path: 'src/a.ts' }, {} as never)
     const ev = emit.mock.calls[0][0] as { request: { id: string } }
     resolveDecision('opC3', ev.request.id, 'allow')
-    expect(await p).toEqual({ behavior: 'allow' })
+    expect(await p).toEqual({ behavior: 'allow', updatedInput: { file_path: 'src/a.ts' } })
   })
 
   it('toApprovalRequest maps tool → kind/detail', () => {

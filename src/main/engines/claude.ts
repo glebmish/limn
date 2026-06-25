@@ -34,14 +34,17 @@ export function toApprovalRequest(engine: string, toolName: string, input: Recor
  *  shell tools park on a reviewer approval and route the decision back. */
 export function makeCanUseTool(opId: string, emit: (e: EngineEvent) => void): CanUseTool {
   return async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
+    // 'allow' MUST echo the tool input back as updatedInput — without it the SDK
+    // forwards `undefined` to the tool, which then fails its own input schema with
+    // a ZodError (observed on Bash after a reviewer approves a command).
     if (toolName.startsWith('mcp__limn__') || READ_SAFE.includes(toolName)) {
-      return { behavior: 'allow' }
+      return { behavior: 'allow', updatedInput: input }
     }
     const request = toApprovalRequest('claude', toolName, input, `limn-approval-${++approvalSeq}`)
     const decision = await awaitDecision(opId, request, emit)
     return decision === 'deny'
       ? { behavior: 'deny', message: 'Reviewer denied this action.' }
-      : { behavior: 'allow' }
+      : { behavior: 'allow', updatedInput: input }
   }
 }
 

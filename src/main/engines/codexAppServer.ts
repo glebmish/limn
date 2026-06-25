@@ -184,6 +184,7 @@ export class AppServerConn {
   private nextId = 1
   private pending = new Map<number, Pending>()
   private stdoutBuf = ''
+  private stderrBuf = ''   // tail of the child's stderr — surfaced when a turn errors
   private onNotify: ((method: string, params: unknown) => void) | null = null
   private onServerRequest: ((id: number | string, method: string, params: unknown) => void) | null = null
   threadId: string | null = null
@@ -195,8 +196,14 @@ export class AppServerConn {
     }) as ChildProcessWithoutNullStreams
     this.child.stdout.setEncoding('utf8')
     this.child.stdout.on('data', (chunk: string) => this.ingest(chunk))
+    this.child.stderr.setEncoding('utf8')
+    this.child.stderr.on('data', (chunk: string) => { this.stderrBuf = (this.stderrBuf + chunk).slice(-4000) })
     this.child.on('exit', () => { for (const p of this.pending.values()) p.reject(new Error('app-server exited')); this.pending.clear() })
   }
+
+  /** Last ~4KB of the app-server's stderr, trimmed — the real diagnostic when a
+   *  turn fails with an opaque `error` notification (e.g. CLI version skew). */
+  stderrTail(): string { return this.stderrBuf.trim() }
 
   private ingest(chunk: string): void {
     const { messages, rest } = decodeChunk(this.stdoutBuf + chunk)
@@ -300,7 +307,13 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
       conn.setHandlers(
         (method, params) => {
           if (/turn\/completed|turn\/aborted/.test(method)) { resolveTurn?.(); return }
-          if (/^error$/.test(method)) { turnErr = String((params as { message?: string })?.message ?? 'error'); resolveTurn?.(); return }
+          if (/^error$/.test(method)) {
+            const pm = (params as { message?: string })?.message
+            // many app-server `error` notifications omit `.message` (esp. on CLI
+            // version skew) — fall back to the full params so the reason isn't lost
+            turnErr = pm || (params ? JSON.stringify(params) : '') || 'error'
+            resolveTurn?.(); return
+          }
           const ev = appServerNotifToEvent(method, params)
           if (ev) { if (ev.type === 'text') finalText += ev.text; q.push(ev) }
         },
@@ -344,10 +357,14 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
         ...modelEffort(turn.model, turn.reasoningEffort)
       })
       await turnDone
-      if (turnErr) throw new Error(`Codex run failed: ${turnErr}`)
+      if (turnErr) {
+        const tail = conn.stderrTail()
+        throw new Error(`Codex run failed: ${turnErr}${tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : ''}`)
+      }
       q.push({ type: 'done' })
       return { value: finalText, sessionId: conn.threadId || turn.engineSessionId || '' }
     } catch (err) {
+      console.error('[codex app-server] chat turn failed:', err instanceof Error ? err.message : err)
       q.push({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       throw err
     } finally {
