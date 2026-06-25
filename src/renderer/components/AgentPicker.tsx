@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
 import { I, EngineGlyph } from '../kit'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
@@ -18,12 +17,10 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
    *  trigger; 'left' opens rightward for triggers near a clipped column's left edge. */
   align?: 'left' | 'right'
 }) {
-  const [open, setOpen] = useState(Boolean(window.limnDev?.openPicker))
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
-  const wrap = useRef<HTMLDivElement>(null)
-  // anchor the popover to the trigger; the shared core flips/clamps it on-screen
-  // (the `align` prop is just the *preferred* edge now — overflow is handled).
-  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: align === 'left' ? 'start' : 'end' })
+  // open state + on-screen positioning + outside-click dismissal in one. `align`
+  // is just the *preferred* edge now — the core flips/clamps to the viewport.
+  const { open, toggle, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: align === 'left' ? 'start' : 'end', defaultOpen: Boolean(window.limnDev?.openPicker) })
 
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
@@ -38,15 +35,13 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
     if (e && !devPicked.current) { devPicked.current = true; onChange({ engine: e as EngineId }) }
   }, [onChange])
 
-  useDismiss(open, () => setOpen(false), wrap)
-
   const model = modelOption(value)
   const efforts = model?.reasoningEfforts
   const sub = (value.model ? model?.label ?? value.model : 'Auto') + (value.reasoningEffort ? ` (${value.reasoningEffort})` : '')
 
   return (
-    <div className="ag-wrap" ref={wrap}>
-      <button ref={anchorRef} className="ag-trigger" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label="agent">
+    <div className="ag-wrap">
+      <button ref={anchorRef} className="ag-trigger" disabled={disabled} onClick={toggle} aria-label="agent">
         <EngineGlyph engine={value.engine} style={{ width: 13, height: 13, flex: '0 0 auto', color: 'var(--accent)' }} />
         {engineLabel(value.engine)}
         <span className="ag-sub">· {sub}</span>

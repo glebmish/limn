@@ -1,10 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
 import { SessionRow } from '../components/SessionRow'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 import type { RepoIndexEntry, RepoState } from '../../shared/types'
 
 const tilde = (p: string): string => p.replace(/^\/(?:Users|home)\/[^/]+/, '~')
@@ -27,16 +26,13 @@ function RepoSwitcher({ repo, repos, onSwitch, onOpenRepository }: {
   onSwitch: (path: string) => void
   onOpenRepository: () => void
 }) {
-  const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const ref = useRef<HTMLSpanElement>(null)
-  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLSpanElement, HTMLDivElement>(open, { side: 'bottom', align: 'start' })
-  useDismiss(open, () => setOpen(false), ref)
+  const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLSpanElement, HTMLDivElement>({ side: 'bottom', align: 'start' })
   const f = q.trim().toLowerCase()
   const list = repos.filter((r) => !f || baseName(r.path).toLowerCase().includes(f) || r.path.toLowerCase().includes(f))
   return (
-    <span ref={ref} className={'limn-repo-switchwrap' + (open ? ' open' : '')}>
-      <span ref={anchorRef} className="limn-repo-switch" title="Switch repository" onClick={() => setOpen((o) => !o)}>
+    <span className={'limn-repo-switchwrap' + (open ? ' open' : '')}>
+      <span ref={anchorRef} className="limn-repo-switch" title="Switch repository" onClick={toggle}>
         <RepoGlyph cls="rs-glyph" />
         <span className="rs-name">{baseName(repo)}</span>
         <span className="rs-path">{tilde(repo)}</span>
@@ -51,7 +47,7 @@ function RepoSwitcher({ repo, repos, onSwitch, onOpenRepository }: {
             const cur = r.path === repo
             return (
               <div key={r.path} className={'limn-repo-opt' + (cur ? ' cur' : '')}
-                onClick={() => { setOpen(false); if (!cur) onSwitch(r.path) }}>
+                onClick={() => { close(); if (!cur) onSwitch(r.path) }}>
                 <RepoGlyph cls="ro-glyph" size={13} />
                 <span className="ro-name">{baseName(r.path)}</span>
                 <span className="ro-path">{tilde(r.path)}</span>
@@ -61,7 +57,7 @@ function RepoSwitcher({ repo, repos, onSwitch, onOpenRepository }: {
             )
           })}
           <div className="rm-sep" />
-          <div className="rm-open" onClick={() => { setOpen(false); onOpenRepository() }}>
+          <div className="rm-open" onClick={() => { close(); onOpenRepository() }}>
             <I.folder style={{ width: 12, height: 12 }} />Open repository…
           </div>
         </div>
@@ -77,20 +73,17 @@ function NewReviewSplit({ repo, repoState, onStart }: {
   repoState: RepoState | null
   onStart: (base: string, compare: string) => void
 }) {
-  const [open, setOpen] = useState(false)
   const [base, setBase] = useState('')
   const [cmp, setCmp] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'end' })
-  useDismiss(open, () => setOpen(false), ref)
+  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'end' })
   const effBase = base || repoState?.defaultBase || 'HEAD'
   const effCmp = cmp || repoState?.current || ''
   return (
-    <div ref={ref} className={'limn-repo-newwrap' + (open ? ' open' : '')}>
+    <div className={'limn-repo-newwrap' + (open ? ' open' : '')}>
       <button className="limn-repo-new" onClick={() => onStart(effBase, repoState?.current ?? '')} title="Fresh review on the current branch">
         <I.plus style={{ width: 11, height: 11 }} />New review
       </button>
-      <button ref={anchorRef} className="limn-repo-new-caret" title="Choose base ← compare" onClick={() => setOpen((o) => !o)}>
+      <button ref={anchorRef} className="limn-repo-new-caret" title="Choose base ← compare" onClick={toggle}>
         <I.chevD style={{ width: 11, height: 11 }} />
       </button>
       {open && (
@@ -105,7 +98,7 @@ function NewReviewSplit({ repo, repoState, onStart }: {
           </div>
           <div className="np-act">
             <button className="btn btn-sm btn-primary" disabled={!effCmp}
-              onClick={() => { setOpen(false); onStart(effBase, effCmp) }}>
+              onClick={() => { close(); onStart(effBase, effCmp) }}>
               <I.plus style={{ width: 12, height: 12 }} />Start review
             </button>
           </div>

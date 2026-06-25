@@ -170,15 +170,14 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-regen .regen-split .rs-go > svg { width: 12px; height: 12px; color: var(--muted-2); flex: 0 0 auto; }
 .gen-regen .regen-split .rs-sep { width: 1px; background: var(--line-2); flex: 0 0 auto; }
 .gen-regen .regen-split .ag-trigger { border: none; border-radius: 0; background: transparent; padding: 4px 9px; height: 100%; }
-.gen-regen [data-hint] { position: relative; }
-.gen-regen [data-hint]::after { content: attr(data-hint); position: absolute; bottom: calc(100% + 9px); display: block; box-sizing: border-box; width: 236px; max-width: min(236px, calc(100vw - 32px)); white-space: normal; overflow-wrap: break-word; background: var(--ink); color: #fff; font-family: var(--sans); font-weight: 400; font-size: 11px; line-height: 1.5; text-align: left; padding: 8px 11px; border-radius: var(--r-sm); box-shadow: 0 10px 26px -10px rgba(40,38,32,.55); opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity .12s, transform .12s; z-index: 40; }
-.gen-regen [data-hint]::before { content: ""; position: absolute; bottom: calc(100% + 4px); width: 9px; height: 9px; background: var(--ink); transform: rotate(45deg); opacity: 0; transition: opacity .12s; z-index: 40; }
-.gen-regen [data-hint]:hover::after { opacity: 1; transform: translateY(0); }
-.gen-regen [data-hint]:hover::before { opacity: 1; }
-.gen-regen .gh-l::after { left: 0; }
-.gen-regen .gh-l::before { left: 15px; }
-.gen-regen .gh-r::after { right: 0; }
-.gen-regen .gh-r::before { right: 15px; }
+/* action-row hint bubble — rendered on hover by useTooltip (position fixed top/left
+ * set inline, flips/clamps to the viewport). The arrow follows the chosen side. */
+.gen-hint { box-sizing: border-box; width: 236px; max-width: min(236px, calc(100vw - 32px)); white-space: normal; overflow-wrap: break-word; background: var(--ink); color: #fff; font-family: var(--sans); font-weight: 400; font-size: 11px; line-height: 1.5; text-align: left; padding: 8px 11px; border-radius: var(--r-sm); box-shadow: 0 10px 26px -10px rgba(40,38,32,.55); pointer-events: none; z-index: 40; animation: limn-tip-in .12s ease; }
+.gen-hint::after { content: ""; position: absolute; width: 9px; height: 9px; background: var(--ink); transform: rotate(45deg); }
+.gen-hint[data-side="top"]::after { top: 100%; margin-top: -4px; left: 18px; }
+.gen-hint[data-side="bottom"]::after { bottom: 100%; margin-bottom: -4px; left: 18px; }
+/* right-aligned hint (regenerate split): arrow on the right edge instead */
+.gen-hint--r::after { left: auto; right: 18px; }
 
 /* ---- word-level diff marks (ch-offset overlays under the code text) ---- */
 .dline .code { position: relative; }

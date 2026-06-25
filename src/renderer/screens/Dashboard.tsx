@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 import { Tooltip } from '../components/Tooltip'
 import type { RepoIndexEntry, WorktreeInfo } from '../../shared/types'
 
@@ -22,18 +21,15 @@ function RepoGlyph({ size = 14 }: { size?: number }) {
 /** The "+n worktrees" pill on a repo row: a count plus a dropdown of the repo's
  *  linked checkouts. Each entry opens that branch's review. */
 function WorktreePill({ entry, onOpen }: { entry: RepoIndexEntry; onOpen: (branch: string) => void }) {
-  const [open, setOpen] = useState(false)
-  // the pill is both the dismiss boundary and the positioning anchor; the menu
-  // flips/clamps on-screen and scrolls if a repo has many worktrees.
-  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLSpanElement, HTMLSpanElement>(open, { side: 'bottom', align: 'end' })
-  useDismiss(open, () => setOpen(false), anchorRef)
+  // menu flips/clamps on-screen and scrolls if a repo has many worktrees
+  const { open, toggle, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLSpanElement, HTMLSpanElement>({ side: 'bottom', align: 'end' })
   const linked = entry.worktrees.filter((w) => !w.primary)
   if (linked.length === 0) return null
   // current first, then the linked ones in their listed order
   const ordered = [...entry.worktrees].sort((a, b) => Number(b.primary) - Number(a.primary))
   return (
     <span ref={anchorRef} className={'rr-worktrees' + (open ? ' open' : '')} title={`${linked.length} linked worktree${linked.length === 1 ? '' : 's'}`}
-      onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}>
+      onClick={(e) => { e.stopPropagation(); toggle() }}>
       <I.folder style={{ width: 10, height: 10 }} />+{linked.length} worktree{linked.length === 1 ? '' : 's'}
       {open && (
         <span className="wt-menu" ref={floatingRef} style={menuStyle} onClick={(e) => e.stopPropagation()}>

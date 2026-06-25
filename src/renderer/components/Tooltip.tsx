@@ -1,5 +1,5 @@
-import { useState, type HTMLAttributes, type ReactNode } from 'react'
-import { useFloating } from '../lib/useFloating'
+import { type HTMLAttributes, type ReactNode } from 'react'
+import { useTooltip } from '../lib/useTooltip'
 import type { Align, Side } from '../lib/floating'
 
 /** Hover tooltip that positions itself on-screen via the shared floating core:
@@ -20,15 +20,9 @@ export function Tooltip({
   align?: Align
   gap?: number
 } & Omit<HTMLAttributes<HTMLSpanElement>, 'content'>) {
-  const [show, setShow] = useState(false)
-  const { anchorRef, floatingRef, style, side: placed } = useFloating<HTMLSpanElement, HTMLSpanElement>(show, { side, align, gap })
+  const { show, hoverProps, anchorRef, floatingRef, style, side: placed } = useTooltip<HTMLSpanElement, HTMLSpanElement>({ side, align, gap })
   return (
-    <span
-      {...rest}
-      ref={anchorRef}
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
+    <span {...rest} ref={anchorRef} {...hoverProps}>
       {children}
       {show && (
         <span ref={floatingRef} className={tipClassName} style={style} data-side={placed}>

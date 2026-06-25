@@ -1,7 +1,5 @@
-import { useRef, useState } from 'react'
 import { I, EngineGlyph } from '../kit'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
 
@@ -14,15 +12,11 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
   onSwitch: (id: number) => void
   onNew: () => void
 }) {
-  const [open, setOpen] = useState(Boolean(window.limnDev?.openChatList))
-  const wrap = useRef<HTMLDivElement>(null)
   // full-width dropdown that scrolls (not overflows) once chats pile up
-  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'start', gap: 5, matchWidth: true })
+  const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 5, matchWidth: true, defaultOpen: Boolean(window.limnDev?.openChatList) })
   const active = chats.find((c) => c.id === activeId) ?? null
 
-  useDismiss(open, () => setOpen(false), wrap)
-
-  const pick = (id: number): void => { onSwitch(id); setOpen(false) }
+  const pick = (id: number): void => { onSwitch(id); close() }
 
   // reviews pinned to the top in chronological order (oldest up, current last),
   // user chats below — grouped under headers so the two are visually distinct.
@@ -39,8 +33,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
   )
 
   return (
-    <div className="chatdd" ref={wrap}>
-      <button ref={anchorRef} className="chatdd-trig" onClick={() => setOpen((o) => !o)}>
+    <div className="chatdd">
+      <button ref={anchorRef} className="chatdd-trig" onClick={toggle}>
         <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>
@@ -52,7 +46,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
           {reviews.map(Opt)}
           {userChats.length > 0 && <div className="chatdd-grp">Chats</div>}
           {userChats.map(Opt)}
-          <div className="chatdd-new" onClick={() => { onNew(); setOpen(false) }}>
+          <div className="chatdd-new" onClick={() => { onNew(); close() }}>
             <I.plus style={{ width: 12, height: 12 }} />New chat
           </div>
         </div>

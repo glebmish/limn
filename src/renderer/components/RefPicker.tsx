@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
@@ -20,7 +19,9 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
    *  and its sha in grey. Omitted (e.g. the setup screen) → plain value display. */
   loc?: RefLoc
 }) {
-  const [open, setOpen] = useState(Boolean(prominent && window.limnDev?.openCmpRef))
+  // open state + on-screen positioning (flips up / clamps to the viewport) +
+  // outside-click dismissal, all from the shared popover hook.
+  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4, defaultOpen: Boolean(prominent && window.limnDev?.openCmpRef) })
   // worktree a branch is checked out in (if any) — shown muted next to the row so
   // you can see at a glance which branches are already checked out, and where.
   const worktrees = useStore((s) => s.repoState?.worktrees) ?? []
@@ -40,11 +41,6 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // commits are the additional mode: collapsed by default (branch picking is the
   // default), opened by the toggle or automatically once the query looks like a SHA.
   const [showCommits, setShowCommits] = useState(false)
-  // wraps trigger + popover; useDismiss keeps pointers inside it from closing.
-  const wrap = useRef<HTMLDivElement>(null)
-  // anchor the popover on-screen (flips up / clamps to the viewport) — fixes the
-  // compare picker overrunning the right edge when nested in the new-review popover.
-  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'start', gap: 4 })
   const loadedFor = useRef<string>('')
 
   // The branch the input currently names (if any). When set, the commit list is
@@ -70,12 +66,9 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     return () => { ignore = true }
   }, [open, repo, scope])
 
-  // close on outside pointer-down / Esc (shared with every other popover)
-  useDismiss(open, () => setOpen(false), wrap)
-
   const commit = (v: string): void => {
     onChange(v)
-    setOpen(false)
+    close()
   }
 
   const filter = trimmed.toLowerCase()
@@ -102,8 +95,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   const display = valueShaLike ? shortSha(value) : value
 
   return (
-    <div className="limn-refpick" ref={wrap}>
-      <button ref={anchorRef} className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
+    <div className="limn-refpick">
+      <button ref={anchorRef} className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); toggle() }}>
         {prominent && loc?.kind !== 'commit' && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         {loc ? (
           <>

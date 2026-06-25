@@ -1,7 +1,6 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { I } from '../kit'
-import { useDismiss } from '../lib/useDismiss'
-import { useFloating } from '../lib/useFloating'
+import { usePopover } from '../lib/usePopover'
 import { EXECUTION_TIERS } from '../../shared/executionMode'
 import type { ExecutionMode } from '../../shared/types'
 
@@ -17,29 +16,25 @@ export function ModeSelector({ mode, disabled, onChange }: {
   disabled?: boolean
   onChange: (m: ExecutionMode) => void
 }) {
-  const [open, setOpen] = useState(Boolean(window.limnDev?.openMode))
   const [confirmFull, setConfirmFull] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
   // opens upward by preference; flips down / clamps if the composer sits high
-  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'top', align: 'start' })
-
-  useDismiss(open, () => { setOpen(false); setConfirmFull(false) }, ref)
+  const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'top', align: 'start', defaultOpen: Boolean(window.limnDev?.openMode), onClose: () => setConfirmFull(false) })
 
   const active = EXECUTION_TIERS.find((t) => t.key === mode) ?? EXECUTION_TIERS[0]
   const Trig = I[TIER_ICON[active.key]]
 
   const pick = (key: ExecutionMode): void => {
     if (key === 'full' && mode !== 'full' && !confirmFull) { setConfirmFull(true); return }
-    onChange(key); setOpen(false); setConfirmFull(false)
+    onChange(key); close()
   }
 
   return (
-    <div className="modebar" ref={ref}>
+    <div className="modebar">
       <button
         ref={anchorRef}
         className={'mode-trig ' + active.key}
         disabled={disabled}
-        onClick={() => { setOpen((o) => !o); setConfirmFull(false) }}
+        onClick={() => { toggle(); setConfirmFull(false) }}
       >
         <Trig className="mt-ico" />
         {active.label}

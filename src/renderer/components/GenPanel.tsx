@@ -4,6 +4,7 @@ import { I, EngineGlyph } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
+import { useTooltip } from '../lib/useTooltip'
 import type { AgentRef } from '../../shared/types'
 
 /** mm:ss for the live elapsed counter. */
@@ -73,6 +74,10 @@ export function GenPanel() {
   const stickRef = useRef(true)
   const [now, setNow] = useState(() => Date.now())
   const [steer, setSteer] = useState('')
+  // action-row hints: rendered bubbles that flip/clamp on-screen (shared tooltip
+  // core), replacing the old pure-CSS [data-hint] ::after that couldn't flip.
+  const hintL = useTooltip<HTMLButtonElement, HTMLSpanElement>({ side: 'top', align: 'start', gap: 9 })
+  const hintR = useTooltip<HTMLDivElement, HTMLSpanElement>({ side: 'top', align: 'end', gap: 9 })
 
   // follow the latest tool call only while the user is parked at the bottom.
   // once they scroll up to read, new calls stop yanking them down; following
@@ -178,29 +183,34 @@ export function GenPanel() {
       <div className="gen-acts">
         {behind ? (
           <button
-            className="btn btn-sm btn-primary gh-l"
+            className="btn btn-sm btn-primary"
             disabled={gate.blocked}
-            data-hint="Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive."
+            ref={hintL.anchorRef}
+            {...hintL.hoverProps}
             onClick={() => void startGenerateNow(steer, true)}
           >
             <I.changed style={{ width: 12, height: 12 }} />Update review
+            {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive.</span>}
           </button>
         ) : (
           <button
-            className="btn btn-sm btn-primary gh-l"
-            data-hint="Same session. Opens the review chat for comments, decisions and focused follow-ups."
+            className="btn btn-sm btn-primary"
+            ref={hintL.anchorRef}
+            {...hintL.hoverProps}
             onClick={() => useStore.getState().openChat()}
           >
             <I.arrow style={{ width: 12, height: 12 }} />Follow up
+            {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Opens the review chat for comments, decisions and focused follow-ups.</span>}
           </button>
         )}
         <span className="grow"></span>
-        <div className="regen-split gh-r" data-hint="Fresh agent, new session. Your comments and viewed marks survive; the narration is replaced.">
+        <div className="regen-split" ref={hintR.anchorRef} {...hintR.hoverProps}>
           <button className="rs-go" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
             <I.changed />Regenerate
           </button>
           <span className="rs-sep"></span>
           <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="right" disabled={gate.blocked} />
+          {hintR.show && <span className="gen-hint gen-hint--r" ref={hintR.floatingRef} style={hintR.style} data-side={hintR.side}>Fresh agent, new session. Your comments and viewed marks survive; the narration is replaced.</span>}
         </div>
       </div>
       {behind && <div className="gen-drift-exp"><b>Update review</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}
