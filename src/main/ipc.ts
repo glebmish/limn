@@ -288,6 +288,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
             sinceSha: state.reviewedAtSha
           }
         : undefined
+      // a cancel during the pre-engine async setup above lands before run.cancel is
+      // registered, so it would otherwise be a no-op and the engine would launch
+      // anyway. Check here (no await before activeOps.set, so the window is closed)
+      // and bail via the catch, which writes the cancelled note + op:result.
+      if (cancelledOps.has(opId)) throw new Error('cancelled')
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
         repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
@@ -416,6 +421,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         emit: (event) => send('op:event', { opId, event })
       })
+      // a cancel during the async setup above lands before run.cancel is registered;
+      // catch it here (no await before activeOps.set) so the engine never launches.
+      if (cancelledOps.has(opId)) throw new Error('cancelled')
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume).
@@ -449,6 +457,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
       clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
@@ -513,6 +522,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
       })
+      // cancel during setup → bail before the (write-enabled) engine launches, so a
+      // stopped batch can't still edit/commit the worktree.
+      if (cancelledOps.has(opId)) throw new Error('cancelled')
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: refine
@@ -555,6 +567,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
       clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
