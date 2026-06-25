@@ -7,7 +7,6 @@ import { createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolHostCtx } fr
 import { FakeEngine } from '../src/main/engines/fake'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta } from '../src/main/db/sessions'
-import { fixtureGit, makeFixtureRepo } from './helpers/fixtureRepo'
 import type { AgentAction, Comment, EngineEvent, RefPair, ReviewAnnotations } from '../src/shared/types'
 
 function makeCtx(over: Partial<ToolHostCtx> = {}): { ctx: ToolHostCtx; events: EngineEvent[] } {
@@ -30,22 +29,21 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const READ_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
-const ALL_TOOLS = [...READ_TOOLS, 'commit_changes'].sort()
+const ALL_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
-  it('exposes the focus/suggest + comment/review + commit tools', () => {
-    expect(LIMN_TOOLS.map((t) => t.name).sort()).toEqual(ALL_TOOLS)
+  it('exposes the focus/suggest + comment/review tools (no write tool — commits go through git)', () => {
+    expect(LIMN_TOOLS.map((t) => t.name).sort()).toEqual([...ALL_TOOLS].sort())
     for (const t of LIMN_TOOLS) {
       expect(t.description.length).toBeGreaterThan(0)
       expect(typeof t.input).toBe('object')
     }
   })
 
-  it('withholds write tools (commit_changes) unless the turn is write-enabled', () => {
-    expect(limnAllowedToolNames().sort()).toEqual(READ_TOOLS.map(mcp).sort()) // read-only default
-    expect(limnAllowedToolNames(true).sort()).toEqual(ALL_TOOLS.map(mcp).sort()) // write-enabled adds commit_changes
+  it('allows the same limn tools regardless of write-enabled (no limn write tool to withhold)', () => {
+    expect(limnAllowedToolNames().sort()).toEqual(ALL_TOOLS.map(mcp).sort())
+    expect(limnAllowedToolNames(true).sort()).toEqual(ALL_TOOLS.map(mcp).sort())
   })
 })
 
@@ -272,108 +270,5 @@ describe('review edit tools (real temp DB)', () => {
   })
 })
 
-describe('commit_changes (real git repo)', () => {
-  const branchPair: RefPair = {
-    base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
-    compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
-  }
-
-  function setup(writeEnabled: boolean): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number; dir: string } {
-    const fx = makeFixtureRepo()
-    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-commit-')), 'db')).db
-    const s = createSession(db, fx.dir, branchPair, { engine: 'claude' })
-    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
-    upsertComment(db, s.id, {
-      id: 'q1', anchor: { kind: 'file', file: 'src/a.ts' }, author: 'user', text: 'tweak it',
-      status: 'sent', replies: [], createdAt: 'now', iteration: 0
-    })
-    const ctx: ToolHostCtx = {
-      db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
-      agent: { engine: 'claude' }, writeEnabled, engineSessionId: 'eng-1', emit: () => {}
-    }
-    return { db, ctx, sessionId: s.id, dir: fx.dir }
-  }
-
-  it('commits staged edits, records an iteration, resolves with the commit ref', async () => {
-    const { db, ctx, sessionId, dir } = setup(true)
-    fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
-    const { isError, action } = await createToolHost(ctx).call('commit_changes', {
-      files: ['NEW.md'],
-      message: 'limn: batch fix', resolutions: [{ commentId: 'q1', verdict: 'addressed', note: 'done' }]
-    })
-    expect(isError).toBeFalsy()
-    const st = loadReviewState(db, sessionId)
-    expect(st.iterations.at(-1)).toMatchObject({ summary: 'limn: batch fix', engine: 'claude', sessionId: 'eng-1' })
-    const c = st.comments.find((x) => x.id === 'q1')!
-    expect(c.status).toBe('resolved')
-    expect(c.resolution).toMatchObject({ verdict: 'addressed', note: 'done' })
-    expect(c.resolution!.commit).toHaveLength(7)
-    expect(action).toMatchObject({ kind: 'code_committed', message: 'limn: batch fix' })
-    expect((action as Extract<AgentAction, { kind: 'code_committed' }>).files).toContain('NEW.md')
-  })
-
-  it('refuses to commit when the turn is not write-enabled', async () => {
-    const { ctx } = setup(false)
-    const { isError } = await createToolHost(ctx).call('commit_changes', { files: [], message: 'nope' })
-    expect(isError).toBe(true)
-  })
-
-  it('records resolutions but emits no commit chip when nothing is staged', async () => {
-    const { db, ctx, sessionId } = setup(true) // fixture repo is clean → nothing to commit
-    const { isError, action } = await createToolHost(ctx).call('commit_changes', {
-      files: [],
-      message: 'no-op', resolutions: [{ commentId: 'q1', verdict: 'skipped', note: 'not needed' }]
-    })
-    expect(isError).toBeFalsy()
-    expect(action).toBeUndefined() // no code_committed chip — no commit actually happened
-    const c = loadReviewState(db, sessionId).comments.find((x) => x.id === 'q1')!
-    expect(c.status).toBe('resolved')
-    expect(c.resolution!.commit).toBeUndefined() // no commit ref to backfill
-  })
-
-  it('refuses to stage the whole worktree when files are omitted', async () => {
-    const { ctx, dir } = setup(true)
-    fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
-    const { isError, result } = await createToolHost(ctx).call('commit_changes', { files: [], message: 'limn: unsafe' })
-    expect(isError).toBe(true)
-    expect(result).toContain('file paths')
-  })
-
-  it('refuses when unlisted changed files would be left behind', async () => {
-    const { ctx, dir } = setup(true)
-    fs.writeFileSync(path.join(dir, 'AGENT.md'), 'agent\n')
-    fs.writeFileSync(path.join(dir, 'USER.md'), 'user\n')
-    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
-      files: ['AGENT.md'],
-      message: 'limn: agent-only'
-    })
-    expect(isError).toBe(true)
-    expect(result).toContain('Unlisted changed files')
-    expect(fixtureGit(dir, 'diff', '--cached', '--name-only')).toBe('')
-  })
-
-  it('rejects non-file path expansion before staging', async () => {
-    const { ctx, dir } = setup(true)
-    fs.mkdirSync(path.join(dir, 'src'), { recursive: true })
-    fs.writeFileSync(path.join(dir, 'src', 'agent.ts'), 'agent\n')
-    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
-      files: ['src'],
-      message: 'limn: directory'
-    })
-    expect(isError).toBe(true)
-    expect(result).toContain('exact changed file paths')
-    expect(fixtureGit(dir, 'diff', '--cached', '--name-only')).toBe('')
-  })
-
-  it('refuses when HEAD moved after the write turn started', async () => {
-    const { ctx, dir } = setup(true)
-    ctx.writeBaseHead = '0'.repeat(40)
-    fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
-    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
-      files: ['NEW.md'],
-      message: 'limn: stale'
-    })
-    expect(isError).toBe(true)
-    expect(result).toContain('HEAD moved')
-  })
-})
+// commit_changes was removed — the agent commits via git through its own shell,
+// and resolutions are recorded with resolve_comment (covered above).

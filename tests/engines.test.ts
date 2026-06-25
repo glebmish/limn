@@ -82,10 +82,9 @@ describe('FakeEngine contract', () => {
     await drain(batch.events)
     await batch.result
 
-    // the agent resolved the comment + recorded an iteration via commit_changes
+    // the agent resolved the comment via resolve_comment + committed via git
     const st = loadReviewState(db, s.id)
     expect(st.comments.find((c) => c.id === 'c1')!.status).toBe('resolved')
-    expect(st.iterations.length).toBeGreaterThan(0)
 
     // a new commit exists on the branch
     const newHead = await headSha(fx.dir, 'feature')

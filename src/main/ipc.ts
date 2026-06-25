@@ -438,13 +438,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // A refine turn (answering an intent question) is always read-only.
       const workdir = await resolveWorkdir(repo, session.pair)
       let writeEnabled = false
-      let writeBaseHead: string | undefined
       if (!refine && session.pair.compare.kind === 'branch') {
         const branch = session.pair.compare.symbol
         writeEnabled = workdir !== repo
           ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
           : !(await isDirty(repo)) && (await currentBranch(repo)) === branch
-        if (writeEnabled) writeBaseHead = await headSha(workdir)
       }
       const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
@@ -454,7 +452,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled,
-        engineSessionId: thread.engineSessionId, writeBaseHead, emit: (event) => send('op:event', { opId, event })
+        engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
       })
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,

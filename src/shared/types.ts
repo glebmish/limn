@@ -76,7 +76,6 @@ export type AgentAction =
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
   | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
   | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.what' | 'section.desc'; sectionId?: string }
-  | { kind: 'code_committed'; sha: string; files: string[]; message: string }
 
 // ── tool-call log (wf-D) ──────────────────────────────────────
 /** Verb drives the row icon + label; derived from the engine's raw tool name. */

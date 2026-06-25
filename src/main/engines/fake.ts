@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { ApprovalRequest, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { awaitDecision } from './approvals.js'
+import { execGit } from '../exec.js'
 
 /** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
@@ -85,11 +86,14 @@ export class FakeEngine implements ReviewEngine {
         let ids: string[] = []
         try { ids = (JSON.parse(listed.result) as { id: string }[]).map((c) => c.id) } catch { /* none */ }
         try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
-        await turn.tools.call('commit_changes', {
-          files: ['src/a.ts'],
-          message: 'limn: batch fixes',
-          resolutions: ids.map((id) => ({ commentId: id, verdict: 'addressed' as const, note: 'Done (demo).' }))
-        })
+        // commit via git, as the real agent does through its own shell
+        try {
+          await execGit(turn.repo, ['add', '--', 'src/a.ts'])
+          await execGit(turn.repo, ['commit', '-m', 'limn: batch fixes'])
+        } catch { /* repo may be read-only in tests */ }
+        for (const id of ids) {
+          await turn.tools.call('resolve_comment', { commentId: id, verdict: 'addressed', note: 'Done (demo).' })
+        }
       } else if (turn.tools) {
         // tool-enabled read-only chat: exercise the focus + suggest action pipe
         await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })

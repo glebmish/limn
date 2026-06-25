@@ -1,15 +1,14 @@
 import { z } from 'zod'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations } from '../../shared/types.js'
-import { addIteration, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
-import { execGit } from '../exec.js'
-import { headSha } from '../git.js'
+import { loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
 
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
 // shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
 // the same shape through a per-turn external MCP server. A handler runs in the
 // Electron main process — it may touch the DB / git, emit a live `action` event,
-// and returns the text the model sees.
+// and returns the text the model sees. Code edits + commits go through the
+// engine's own shell/edit tools (git via bash); limn hosts no write tool.
 
 /** Engine-agnostic tool definition (the shape both engines reflect). */
 export interface ToolDef { name: string; description: string; input: z.ZodRawShape }
@@ -23,10 +22,8 @@ export interface ToolHostCtx {
   repo: string
   agent: AgentRef
   writeEnabled: boolean
-  /** the engine session backing this turn's thread, recorded on a commit's iteration. */
+  /** the engine session backing this turn's thread. */
   engineSessionId?: string
-  /** HEAD when the write-enabled turn started; commit_changes refuses if it moved. */
-  writeBaseHead?: string
   /** push a live engine event to the renderer (an `action` event, here). */
   emit: (event: EngineEvent) => void
 }
@@ -103,39 +100,6 @@ function anchorLabel(a: CommentAnchor): string {
   }
 }
 
-const COMMIT_INPUT = {
-  files: z.array(z.string().min(1)),
-  message: z.string().min(1),
-  resolutions: z.array(z.object({
-    commentId: z.string().min(1),
-    verdict: z.enum(['addressed', 'reworked', 'skipped']),
-    note: z.string()
-  })).optional()
-} satisfies z.ZodRawShape
-
-function splitLines(out: string): string[] {
-  return out.split('\n').map((s) => s.trim()).filter(Boolean)
-}
-
-function normalizeRepoPath(p: string): string {
-  const rel = p.replace(/\\/g, '/').trim()
-  if (!rel || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) throw new Error(`unsafe repository path: ${p}`)
-  if (rel.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`unsafe repository path: ${p}`)
-  return rel
-}
-
-async function stagedPaths(repo: string): Promise<string[]> {
-  return splitLines(await execGit(repo, ['diff', '--cached', '--name-only']))
-}
-
-async function changedPaths(repo: string): Promise<Set<string>> {
-  const [unstaged, staged, untracked] = await Promise.all([
-    execGit(repo, ['diff', '--name-only']),
-    execGit(repo, ['diff', '--cached', '--name-only']),
-    execGit(repo, ['ls-files', '--others', '--exclude-standard'])
-  ])
-  return new Set([...splitLines(unstaged), ...splitLines(staged), ...splitLines(untracked)])
-}
 
 // ── tool implementations ──────────────────────────────────────
 interface ToolImpl extends ToolDef {
@@ -299,75 +263,6 @@ const TOOL_IMPLS: ToolImpl[] = [
         action: { kind: 'review_edited', field, ...(sectionId ? { sectionId } : {}) }
       }
     }
-  },
-  {
-    name: 'commit_changes',
-    description:
-      'Commit the code edits you made on the branch and record an iteration. Pass a commit ' +
-      'message, the exact repository-relative files to stage, and optionally the resolutions ' +
-      'for the comments this commit addresses (each: commentId, verdict addressed/reworked/skipped, note). ' +
-      'Only available on write-enabled turns.',
-    input: COMMIT_INPUT,
-    write: true,
-    run: async (ctx, raw) => {
-      if (!ctx.writeEnabled) throw new Error('Code edits are disabled this turn (dirty tree, wrong branch, or fixed-commit compare).')
-      const { files: rawFiles, message, resolutions } = raw as z.infer<z.ZodObject<typeof COMMIT_INPUT>>
-      if (ctx.writeBaseHead && await headSha(ctx.repo) !== ctx.writeBaseHead) {
-        throw new Error('Branch HEAD moved during the agent run; reload the review and retry.')
-      }
-      const files = [...new Set(rawFiles.map(normalizeRepoPath))]
-      const changed = await changedPaths(ctx.repo)
-      if (files.length === 0 && changed.size > 0) {
-        throw new Error('commit_changes must list the file paths to commit; refusing to stage the whole worktree.')
-      }
-      const missing = files.filter((p) => !changed.has(p))
-      if (missing.length > 0) {
-        throw new Error(`commit_changes files must be exact changed file paths: ${missing.join(', ')}`)
-      }
-      const allowed = new Set(files)
-      const unexpectedChanged = [...changed].filter((p) => !allowed.has(p))
-      if (unexpectedChanged.length > 0) {
-        throw new Error(`Unlisted changed files outside commit_changes files: ${unexpectedChanged.join(', ')}`)
-      }
-      const preStaged = await stagedPaths(ctx.repo)
-      const unexpectedPreStaged = preStaged.filter((p) => !allowed.has(p))
-      if (unexpectedPreStaged.length > 0) {
-        throw new Error(`Unexpected staged changes outside commit_changes files: ${unexpectedPreStaged.join(', ')}`)
-      }
-      if (files.length > 0) await execGit(ctx.repo, ['add', '--', ...files])
-      const stagedFiles = await stagedPaths(ctx.repo)
-      const unexpectedStaged = stagedFiles.filter((p) => !allowed.has(p))
-      if (unexpectedStaged.length > 0) {
-        throw new Error(`Unexpected staged changes outside commit_changes files: ${unexpectedStaged.join(', ')}`)
-      }
-      const staged = stagedFiles.length > 0
-      let sha = await headSha(ctx.repo)
-      if (staged) {
-        await execGit(ctx.repo, ['commit', '-m', message])
-        sha = await headSha(ctx.repo)
-        const st = loadReviewState(ctx.db, ctx.sessionId)
-        addIteration(ctx.db, ctx.sessionId, {
-          n: st.iterations.length + 1, engine: ctx.agent.engine, sessionId: ctx.engineSessionId ?? '',
-          endSha: sha, at: new Date().toISOString(), summary: message
-        })
-      }
-      const short = sha.slice(0, 7)
-      if (resolutions?.length) {
-        const st = loadReviewState(ctx.db, ctx.sessionId)
-        for (const r of resolutions) {
-          const c = st.comments.find((x) => x.id === r.commentId)
-          if (!c) continue
-          c.status = 'resolved'
-          c.resolution = { verdict: r.verdict, note: r.note, agentRef: ctx.agent, ...(staged ? { commit: short } : {}) }
-          upsertComment(ctx.db, ctx.sessionId, c)
-        }
-      }
-      // only a real commit yields a code_committed action — otherwise the chip
-      // would mislabel the pre-existing HEAD as this turn's commit.
-      return staged
-        ? { result: `Committed ${short} (${stagedFiles.length} file(s)).`, action: { kind: 'code_committed', sha: short, files: stagedFiles, message } }
-        : { result: 'No code changes to commit; recorded resolutions.' }
-    }
   }
 ]
 
@@ -375,8 +270,9 @@ const TOOL_IMPLS: ToolImpl[] = [
  *  in-process MCP tools with `mcp__<server>__`). */
 export const LIMN_TOOLS: ToolDef[] = TOOL_IMPLS.map(({ name, description, input }) => ({ name, description, input }))
 
-/** Tool names to allow this turn. Write tools (commit_changes) are withheld unless
- *  the turn is write-enabled, so the agent degrades to review/comment-only. */
+/** Tool names to allow this turn. limn hosts no write tool — code edits + commits
+ *  go through the engine's own shell/edit tools, gated by the execution mode. The
+ *  `writeEnabled` arg is kept for callers; review/comment tools are always allowed. */
 export function limnAllowedToolNames(writeEnabled = false): string[] {
   return TOOL_IMPLS.filter((t) => writeEnabled || !t.write).map((t) => `mcp__limn__${t.name}`)
 }

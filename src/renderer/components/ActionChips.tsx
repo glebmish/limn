@@ -202,12 +202,6 @@ function renderAction(action: AgentAction, engine?: EngineId): { kind: 'chip' | 
         </button>
       ) }
     }
-    case 'code_committed':
-      return { kind: 'chip', node: (
-        <span className="limn-chip committed" title={action.message}>
-          <I.changed style={{ width: 11, height: 11 }} />committed {action.sha} · {action.files.length} file{action.files.length === 1 ? '' : 's'}
-        </span>
-      ) }
     default:
       return null
   }
