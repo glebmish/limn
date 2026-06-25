@@ -30,6 +30,11 @@ import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktre
 
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
+// opIds the user cancelled — lets the generate handler note "cancelled" vs "failed".
+const cancelledOps = new Set<string>()
+// review threads whose generation op is in flight (created at op start, finalized
+// or noted at op end). Exempts them from the orphan self-heal on mid-op reloads.
+const activeReviewThreads = new Set<number>()
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.
@@ -214,6 +219,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('loadSession', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
+    // clean up review threads orphaned by a hard crash mid-generation (a lone user
+    // turn, no engine session); the in-flight op's thread is exempt.
+    dao.pruneOrphanReviewThreads(db, sessionId, activeReviewThreads)
     const loaded = await buildLoadedReview(db, session)
     if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
       startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
@@ -234,10 +242,34 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     stopWatch()
   })
 
-  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean) => {
+  // Create the review thread up front so the review agent is a real, persisted
+  // chat from the moment generation starts (the live stream renders through the
+  // normal chat path). The matching `generate(...threadId...)` call finalizes it.
+  handle('beginReview', async (sessionId: number, agent: AgentRef) => {
+    const session = mustGetSession(db, sessionId)
+    const thread = dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
+    activeReviewThreads.add(thread.id)
+    dao.addChatMessage(db, thread.id, {
+      role: 'user', at: new Date().toISOString(),
+      text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.`
+    })
+    return thread.id
+  })
+
+  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
-    if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
+    if (repoLocks.has(repo)) {
+      // another op already holds this repo — note the pre-created thread and bail
+      // WITHOUT entering the try (whose finally would release the other op's lock).
+      const busy = 'Another agent operation is running for this repository'
+      if (dao.getChatThread(db, reviewThreadId)) {
+        dao.addChatMessage(db, reviewThreadId, { role: 'agent', at: new Date().toISOString(), text: `Generation failed: ${busy}.` })
+      }
+      activeReviewThreads.delete(reviewThreadId)
+      send('op:result', { opId, kind: 'review', ok: false, error: busy, reload: true })
+      return
+    }
     repoLocks.add(repo)
     try {
       const baseEff = effectiveRef(session.pair.base)
@@ -295,17 +327,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         reviewedAtSha: skeleton.headSha
       })
       dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
-      dao.reconcileChats(db, sessionId) // create default chats / resync review chat to the new engine session
-      // persist the generation itself as the review thread's first turn, so the chat
-      // is the review agent's full history (generation → later comment/decision turns),
-      // not just the post-generation interaction. The thread is the same engine session
-      // that produced the review.
-      const reviewThread = [...dao.listChatThreads(db, sessionId)].reverse().find((t) => t.kind === 'review')
-      if (reviewThread) {
+      dao.reconcileChats(db, sessionId) // ensure the default user chat exists
+      // finalize the review thread created at op start: bind it to the engine
+      // session that produced the review and persist the agent's turn (the user
+      // turn was persisted by beginReview). The thread IS the review agent's
+      // history — generation first, later comment/decision turns after.
+      if (dao.getChatThread(db, reviewThreadId)) {
         const at = new Date().toISOString()
         const genTools = reduceToolCalls(genEvents)
-        dao.addChatMessage(db, reviewThread.id, { role: 'user', at, text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.` })
-        dao.addChatMessage(db, reviewThread.id, {
+        dao.setThreadEngineSession(db, reviewThreadId, engineSession)
+        dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
+        dao.addChatMessage(db, reviewThreadId, {
           role: 'agent', at,
           text: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
           ...(genTools.length ? { tools: genTools } : {})
@@ -315,17 +347,34 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       notifyIfUnfocused('Guided review ready',
         `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
     } catch (err) {
+      const msg = String(err instanceof Error ? err.message : err)
+      // a user cancel (flagged) or an engine-level abort both count as a quiet stop,
+      // not a failure — some engines surface cancellation only as an abort error.
+      const cancelled = cancelledOps.has(opId) || /\babort(ed)?\b/i.test(msg)
       console.error('[generate] failed:', err)
-      send('op:result', { opId, kind: 'review', ok: false, error: String(err instanceof Error ? err.message : err) })
-      notifyIfUnfocused('Review generation failed', String(err instanceof Error ? err.message : err).slice(0, 120))
+      // keep the review thread, noting the outcome, so a cancelled/failed run stays
+      // visible in chat history (the user turn is already persisted). reload:true so
+      // the drawer picks up the note.
+      if (dao.getChatThread(db, reviewThreadId)) {
+        dao.addChatMessage(db, reviewThreadId, {
+          role: 'agent', at: new Date().toISOString(),
+          text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
+        })
+      }
+      // 'cancelled' is a sentinel the renderer treats as a quiet stop (no error strip).
+      send('op:result', { opId, kind: 'review', ok: false, error: cancelled ? 'cancelled' : msg, reload: true })
+      if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
+      cancelledOps.delete(opId)
+      activeReviewThreads.delete(reviewThreadId)
       clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 
   handle('cancel', async (opId: string) => {
+    cancelledOps.add(opId)   // distinguishes a user cancel from a genuine failure
     activeOps.get(opId)?.()
     activeOps.delete(opId)
     clearPending(opId)   // auto-deny any parked approvals so no promise leaks

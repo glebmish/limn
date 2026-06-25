@@ -12,7 +12,8 @@ import {
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
-  deleteChatThread, threadIsEmpty, reconcileChats, setThreadMode
+  deleteChatThread, threadIsEmpty, reconcileChats, setThreadMode,
+  setThreadEngineSession, pruneOrphanReviewThreads
 } from '../src/main/db/sessions'
 import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
@@ -151,32 +152,64 @@ describe('sessions DAO', () => {
 describe('chat threads DAO', () => {
   const sha = 'a'.repeat(40)
 
-  it('reconcileChats creates the review + empty user chat once a review exists, idempotently', () => {
+  it('reconcileChats backs the default user chat once a review exists (review thread is created up front, not here)', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude', model: 'opus' })
     reconcileChats(db, s.id)
     expect(listChatThreads(db, s.id)).toHaveLength(0) // no iteration yet → no chats
 
+    // beginReview creates the review thread before generation; reconcileChats runs
+    // on completion and only ensures the companion "New chat" exists.
+    createChatThread(db, s.id, { kind: 'review', agent: { engine: 'claude', model: 'opus' }, engineSessionId: 'es-1', title: 'Review agent' })
     addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: sha, at: 'T1' })
     reconcileChats(db, s.id)
-    let chats = listChatThreads(db, s.id)
+    const chats = listChatThreads(db, s.id)
     expect(chats.map((c) => c.kind)).toEqual(['review', 'user'])
-    const review = chats.find((c) => c.kind === 'review')!
-    expect(review.engineSessionId).toBe('es-1')        // bound to the review-gen session
-    expect(review.agent).toEqual({ engine: 'claude', model: 'opus' })
+    const userChat = chats.find((c) => c.kind === 'user')!
+    expect(userChat.agent).toEqual({ engine: 'claude', model: 'opus' })
 
-    reconcileChats(db, s.id)                            // idempotent — no duplicate chats
+    reconcileChats(db, s.id)                            // idempotent — no duplicate user chat
     expect(listChatThreads(db, s.id)).toHaveLength(2)
+  })
 
-    // regenerate → a NEW review session thread (its own engine session); the old
-    // one is kept as history so you can switch back to it
-    resetIterations(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-2', endSha: sha, at: 'T2' })
-    reconcileChats(db, s.id)
-    chats = listChatThreads(db, s.id)
-    const reviews = chats.filter((c) => c.kind === 'review')
-    expect(chats).toHaveLength(3)                       // old review + user + new review
-    expect(reviews.map((c) => c.engineSessionId)).toEqual(['es-1', 'es-2'])
-    reconcileChats(db, s.id)                            // still idempotent for the current session
-    expect(listChatThreads(db, s.id)).toHaveLength(3)
+  it('pruneOrphanReviewThreads drops a crash-orphaned review (lone user turn, no session) but keeps finished/failed/active ones', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const agent = { engine: 'claude' as const }
+
+    // orphan: only the opening user turn, never bound to an engine session
+    const orphan = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' })
+    addChatMessage(db, orphan.id, { role: 'user', text: 'Generate a guided review…', at: 'T1' })
+
+    // finished: agent turn + bound session
+    const done = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' })
+    addChatMessage(db, done.id, { role: 'user', text: 'Generate…', at: 'T1' })
+    addChatMessage(db, done.id, { role: 'agent', text: 'Produced a review.', at: 'T2' })
+    setThreadEngineSession(db, done.id, 'es-done')
+
+    // failed: user turn + outcome note, no session (kept per "keep with a note")
+    const failed = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' })
+    addChatMessage(db, failed.id, { role: 'user', text: 'Generate…', at: 'T1' })
+    addChatMessage(db, failed.id, { role: 'agent', text: 'Generation failed: boom', at: 'T2' })
+
+    // active: same shape as the orphan but its op is in flight → exempt
+    const active = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' })
+    addChatMessage(db, active.id, { role: 'user', text: 'Generate…', at: 'T1' })
+
+    pruneOrphanReviewThreads(db, s.id, new Set([active.id]))
+
+    const ids = listChatThreads(db, s.id).map((c) => c.id)
+    expect(ids).not.toContain(orphan.id)
+    expect(ids).toEqual(expect.arrayContaining([done.id, failed.id, active.id]))
+  })
+
+  it('pruneOrphanReviewThreads never drops the latest review thread (an in-flight one a reload could race)', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const agent = { engine: 'claude' as const }
+    // a lone-user-turn review that is ALSO the latest thread (e.g. mid-first-generation
+    // before the exempt set is consulted) must survive even when not passed as exempt.
+    const latest = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' })
+    addChatMessage(db, latest.id, { role: 'user', text: 'Generate…', at: 'T1' })
+    pruneOrphanReviewThreads(db, s.id, new Set())
+    expect(listChatThreads(db, s.id).map((c) => c.id)).toContain(latest.id)
   })
 
   it('threadIsEmpty: review chat (bound session) is never empty; fresh user chat is until a message lands', () => {

@@ -51,12 +51,14 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
               {c.state === 'err' && <span className="tcall-stat err"><I.warn style={{ width: 10, height: 10 }} />failed</span>}
               <Caret className="tcall-cv" />
             </div>
-            {isOpen && (c.kv?.length || c.out) && (
+            {isOpen && (c.arg || c.kv?.length || c.out) && (
               <div className="tcall-body">
+                {/* full command/arg, untruncated (the collapsed header ellipsizes it) */}
+                {c.arg ? <div className="tcall-cmd">{c.arg}</div> : null}
                 {c.kv?.length ? (
                   <div className="tcall-kv">{c.kv.map(([k, v], j) => <div key={j}><span className="tk">{k} </span>{v}</div>)}</div>
                 ) : null}
-                {c.out ? <div className="tcall-out">{c.out}{c.outMore && <div className="to-fade" />}</div> : null}
+                {c.out ? <div className="tcall-out">{c.out}</div> : null}
                 {c.outMore && <div className="tcall-more">{c.outMore}</div>}
               </div>
             )}

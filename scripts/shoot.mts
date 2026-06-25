@@ -11,7 +11,7 @@ import { FakeEngine } from '../src/main/engines/fake'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { openDb } from '../src/main/db/db'
 import {
-  createSession, updateSessionMeta, addIteration, reconcileChats,
+  createSession, updateSessionMeta, addIteration, reconcileChats, createChatThread,
   listChatThreads, addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment, setArtifacts
 } from '../src/main/db/sessions'
 import type { RefPair } from '../src/shared/types'
@@ -68,10 +68,12 @@ updateSessionMeta(db, session.id, {
 addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now' })
 setArtifacts(db, session.id, [{ role: 'spec', path: SPEC }, { role: 'plan', path: PLAN }])
 
-// default chats: review (claude/opus) + one empty user chat
+// default chats: review (claude/opus, bound to the gen session) + an empty user
+// chat. The review thread is now created up front by beginReview, so seed it
+// explicitly; reconcileChats backs the companion "New chat".
+const reviewChat = createChatThread(db, session.id, { kind: 'review', agent: { engine: 'claude', model: 'opus' }, engineSessionId: engineSession, title: 'Review agent' })
 reconcileChats(db, session.id)
 const chats = listChatThreads(db, session.id)
-const reviewChat = chats.find((c) => c.kind === 'review')!
 const userChat = chats.find((c) => c.kind === 'user')!
 
 // populate the review chat (resumes the review agent's session — full context)

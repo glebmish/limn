@@ -66,6 +66,6 @@ describe('clampOut', () => {
     const text = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
     const { out, outMore } = clampOut(text, 30)
     expect(out.split('\n')).toHaveLength(30)
-    expect(outMore).toBe('show 10 more lines')
+    expect(outMore).toBe('10 more lines truncated')
   })
 })

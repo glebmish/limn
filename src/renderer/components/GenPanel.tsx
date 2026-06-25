@@ -13,9 +13,16 @@ function fmtElapsed(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-export function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): void {
-  useStore.getState().startOp('review', opId)
-  void window.api.generate(sessionId, agent, opId, steer, update)
+export async function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): Promise<void> {
+  const store = useStore.getState()
+  // create the review thread (with its opening user turn) and select it BEFORE the
+  // agent runs, so generation streams into a real, persisted chat from the first
+  // moment — the live stream renders through the normal chat path.
+  const threadId = await window.api.beginReview(sessionId, agent)
+  await store.reload()              // pull the new review thread into loaded state
+  store.switchChat(threadId)        // select it (drawer shows the live stream if open)
+  store.startOp('review', opId, threadId)
+  void window.api.generate(sessionId, agent, opId, threadId, steer, update)
 }
 
 /** Materialize the (possibly transient) review, then run the agent with the chosen
@@ -23,10 +30,11 @@ export function startGenerate(sessionId: number, agent: AgentRef, opId: string, 
  *  `steer` is an optional one-shot note that focuses the pass; `update` folds new
  *  drift commits into the existing review instead of re-narrating from scratch. */
 export async function startGenerateNow(steer?: string, update?: boolean): Promise<void> {
+  if (useStore.getState().gen.running) return // an op is already in flight
   const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const { loaded, agent } = useStore.getState()
-  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
+  await startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */
@@ -138,6 +146,27 @@ export function GenPanel() {
           <span className="gs-title">Agent run failed: {gen.error}</span>
           <button className="btn btn-sm" onClick={() => startGenerateNow(steer)}>Retry</button>
         </div>
+      </div>
+    )
+  }
+
+  // a cancelled run reopens the generation section so you can pick a different
+  // agent/model or steer the next pass, then retry. (If a review already exists,
+  // fall through to its regenerate controls instead.)
+  if (gen.error === 'cancelled' && !loaded?.state.annotations) {
+    return (
+      <div className="gen-cta gen-cancelled">
+        <span className="gc-tx">
+          <I.flag style={{ width: 13, height: 13, color: 'var(--muted)' }} />
+          <b>Generation cancelled.</b> Pick an agent and run again, or steer the next pass.
+        </span>
+        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
+        <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
+        <button className="btn btn-primary" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
+          <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Retry generation
+        </button>
+        {gate.blocked && <GateNote branch={gate.branch} />}
+        {gate.dirtyWarn && <GateNote branch={gate.branch} dirty />}
       </div>
     )
   }

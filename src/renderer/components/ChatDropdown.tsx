@@ -6,11 +6,12 @@ import type { ChatThread } from '../../shared/types'
 /** Chat selector as a dropdown listing every chat (replaces the tab strip so it
  *  doesn't crowd as chats pile up). Trigger shows the active chat; the menu lists
  *  all chats + a "New chat" row. */
-export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
+export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   chats: ChatThread[]
   activeId: number | null
   onSwitch: (id: number) => void
   onNew: () => void
+  onDelete?: (id: number) => void
 }) {
   // full-width dropdown that scrolls (not overflows) once chats pile up
   const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 5, matchWidth: true, defaultOpen: Boolean(window.limnDev?.openChatList) })
@@ -29,6 +30,12 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
       <EngineGlyph engine={c.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
       <span className="cd-name">{chatName(c, chats)}</span>
       <span className="cd-sub">{agentSub(c)}</span>
+      {onDelete && c.kind === 'user' && (
+        <button className="chatdd-del" title="Delete chat"
+          onClick={(e) => { e.stopPropagation(); onDelete(c.id) }}>
+          <I.trash style={{ width: 12, height: 12 }} />
+        </button>
+      )}
     </div>
   )
 

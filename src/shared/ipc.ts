@@ -83,7 +83,11 @@ export interface Api {
   /** Generate (or, with `update`, fold new drift commits into) the review on this
    *  session in place. `update` passes the existing narration to the agent so it
    *  revises rather than re-narrates from scratch. */
-  generate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): Promise<void>
+  /** Create the review thread (with its opening user turn) before generation runs,
+   *  so the review agent is a persisted chat from the first moment. Returns the new
+   *  thread id, which is then passed to `generate` to finalize on completion. */
+  beginReview(sessionId: number, agent: AgentRef): Promise<number>
+  generate(sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void>
   cancel(opId: string): Promise<void>
   /** Answer a pending approval request (routes to the parked engine-side promise). */
   respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>
@@ -135,7 +139,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
   'checkoutInto', 'addWorktreeFor',
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
-  'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
+  'beginReview', 'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',

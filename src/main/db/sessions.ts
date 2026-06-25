@@ -318,27 +318,36 @@ export function threadIsEmpty(db: DatabaseSync, threadId: number): boolean {
   return Boolean(t) && t!.messages.length === 0 && !t!.engineSessionId
 }
 
-/** Once a review exists, guarantee the two default chats and keep the 'review'
- *  chat pointed at the latest iteration's engine session (resync on regenerate).
- *  Idempotent — safe to call on every load. */
+/** Guarantee the default user chat once a review session exists. The review thread
+ *  itself is created up front by `beginReview` (per generation), so this only backs
+ *  the "New chat" companion. Idempotent — safe to call after every generation. */
 export function reconcileChats(db: DatabaseSync, sessionId: number): void {
   const meta = getSession(db, sessionId)
   if (!meta) return
-  const last = db.prepare('SELECT engine, engine_session_id FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1')
-    .get(sessionId) as { engine: EngineId; engine_session_id: string } | undefined
-  if (!last) return // no review generated yet → no chats
+  const last = db.prepare('SELECT engine FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1')
+    .get(sessionId) as { engine: EngineId } | undefined
+  if (!last) return // no review generated yet
   const reviewAgent: AgentRef = meta.agent ?? { engine: last.engine }
-  // each generation is its own review session: the latest review thread is the
-  // current one. When a new generation produces a fresh engine session, spin up a
-  // NEW review thread (the old ones stay as history) rather than re-pointing the
-  // existing thread — so regenerating is an obvious, switchable new session.
-  const reviews = db.prepare(`SELECT id, engine_session_id FROM chat_threads WHERE session_id = ? AND kind = 'review' ORDER BY id`)
-    .all(sessionId) as { id: number; engine_session_id: string | null }[]
-  const current = reviews[reviews.length - 1]
-  if (current && current.engine_session_id === last.engine_session_id) return // already reconciled
-  createChatThread(db, sessionId, { kind: 'review', agent: reviewAgent, engineSessionId: last.engine_session_id, title: 'Review agent' })
   const hasUserChat = db.prepare(`SELECT 1 FROM chat_threads WHERE session_id = ? AND kind = 'user' LIMIT 1`).get(sessionId)
   if (!hasUserChat) createChatThread(db, sessionId, { kind: 'user', agent: reviewAgent, title: 'New chat' })
+}
+
+/** Remove review threads orphaned by a hard crash mid-generation: a lone opening
+ *  user turn, no bound engine session. A finished review has an agent turn + engine
+ *  session; a cancelled/failed one has the outcome note — neither is pruned. Threads
+ *  whose op is still in flight (`exempt`) are skipped so mid-op reloads don't drop
+ *  the live review. */
+export function pruneOrphanReviewThreads(db: DatabaseSync, sessionId: number, exempt: ReadonlySet<number>): void {
+  const reviews = db.prepare(`SELECT id, engine_session_id FROM chat_threads WHERE session_id = ? AND kind = 'review' ORDER BY id`)
+    .all(sessionId) as { id: number; engine_session_id: string | null }[]
+  // never prune the latest review thread — it's the current/in-flight one, which a
+  // mid-generation reload would otherwise race to delete. Only older orphans go.
+  const latestId = reviews[reviews.length - 1]?.id
+  for (const r of reviews) {
+    if (r.id === latestId || r.engine_session_id || exempt.has(r.id)) continue
+    const count = (db.prepare('SELECT COUNT(*) AS n FROM chat_messages WHERE thread_id = ?').get(r.id) as { n: number }).n
+    if (count <= 1) deleteChatThread(db, r.id)
+  }
 }
 
 export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration): void {

@@ -30,15 +30,17 @@ export function deriveMeta(verb: ToolVerb, resultText: string): string | undefin
   return undefined
 }
 
-/** Cap a result preview to ~maxLines / ~maxChars, reporting the hidden remainder. */
-export function clampOut(text: string, maxLines = 30, maxChars = 2000): { out: string; outMore?: string } {
+/** Cap a result preview to ~maxLines / ~maxChars, reporting the hidden remainder.
+ *  Generous caps so the expanded row shows the whole command output in practice
+ *  (the renderer makes it scrollable); the cap is only a runaway guard. */
+export function clampOut(text: string, maxLines = 200, maxChars = 8000): { out: string; outMore?: string } {
   let out = text.length > maxChars ? text.slice(0, maxChars) : text
   const total = text.split('\n').length
   const lines = out.split('\n')
   if (lines.length > maxLines) out = lines.slice(0, maxLines).join('\n')
   const shown = out.split('\n').length
   const hidden = total - shown
-  return hidden > 0 ? { out, outMore: `show ${hidden} more line${hidden === 1 ? '' : 's'}` } : { out }
+  return hidden > 0 ? { out, outMore: `${hidden} more line${hidden === 1 ? '' : 's'} truncated` } : { out }
 }
 
 /** Fold an event stream into settled tool calls, upserting by id and preserving

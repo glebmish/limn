@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, checkoutGate, useStore } from '../store'
-import { I, Ava } from '../kit'
+import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
@@ -21,26 +21,31 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const store = useStore()
   const { loaded, gen, activeChatId } = store
   const chats = useMemo(() => loaded?.state.chats ?? [], [loaded?.state.chats])
-  const active = activeChat(loaded, activeChatId) ?? chats[chats.length - 1] ?? null
+  // resolve the active chat, falling back to the running op's thread so a review
+  // streams into a fully-chromed chat even if selection hasn't caught up yet.
+  const active = activeChat(loaded, activeChatId)
+    ?? chats.find((c) => c.id === gen.threadId)
+    ?? chats[chats.length - 1] ?? null
   const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
   // viewing a superseded review session (an older generation) — offer to switch
   const onOldReview = active?.kind === 'review' && latestReview != null && active.id !== latestReview.id
-  // the drawer renders the chat list, so gate on whether any chat exists. chats
-  // are persisted on review completion (reconcileChats), so during the first
-  // in-flight generation this is still empty — `regenerating` covers that gap.
+  // the drawer renders the chat list, so gate on whether any chat exists. The review
+  // thread is created up front by beginReview, so a review chat is present from the
+  // moment generation starts — no indirect iteration-count proxy, no in-progress
+  // special-case. The empty hint only shows when there are genuinely no chats.
   const hasChats = chats.length > 0
-  // a review (re)generation is running — surface it in the open sidebar; the fresh
-  // session opens here automatically when it completes (see store.reload).
-  const regenerating = gen.running && gen.kind === 'review'
   // block agent submissions while the compare branch isn't checked out anywhere —
   // edits would have nowhere safe to land (see checkoutGate).
   const gate = checkoutGate(loaded)
   const [draft, setDraft] = useState('')
   const [steer, setSteer] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)
   const queued = queuedComments()
 
-  const streaming = gen.running && gen.kind === 'chat' && gen.threadId === active?.id
+  // stream the running op into whichever thread it targets — review generation and
+  // chat turns both flow through this one path (routed by threadId, not kind).
+  const streaming = gen.running && gen.threadId != null && gen.threadId === active?.id
   const partial = streaming
     ? gen.log.filter((e) => e.type === 'text').map((e) => ('text' in e ? e.text : '')).join('')
     : ''
@@ -58,26 +63,19 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     ? gen.log.flatMap((e) => (e.type === 'approval_request' ? [e.request] : [])).filter((r) => !answered.has(r.id))
     : []
 
-  // the very first review is generating and no session exists yet — mirror its
-  // live stream here so the review agent is present in the chat from the start
-  // (when it completes, store.reload opens the real session and hasChats flips).
-  const reviewCalls = regenerating ? reduceToolCalls(gen.log) : []
-  const reviewStatus = regenerating ? [...gen.log].reverse().find((e) => e.type === 'status') : undefined
-
+  // follow the stream only while parked at the bottom, so a burst of tool calls
+  // doesn't yank a reader who has scrolled up. switching chats / opening jumps to
+  // the bottom unconditionally. onBodyScroll re-arms following near the bottom.
   useEffect(() => {
+    if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [active?.messages.length, partial])
+  useEffect(() => {
+    stickRef.current = true
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [active?.messages.length, partial, activeChatId, open])
-
-  // follow the live review stream only while parked at the bottom, so new tool
-  // calls don't yank the reader down (matches GenPanel). re-armed by onReviewScroll.
-  const reviewStickRef = useRef(true)
-  useEffect(() => {
+  }, [activeChatId, open])
+  const onBodyScroll = () => {
     const el = scrollRef.current
-    if (el && reviewStickRef.current) el.scrollTo({ top: el.scrollHeight })
-  }, [gen.log])
-  const onReviewScroll = () => {
-    const el = scrollRef.current
-    if (el) reviewStickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
   }
 
   // dev-only: activate a specific seeded chat for screenshots
@@ -110,61 +108,32 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   return (
     <div className="chat-drawer">
       <div className="chat-head">
-        <I.bubble style={{ width: 13, height: 13, color: 'var(--accent)' }} />
-        <b>Chats</b>
-        <span className="dim" style={{ fontSize: 10.5 }}>tied to this review</span>
-        <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={onClose}>
+        {hasChats ? (
+          <ChatDropdown chats={chats} activeId={active?.id ?? null}
+            onSwitch={(id) => store.switchChat(id)} onNew={() => void store.newChat()}
+            onDelete={(id) => void store.deleteChat(id)} />
+        ) : (
+          <>
+            <I.bubble style={{ width: 13, height: 13, color: 'var(--accent)' }} />
+            <b>Chats</b>
+            <span className="dim" style={{ fontSize: 10.5 }}>tied to this review</span>
+          </>
+        )}
+        <button className="btn btn-sm btn-ghost chat-head-x" onClick={onClose}>
           <I.x style={{ width: 11, height: 11 }} />
         </button>
       </div>
 
       {!hasChats ? (
-        <div className="chat-body" ref={regenerating ? scrollRef : undefined} onScroll={regenerating ? onReviewScroll : undefined}>
-          {regenerating ? (
-            <div className="chat-msg agent">
-              <Ava ai>AI</Ava>
-              <div className="chat-bubble">
-                <ToolCallLog calls={reviewCalls} />
-                <div className="tstatus">
-                  <span className="limn-spin" />
-                  {reviewStatus?.text ?? 'Exploring the branch…'}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="chat-hint">
-              Generate a guided review first. The review agent becomes your first chat — with full
-              context about this branch — and you can open more chats with any agent.
-            </div>
-          )}
+        <div className="chat-body">
+          <div className="chat-hint">
+            Generate a guided review first. The review agent becomes your first chat — with full
+            context about this branch — and you can open more chats with any agent.
+          </div>
         </div>
       ) : (
         <>
-          <div className="chat-select">
-            <ChatDropdown chats={chats} activeId={active?.id ?? null}
-              onSwitch={(id) => store.switchChat(id)} onNew={() => void store.newChat()} />
-          </div>
-
-          {active && (
-            <div className="chat-agentbar">
-              <span className="dim ca-lab">{active.kind === 'review' ? 'Review agent' : 'Agent'}</span>
-              <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
-              {active.kind === 'user' && (
-                <button className="btn btn-sm btn-ghost ca-del" title="Delete chat" onClick={() => void store.deleteChat(active.id)}>
-                  <I.trash style={{ width: 12, height: 12 }} />
-                </button>
-              )}
-            </div>
-          )}
-
-          {regenerating && (
-            <div className="chat-regen">
-              <span className="gen-spinner" />
-              <span>Regenerating the review… the new session opens here when it's ready.</span>
-            </div>
-          )}
-
-          {onOldReview && latestReview && !regenerating && (
+          {onOldReview && latestReview && (
             <div className="chat-oldsession">
               <I.changed style={{ width: 12, height: 12 }} />
               <span>You're viewing an older review session. A newer one was generated.</span>
@@ -174,7 +143,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
-          <div className="chat-body" ref={scrollRef}>
+          <div className="chat-body" ref={scrollRef} onScroll={onBodyScroll}>
             {active?.kind === 'review' && active.messages.length === 0 && !streaming && (
               <div className="chat-hint">
                 This is the agent that wrote the review — it already has full context. Ask why it
@@ -183,7 +152,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             )}
             {active?.messages.map((m, i) => (
               <div key={i} className={'chat-msg ' + m.role}>
-                <Ava ai={m.role === 'agent'}>{m.role === 'agent' ? 'AI' : 'me'}</Ava>
+                <Ava ai={m.role === 'agent'}>
+                  {m.role === 'agent' ? <EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /> : 'me'}
+                </Ava>
                 <div className="chat-bubble">
                   {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
                   {m.role === 'agent' && m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
@@ -194,7 +165,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
             {streaming && (
               <div className="chat-msg agent">
-                <Ava ai>AI</Ava>
+                <Ava ai><EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /></Ava>
                 <div className="chat-bubble">
                   <ToolCallLog calls={liveCalls} />
                   {partial ? <Markdown text={partial} /> : (
@@ -235,14 +206,6 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
-          {active && (
-            <ModeSelector
-              mode={active.executionMode}
-              disabled={streaming}
-              onChange={(m) => void store.setChatMode(active.id, m)}
-            />
-          )}
-
           {gate.blocked && (
             <div className="chat-gate block">
               <I.warn style={{ width: 12, height: 12, color: 'var(--amber)' }} />
@@ -271,6 +234,19 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <I.send style={{ width: 12, height: 12 }} />
             </button>
           </div>
+
+          {/* agent + mode live at the bottom (per the mockup): pick who answers and
+              how much leash, directly under the composer. */}
+          {active && (
+            <div className="chat-botbar">
+              <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
+              <ModeSelector
+                mode={active.executionMode}
+                disabled={streaming}
+                onChange={(m) => void store.setChatMode(active.id, m)}
+              />
+            </div>
+          )}
         </>
       )}
     </div>

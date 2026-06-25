@@ -74,11 +74,13 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .tcall-stat.err { color: var(--red); }
 .tcall-cv { color: var(--faint); flex: 0 0 auto; width: 12px; height: 12px; }
 .tcall-body { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 10px; }
+/* full command/arg, wraps so long shell lines are fully readable */
+.tcall-cmd { font-family: var(--mono); font-size: 10.5px; line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
 .tcall-kv { font-family: var(--mono); font-size: 10.5px; line-height: 1.7; color: var(--ink-2); }
 .tcall-kv .tk { color: var(--muted); }
-.tcall-out { margin-top: 7px; border-top: 1px dashed var(--line); padding-top: 7px; font-family: var(--mono); font-size: 10.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; max-height: 130px; overflow: hidden; position: relative; }
-.tcall-out .to-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: linear-gradient(transparent, var(--panel)); }
-.tcall-more { font-size: 10px; color: var(--muted); font-family: var(--mono); padding: 5px 10px 0; }
+/* result preview: scrollable rather than clipped, so the whole output is reachable */
+.tcall-out { margin-top: 7px; border-top: 1px dashed var(--line); padding-top: 7px; font-family: var(--mono); font-size: 10.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow-y: auto; }
+.tcall-more { font-size: 10px; color: var(--muted); font-family: var(--mono); padding: 5px 10px 0; font-style: italic; }
 .tstatus { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); font-style: italic; padding: 1px 0; }
 
 /* ── execution-mode selector (approvals ladder; wireframe J1) ── */
@@ -244,6 +246,9 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 
 /* ---- chat drawer ---- */
 .chat-drawer { width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+/* agent avatar shows the engine brand mark (Claude sunburst / Codex knot) in the
+   accent, on a soft disc — matching the design mockup. */
+.chat-msg.agent .ava { background: var(--accent-soft); color: var(--accent); }
 .chat-head { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .chat-body { flex: 1 1 auto; overflow: hidden auto; min-width: 0; min-height: 0; padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
 .chat-hint { font-size: 12px; color: var(--muted); line-height: 1.5; border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 10px 12px; background: var(--panel-2); }
@@ -335,7 +340,10 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .chat-tab .ct-dot.user { background: var(--muted-2); }
 
 /* ---- chat selector as a dropdown (scales past a tab strip) ---- */
-.chat-select { flex: 0 0 auto; padding: 8px 10px; border-bottom: 1px solid var(--line); overflow: visible; }
+/* the chat dropdown IS the drawer header (mockup): it takes the row, the close X
+   sits at the end. */
+.chat-head .chatdd { flex: 1 1 auto; min-width: 0; }
+.chat-head-x { flex: 0 0 auto; margin-left: auto; }
 .chatdd { position: relative; width: 100%; }
 .chatdd-trig { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 6px 10px; cursor: pointer; font-family: var(--sans); }
 .chatdd-trig:hover { border-color: var(--line-3); }
@@ -357,19 +365,17 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .chatdd-opt .cd-sub { font-size: 10px; color: var(--muted); margin-left: auto; font-family: var(--mono); }
 .chatdd-new { display: flex; align-items: center; gap: 7px; padding: 8px 11px; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--accent-ink); }
 .chatdd-new:hover { background: var(--accent-soft); }
-.chat-agentbar { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 7px 13px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
-.chat-agentbar .ca-lab { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
-.chat-agentbar .ca-del { margin-left: auto; color: var(--muted); }
-.chat-agentbar .ca-del:hover { color: var(--red); }
+/* per-chat delete, relocated from the old top agent bar into the dropdown rows */
+.chatdd-del { flex: 0 0 auto; margin-left: 6px; padding: 2px; display: inline-flex; color: var(--muted); background: none; border: none; cursor: pointer; }
+.chatdd-del:hover { color: var(--red); }
+/* agent + execution-mode pickers, docked under the composer (mockup) */
+.chat-botbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
 /* banner shown when viewing a superseded (older) review session */
 .chat-oldsession { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px;
   background: var(--amber-soft); border-bottom: 1px solid var(--amber-line); }
 .chat-oldsession > svg { color: var(--amber); flex: 0 0 auto; }
 .chat-oldsession > span { flex: 1 1 auto; font-size: 11.5px; color: var(--ink-2); line-height: 1.35; }
 .chat-oldsession .btn { flex: 0 0 auto; }
-.chat-regen { flex: 0 0 auto; display: flex; align-items: center; gap: 9px; padding: 9px 13px;
-  background: var(--accent-soft); border-bottom: 1px solid var(--accent-line); }
-.chat-regen > span:last-child { flex: 1 1 auto; font-size: 11.5px; color: var(--accent-ink); line-height: 1.35; }
 .agent-pick { display: inline-flex; gap: 5px; align-items: center; }
 .agent-sel { border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); border-radius: var(--r-sm); padding: 3px 6px; font-size: 11px; font-family: var(--sans); cursor: pointer; }
 .agent-sel:disabled { opacity: .55; cursor: default; }
