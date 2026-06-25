@@ -43,8 +43,15 @@ describe('codex toEvent — tool-call lifecycle', () => {
     expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'f', verb: 'edit', arg: 'src/a.ts', state: 'ok' } })
   })
 
-  it('still maps agent messages to text', () => {
+  it('maps agent messages to text in a free-form (chat-style) turn', () => {
     const msg = { type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'done' } } as unknown as ThreadEvent
     expect(toEvent(msg)).toEqual({ type: 'text', text: 'done' })
+  })
+
+  it('drops the agent message in a structured turn — it is the JSON result payload, not chat prose', () => {
+    // review generation runs with an output schema, so the agent message body is the
+    // raw annotations JSON. Streaming it as text dumped JSON into the review thread.
+    const msg = { type: 'item.completed', item: { id: 'm', type: 'agent_message', text: '{"title":"x","sections":[]}' } } as unknown as ThreadEvent
+    expect(toEvent(msg, true)).toBeNull()
   })
 })

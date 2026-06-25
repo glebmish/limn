@@ -24,7 +24,10 @@ function modelOpts(model?: string, reasoningEffort?: ReasoningEffort): Partial<T
   }
 }
 
-export function toEvent(ev: ThreadEvent): EngineEvent | null {
+/** Map a Codex ThreadEvent to our EngineEvent. `structured` marks a turn run with an
+ *  output schema (review generation): the agent message body is then the JSON result
+ *  payload, so it's captured as the result rather than streamed into the chat as prose. */
+export function toEvent(ev: ThreadEvent, structured = false): EngineEvent | null {
   switch (ev.type) {
     case 'turn.started':
       return { type: 'status', text: 'Codex is working…' }
@@ -69,7 +72,8 @@ export function toEvent(ev: ThreadEvent): EngineEvent | null {
         return { type: 'status', text: item.text.slice(0, 160) }
       }
       if (item.type === 'agent_message' && done) {
-        return { type: 'text', text: item.text }
+        // structured turn → the message is the JSON payload, not chat text (don't stream it)
+        return structured ? null : { type: 'text', text: item.text }
       }
       if (item.type === 'error') {
         return { type: 'status', text: `note: ${item.message}` }
@@ -98,7 +102,7 @@ function runTurn(thread: Thread, prompt: string, outputSchema: unknown | undefin
     try {
       const { events } = await thread.runStreamed(prompt, { outputSchema, signal: abort.signal })
       for await (const ev of events) {
-        const mapped = toEvent(ev)
+        const mapped = toEvent(ev, Boolean(outputSchema))
         if (mapped) q.push(mapped)
         if (ev.type === 'item.completed' && ev.item.type === 'agent_message') finalText = ev.item.text
         if (ev.type === 'turn.failed') failed = ev.error.message
