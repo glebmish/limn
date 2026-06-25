@@ -44,7 +44,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 /* the panel sizes to its content — only a long branch list scrolls (internally),
    so the worktree rows + checkout button at the end stay visible without scrolling. */
 .rsw-pop.bwp-pop { max-height: 88vh; }
-.bwp-branches { max-height: 232px; overflow-y: auto; }
+.bwp-branches { max-height: 232px; overflow: hidden auto; }
 .bwp-at { font-family: var(--mono); font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .bwp-at.bwp-warn { color: var(--amber); }
 .bwp-at-sm { font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); white-space: nowrap; margin-left: auto; max-width: 130px; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
@@ -115,7 +115,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-sess-refs { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; flex: 0 0 auto; }
 .limn-sess-refs .b-src { color: var(--accent-ink); font-weight: 600; }
 .limn-sess-refs .b-base { color: var(--ink-2); }
-.limn-sess-title { font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-sess-title { font-size: 13.5px; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-sess-age { font-size: 11.5px; color: var(--muted-2); font-family: var(--mono); }
 .limn-sess-st { font-size: 11px; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
 .limn-sess-st.ok { color: var(--accent-ink); background: var(--accent-soft); }
@@ -192,7 +192,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-row.sel { border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-repo-row .rr-glyph { color: var(--accent); flex: 0 0 auto; }
 .limn-repo-row .rr-name { font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px; flex: 0 0 auto; }
-.limn-repo-row .rr-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.limn-repo-row .rr-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
 .limn-repo-row .rr-age { font-family: var(--mono); font-size: 11px; color: var(--muted-2); flex: 0 0 auto; min-width: 34px; text-align: right; }
 .limn-repo-row .rr-chev { color: var(--muted-2); flex: 0 0 auto; transition: transform .12s, color .12s; }
 .limn-repo-row.sel .rr-chev { color: var(--accent-ink); }
@@ -229,7 +229,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .wt-opt:hover { background: var(--panel-2); }
 .wt-opt .wo-ico { color: var(--accent); flex: 0 0 auto; }
 .wt-opt .wo-branch { font-family: var(--mono); font-size: 11px; color: var(--ink); font-weight: 600; flex: 0 0 auto; }
-.wt-opt .wo-path { font-family: var(--mono); font-size: 9.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.wt-opt .wo-path { font-family: var(--mono); font-size: 9.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
 .wt-opt .wo-cur { font-family: var(--mono); font-size: 8.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 999px; padding: 0 6px; flex: 0 0 auto; }
 
 /* ── first-run / empty state ── */
@@ -249,7 +249,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-switchwrap.open .limn-repo-switch { border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-repo-switch .rs-glyph { color: var(--accent); flex: 0 0 auto; }
 .limn-repo-switch .rs-name { font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px; flex: 0 0 auto; }
-.limn-repo-switch .rs-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-repo-switch .rs-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-repo-switch .rs-caret { color: var(--muted-2); flex: 0 0 auto; display: inline-flex; }
 
 .limn-repo-menu { z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; overflow: hidden auto; }

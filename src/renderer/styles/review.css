@@ -5,7 +5,7 @@
 .gside{width:286px;flex:0 0 286px;display:flex;flex-direction:column;min-height:0;
   background:var(--panel);border-right:1px solid var(--line)}
 .gside-top{flex:0 0 auto;padding:13px 15px;border-bottom:1px solid var(--line)}
-.gnav{flex:1 1 auto;overflow-y:auto;min-height:0;padding:6px 0}
+.gnav{flex:1 1 auto;overflow:hidden auto;min-height:0;padding:6px 0}
 
 /* ---- recognized artifact rows (Specs + Plans) ---- */
 .gside-arts{flex:0 0 auto;border-bottom:1px solid var(--line);padding:4px 0}

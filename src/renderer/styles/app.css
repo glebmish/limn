@@ -20,7 +20,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .limn-recent { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: var(--r-md); cursor: pointer; border: 1px solid transparent; background: none; font-family: var(--sans); text-align: left; width: 100%; }
 .limn-recent:hover { background: var(--panel-2); border-color: var(--line); }
 .limn-recent .name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.limn-recent .path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-recent .path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-error { margin-top: 12px; padding: 9px 12px; border: 1px solid var(--red-line); background: var(--red-soft); color: var(--red); border-radius: var(--r-md); font-size: 12px; line-height: 1.45; }
 .limn-field { margin: 14px 0; }
 .limn-field label { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; margin-bottom: 6px; }
@@ -47,7 +47,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-strip .counts { display: flex; gap: 14px; margin: 4px 0 0 22px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
 .gen-strip .counts b { color: var(--ink-2); font-weight: 700; }
 /* ~4 collapsed tool rows, then scroll — the panel must not grow with the run */
-.gen-strip .gs-log { margin-top: 8px; max-height: 152px; overflow-y: auto; }
+.gen-strip .gs-log { margin-top: 8px; max-height: 152px; overflow: hidden auto; }
 .gen-strip.err { border-color: var(--red-line); background: var(--red-soft); }
 .gen-strip.err .gs-title { color: var(--red); }
 .gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: limn-spin .8s linear infinite; flex: 0 0 auto; }
@@ -122,9 +122,9 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .approval-card .ac-count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
 .approval-card .ac-summary { font-size: 12px; font-weight: 600; color: var(--ink); margin-top: 6px; }
 .approval-card .ac-detail { margin-top: 6px; }
-.approval-card .ac-cmd { font-family: var(--mono); font-size: 11px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 7px; display: block; white-space: pre-wrap; }
-.approval-card .ac-cwd { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; }
-.approval-card .ac-files { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: pre-wrap; }
+.approval-card .ac-cmd { font-family: var(--mono); font-size: 11px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 7px; display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-card .ac-cwd { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+.approval-card .ac-files { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-card .ac-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
 .approval-card .ac-deny { border-color: var(--red-line); color: var(--red); }
 
@@ -209,11 +209,11 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .limn-dash-filter { margin: 0 24px 10px; display: flex; }
 .limn-dash-filter input { flex: 1 1 auto; font-family: var(--sans); font-size: 13px; color: var(--ink); padding: 8px 11px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); }
 .limn-dash-filter input:focus { outline: none; border-color: var(--accent-line); background: var(--panel); }
-.limn-dash-scroll { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 0 24px 24px; }
+.limn-dash-scroll { flex: 1 1 auto; overflow: hidden auto; min-height: 0; padding: 0 24px 24px; }
 
 .limn-pin { margin-bottom: 18px; }
 .limn-pin-head { display: flex; align-items: center; gap: 8px; padding: 8px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
-.limn-pin-head .pin-path { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-pin-head .pin-path { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-pin-head .pin-count { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
 .limn-pin-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 3px 6px; border-radius: var(--r-sm); font-size: 13px; line-height: 1; }
 .limn-pin-btn:hover { background: var(--panel-2); color: var(--ink-2); }
@@ -245,7 +245,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 /* ---- chat drawer ---- */
 .chat-drawer { width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .chat-head { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
-.chat-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
+.chat-body { flex: 1 1 auto; overflow: hidden auto; min-width: 0; min-height: 0; padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
 .chat-hint { font-size: 12px; color: var(--muted); line-height: 1.5; border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 10px 12px; background: var(--panel-2); }
 .chat-msg { display: flex; gap: 8px; align-items: flex-start; }
 .chat-msg.user { flex-direction: row-reverse; }
@@ -259,7 +259,7 @@ button.limn-chip { display: inline-flex; align-items: center; gap: 4px; cursor: 
 button.limn-chip:hover { background: var(--accent-line); }
 .limn-suggest { width: 100%; box-sizing: border-box; border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: var(--r-md); padding: 8px 10px; font-size: 11.5px; color: var(--ink); }
 .limn-suggest .ls-head { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--accent-ink); }
-.limn-suggest .ls-targets { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--muted); margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-suggest .ls-targets { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--muted); margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-suggest .ls-note { margin-top: 5px; color: var(--ink-2); line-height: 1.45; }
 .limn-suggest .ls-sub { margin-top: 5px; font-size: 10.5px; color: var(--muted); }
 .limn-suggest .ls-selall { display: flex; align-items: center; margin-top: 8px; font-size: 10px; color: var(--muted); }
@@ -421,11 +421,13 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .md .md-ul, .md .md-ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .md .md-ol { list-style: decimal; }
 .md .md-link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
-.md .md-table { border-collapse: collapse; font-size: 11.5px; margin: 2px 0; }
+/* wide GFM tables scroll within the bubble instead of overflowing it */
+.md .md-table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 11.5px; margin: 2px 0; }
+.md img { max-width: 100%; height: auto; }
 .md .md-table th, .md .md-table td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
 .md .md-table th { background: var(--panel); font-weight: 700; }
 .md .md-quote { margin: 0; padding: 2px 0 2px 9px; border-left: 2px solid var(--line-3); color: var(--muted); }
-.md .md-code { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; }
+.md .md-code { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; overflow-wrap: anywhere; }
 .md .md-pre { margin: 2px 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); overflow-x: auto; }
 .md .md-pre code { font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre; }
 
@@ -471,7 +473,7 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .limn-commits summary::-webkit-details-marker { display: none; }
 .limn-commit { display: flex; align-items: baseline; gap: 10px; padding: 6px 13px; border-top: 1px solid var(--line); font-size: 12px; }
 .limn-commit .c-sha { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
-.limn-commit .c-sub { flex: 1 1 auto; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-commit .c-sub { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-commit .c-age { font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
 
 /* read-only compare file */
@@ -492,7 +494,7 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .limn-refpick-btn:not(.limn-refpick-cmp):hover { color: var(--ink-2); background: var(--panel); border-style: solid; border-color: var(--line-3); }
 /* compare side: a bold chip with a branch icon (base stays the quiet text button) */
 .limn-refpick-cmp { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; max-width: 300px; }
-.limn-refpick-cmp .rp-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-refpick-cmp .rp-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ref locator: "~n" = distance from the selected branch (branch accent), tip sha grey */
 .rp-dist { font-family: var(--mono); font-weight: 500; color: var(--accent); margin-left: 4px; }
 .rp-tip { font-family: var(--mono); font-weight: 400; color: var(--muted); margin-left: 5px; }
@@ -514,7 +516,7 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 /* a commit sha is fixed-length — never shrink/ellipsis it (was collapsing to "e4…") */
 .limn-refpick-item .ri-sha { flex: 0 0 auto; overflow: visible; text-overflow: clip; }
 .limn-refpick-item .ri-tag { font-size: 10px; color: var(--accent-ink); }
-.limn-refpick-item .ri-sub { flex: 1 1 auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-refpick-item .ri-sub { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-refpick-item .ri-age { font-size: 10px; color: var(--muted); }
 /* worktree the branch is checked out in: a single git branch-off icon, right-aligned.
    The worktree name is in the row tooltip, so a long name never crowds the row. */
