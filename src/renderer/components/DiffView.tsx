@@ -1,6 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
-import { FORMAT_LABELS } from '../../shared/types'
 import { I, Delta, ficonClass, EngineGlyph, CmtPlus } from '../kit'
 import { GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
@@ -68,6 +67,7 @@ export function DiffView({ f, plainNote }: {
   const viewedSha = viewedAt[f.path]
   // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself
   const isViewed = Boolean(viewedSha) && !hasSinceViewed
+  const fileStatus = f.status === 'deleted' ? 'st-risk' : (hasSince || hasSinceViewed) ? 'st-amber' : isViewed ? 'st-rev' : 'st-unrev'
   // open by default, collapsed once viewed — unless the header was clicked to
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
@@ -102,19 +102,18 @@ export function DiffView({ f, plainNote }: {
       >
         <span className="pth">
           <I.chevR className="gfile-caret" style={{ width: 11, height: 11, transform: showBody ? 'rotate(90deg)' : '', transition: 'transform .12s' }} />
-          <span className={'ficon ' + ficonClass(f.path)}></span>
+          <span className={'ficon ' + ficonClass(f.path) + ' ' + fileStatus}></span>
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}
           {artifact && (
             <button
               className="art-badge"
-              title={`Recognized ${FORMAT_LABELS[artifact.format]} ${artifact.role} — open the rendered document`}
+              title={`Recognized ${artifact.role} — open the rendered document`}
               onClick={(e) => { e.stopPropagation(); openDoc(f.path) }}
             >
               {artifact.role === 'plan' ? <I.plan style={{ width: 10, height: 10 }} /> : <I.doc style={{ width: 10, height: 10 }} />}
               {artifact.role === 'plan' ? 'Plan' : 'Spec'}
-              <span className="art-fmt">{FORMAT_LABELS[artifact.format]}</span>
               <I.arrow style={{ width: 9, height: 9, transform: 'rotate(-90deg)' }} />
             </button>
           )}

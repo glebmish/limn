@@ -3,6 +3,7 @@
    Status colors (green/amber/red) are semantic, kept desaturated.
    ============================================================ */
 :root{
+  --file-glyph:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M13.5 2H6.5A1.5 1.5 0 0 0 5 3.5v17A1.5 1.5 0 0 0 6.5 22h11a1.5 1.5 0 0 0 1.5-1.5V7.5L13.5 2z'/%3E%3C/svg%3E");
   --ink:#2c2b28;
   --ink-2:#55534d;
   --paper:#f6f5f1;
@@ -112,13 +113,15 @@
 .frow:hover{background:var(--panel-2)}
 .frow.sel{background:var(--accent-soft);border-left-color:var(--accent)}
 .frow.sel.amber-sel{background:var(--amber-soft);border-left-color:var(--amber)}
-.ficon{width:14px;height:14px;border-radius:3px;flex:0 0 auto}
-.fi-ts{background:#cdb98f}     /* mimic VS Code filetype chips, muted */
-.fi-js{background:#d8c98c}
-.fi-css{background:#9db8cf}
-.fi-md{background:#b7c0c7}
-.fi-json{background:#c9c192}
-.fi-go{background:#9cc6cf}
+.ficon{width:14px;height:14px;flex:0 0 auto}
+.fi-ts,.fi-js,.fi-css,.fi-md,.fi-json,.fi-go,.fi-sql,.fi-tsx,.fi-yml{
+  background:var(--muted);border-radius:0;
+  -webkit-mask:var(--file-glyph) center/contain no-repeat;
+  mask:var(--file-glyph) center/contain no-repeat}
+.ficon.st-unrev{background:var(--line-3)}
+.ficon.st-rev{background:var(--accent)}
+.ficon.st-amber{background:var(--amber)}
+.ficon.st-risk{background:var(--red)}
 .fpath{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fpath .dir{color:var(--muted)}
 .fpath .name{color:var(--ink);font-weight:500}

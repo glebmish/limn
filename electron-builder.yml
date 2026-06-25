@@ -3,6 +3,8 @@ productName: limn
 directories:
   output: dist
   buildResources: build
+electronLanguages:
+  - en
 files:
   - out/**
   - package.json

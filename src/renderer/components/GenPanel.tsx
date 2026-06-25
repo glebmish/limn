@@ -145,18 +145,46 @@ export function GenPanel() {
     )
   }
 
-  // review exists — slim regenerate control (fresh pass with the same agent);
-  // comments and viewed state survive, narration and agent session are replaced
+  // review exists — freshness stamp + follow-up/regenerate controls. Follow-up
+  // keeps the existing review chat; regenerate starts a fresh narration pass.
+  const generatedSha = loaded?.state.reviewedAtSha ?? loaded?.state.iterations.at(-1)?.endSha
+  const driftCount = generatedSha && generatedSha !== loaded?.skeleton.headSha
+    ? loaded?.commits.findIndex((c) => c.sha === generatedSha) ?? 0
+    : 0
+  const behind = driftCount > 0
   return (
-    <div className="gen-cta gen-regen">
-      <span className="gc-tx dim" style={{ fontSize: 11.5 }}>
-        Fresh pass replaces the narration and agent session — your comments and viewed marks stay.
+    <div className={'gen-cta gen-regen' + (behind ? ' gen-drift' : '')}>
+      <span className={'gen-fresh' + (behind ? ' drift' : '')}>
+        {behind ? <I.flag style={{ width: 13, height: 13 }} /> : <I.check style={{ width: 13, height: 13 }} />}
+        {generatedSha ? <>generated at <span className="mono">{generatedSha.slice(0, 7)}</span> · </> : null}
+        {behind ? (
+          <>
+            <span className="beh">{driftCount} commit{driftCount === 1 ? '' : 's'} behind</span>
+            <button className="gen-viewn" onClick={() => useStore.getState().openChat()}>View commits</button>
+          </>
+        ) : <span className="ud">up to date</span>}
       </span>
       <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
-      <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
-      <button className="btn btn-sm" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
-        <I.changed style={{ width: 12, height: 12 }} />Regenerate review
-      </button>
+      <div className="gen-acts">
+        <button
+          className="btn btn-sm btn-primary gh-l"
+          data-hint={behind
+            ? 'Same session. The agent folds new commits and your comments into the existing review.'
+            : 'Same session. Opens the review chat for comments, decisions and focused follow-ups.'}
+          onClick={() => useStore.getState().openChat()}
+        >
+          <I.arrow style={{ width: 12, height: 12 }} />Follow up
+        </button>
+        <span className="grow"></span>
+        <div className="regen-split gh-r" data-hint="Fresh agent, new session. Your comments and viewed marks survive; the narration is replaced.">
+          <button className="rs-go" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
+            <I.changed />Regenerate
+          </button>
+          <span className="rs-sep"></span>
+          <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" disabled={gate.blocked} />
+        </div>
+      </div>
+      {behind && <div className="gen-drift-exp"><b>Follow up</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}
       {gate.blocked && <GateNote branch={gate.branch} />}
     </div>
   )

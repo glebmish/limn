@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
-import { I, ficonClass, shortSha, EngineGlyph, CmtPlus } from '../kit'
+import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
-import { FORMAT_LABELS } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
@@ -11,6 +10,7 @@ import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
+import { FileTree } from '../components/FileTree'
 import { addComment, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from '../components/Threads'
 import { Commentable, SelectionThreads } from '../components/Commentable'
@@ -57,7 +57,7 @@ export default function Review() {
   const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const chatOpen = store.chatOpen
 
-  const sections = useMemo(() => effectiveSections(loaded), [loaded])
+  const sections = useMemo(() => loaded?.state.annotations ? effectiveSections(loaded) : [], [loaded])
   const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
   const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
   // a section is done when all its files are viewed (derived — no separate flag)
@@ -124,14 +124,16 @@ export default function Review() {
         const fs = filesFor(s)
         return fs.length > 0 && fs.every((f) => fileViewed(f, va))
       }
-      const firstOpen = sections.find((s) => !sectionDone(s))
-      let active = firstOpen ? firstOpen.id : sections[0]?.id
-      for (const s of sections) {
-        if (sectionDone(s)) continue
-        const el = secRefs.current[s.id]
-        if (el && el.getBoundingClientRect().top <= baseTop) active = s.id
+      if (sections.length > 0) {
+        const firstOpen = sections.find((s) => !sectionDone(s))
+        let active = firstOpen ? firstOpen.id : sections[0]?.id
+        for (const s of sections) {
+          if (sectionDone(s)) continue
+          const el = secRefs.current[s.id]
+          if (el && el.getBoundingClientRect().top <= baseTop) active = s.id
+        }
+        if (active) useStore.getState().setCur(active)
       }
-      if (active) useStore.getState().setCur(active)
       // current file: the last file header at or above the fold line
       let activeFile: string | null = null
       for (const el of box.querySelectorAll<HTMLElement>('[data-limn-file]')) {
@@ -160,9 +162,91 @@ export default function Review() {
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
   const criterionComments = (i: number) => state.comments.filter((c) => c.anchor.kind === 'acceptance' && c.anchor.index === i)
   const baseline = state.approvedSha ?? state.reviewedAtSha
-  const driftCount = baseline ? commits.findIndex((c) => c.sha === baseline) : -1
   const lastIteration = state.iterations[state.iterations.length - 1]
   const approved = state.approvedSha === skeleton.headSha
+  const generatedSha = state.reviewedAtSha ?? lastIteration?.endSha
+  const commitIndex = (sha: string): number => {
+    if (sha === skeleton.headSha) return 0
+    return commits.findIndex((c) => c.sha === sha)
+  }
+  const timelinePosition = (sha: string): number => {
+    const i = commitIndex(sha)
+    return i >= 0 ? i : commits.length
+  }
+  const timelineTitle = (sha: string, labels: string[]): string => {
+    const c = commits.find((item) => item.sha === sha)
+    return [
+      labels.join(' · '),
+      shortSha(sha),
+      c?.date ? ago(c.date) : null,
+      c?.subject ?? null
+    ].filter(Boolean).join(' · ')
+  }
+  const timelineTip = (sha: string, labels: string[]) => {
+    const c = commits.find((item) => item.sha === sha)
+    return (
+      <span className="cm-tip">
+        <span className="l1">
+          <span className="lead">{labels.join(' · ')}</span>
+          <span className="sep">·</span>
+          <span className="sha">{shortSha(sha)}</span>
+          {c?.date ? <><span className="sep">·</span>{ago(c.date)}</> : null}
+        </span>
+        {c?.subject ? <span className="l2">{c.subject}</span> : null}
+      </span>
+    )
+  }
+  const timelineGroups = (() => {
+    const grouped = new Map<string, { sha: string; roles: ('generated' | 'approved' | 'head')[]; pos: number }>()
+    const add = (sha: string | undefined, role: 'generated' | 'approved' | 'head'): void => {
+      if (!sha) return
+      const group = grouped.get(sha) ?? { sha, roles: [], pos: timelinePosition(sha) }
+      if (!group.roles.includes(role)) group.roles.push(role)
+      grouped.set(sha, group)
+    }
+    add(generatedSha, 'generated')
+    add(state.approvedSha, 'approved')
+    add(skeleton.headSha, 'head')
+    return [...grouped.values()].sort((a, b) => b.pos - a.pos)
+  })()
+
+  const renderTimelineStop = (group: (typeof timelineGroups)[number]) => {
+    const hasHead = group.roles.includes('head')
+    const hasGenerated = group.roles.includes('generated')
+    const hasApproved = group.roles.includes('approved')
+    const labels = group.roles.map((role) => role === 'generated' ? 'Review generated' : role === 'approved' ? 'Approved by you' : 'HEAD')
+    const title = timelineTitle(group.sha, labels)
+    const roleIcons = (
+      <>
+        {hasGenerated && <I.changed />}
+        {hasGenerated && hasApproved && <span className="cm-div"></span>}
+        {hasApproved && <I.check />}
+      </>
+    )
+
+    if (hasHead && (hasGenerated || hasApproved)) {
+      return (
+        <span key={group.sha} className="cm-merge tip-r" aria-label={title}>
+          {roleIcons}
+          {(hasGenerated || hasApproved) && <span className="cm-div"></span>}
+          <span className="cm-sha">{shortSha(group.sha)}</span>
+          {timelineTip(group.sha, labels)}
+        </span>
+      )
+    }
+    if (hasHead) {
+      return <span key={group.sha} className="cm-head tip-r" aria-label={title}>{shortSha(group.sha)}{timelineTip(group.sha, labels)}</span>
+    }
+    if (hasGenerated && hasApproved) {
+      return <span key={group.sha} className="cm-merge" aria-label={title}>{roleIcons}{timelineTip(group.sha, labels)}</span>
+    }
+    return (
+      <span key={group.sha} className={'cm-pin ' + (hasApproved ? 'appr' : 'gen')} aria-label={title}>
+        {hasApproved ? <I.check /> : <I.changed />}
+        {timelineTip(group.sha, labels)}
+      </span>
+    )
+  }
 
   const jumpTo = (id: string): void => {
     // Selecting a section while a spec/plan doc is open exits the doc back to
@@ -198,6 +282,25 @@ export default function Review() {
       closeDoc()
     }
     store.openSection(sectionId)
+    let tries = 0
+    const scroll = (): void => {
+      const box = scrollRef.current
+      const el = box?.querySelector<HTMLElement>(`[data-limn-file="${CSS.escape(path)}"]`)
+      if (!box || !el) {
+        if (tries++ < 12) requestAnimationFrame(scroll)
+        return
+      }
+      const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12
+      box.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
+    }
+    requestAnimationFrame(scroll)
+  }
+
+  const jumpToRawFile = (path: string): void => {
+    if (docPath) {
+      if (scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
+      closeDoc()
+    }
     let tries = 0
     const scroll = (): void => {
       const box = scrollRef.current
@@ -255,6 +358,33 @@ export default function Review() {
     '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
   } as React.CSSProperties
 
+  const approveButton = (
+    <button
+      className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost' : 'btn-primary')}
+      disabled={gen.running || approved}
+      title={loaded.dirty
+        ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
+        : 'Record the current commit as reviewed & approved'}
+      onClick={async () => {
+        const id = await store.materialize()
+        if (id != null) void window.api.approve(id).then(() => store.reload())
+      }}
+    >
+      <I.check style={{ width: 13, height: 13 }} />{approved ? 'Approved' : 'Approve'}
+    </button>
+  )
+
+  const volatileBand = loaded.dirty && loaded.volatile.length > 0 && (
+    <div className="vol-band">
+      <div className="vol-head">
+        <span className="vol-tag"><I.warn style={{ width: 12, height: 12 }} />Uncommitted</span>
+        <span className="vol-lead">Working tree — {loaded.volatile.length} file{loaded.volatile.length === 1 ? '' : 's'} changed since <span className="mono">{shortSha(skeleton.headSha)}</span></span>
+        <span className="vol-note">volatile · not pinned to a commit · auto-pins when committed</span>
+      </div>
+      {loaded.volatile.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
+    </div>
+  )
+
   return (
     <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
       <div className="wf-titlebar">
@@ -266,32 +396,29 @@ export default function Review() {
             loc={loaded.compareLoc} />
         </span>
         <span className="grow"></span>
-        {sinceTagged && baseline && (
-          <span className="ctimeline" style={{ marginRight: 14 }}>
-            <span className="ctnode"><I.check style={{ width: 11, height: 11, color: 'var(--accent)' }} /><span className="csha">{shortSha(baseline)}</span><span className="clab">reviewed</span></span>
-            <span className="ctseg drift"><span className="ctbar"></span><span className="ctcount">{driftCount > 0 ? `${driftCount} commit${driftCount > 1 ? 's' : ''}` : 'drift'}</span><span className="ctbar"></span></span>
-            <span className="ctnode"><span className="cdot dot-amber"></span><span className="csha">{shortSha(skeleton.headSha)}</span><span className="clab">current</span></span>
+        <span className="ctmark">
+          <span className="cm-pin" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}>
+            <I.branch />
+            {timelineTip(skeleton.mergeBase, [base || 'Branch start'])}
           </span>
-        )}
+          {timelineGroups.map((group, i) => {
+            const prevPos = i === 0 ? commits.length : timelineGroups[i - 1].pos
+            const n = Math.max(0, prevPos - group.pos)
+            const drift = group.roles.includes('head') && Boolean(generatedSha && generatedSha !== skeleton.headSha)
+            return (
+              <Fragment key={group.sha}>
+                <span className={'cm-arr' + (drift ? ' drift' : '')}>{n > 0 ? n : drift ? 'drift' : 0}</span>
+                {renderTimelineStop(group)}
+              </Fragment>
+            )
+          })}
+        </span>
         <WorkspacePicker branch={branch} />
         <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
           <I.list style={{ width: 13, height: 13 }} />Sessions
         </button>
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
-        </button>
-        <button
-          className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost' : 'btn-primary')}
-          disabled={gen.running || approved}
-          title={loaded.dirty
-            ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
-            : 'Record the current commit as reviewed & approved'}
-          onClick={async () => {
-            const id = await store.materialize()   // approving a transient mints the session
-            if (id != null) void window.api.approve(id).then(() => store.reload())
-          }}
-        >
-          <I.check style={{ width: 13, height: 13 }} />{approved ? 'Approved ✓' : 'Approve'}
         </button>
       </div>
 
@@ -321,7 +448,6 @@ export default function Review() {
                     <span className="art-open" onClick={() => toggleDoc(a.path)} title="Open the rendered document (click again to close)">
                       <span className="art-ic">{a.role === 'plan' ? <I.plan style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
-                      <span className="art-fmt" title={`${FORMAT_LABELS[a.format]} format`}>{FORMAT_LABELS[a.format]}</span>
                       <span className="art-meta" title={a.title}>{a.title}</span>
                     </span>
                     {state.artifactApprovals[a.path] && (
@@ -397,10 +523,18 @@ export default function Review() {
 
           <div className="gnav">
             <div className="gnav-planlabel">
-              <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />Sections</span>
-              <span className="pl-prog">{reviewedCount}/{sections.length} sections · {viewedCount}/{fileCount} files</span>
+              <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />{annotations ? 'Sections' : 'Files'}</span>
+              <span className="pl-prog">{annotations ? `${reviewedCount}/${sections.length} sections · ` : ''}{viewedCount}/{fileCount} viewed</span>
             </div>
-            {sections.map((s, i) => {
+            {!annotations ? (
+              <FileTree
+                files={skeleton.files}
+                viewedAt={viewedAt}
+                currentFile={curFile}
+                onFileClick={(path) => jumpToRawFile(path)}
+                className="gnav-tree-flat"
+              />
+            ) : sections.map((s, i) => {
               const done = isSectionDone(s)
               const sFiles = filesFor(s)
               const hasSince = sFiles.some((f) => f.hunks.some((h) => h.since))
@@ -415,29 +549,12 @@ export default function Review() {
                     <span className="gnav-name" title={s.name}>{s.name}</span>
                   </div>
                   {cur === s.id && !done && s.desc && <div className="gnav-intent">{s.desc}</div>}
-                  <div className="gnav-files">
-                    {sFiles.map((f) => {
-                      const fSince = f.hunks.some((h) => h.since)
-                      const fViewed = fileViewed(f, viewedAt)
-                      const dot = fViewed ? 'dot-rev' : fSince ? 'dot-amber' : 'dot-unrev'
-                      const idx = f.path.lastIndexOf('/')
-                      return (
-                        <div
-                          key={f.path}
-                          className={'gnav-file' + (curFile === f.path ? ' cur' : '')}
-                          title={f.path}
-                          onClick={(e) => { e.stopPropagation(); jumpToFile(s.id, f.path) }}
-                        >
-                          <span className={'dot ' + dot}></span>
-                          <span className={'ficon ' + ficonClass(f.path)}></span>
-                          <span className="nm">
-                            {idx >= 0 && <span className="dim">{f.path.slice(0, idx + 1)}</span>}
-                            {idx >= 0 ? f.path.slice(idx + 1) : f.path}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
+                  <FileTree
+                    files={sFiles}
+                    viewedAt={viewedAt}
+                    currentFile={curFile}
+                    onFileClick={(path) => jumpToFile(s.id, path)}
+                  />
                 </div>
               )
             })}
@@ -453,25 +570,45 @@ export default function Review() {
             <>
               <div className="page-head">
                 <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
-                <h1 className="page-h1-cmt">
-                  {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
-                  {annotations?.title ?? `Changes on ${branch}`}
-                </h1>
-                {(titleComments.length > 0 || titleCommenting) && (
-                  <div className="title-threads">
-                    {titleComments.map((c) => <InlineThread key={c.id} c={c} locLabel="on the review title" />)}
-                    {titleCommenting && (
-                      <Composer
-                        placeholder="Comment on the review title — the agent gets it with your next batch…"
-                        onCancel={() => setTitleCommenting(false)}
-                        onSubmit={(text) => { void addComment({ kind: 'title' }, text); setTitleCommenting(false) }}
-                      />
-                    )}
-                  </div>
-                )}
+                <div className="page-title-row">
+                  <h1 className="page-h1-cmt">
+                    {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
+                    {annotations?.title ?? `Changes on ${branch}`}
+                  </h1>
+                  {approveButton}
+                </div>
               </div>
 
               <GenPanel />
+
+              {(titleComments.length > 0 || titleCommenting) && (
+                <div className="title-threads">
+                  {titleComments.map((c) => <InlineThread key={c.id} c={c} locLabel="on the review title" />)}
+                  {titleCommenting && (
+                    <Composer
+                      placeholder="Comment on the review title — the agent gets it with your next batch…"
+                      onCancel={() => setTitleCommenting(false)}
+                      onSubmit={(text) => { void addComment({ kind: 'title' }, text); setTitleCommenting(false) }}
+                    />
+                  )}
+                </div>
+              )}
+
+              {!annotations && (
+                <>
+                  <div className="flat-toolbar">
+                    <span className="ft-l">Changed files</span>
+                    <span className="ft-count">{skeleton.files.length} files · {viewedCount}/{fileCount} viewed</span>
+                  </div>
+                  <div className="flat-files">
+                    {skeleton.files.map((f) => <DiffView key={f.path} f={f} />)}
+                  </div>
+                  {skeleton.files.length === 0 && !loaded.dirty && (
+                    <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
+                  )}
+                  {volatileBand}
+                </>
+              )}
 
               {annotations && (
                 <>
@@ -513,7 +650,7 @@ export default function Review() {
                 </>
               )}
 
-              <Questions />
+              {annotations && <Questions />}
 
               {sections.map((s, i) => (
                 <SectionView
@@ -526,20 +663,11 @@ export default function Review() {
                   secRef={(el) => { secRefs.current[s.id] = el }}
                 />
               ))}
-              {skeleton.files.length === 0 && !loaded.dirty && (
+              {annotations && skeleton.files.length === 0 && !loaded.dirty && (
                 <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
               )}
 
-              {loaded.dirty && loaded.volatile.length > 0 && (
-                <div className="vol-band">
-                  <div className="vol-head">
-                    <span className="vol-tag"><I.warn style={{ width: 12, height: 12 }} />Uncommitted</span>
-                    <span className="vol-lead">Working tree — {loaded.volatile.length} file{loaded.volatile.length === 1 ? '' : 's'} changed since <span className="mono">{shortSha(skeleton.headSha)}</span></span>
-                    <span className="vol-note">volatile · not pinned to a commit · auto-pins when committed</span>
-                  </div>
-                  {loaded.volatile.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
-                </div>
-              )}
+              {annotations && volatileBand}
               <div style={{ height: 40 }}></div>
             </>
           )}

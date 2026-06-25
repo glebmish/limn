@@ -97,6 +97,7 @@ export function ficonClass(path: string): string {
     css: 'fi-css', scss: 'fi-css', less: 'fi-css',
     md: 'fi-md', markdown: 'fi-md', txt: 'fi-md',
     json: 'fi-json', yaml: 'fi-json', yml: 'fi-json', toml: 'fi-json',
+    sql: 'fi-sql',
     go: 'fi-go', py: 'fi-go', rb: 'fi-go', rs: 'fi-go', java: 'fi-go'
   }
   return map[ext] ?? 'fi-md'

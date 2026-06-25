@@ -200,7 +200,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-row .limn-chip { position: relative; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .limn-repo-row .limn-chip:hover { border-color: var(--accent-line); color: var(--accent-ink); background: var(--panel); }
 .chip-tip {
-  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 80; white-space: nowrap;
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 80; box-sizing: border-box; max-width: min(260px, calc(100vw - 32px)); white-space: normal; overflow-wrap: break-word; text-align: center;
   background: var(--ink); color: #fff; font-family: var(--mono); font-size: 10.5px; padding: 5px 9px; border-radius: var(--r-sm);
   opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 0 8px 22px rgba(40,38,32,.28);
 }

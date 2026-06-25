@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
-import { I, EngineGlyph } from '../kit'
+import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, useStore } from '../store'
 import { focusAnchor } from '../lib/focus'
+import { agentLabel } from '../../shared/agents'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
 
@@ -11,18 +12,25 @@ function base(path: string): string {
   return i < 0 ? path : path.slice(i + 1)
 }
 
-function focusLabel(a: FocusTarget): string {
+function focusKind(a: FocusTarget): string {
   switch (a.kind) {
-    case 'summary': return 'the summary'
-    case 'section': return 'a section'
-    case 'file': return base(a.file)
-    case 'diff': return `${base(a.file)}:${a.line}`
+    case 'summary': return 'Summary'
+    case 'section': return 'Section'
+    case 'file': return 'File'
+    case 'diff': return 'File'
   }
 }
 
-/** The CommentAnchor kinds focusAnchor can resolve (the FocusTarget subset). */
-function asFocusTarget(a: CommentAnchor): FocusTarget | null {
-  return a.kind === 'diff' || a.kind === 'file' || a.kind === 'section' || a.kind === 'summary' ? a : null
+function focusTarget(a: FocusTarget): { text: string; mono: boolean } {
+  switch (a.kind) {
+    case 'summary': return { text: 'Review summary', mono: false }
+    case 'section': {
+      const sec = effectiveSections(useStore.getState().loaded).find((s) => s.id === a.sectionId)
+      return { text: sec?.name ?? 'Review section', mono: false }
+    }
+    case 'file': return { text: base(a.file), mono: true }
+    case 'diff': return { text: `${base(a.file)}:${a.line}`, mono: true }
+  }
 }
 
 function anchorShort(a: CommentAnchor): string {
@@ -41,12 +49,61 @@ function anchorShort(a: CommentAnchor): string {
   }
 }
 
-function CommentChip({ anchor, verb, badge }: { anchor: CommentAnchor; verb: string; badge?: React.ReactNode }) {
-  const ft = asFocusTarget(anchor)
+function FocusCard({ action }: { action: Extract<AgentAction, { kind: 'focus' }> }) {
+  const target = focusTarget(action.anchor)
   return (
-    <button className="limn-chip" title={ft ? 'Show in the review' : undefined} disabled={!ft} onClick={() => ft && focusAnchor(ft)}>
-      <I.bubble style={{ width: 11, height: 11 }} />{verb} {anchorShort(anchor)}{badge}
+    <button className="limn-act focus" title="Re-focus this in the review" onClick={() => focusAnchor(action.anchor)}>
+      <div className="limn-act-head">
+        <I.eye className="ah-ic" />
+        <span className="ah-verb">Jump to</span>
+      </div>
+      <div className="limn-peek">
+        <span className="pk-rail"></span>
+        <div className="pk-body">
+          <span className="pk-kind">{focusKind(action.anchor)}</span>
+          <div className={'pk-target' + (target.mono ? ' mono' : '')}>{target.text}</div>
+        </div>
+      </div>
     </button>
+  )
+}
+
+function Quote({ commentId }: { commentId?: string }) {
+  const comment = useStore((s) => s.loaded?.state.comments.find((c) => c.id === commentId))
+  if (!comment) return null
+  return (
+    <div className="limn-quote">
+      <div className="q-who"><Ava ai={comment.author === 'agent'}>{comment.author === 'agent' ? 'AI' : 'me'}</Ava>{comment.author === 'agent' ? 'Agent' : 'You'} · {anchorShort(comment.anchor)}</div>
+      <div className="q-text">{comment.text}</div>
+    </div>
+  )
+}
+
+function CommentActionCard({ action, engine }: {
+  action: Extract<AgentAction, { kind: 'comment_added' | 'comment_replied' | 'comment_resolved' }>
+  engine?: EngineId
+}) {
+  const added = action.kind === 'comment_added'
+  const resolved = action.kind === 'comment_resolved'
+  const anchor = added ? action.comment.anchor : action.anchor
+  const body = added ? action.comment.text : action.kind === 'comment_replied' ? action.reply.text : action.note
+  const title = added ? 'Commented' : action.kind === 'comment_replied' ? 'Replied' : 'Resolved'
+  const Icon = added ? I.bubble : resolved ? I.check : I.arrow
+  return (
+    <div className="limn-act cmt">
+      <div className="limn-act-head">
+        <Icon className="ah-ic" />
+        <span className="ah-verb">{title}</span>
+        {resolved
+          ? <span className={'ah-verdict ' + action.verdict}>{VERDICT_ICON[action.verdict]} {action.verdict}</span>
+          : <span className="ah-anchor">on {anchorShort(anchor)}</span>}
+      </div>
+      {!added && <Quote commentId={action.commentId} />}
+      <div className="limn-cmtbody">
+        <div className="cb-who"><Ava ai>AI</Ava>{engine ? agentLabel({ engine }) : 'Agent'}</div>
+        <div className="cb-text">{body}</div>
+      </div>
+    </div>
   )
 }
 
@@ -56,74 +113,101 @@ function CommentChip({ anchor, verb, badge }: { anchor: CommentAnchor; verb: str
 function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest_viewed' }> }) {
   const { toggleViewed, setSectionViewed, loaded } = useStore()
   const [state, setState] = useState<'idle' | 'done' | 'dismissed'>('idle')
-  const files = action.files ?? []
-  const sectionIds = action.sectionIds ?? []
-  const count = files.length + sectionIds.length
-  const targets = [...files.map(base), ...sectionIds.map(() => 'section')].join(', ')
+  const sections = effectiveSections(loaded)
+  const items = useMemo(() => {
+    const files = action.files ?? []
+    const sectionIds = action.sectionIds ?? []
+    return [
+      ...files.map((path) => ({ key: `file:${path}`, kind: 'file' as const, id: path, name: base(path) })),
+      ...sectionIds.map((id) => ({ key: `section:${id}`, kind: 'section' as const, id, name: sections.find((s) => s.id === id)?.name ?? 'section' }))
+    ]
+  }, [action.files, action.sectionIds, sections])
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(items.map((i) => i.key)))
+  const selectedCount = selected.size
+  const targets = items.map((i) => i.name).join(', ')
 
   if (state === 'done') {
-    return <div className="limn-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {count === 1 ? targets : `${count} viewed`}</div>
+    return <div className="limn-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {selectedCount === 1 ? '1 item' : `${selectedCount} viewed`}</div>
   }
   if (state === 'dismissed') {
     return <div className="limn-suggest dismissed">Suggestion dismissed</div>
   }
+  const allSelected = selectedCount === items.length
   return (
     <div className="limn-suggest">
       <div className="ls-head"><I.eye style={{ width: 12, height: 12 }} />Mark viewed?<span className="ls-targets" title={targets}>{targets}</span></div>
       {action.note && <div className="ls-note">{action.note}</div>}
+      <div className="ls-selall">
+        <button className="ls-selall-btn" onClick={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.key)))}>{allSelected ? 'Clear all' : 'Select all'}</button>
+        <span className="ls-count">{selectedCount} of {items.length} selected</span>
+      </div>
+      <div className="ls-items">
+        {items.map((item) => (
+          <label key={item.key} className={'ls-item' + (selected.has(item.key) ? ' on' : '')}>
+            <span className="ls-box"><I.check style={{ width: 10, height: 10 }} /></span>
+            <input
+              type="checkbox"
+              checked={selected.has(item.key)}
+              onChange={() => setSelected((prev) => {
+                const next = new Set(prev)
+                if (next.has(item.key)) next.delete(item.key)
+                else next.add(item.key)
+                return next
+              })}
+              style={{ display: 'none' }}
+            />
+            <span className="ls-name">{item.name}</span>
+            <span className="ls-kind">{item.kind}</span>
+          </label>
+        ))}
+      </div>
       <div className="ls-sub">A suggestion only — nothing changes until you confirm.</div>
       <div className="ls-act">
-        <button className="btn btn-sm btn-primary" onClick={() => {
-          for (const f of files) toggleViewed(f, false)
-          if (sectionIds.length) {
-            const secs = effectiveSections(loaded)
-            for (const sid of sectionIds) {
-              const sec = secs.find((s) => s.id === sid)
+        <button className="btn btn-sm btn-primary" disabled={selectedCount === 0} onClick={() => {
+          for (const item of items) {
+            if (!selected.has(item.key)) continue
+            if (item.kind === 'file') toggleViewed(item.id, false)
+            else {
+              const sec = sections.find((s) => s.id === item.id)
               if (sec) setSectionViewed(sec.id, sec.files, true)
             }
           }
           setState('done')
-        }}><I.check style={{ width: 11, height: 11 }} />Mark viewed</button>
+        }}><I.check style={{ width: 11, height: 11 }} />Mark {selectedCount} viewed</button>
         <button className="btn btn-sm btn-ghost" onClick={() => setState('dismissed')}>Dismiss</button>
       </div>
     </div>
   )
 }
 
-function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
+function renderAction(action: AgentAction, engine?: EngineId): { kind: 'chip' | 'card'; node: ReactNode } | null {
   switch (action.kind) {
     case 'focus':
-      return (
-        <button className="limn-chip" title="Re-focus this in the review" onClick={() => focusAnchor(action.anchor)}>
-          <I.eye style={{ width: 11, height: 11 }} />jumped to {focusLabel(action.anchor)}
-        </button>
-      )
+      return { kind: 'card', node: <FocusCard action={action} /> }
     case 'suggest_viewed':
-      return <SuggestCard action={action} />
+      return { kind: 'card', node: <SuggestCard action={action} /> }
     case 'comment_added':
-      return <CommentChip anchor={action.comment.anchor} verb="commented on" />
     case 'comment_replied':
-      return <CommentChip anchor={action.anchor} verb="replied to" />
+      return { kind: 'card', node: <CommentActionCard action={action} engine={engine} /> }
     case 'comment_resolved':
-      return <CommentChip anchor={action.anchor} verb="resolved"
-        badge={<span className={'limn-verdict ' + action.verdict}>{VERDICT_ICON[action.verdict]} {action.verdict}</span>} />
+      return { kind: 'card', node: <CommentActionCard action={action} engine={engine} /> }
     case 'review_edited': {
       const target: FocusTarget = action.sectionId ? { kind: 'section', sectionId: action.sectionId } : { kind: 'summary' }
       const what = action.field === 'title' ? 'the title'
         : action.field === 'summary' ? 'the summary'
           : 'a section'
-      return (
+      return { kind: 'chip', node: (
         <button className="limn-chip" title="Show in the review" onClick={() => focusAnchor(target)}>
           <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />edited {what}
         </button>
-      )
+      ) }
     }
     case 'code_committed':
-      return (
+      return { kind: 'chip', node: (
         <span className="limn-chip committed" title={action.message}>
           <I.changed style={{ width: 11, height: 11 }} />committed {action.sha} · {action.files.length} file{action.files.length === 1 ? '' : 's'}
         </span>
-      )
+      ) }
     default:
       return null
   }
@@ -132,9 +216,13 @@ function Chip({ action, engine }: { action: AgentAction; engine?: EngineId }) {
 /** The action chips for one turn (live or settled). */
 export function ActionChips({ actions, engine }: { actions: AgentAction[]; engine?: EngineId }) {
   if (!actions.length) return null
+  const rendered = actions.map((a) => renderAction(a, engine)).filter((n): n is { kind: 'chip' | 'card'; node: ReactNode } => Boolean(n))
+  const chips = rendered.filter((r) => r.kind === 'chip')
+  const cards = rendered.filter((r) => r.kind === 'card')
   return (
-    <div className="limn-chips">
-      {actions.map((a, i) => <Chip key={i} action={a} engine={engine} />)}
-    </div>
+    <>
+      {chips.length > 0 && <div className="limn-chips">{chips.map((r, i) => <span key={i}>{r.node}</span>)}</div>}
+      {cards.length > 0 && <div className="limn-acts">{cards.map((r, i) => <div key={i}>{r.node}</div>)}</div>}
+    </>
   )
 }
