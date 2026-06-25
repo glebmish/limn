@@ -108,6 +108,18 @@ export function genCancelled(gen: GenState): boolean {
   return gen.error != null && (gen.error === 'cancelled' || /\babort(ed)?\b/i.test(gen.error))
 }
 
+/** A neutral gen state — the effective op for a review that owns no in-flight op. */
+const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false }
+
+/** `gen` is global to the renderer, but an op belongs to the review whose thread it
+ *  streams into. Scope it to the loaded review so an op started on a *different*
+ *  session can't paint its progress/cancel state onto the one you're viewing.
+ *  Returns the real op when it's owned here, otherwise an idle state. */
+export function genForLoaded(gen: GenState, loaded: LoadedReview | null): GenState {
+  if (gen.threadId != null && loaded?.state.chats?.some((c) => c.id === gen.threadId)) return gen
+  return IDLE_GEN
+}
+
 /** The active chat thread (or a sensible default) within the loaded review. */
 export function activeChat(loaded: LoadedReview | null, activeChatId: number | null): ChatThread | null {
   const chats = loaded?.state.chats ?? []

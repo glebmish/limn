@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { checkoutGate, genCancelled, newOpId, useStore } from '../store'
+import { checkoutGate, genCancelled, genForLoaded, newOpId, useStore } from '../store'
 import { I, EngineGlyph } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
@@ -75,7 +75,11 @@ function SteerInput({ value, onChange, onSubmit, disabled }: {
 }
 
 export function GenPanel() {
-  const { loaded, gen, agent } = useStore()
+  const { loaded, gen: rawGen, agent } = useStore()
+  // gen is global to the renderer; only honor it here when the op belongs to the
+  // review being viewed, so a generation started on another session doesn't paint
+  // its progress/cancel state onto this one.
+  const gen = genForLoaded(rawGen, loaded)
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)
