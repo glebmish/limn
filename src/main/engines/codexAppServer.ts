@@ -148,7 +148,7 @@ export function appServerItemToEvent(rawItem: unknown, done: boolean): EngineEve
     if (!done) return { type: 'tool', call: { ...base, kv: kvOf(item.arguments), state: 'run' } }
     if (item.error != null || item.status === 'failed') {
       const msg = (item.error as { message?: string } | null)?.message
-      return { type: 'tool', call: { ...base, state: 'err', out: msg ?? `${tool} failed` } }
+      return { type: 'tool', call: { ...base, state: 'err', out: msg ?? `${tool} failed (status: ${item.status ?? 'unknown'})` } }
     }
     const { out, outMore } = clampOut(resultText(item.result))
     return { type: 'tool', call: { ...base, state: 'ok', ...(out ? { out } : {}), ...(outMore ? { outMore } : {}) } }
@@ -313,7 +313,12 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
           // ("user cancelled MCP tool call"). Non-tool-call elicitations: decline.
           if (method === 'mcpServer/elicitation/request') {
             const kind = (params as { _meta?: { codex_approval_kind?: string } } | null)?._meta?.codex_approval_kind
-            conn?.respond(id, { action: kind === 'mcp_tool_call' ? 'accept' : 'decline', content: null, _meta: null })
+            // limn hosts only read-only/metadata review tools, so tool-call
+            // elicitations default to ACCEPT. Robust to _meta shape/version drift:
+            // accept unless `kind` is explicitly a non-tool-call kind (don't require
+            // an exact 'mcp_tool_call' match, which intermittently declined valid
+            // calls → "<tool> failed").
+            conn?.respond(id, { action: kind && kind !== 'mcp_tool_call' ? 'decline' : 'accept', content: null, _meta: null })
             return
           }
           if (isApprovalMethod(method) && turn.opId) {
