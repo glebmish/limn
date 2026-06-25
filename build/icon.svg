@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Limn — the approved-branch mark (git branch graph + review check), white on brand green #3a7d54</title>
+  <rect width="1024" height="1024" rx="240" ry="240" fill="#3a7d54"/>
+  <g transform="translate(210 210) scale(43.142857)"
+     fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="3.5" cy="3" r="1.5" fill="#ffffff" stroke="none"/>
+    <circle cx="3.5" cy="11" r="1.5" fill="#ffffff" stroke="none"/>
+    <circle cx="10.5" cy="3" r="1.5" fill="#ffffff" stroke="none"/>
+    <path d="M3.5 4.5v5M3.5 8.5C3.5 6 10.5 7.5 10.5 4.5"/>
+    <path d="M8.6 10.75l1.15 1.15 2.25-2.7"/>
+  </g>
+</svg>

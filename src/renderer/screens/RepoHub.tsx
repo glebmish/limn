@@ -135,7 +135,7 @@ export default function RepoHub() {
   return (
     <div className="limn-dash">
       <div className="wf-titlebar">
-        <span className="wf-title"><b>limn</b></span>
+        <span className="wf-title"><span className="wf-mark"><I.mark style={{ width: 15, height: 15 }} /></span><b>Limn</b></span>
       </div>
 
       <div className="limn-dash-head">

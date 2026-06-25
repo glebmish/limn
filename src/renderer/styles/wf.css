@@ -53,8 +53,11 @@
   padding:0 14px;background:var(--panel-2);border-bottom:1px solid var(--line);}
 .wf-lights{display:flex;gap:7px}
 .wf-lights i{width:11px;height:11px;border-radius:50%;background:var(--line-3);display:block}
-.wf-title{font-size:12px;color:var(--muted);font-weight:500;letter-spacing:.2px;white-space:nowrap}
-.wf-title b{color:var(--ink-2);font-weight:600}
+.wf-title{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-weight:500;letter-spacing:.2px;white-space:nowrap}
+.wf-title b{color:var(--ink);font-weight:700;letter-spacing:-.1px}
+/* the Limn app mark: white branch-check glyph on a rounded brand-green tile */
+.wf-mark{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  border-radius:6px;background:var(--accent);color:#fff;flex:0 0 auto}
 .wf-titlebar .wf-mono{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 
 .wf-body{flex:1 1 auto;display:flex;min-height:0}

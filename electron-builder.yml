@@ -1,5 +1,5 @@
 appId: dev.glebmish.limn
-productName: limn
+productName: Limn
 directories:
   output: dist
   buildResources: build

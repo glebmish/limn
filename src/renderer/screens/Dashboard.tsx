@@ -136,7 +136,7 @@ export default function Dashboard() {
   return (
     <div className="limn-dash">
       <div className="wf-titlebar">
-        <span className="wf-title"><b>limn</b></span>
+        <span className="wf-title"><span className="wf-mark"><I.mark style={{ width: 15, height: 15 }} /></span><b>Limn</b></span>
       </div>
 
       <div className="limn-dash-head">
@@ -173,7 +173,7 @@ export default function Dashboard() {
               </svg>
             </div>
             <h2>No repositories yet</h2>
-            <p className="fr-sub">Open a Git repository to start your first review. limn adds it here and drops you straight into the diff for the current branch.</p>
+            <p className="fr-sub">Open a Git repository to start your first review. Limn adds it here and drops you straight into the diff for the current branch.</p>
             <div className="fr-cta">
               <button className="btn btn-primary" onClick={() => void openRepository()}>
                 <I.branch style={{ width: 13, height: 13 }} />Open repository…
