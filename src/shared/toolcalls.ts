@@ -30,6 +30,19 @@ export function deriveMeta(verb: ToolVerb, resultText: string): string | undefin
   return undefined
 }
 
+/** Unwrap a Codex shell invocation (`/bin/zsh -lc '<script>'`, `bash -c "…"`, `sh -c …`)
+ *  down to the meaningful command. Multi-line scripts collapse to the first real command
+ *  line, skipping comments and heredoc openers. Capped to ~120 chars; never regresses
+ *  (an unrecognised command is returned capped as-is). */
+export function bashArg(command: string): string {
+  const cap = (s: string) => s.trim().slice(0, 120)
+  const m = command.trim().match(/^(?:\/\S+\/)?(?:zsh|bash|sh)\s+-l?c\s+(['"])([\s\S]*)\1\s*$/)
+  const inner = m ? m[2] : command
+  const lines = inner.split('\n').map((l) => l.trim())
+  const pick = lines.find((l) => l && !l.startsWith('#') && !l.includes('<<'))
+  return cap(pick ?? lines.find((l) => l) ?? inner)
+}
+
 /** Cap a result preview to ~maxLines / ~maxChars, reporting the hidden remainder.
  *  Generous caps so the expanded row shows the whole command output in practice
  *  (the renderer makes it scrollable); the cap is only a runaway guard. */

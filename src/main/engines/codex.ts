@@ -4,7 +4,7 @@ import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type Revi
 import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildReviewPrompt } from './prompts.js'
 import { codexBinaryPath } from './binaries.js'
-import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
+import { deriveVerb, clampOut, bashArg } from '../../shared/toolcalls.js'
 import { chatViaAppServer } from './codexAppServer.js'
 
 /** Codex tool arguments -> kv pairs for the expanded tool-call row. */
@@ -53,7 +53,7 @@ export function toEvent(ev: ThreadEvent, structured = false): EngineEvent | null
         return null
       }
       if (item.type === 'command_execution') {
-        const arg = item.command.slice(0, 120)
+        const arg = bashArg(item.command)
         if (ev.type === 'item.started') {
           return { type: 'tool', call: { id: item.id, verb: 'bash', name: 'command_execution', arg, state: 'run' } }
         }

@@ -8,7 +8,7 @@ import { codexBinaryPath } from './binaries.js'
 import { EventQueue, type ChatTurn, type EngineRun } from './types.js'
 import { registerCodexTurn } from './codexMcp.js'
 import { buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
-import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
+import { deriveVerb, clampOut, bashArg } from '../../shared/toolcalls.js'
 
 /**
  * Hand-written `codex app-server` JSON-RPC-over-stdio client. This is the single
@@ -154,7 +154,7 @@ export function appServerItemToEvent(rawItem: unknown, done: boolean): EngineEve
     return { type: 'tool', call: { ...base, state: 'ok', ...(out ? { out } : {}), ...(outMore ? { outMore } : {}) } }
   }
   if (item.type === 'commandExecution') {
-    const arg = String(item.command ?? '').slice(0, 120)
+    const arg = bashArg(String(item.command ?? ''))
     const base = { id: String(item.id ?? ''), verb: 'bash' as const, name: 'command_execution', arg }
     if (!done) return { type: 'tool', call: { ...base, state: 'run' } }
     const failed = item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0)

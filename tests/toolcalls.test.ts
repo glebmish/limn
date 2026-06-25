@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reduceToolCalls, reduceSegments, deriveVerb, deriveMeta, clampOut } from '../src/shared/toolcalls'
+import { reduceToolCalls, reduceSegments, deriveVerb, deriveMeta, clampOut, bashArg } from '../src/shared/toolcalls'
 import type { EngineEvent } from '../src/shared/types'
 
 describe('reduceToolCalls', () => {
@@ -109,6 +109,32 @@ describe('deriveMeta', () => {
   it('returns undefined for empty / other', () => {
     expect(deriveMeta('read', '')).toBeUndefined()
     expect(deriveMeta('other', 'x')).toBeUndefined()
+  })
+})
+
+describe('bashArg', () => {
+  it('unwraps /bin/zsh -lc with single quotes', () => {
+    expect(bashArg("/bin/zsh -lc 'git status'")).toBe('git status')
+  })
+  it('unwraps a double-quoted variant', () => {
+    expect(bashArg('bash -lc "git log"')).toBe('git log')
+  })
+  it('unwraps /bin/bash -c and sh -c', () => {
+    expect(bashArg("/bin/bash -c 'ls -la'")).toBe('ls -la')
+    expect(bashArg("sh -c 'echo hi'")).toBe('echo hi')
+  })
+  it('picks a sensible non-empty line out of a multi-line heredoc script', () => {
+    const cmd = "/bin/zsh -lc 'cat <<\\'EOF\\'\n# Title\nactual line\nEOF'"
+    expect(bashArg(cmd)).toBe('actual line')
+  })
+  it('passes a bare command through unchanged', () => {
+    expect(bashArg('git log')).toBe('git log')
+  })
+  it('returns empty for empty input', () => {
+    expect(bashArg('')).toBe('')
+  })
+  it('caps long output to ~120 chars', () => {
+    expect(bashArg('x'.repeat(300)).length).toBeLessThanOrEqual(120)
   })
 })
 
