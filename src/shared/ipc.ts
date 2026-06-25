@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, PinNode, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta, ViewMark
+  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -39,8 +39,7 @@ export interface LoadedReview {
   refMissing?: { side: 'base' | 'compare'; symbol: string }
 }
 
-export interface PinData { id: number; path: string; tree: PinNode | null; scannedAt: string | null; repoCount: number }
-export interface DashboardData { repos: RepoIndexEntry[]; pins: PinData[]; recents: string[]; recentSessions: RecentSession[]; notices: string[] }
+export interface DashboardData { repos: RepoIndexEntry[]; recents: string[]; recentSessions: RecentSession[]; notices: string[] }
 export interface RefOptions { branches: string[]; defaultBase: string; commits: CommitInfo[] }  // commits = last 50 reachable from relativeTo
 export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; hub?: boolean; fresh?: boolean; error?: string }
 
@@ -105,10 +104,6 @@ export interface Api {
   getPrefs(): Promise<Record<string, string>>
   setPref(key: string, value: string): Promise<void>
   dashboard(): Promise<DashboardData>
-  addPin(path: string): Promise<DashboardData>
-  removePin(id: number): Promise<DashboardData>
-  rescanPin(id: number): Promise<DashboardData>
-  repoStatus(repoPaths: string[]): Promise<Record<string, RepoStatus>>
   refOptions(repo: string, relativeTo: string): Promise<RefOptions>
   retargetSession(sessionId: number, side: 'base' | 'compare', refInput: string): Promise<void>
   installCli(): Promise<{ ok: boolean; message: string }>
@@ -140,6 +135,6 @@ export const API_CHANNELS: (keyof Api)[] = [
   'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
-  'dashboard', 'addPin', 'removePin', 'rescanPin', 'repoStatus',
+  'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

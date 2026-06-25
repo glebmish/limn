@@ -5,10 +5,10 @@ import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Transport } from './transport.js'
 import type {
-  Api, DashboardData, OpEventMsg, OpResultMsg, PinData, RefOptions,
+  Api, DashboardData, OpEventMsg, OpResultMsg, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, RepoStatus, SessionMeta } from '../shared/types.js'
+import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   addWorktree, checkoutBranch, currentBranch, defaultBase, getDiff, headSha, isDirty,
@@ -17,8 +17,6 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
-import * as pins from './db/pins.js'
-import { scanPin } from './scan.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
@@ -102,32 +100,10 @@ function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   return s
 }
 
-function repoCount(node: PinData['tree']): number {
-  if (!node) return 0
-  let n = node.kind === 'repo' ? 1 : 0
-  for (const c of node.children) n += repoCount(c)
-  return n
-}
-
-/** scanPin is a sync depth-capped walk with cached results — the pin part stays
- *  synchronous. The repo index reads light git state per repo (repoState), so the
- *  whole builder is async; the only caller is the (already async) dashboard handler. */
+/** The repo index reads light git state per repo (repoState), so the whole builder
+ *  is async; the only caller is the (already async) dashboard handler. */
 async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<DashboardData> {
-  const pinRows = pins.listPins(db)
-  const pinData: PinData[] = pinRows.map((p) => {
-    let cached = pins.getScanCache(db, p.id)
-    if (!cached) {
-      pins.setScanCache(db, p.id, scanPin(p.path))
-      cached = pins.getScanCache(db, p.id)
-    }
-    return { id: p.id, path: p.path, tree: cached?.tree ?? null, scannedAt: cached?.scannedAt ?? null,
-      repoCount: repoCount(cached?.tree ?? null) }
-  })
-  const pinPaths = pinRows.map((p) => p.path)
-  const recents = dao.recentRepoPaths(db, 8).filter((r) =>
-    fs.existsSync(r) &&
-    !pinPaths.some((pin) => r === pin || r.startsWith(pin + path.sep))
-  )
+  const recents = dao.recentRepoPaths(db, 8).filter((r) => fs.existsSync(r))
   // session-level "Recent": the most recent sessions across these repos, each a
   // row you can resume directly (a repo with several sessions lists each one)
   const recentSessions = dao.recentSessions(db, recents, 25)
@@ -147,7 +123,7 @@ async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<
       })
     } catch { /* unreadable repo — leave it out of the index */ }
   }
-  return { repos, pins: pinData, recents, recentSessions, notices: bootNotices }
+  return { repos, recents, recentSessions, notices: bootNotices }
 }
 
 export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transport): void {
@@ -569,35 +545,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('dashboard', async () => await buildDashboard(db, bootNotices))
-
-  handle('addPin', async (dirPath: string) => {
-    const id = pins.addPin(db, dirPath)
-    pins.setScanCache(db, id, scanPin(dirPath))
-    return buildDashboard(db, bootNotices)
-  })
-
-  handle('removePin', async (id: number) => {
-    pins.removePin(db, id)
-    return buildDashboard(db, bootNotices)
-  })
-
-  handle('rescanPin', async (id: number) => {
-    const pin = pins.listPins(db).find((p) => p.id === id)
-    if (pin) pins.setScanCache(db, id, scanPin(pin.path))
-    return buildDashboard(db, bootNotices)
-  })
-
-  handle('repoStatus', async (repoPaths: string[]) => {
-    const out: Record<string, RepoStatus> = {}
-    const results = await Promise.allSettled(repoPaths.map(async (p) => {
-      const [branch, dirty] = await Promise.all([currentBranch(p), isDirty(p)])
-      return { path: p, status: { branch, dirty } satisfies RepoStatus }
-    }))
-    for (const r of results) {
-      if (r.status === 'fulfilled') out[r.value.path] = r.value.status
-    }
-    return out
-  })
 
   handle('refOptions', async (repo: string, relativeTo: string) => {
     const branches = await listBranches(repo)

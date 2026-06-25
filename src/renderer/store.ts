@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem, ViewMark } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -142,7 +142,6 @@ interface AppStore {
   dashboard: DashboardData | null
   filter: string
   sel: number
-  statuses: Record<string, RepoStatus>
 
   /** A transient (preview) review is shown but no session row exists yet. Set when
    *  the transient was opened via "New review" so materialize forces a fresh session
@@ -172,10 +171,7 @@ interface AppStore {
   // dashboard
   loadDashboard(): Promise<void>
   setFilter(s: string): void
-  pinDirectory(): Promise<void>
   openRepository(): Promise<void>
-  unpin(id: number): Promise<void>
-  rescan(id: number): Promise<void>
   // repo (source of truth)
   /** Open a repo: jump into the latest session for the active branch, else the
    *  new-review setup. The entry point from the dashboard. */
@@ -278,21 +274,8 @@ export const useStore = create<AppStore>((set, get) => {
     await openBranchReview(branch)
   }
 
-  let rescanRunning = false
   // in-flight materialize, so concurrent first-writes don't mint duplicate sessions
   let materializing: Promise<number | null> | null = null
-
-  /** Walk a dashboard's pin trees + recents into the flat list of repo paths. */
-  const collectRepoPaths = (d: DashboardData): string[] => {
-    const out: string[] = []
-    const walk = (pinPath: string, node: PinNode): void => {
-      if (node.kind === 'repo') out.push(node.relPath ? `${pinPath}/${node.relPath}` : pinPath)
-      node.children.forEach((c) => walk(pinPath, c))
-    }
-    for (const pin of d.pins) { if (pin.tree) walk(pin.path, pin.tree) }
-    for (const r of d.recents) out.push(r)
-    return [...new Set(out)]
-  }
 
   /** Refresh the current repo's live git state + session list (header switchers
    *  + hub read these). Best-effort — failures leave the prior values. */
@@ -303,15 +286,6 @@ export const useStore = create<AppStore>((set, get) => {
       ])
       set({ repoState, repoSessions })
     } catch { /* keep prior context */ }
-  }
-
-  /** Fill branch/dirty status in chunks of 8 without blocking render. */
-  const fillStatuses = async (paths: string[]): Promise<void> => {
-    for (let i = 0; i < paths.length; i += 8) {
-      const chunk = paths.slice(i, i + 8)
-      const got = await window.api.repoStatus(chunk)
-      set({ statuses: { ...get().statuses, ...got } })
-    }
   }
 
   return {
@@ -335,7 +309,6 @@ export const useStore = create<AppStore>((set, get) => {
     dashboard: null,
     filter: '',
     sel: 0,
-    statuses: {},
 
     transientFresh: false,
 
@@ -397,24 +370,6 @@ export const useStore = create<AppStore>((set, get) => {
         const dashboard = await window.api.dashboard()
         set({ dashboard, recents: dashboard.recents, error: null })
         if (dashboard.notices.length > 0) set({ error: dashboard.notices.join(' ') })
-        void fillStatuses(collectRepoPaths(dashboard))
-        // spec: render instantly from cache, then refresh in the background.
-        // rescanPin returns the FULL dashboard each time; applying the last
-        // result covers every pin. One loop at a time — re-entry is dropped.
-        if (!rescanRunning && dashboard.pins.length > 0) {
-          rescanRunning = true
-          void (async () => {
-            try {
-              let latest = dashboard
-              for (const pin of dashboard.pins) latest = await window.api.rescanPin(pin.id)
-              set({ dashboard: latest, recents: latest.recents })
-              void fillStatuses(collectRepoPaths(latest))
-            } catch { /* background refresh is best-effort */
-            } finally {
-              rescanRunning = false
-            }
-          })()
-        }
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }
@@ -429,30 +384,6 @@ export const useStore = create<AppStore>((set, get) => {
       // shows up under Recent afterwards
       const dir = await window.api.pickRepo()
       if (dir) await get().openRepo(dir)
-    },
-
-    async pinDirectory() {
-      const dir = await window.api.pickRepo()
-      if (!dir) return
-      try {
-        const dashboard = await window.api.addPin(dir)
-        set({ dashboard, recents: dashboard.recents, error: null })
-        void fillStatuses(collectRepoPaths(dashboard))
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
-      }
-    },
-
-    async unpin(id) {
-      const dashboard = await window.api.removePin(id)
-      set({ dashboard, recents: dashboard.recents })
-      void fillStatuses(collectRepoPaths(dashboard))
-    },
-
-    async rescan(id) {
-      const dashboard = await window.api.rescanPin(id)
-      set({ dashboard, recents: dashboard.recents })
-      void fillStatuses(collectRepoPaths(dashboard))
     },
 
     async openRepo(repoPath) {

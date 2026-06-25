@@ -276,14 +276,3 @@ export interface SessionListItem {
 
 /** A recent-sessions row on the dashboard: a session plus its repo path. */
 export interface RecentSession extends SessionListItem { repo: string }
-
-// ── repo dashboard (pinned directory trees) ───────────────────
-export interface RepoStatus { branch: string; dirty: boolean }
-export interface PinNode {
-  name: string            // basename
-  relPath: string         // path relative to the pin root ('' for the root node)
-  kind: 'repo' | 'dir'
-  empty?: boolean         // dir whose subtree contains no repos (render dimmed, collapsed, childless)
-  error?: boolean         // unreadable (permissions) — render dimmed warning row
-  children: PinNode[]
-}
