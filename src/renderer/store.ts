@@ -61,13 +61,12 @@ export function effectiveSections(loaded: LoadedReview | null): Section[] {
 /** A file counts as "viewed" once it has a viewed mark AND hasn't changed since.
  *  Two drift signals clear the tick: a commit touched it since viewing (the hunk
  *  carries `sinceViewed`, set per-file by diffSince), or its on-disk content hash
- *  no longer matches the snapshot (an uncommitted edit). A legacy mark with no hash
- *  skips the content check and relies on commit-drift alone. */
+ *  no longer matches the snapshot (an uncommitted edit). */
 export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boolean {
   const mark = viewedAt[f.path]
   if (!mark) return false
   if (f.hunks.some((h) => h.sinceViewed)) return false
-  return !mark.hash || mark.hash === f.fileHash
+  return mark.hash === f.fileHash
 }
 
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
@@ -88,7 +87,7 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
 export interface GenState {
   running: boolean
   opId: string | null
-  kind: 'review' | 'chat' | 'fix' | null
+  kind: 'review' | 'chat' | null
   /** for chat ops: which thread the streamed tokens belong to */
   threadId: number | null
   log: EngineEvent[]
@@ -219,7 +218,7 @@ interface AppStore {
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
-  startOp(kind: 'review' | 'chat' | 'fix', opId: string, threadId?: number): void
+  startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
   finishOp(error?: string): void
   setComments(comments: Comment[]): void

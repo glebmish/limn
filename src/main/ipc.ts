@@ -364,7 +364,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
       const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled: false,
+        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         emit: (event) => send('op:event', { opId, event })
       })
       // resume the thread's engine session if it has one; otherwise seed a fresh
@@ -431,7 +431,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   // The unified batch turn: hand a thread's agent the queued comments; it edits &
-  // commits code, resolves, or replies via its tools. Replaces the old fix flow.
+  // commits code, resolves, or replies via its tools.
   handle('sendBatch', async (threadId: number, commentIds: string[], steer, opId: string, refine?: boolean) => {
     const sid = dao.chatThreadSessionId(db, threadId)
     const thread = dao.getChatThread(db, threadId)
@@ -441,9 +441,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
     repoLocks.add(repo)
     try {
-      // write guards (same preconditions the old fix flow enforced): the compare
-      // side is a branch checked out (in primary OR a linked worktree) and that
-      // worktree is clean. Edits + commits run in that worktree. When unmet, the
+      // write guards: the compare side is a branch checked out (in primary OR a
+      // linked worktree) and that worktree is clean. Edits + commits run in that
+      // worktree. When unmet, the
       // agent runs write-disabled (review/comment-only) rather than failing.
       // A refine turn (answering an intent question) is always read-only.
       const workdir = await resolveWorkdir(repo, session.pair)
@@ -461,7 +461,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled,
+        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
       })
       const run = engine.chat({

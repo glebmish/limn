@@ -78,13 +78,6 @@ export default function Review() {
       devFlowRan = true
       startGenerateNow()
     }
-    if (window.limnDev?.flow === 'fix' && !devFlowRan && loaded && !gen.running && !gen.error) {
-      const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
-      if (ids.length > 0) {
-        devFlowRan = true
-        sendComments(ids)
-      }
-    }
     // dev-only: LIMN_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
     // the diffs render (scrollHeight grows over a few frames) to show the volatile band
     if (window.limnDev?.scrollBottom && loaded) {

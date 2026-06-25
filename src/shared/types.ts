@@ -117,7 +117,7 @@ export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 
  *  undefined means "Auto" — let the CLI pick its default (today's behavior). */
 export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
 // ── interactive approvals ─────────────────────────────────────
-export type ApprovalKind = 'command' | 'file_change' | 'patch' | 'tool_use' | 'mcp_tool'
+export type ApprovalKind = 'command' | 'file_change' | 'tool_use'
 /** An agent wants to do something that needs the reviewer's go-ahead. Emitted as an
  *  EngineEvent and surfaced as a blocking card in chat; the decision routes back to
  *  the engine. Transient (per-turn) — not persisted as state. */
@@ -181,8 +181,7 @@ export interface ReviewState {
   /** per-file snapshot taken when the file was marked viewed. `sha` is the compare
    *  head (drives per-file commit-drift via diffSince — catches new commits and
    *  dirty-becoming-commits); `hash` is the file's content hash at view time
-   *  (catches uncommitted edits with no commit movement). A legacy entry may have an
-   *  empty `hash`, in which case the hash check is skipped (commit-only detection). */
+   *  (catches uncommitted edits with no commit movement). */
   viewedAt: Record<string, ViewMark>;
   reviewedSections: string[];
   /** whole-branch approval baseline */

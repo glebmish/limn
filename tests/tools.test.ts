@@ -18,7 +18,6 @@ function makeCtx(over: Partial<ToolHostCtx> = {}): { ctx: ToolHostCtx; events: E
     opId: 'op-1',
     repo: '/tmp/repo',
     agent: { engine: 'claude' },
-    writeEnabled: false,
     emit: (e) => events.push(e),
     ...over
   }
@@ -41,9 +40,8 @@ describe('LIMN_TOOLS catalog', () => {
     }
   })
 
-  it('allows the same limn tools regardless of write-enabled (no limn write tool to withhold)', () => {
+  it('exposes all limn tools (no limn write tool to withhold)', () => {
     expect(limnAllowedToolNames().sort()).toEqual(ALL_TOOLS.map(mcp).sort())
-    expect(limnAllowedToolNames(true).sort()).toEqual(ALL_TOOLS.map(mcp).sort())
   })
 })
 
@@ -162,7 +160,7 @@ describe('comment tools (real temp DB)', () => {
     const events: EngineEvent[] = []
     const ctx: ToolHostCtx = {
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: '/repo',
-      agent: { engine: 'claude', model: 'opus' }, writeEnabled: false, emit: (e) => events.push(e)
+      agent: { engine: 'claude', model: 'opus' }, emit: (e) => events.push(e)
     }
     return { db, ctx, events, sessionId: s.id, threadId: t.id }
   }
@@ -235,7 +233,7 @@ describe('review edit tools (real temp DB)', () => {
     updateSessionMeta(db, s.id, { annotations, title: annotations.title, summary: annotations.summary })
     const ctx: ToolHostCtx = {
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: '/repo',
-      agent: { engine: 'claude' }, writeEnabled: false, emit: () => {}
+      agent: { engine: 'claude' }, emit: () => {}
     }
     return { db, ctx, sessionId: s.id }
   }

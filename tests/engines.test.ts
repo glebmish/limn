@@ -76,7 +76,7 @@ describe('FakeEngine contract', () => {
     upsertComment(db, s.id, comment)
     const host = createToolHost({
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
-      agent: { engine: 'claude' }, writeEnabled: true, engineSessionId: 'e1', emit: () => {}
+      agent: { engine: 'claude' }, engineSessionId: 'e1', emit: () => {}
     })
     const batch = engine.chat({ repo: fx.dir, message: 'handle the comments', tools: host, writeEnabled: true })
     await drain(batch.events)

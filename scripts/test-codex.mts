@@ -23,7 +23,7 @@ const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'codex' } 
 const events: EngineEvent[] = []
 const host = createToolHost({
   db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
-  agent: { engine: 'codex' }, writeEnabled: false, emit: (e) => events.push(e)
+  agent: { engine: 'codex' }, emit: (e) => events.push(e)
 })
 
 const engine = new CodexEngine()

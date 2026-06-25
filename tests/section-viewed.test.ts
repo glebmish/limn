@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { fileViewed, sectionViewState } from '../src/renderer/store'
 import type { FileDiff, ViewMark } from '../src/shared/types'
 
-// minimal FileDiff: the derivation only reads `path` and `hunks[].sinceViewed`.
+// minimal FileDiff: the derivation reads `path`, `fileHash`, and `hunks[].sinceViewed`.
 function file(path: string, sinceViewed = false): FileDiff {
-  return { path, hunks: [{ sinceViewed }] } as unknown as FileDiff
+  return { path, fileHash: 'h', hunks: [{ sinceViewed }] } as unknown as FileDiff
 }
-// legacy-style mark (no content hash) → drift is detected by since-marks alone
-const vm = (sha = 's'): ViewMark => ({ sha, hash: '' })
+// a viewed mark snapshots the file's content hash; matching it keeps the file viewed.
+const vm = (sha = 's'): ViewMark => ({ sha, hash: 'h' })
 
 describe('fileViewed', () => {
   it('is true only when marked and unchanged since', () => {

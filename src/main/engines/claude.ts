@@ -50,7 +50,7 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'Bash']
 /** Host the engine-agnostic LIMN_TOOLS as an in-process MCP server bound to this
  *  turn's tool host. The handler runs in main: it performs the side effect, emits
  *  the live action event, and returns the text the model sees. */
-function limnMcp(host: AgentToolHost, writeEnabled: boolean): Pick<Options, 'mcpServers' | 'allowedTools'> {
+function limnMcp(host: AgentToolHost): Pick<Options, 'mcpServers' | 'allowedTools'> {
   const tools = LIMN_TOOLS.map((td) =>
     tool(td.name, td.description, td.input, async (args) => {
       const { result, isError } = await host.call(td.name, args)
@@ -59,7 +59,7 @@ function limnMcp(host: AgentToolHost, writeEnabled: boolean): Pick<Options, 'mcp
   )
   return {
     mcpServers: { limn: createSdkMcpServer({ name: 'limn', tools }) },
-    allowedTools: limnAllowedToolNames(writeEnabled)
+    allowedTools: limnAllowedToolNames()
   }
 }
 
@@ -198,7 +198,7 @@ export class ClaudeEngine implements ReviewEngine {
       : turn.engineSessionId
         ? buildChatPrompt(turn.message, turn.anchor)
         : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
-    const limn = turn.tools ? limnMcp(turn.tools, write) : undefined
+    const limn = turn.tools ? limnMcp(turn.tools) : undefined
     const permissionMode = executionPolicy(turn.executionMode ?? DEFAULT_EXECUTION_MODE).claudePermissionMode
     // Read-safe tools auto-allow; Bash/Edit/Write are left out of allowedTools so the
     // mode + canUseTool gate them. The reviewer's tier (executionMode) sets the mode.

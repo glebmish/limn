@@ -90,7 +90,7 @@ export function GenPanel() {
 
   if (gen.running) {
     const engineName = reviewAgent.engine === 'codex' ? 'Codex' : 'Claude'
-    const verb = gen.kind === 'fix' ? 'is applying your comments' : gen.kind === 'review' ? 'is exploring the branch' : 'is thinking'
+    const verb = gen.kind === 'review' ? 'is exploring the branch' : 'is thinking'
     const label = `${engineName} ${verb}…`
     const calls = reduceToolCalls(gen.log)
     return (

@@ -68,8 +68,8 @@ export function DiffView({ f, plainNote }: {
   const viewMark = viewedAt[f.path]
   // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself,
   // whether the change came from a commit (hasSinceViewed) or an uncommitted edit
-  // (content hash drifted from the snapshot; legacy marks with no hash skip this).
-  const contentDrift = Boolean(viewMark?.hash) && viewMark.hash !== f.fileHash
+  // (content hash drifted from the snapshot).
+  const contentDrift = Boolean(viewMark) && viewMark.hash !== f.fileHash
   const isViewed = Boolean(viewMark) && !hasSinceViewed && !contentDrift
   // uncommitted-only drift: content changed since viewing with no commit-level marks
   const dirtyDrift = contentDrift && !hasSinceViewed

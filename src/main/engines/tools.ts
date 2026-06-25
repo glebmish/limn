@@ -21,7 +21,6 @@ export interface ToolHostCtx {
   opId: string
   repo: string
   agent: AgentRef
-  writeEnabled: boolean
   /** the engine session backing this turn's thread. */
   engineSessionId?: string
   /** push a live engine event to the renderer (an `action` event, here). */
@@ -103,8 +102,6 @@ function anchorLabel(a: CommentAnchor): string {
 
 // ── tool implementations ──────────────────────────────────────
 interface ToolImpl extends ToolDef {
-  /** a code-editing tool — withheld unless the turn is writeEnabled. */
-  write?: boolean
   run: (ctx: ToolHostCtx, args: unknown) => ToolCallResult | Promise<ToolCallResult>
 }
 
@@ -271,10 +268,9 @@ const TOOL_IMPLS: ToolImpl[] = [
 export const LIMN_TOOLS: ToolDef[] = TOOL_IMPLS.map(({ name, description, input }) => ({ name, description, input }))
 
 /** Tool names to allow this turn. limn hosts no write tool — code edits + commits
- *  go through the engine's own shell/edit tools, gated by the execution mode. The
- *  `writeEnabled` arg is kept for callers; review/comment tools are always allowed. */
-export function limnAllowedToolNames(writeEnabled = false): string[] {
-  return TOOL_IMPLS.filter((t) => writeEnabled || !t.write).map((t) => `mcp__limn__${t.name}`)
+ *  go through the engine's own shell/edit tools, gated by the execution mode. */
+export function limnAllowedToolNames(): string[] {
+  return TOOL_IMPLS.map((t) => `mcp__limn__${t.name}`)
 }
 
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {

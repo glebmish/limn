@@ -116,7 +116,7 @@ export interface Api {
 export interface OpEventMsg { opId: string; event: EngineEvent }
 export interface OpResultMsg {
   opId: string
-  kind: 'review' | 'chat' | 'fix'
+  kind: 'review' | 'chat'
   ok: boolean
   error?: string
   reload?: boolean

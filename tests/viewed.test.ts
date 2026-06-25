@@ -31,13 +31,6 @@ describe('fileViewed with content-hash drift', () => {
     expect(fileViewed(f, { 'a.ts': mark('h1', 'newhead') })).toBe(true)
   })
 
-  it('legacy mark without a hash falls back to commit-only detection', () => {
-    const viewed = file('a.ts', 'h2')
-    const drifted = file('a.ts', 'h2', true)
-    expect(fileViewed(viewed, { 'a.ts': mark('') })).toBe(true)   // no hash → skip hash check
-    expect(fileViewed(drifted, { 'a.ts': mark('') })).toBe(false) // still caught by since marks
-  })
-
   it('not viewed when there is no mark', () => {
     expect(fileViewed(file('a.ts', 'h1'), {})).toBe(false)
   })
