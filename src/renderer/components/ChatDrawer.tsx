@@ -238,7 +238,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
               }}
             />
             <button className="btn btn-primary btn-sm" disabled={!active || streaming || gate.blocked || !draft.trim()} onClick={send}>

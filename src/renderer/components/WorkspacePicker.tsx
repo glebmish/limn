@@ -103,7 +103,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                   <input className="bwp-wt-input" autoFocus value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newName.trim()) {
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing && newName.trim()) {
                         try {
                           setPendingWt(assertSafeWorktreeName(newName))
                           setNewName(null)

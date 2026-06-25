@@ -25,6 +25,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
       void window.api.authStatus(e).then((s) => setAuth((a) => ({ ...a, [e]: s })))
+        .catch(() => setAuth((a) => ({ ...a, [e]: { ok: false, hint: 'auth check failed' } })))
     }
   }, [])
 
@@ -55,7 +56,8 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
             const st = auth[c.engine]
             const on = value.engine === c.engine
             return (
-              <div key={c.engine} className={'ag-opt' + (on ? ' on' : '')} onClick={() => onChange({ engine: c.engine })}>
+              <div key={c.engine} role="button" tabIndex={0} className={'ag-opt' + (on ? ' on' : '')} onClick={() => onChange({ engine: c.engine })}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange({ engine: c.engine }) } }}>
                 <EngineGlyph engine={c.engine} style={{ width: 16, height: 16, flex: '0 0 auto' }} />
                 <div className="ao-main">
                   <div className="ao-name">{c.label}</div>
@@ -73,8 +75,9 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
           ].map((m) => {
             const on = (value.model ?? '') === (m.id ?? '')
             return (
-              <div key={m.id ?? 'auto'} className={'ag-opt' + (on ? ' on' : '')}
-                onClick={() => onChange({ engine: value.engine, model: m.id })}>
+              <div key={m.id ?? 'auto'} role="button" tabIndex={0} className={'ag-opt' + (on ? ' on' : '')}
+                onClick={() => onChange({ engine: value.engine, model: m.id })}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange({ engine: value.engine, model: m.id }) } }}>
                 <span style={{ width: 16, flex: '0 0 auto' }} />
                 <div className="ao-main">
                   <div className="ao-name">{m.label}{m.id === undefined && <span className="ao-fallback">fallback</span>}</div>

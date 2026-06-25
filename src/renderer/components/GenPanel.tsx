@@ -219,7 +219,7 @@ export function GenPanel() {
         </span>
         <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
-        <button className="btn btn-primary" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
+        <button className="btn btn-primary" disabled={gate.blocked || gen.running} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
         </button>
         {gate.blocked && <GateNote branch={gate.branch} />}
@@ -272,7 +272,7 @@ export function GenPanel() {
         {behind ? (
           <button
             className="btn btn-sm btn-primary"
-            disabled={gate.blocked}
+            disabled={gate.blocked || gen.running}
             ref={hintL.anchorRef}
             {...hintL.hoverProps}
             onClick={() => void startGenerateNow(steer, true)}
@@ -293,7 +293,7 @@ export function GenPanel() {
         )}
         <span className="grow"></span>
         <div className="regen-split" ref={hintR.anchorRef} {...hintR.hoverProps}>
-          <button className="rs-go" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
+          <button className="rs-go" disabled={gate.blocked || gen.running} onClick={() => startGenerateNow(steer)}>
             <I.changed />Regenerate
           </button>
           <span className="rs-sep"></span>

@@ -47,7 +47,8 @@ export function ModeSelector({ mode, disabled, onChange }: {
             const Ico = I[TIER_ICON[t.key]]
             const confirming = t.key === 'full' && confirmFull && mode !== 'full'
             return (
-              <div key={t.key} className={'mode-opt' + (t.key === mode ? ' on' : '')} onClick={() => pick(t.key)}>
+              <div key={t.key} role="button" tabIndex={0} className={'mode-opt' + (t.key === mode ? ' on' : '')} onClick={() => pick(t.key)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(t.key) } }}>
                 <span className={'mo-ico' + (t.key === 'full' ? ' full' : '')}><Ico /></span>
                 <div style={{ minWidth: 0 }}>
                   <div className="mo-tier">{t.label}</div>

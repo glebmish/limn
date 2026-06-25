@@ -28,7 +28,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   const userChats = chats.filter((c) => c.kind === 'user' && c.id >= 0)
 
   const Opt = (c: ChatThread) => (
-    <div key={c.id} className={'chatdd-opt' + (c.kind === 'review' ? ' is-review' : '') + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}>
+    <div key={c.id} role="button" tabIndex={0} className={'chatdd-opt' + (c.kind === 'review' ? ' is-review' : '') + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(c.id) } }}>
       <EngineGlyph engine={c.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
       <span className="cd-name">{chatName(c, chats)}</span>
       <span className="cd-sub">{agentSub(c)}</span>
@@ -55,7 +56,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
           {reviews.map(Opt)}
           {userChats.length > 0 && <div className="chatdd-grp">Chats</div>}
           {userChats.map(Opt)}
-          <div className="chatdd-new" onClick={() => { onNew(); close() }}>
+          <div role="button" tabIndex={0} className="chatdd-new" onClick={() => { onNew(); close() }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNew(); close() } }}>
             <I.plus style={{ width: 12, height: 12 }} />New chat
           </div>
         </div>

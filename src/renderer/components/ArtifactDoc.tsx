@@ -16,6 +16,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   const { loaded, branch, reload, materialize } = useStore()
   const [composerLine, setComposerLine] = useState<number | null>(null)
   const [commentDeviation, setCommentDeviation] = useState<number | null>(null)
+  const [approving, setApproving] = useState(false)
   const art = loaded?.artifacts.find((a) => a.path === path)
   const allComments = loaded?.state.comments ?? []
   const comments = allComments.filter((c) => c.anchor.kind === 'artifact' && c.anchor.path === path)
@@ -25,10 +26,16 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   const approvedAt = loaded?.state.artifactApprovals[path]
   const queuedHere = comments.filter((c) => c.status === 'queued').length
   const approve = async (): Promise<void> => {
-    const id = await materialize()
-    if (id == null) return
-    await window.api.approveArtifact(id, path)
-    void reload()
+    if (approving) return
+    setApproving(true)
+    try {
+      const id = await materialize()
+      if (id == null) return
+      await window.api.approveArtifact(id, path)
+      void reload()
+    } finally {
+      setApproving(false)
+    }
   }
 
   const lineOf = (node?: HastNode): number => node?.position?.start.line ?? 0
@@ -96,7 +103,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
             <I.check style={{ width: 12, height: 12 }} />Approved at {approvedAt.slice(0, 7)}
           </span>
         ) : (
-          <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} onClick={approve}>
+          <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} disabled={approving} onClick={approve}>
             <I.check style={{ width: 12, height: 12 }} />Approve {art.role}
           </button>
         )}

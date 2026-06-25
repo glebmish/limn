@@ -35,6 +35,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   const [branches, setBranches] = useState<string[]>([])
   const [defaultBase, setDefaultBase] = useState('')
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
+  // ref-options load failed — surface it instead of a forever "loading…" row.
+  const [loadErr, setLoadErr] = useState(false)
   // expand the branch list past the live text filter — when the input names a
   // branch the filtered list collapses to one, so this reveals the rest to switch.
   const [showAllBranches, setShowAllBranches] = useState(true)
@@ -56,13 +58,14 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     if (loadedFor.current === key) return
     loadedFor.current = key
     setCommits(null) // drop stale commits immediately; the list shows fresh data only
+    setLoadErr(false)
     let ignore = false
     void window.api.refOptions(repo, scope).then((r) => {
       if (ignore) return
       setBranches(r.branches)
       setDefaultBase(r.defaultBase)
       setCommits(r.commits)
-    })
+    }).catch(() => { if (!ignore) { setCommits([]); setLoadErr(true) } })
     return () => { ignore = true }
   }, [open, repo, scope])
 
@@ -122,9 +125,12 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             placeholder="branch, SHA, or HEAD~N"
             onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => { setDraft(e.target.value); setShowAllBranches(false) }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) commit(draft.trim()) }}
+            onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === 'Enter' && draft.trim()) commit(draft.trim()) }}
           />
           <div className="limn-refpick-list">
+            {loadErr && (
+              <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>Couldn't load refs — press Enter to use what you typed.</div>
+            )}
             {branches.length > 0 && (
               <button type="button" className="limn-refpick-sec limn-refpick-sec-btn"
                 onClick={() => setShowAllBranches((v) => !v)}>
@@ -139,7 +145,8 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
                 // one title on the whole row (not per-span) — native tooltips reset
                 // when the pointer crosses child elements, which made hovering flicker
                 // and dropped the worktree detail. Row-level keeps it stable end to end.
-                <div key={b} className="limn-refpick-item" title={at ? `${b}\nchecked out in ${at}` : b} onClick={() => commit(b)}>
+                <div key={b} role="button" tabIndex={0} className="limn-refpick-item" title={at ? `${b}\nchecked out in ${at}` : b} onClick={() => commit(b)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); commit(b) } }}>
                   <span className="ri-name">{b}</span>
                   {b === defaultBase && <span className="ri-tag">(default base)</span>}
                   {at && (
@@ -164,13 +171,14 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
             {commitsOpen && commitList.map((c) => (
               // row-level title (like the branch rows above) so hovering anywhere
               // on the commit — sha, subject, or age — shows the full message.
-              <div key={c.sha} className="limn-refpick-item" title={`${c.subject}\n${shortSha(c.sha)} · ${ago(c.date)}`} onClick={() => commit(c.sha)}>
+              <div key={c.sha} role="button" tabIndex={0} className="limn-refpick-item" title={`${c.subject}\n${shortSha(c.sha)} · ${ago(c.date)}`} onClick={() => commit(c.sha)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); commit(c.sha) } }}>
                 <span className="ri-name ri-sha">{shortSha(c.sha)}</span>
                 <span className="ri-sub">{c.subject}</span>
                 <span className="ri-age">{ago(c.date)}</span>
               </div>
             ))}
-            {commits !== null && branchList.length === 0 && commitList.length === 0 && (
+            {!loadErr && commits !== null && branchList.length === 0 && commitList.length === 0 && (
               <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>No matches — press Enter to use "{trimmed}".</div>
             )}
           </div>

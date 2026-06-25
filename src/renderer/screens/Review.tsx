@@ -238,7 +238,7 @@ export default function Review() {
     const tip = timelineTipContent(group.sha, labels)
     if (hasHead && (hasGenerated || hasApproved)) {
       return (
-        <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" content={tip} aria-label={title}>
+        <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>
           {roleIcons}
           {(hasGenerated || hasApproved) && <span className="cm-div"></span>}
           <span className="cm-sha">{shortSha(group.sha)}</span>
@@ -246,13 +246,13 @@ export default function Review() {
       )
     }
     if (hasHead) {
-      return <Tooltip key={group.sha} className="cm-head" tipClassName="cm-tip" content={tip} aria-label={title}>{shortSha(group.sha)}</Tooltip>
+      return <Tooltip key={group.sha} className="cm-head" tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>{shortSha(group.sha)}</Tooltip>
     }
     if (hasGenerated && hasApproved) {
-      return <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" content={tip} aria-label={title}>{roleIcons}</Tooltip>
+      return <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>{roleIcons}</Tooltip>
     }
     return (
-      <Tooltip key={group.sha} className={'cm-pin ' + (hasApproved ? 'appr' : 'gen')} tipClassName="cm-tip" content={tip} aria-label={title}>
+      <Tooltip key={group.sha} className={'cm-pin ' + (hasApproved ? 'appr' : 'gen')} tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>
         {hasApproved ? <I.check /> : <I.changed />}
       </Tooltip>
     )
@@ -409,7 +409,7 @@ export default function Review() {
         </span>
         <span className="grow"></span>
         <span className="ctmark">
-          <Tooltip className="cm-pin" tipClassName="cm-tip" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}
+          <Tooltip className="cm-pin" tipClassName="cm-tip" tabIndex={0} role="button" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}
             content={timelineTipContent(skeleton.mergeBase, [base || 'Branch start'])}>
             <I.branch />
           </Tooltip>
@@ -467,7 +467,9 @@ export default function Review() {
                     )}
                     <button
                       className="art-expand"
-                      onClick={(e) => { e.stopPropagation(); setPeek(peek === a.path ? null : a.path) }}
+                      // collapsing the row while its doc is open would strand the doc
+                      // (peek drives the row, docPath the main pane) — close both in sync.
+                      onClick={(e) => { e.stopPropagation(); if (docPath === a.path) closeDocBack(); else setPeek(peek === a.path ? null : a.path) }}
                       title={peek === a.path ? 'Hide details' : 'Show details'}
                       aria-label="Toggle details"
                       style={state.artifactApprovals[a.path] ? undefined : { marginLeft: 'auto' }}
@@ -581,7 +583,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{displayFiles.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
+                <div className="eyebrow">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
                     {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
@@ -610,7 +612,7 @@ export default function Review() {
                 <>
                   <div className="flat-toolbar">
                     <span className="ft-l">Changed files</span>
-                    <span className="ft-count">{displayFiles.length} files · {viewedCount}/{fileCount} viewed</span>
+                    <span className="ft-count">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · {viewedCount}/{fileCount} viewed</span>
                   </div>
                   <div className="flat-files">
                     {displayFiles.map((f) => <DiffView key={f.path} f={f} />)}

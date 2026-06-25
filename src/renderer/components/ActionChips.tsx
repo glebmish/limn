@@ -204,7 +204,7 @@ function SuggestCard({ action, threadId }: { action: Extract<AgentAction, { kind
   const targets = items.map((i) => i.name).join(', ')
 
   if (state === 'done') {
-    return <div className="limn-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {selectedCount === 1 ? '1 item' : `${selectedCount} viewed`}</div>
+    return <div className="limn-suggest done"><I.check style={{ width: 12, height: 12 }} />Marked {selectedCount} item{selectedCount === 1 ? '' : 's'} viewed</div>
   }
   if (state === 'dismissed') {
     return <div className="limn-suggest dismissed">Suggestion dismissed</div>
