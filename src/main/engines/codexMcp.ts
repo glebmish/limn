@@ -49,7 +49,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
 export async function registerCodexTurn(host: AgentToolHost): Promise<{ url: string; release: () => Promise<void> }> {
   const port = await ensureServer()
   const token = randomUUID()
-  const server = new McpServer({ name: 'limn', version: '1.0.0' })
+  const server = new McpServer({ name: 'limn', version: '0.1.0' })
   for (const td of LIMN_TOOLS) {
     server.registerTool(td.name, { description: td.description, inputSchema: td.input }, async (args: unknown) => {
       if (process.env.LIMN_MCP_DEBUG) console.error(`[mcp] tool ${td.name} invoked: ${JSON.stringify(args)}`)
