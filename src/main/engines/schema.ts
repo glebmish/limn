@@ -40,7 +40,12 @@ export const reviewWireSchema = z.object({
   summary: z.string(),
   sections: z.array(wireSection),
   planMap: wirePlanMap.nullable(),
-  questions: z.array(z.object({ id: z.string(), text: z.string(), context: z.string().nullable() })),
+  questions: z.array(z.object({
+    id: z.string(),
+    text: z.string(),
+    context: z.string().nullable(),
+    options: z.array(z.string())
+  })),
   artifactPaths: z.array(z.string()).nullable()
 })
 
@@ -70,7 +75,15 @@ export function parseReviewOutput(raw: unknown): ReviewAnnotations {
       plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
     })),
     planMap: wire.planMap ?? undefined,
-    questions: wire.questions.map((q) => ({ ...q, context: q.context ?? undefined })),
+    questions: wire.questions.map((q) => {
+      const options = [...new Set(q.options.map((o) => o.trim()).filter(Boolean))].slice(0, 4)
+      return {
+        id: q.id,
+        text: q.text,
+        context: q.context ?? undefined,
+        ...(options.length ? { options } : {})
+      }
+    }),
     artifactPaths: wire.artifactPaths ?? undefined
   }
 }

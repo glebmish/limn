@@ -287,6 +287,23 @@ export const useStore = create<AppStore>((set, get) => {
     if (loaded) set({ loaded: { ...loaded, state: { ...loaded.state, chats } } })
   }
 
+  /** Send a chat turn to an explicit thread id. This is the low-level path used by
+   *  both the composer and the review Follow up CTA; it avoids relying on
+   *  activeChatId having just been changed by another action. */
+  const sendChatToThread = (threadId: number, body: string, anchor?: CommentAnchor): void => {
+    const text = body.trim()
+    if (!text || get().gen.running) return
+    const loaded = get().loaded
+    if (loaded) {
+      setChats(loaded.state.chats.map((c) => c.id === threadId
+        ? { ...c, messages: [...c.messages, { role: 'user' as const, text, at: new Date().toISOString(), ...(anchor ? { anchor } : {}) }] }
+        : c))
+    }
+    const opId = newOpId()
+    get().startOp('chat', opId, threadId)
+    void window.api.sendChat(threadId, text, opId, anchor)
+  }
+
   /** Land on `branch`'s review: its latest live session, else the new-review setup.
    *  Called after checking a branch out from the picker so the action lands somewhere. */
   const openBranchReview = async (branch: string): Promise<void> => {
@@ -816,18 +833,7 @@ export const useStore = create<AppStore>((set, get) => {
             return
           }
         }
-        // optimistically render the user's turn immediately so it shows the moment
-        // they hit send (not only after the whole response finishes + reload). The
-        // op:result reload then replaces it with the persisted copy.
-        const loaded = get().loaded
-        if (loaded) {
-          setChats(loaded.state.chats.map((c) => c.id === targetId
-            ? { ...c, messages: [...c.messages, { role: 'user' as const, text: body, at: new Date().toISOString(), ...(anchor ? { anchor } : {}) }] }
-            : c))
-        }
-        const opId = newOpId()
-        get().startOp('chat', opId, targetId)
-        void window.api.sendChat(targetId, body, opId, anchor)
+        sendChatToThread(targetId, body, anchor)
       })()
     },
 
@@ -837,11 +843,29 @@ export const useStore = create<AppStore>((set, get) => {
       const body = text.trim()
       if (!body || get().gen.running) return
       const loaded = get().loaded
-      const review = [...(loaded?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
-      const target = review ?? activeChat(loaded, get().activeChatId)
-      if (!target) return
-      get().openChat(target.id)   // drawer visible + activeChatId = the review thread
-      get().sendChat(body)        // sends into the now-active review thread
+      if (!loaded) return
+      void (async () => {
+        const review = [...(get().loaded?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
+        let targetId = review?.id
+        if (targetId == null) {
+          // Older/generated sessions can predate persisted review threads. Create a
+          // normal chat with the review agent so Follow up still has somewhere real
+          // to send instead of silently doing nothing.
+          const sessionId = get().sessionId ?? await get().materialize()
+          if (sessionId == null) return
+          try {
+            const chats = await window.api.createChat(sessionId, loaded.state.agent ?? get().agent)
+            setChats(chats)
+            targetId = chats[chats.length - 1]?.id
+          } catch (err) {
+            set({ error: err instanceof Error ? err.message : String(err) })
+            return
+          }
+        }
+        if (targetId == null) return
+        get().openChat(targetId)
+        sendChatToThread(targetId, body)
+      })()
     },
 
     sendBatch(threadId, commentIds, steer, refine) {

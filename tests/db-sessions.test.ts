@@ -259,6 +259,14 @@ describe('chat threads DAO', () => {
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     const actions: AgentAction[] = [
       { kind: 'focus', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+      {
+        kind: 'tour',
+        loop: true,
+        stops: [
+          { target: { kind: 'file', file: 'src/a.ts' }, note: 'entry point' },
+          { target: { kind: 'summary' } }
+        ]
+      },
       { kind: 'suggest_viewed', files: ['src/a.ts'], note: 'covered' }
     ]
     addChatMessage(db, t.id, { role: 'agent', text: 'done', at: 'T1', actions })

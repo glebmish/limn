@@ -5,6 +5,7 @@ import type { ChatContext, ReviewRequest } from './types.js'
 const CHAT_TOOL_POLICY = `
 You have review tools — use them actively, don't just describe things in prose:
 - focus: ALWAYS call focus when your answer points at a place in the code or review (a file, function, or diff line). Jump the reviewer there instead of only naming the path. Prefer the most specific target (a diff line over a whole file).
+- tour: when your answer spans several locations (a call chain, data flow, lifecycle path, or cross-file risk), call tour with ordered stops instead of sending several separate focus calls.
 - suggest_mark_viewed: when you've walked the reviewer through a file/section or they signal they understand it, proactively suggest marking it viewed (it only proposes; they confirm).
 - add_comment: when you spot a bug/risk/notable detail while answering, anchor a comment at that exact spot — anchored comments persist; chat prose does not.
 - list_comments / reply_to_comment / resolve_comment: use these when the reviewer is discussing or asking you to act on existing comments.
@@ -77,7 +78,7 @@ Then produce the structured review:
 3. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
 4. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
 5. If a spec/plan artifact exists: fill "planMap" — acceptance criteria with met true/false/"partial", plan steps mapped to your section ids with status done/changed/missing, and "deviations" where the implementation diverged from the stated plan.
-6. "questions": gaps in the author's *intent* that the code and specs cannot answer — decisions only the author can make (e.g. "was switching the retry policy from exponential to linear deliberate?"). Do NOT put bugs, inconsistencies, or risks you found here — those belong in the section narration. Empty array if none. Give each a short stable id like "q1".
+6. "questions": gaps in the author's *intent* that the code and specs cannot answer — decisions only the author can make (e.g. "was switching the retry policy from exponential to linear deliberate?"). Do NOT put bugs, inconsistencies, or risks you found here — those belong in the section narration. Empty array if none. Give each a short stable id like "q1". For each question, set "context" to a short location/section hint or null, and set "options" to 2-4 concise answer choices when the plausible choices are clear; otherwise use an empty array for a free-form decision.
 
 Be concrete and specific to this codebase. Do not invent files or content. Keep section count between 2 and 8.`
 }

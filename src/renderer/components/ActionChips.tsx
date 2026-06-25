@@ -68,6 +68,57 @@ function FocusCard({ action }: { action: Extract<AgentAction, { kind: 'focus' }>
   )
 }
 
+function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }) {
+  const [cur, setCur] = useState(0)
+  const stopCount = action.stops.length
+  const go = (next: number): void => {
+    const bounded = action.loop
+      ? (next + stopCount) % stopCount
+      : Math.min(stopCount - 1, Math.max(0, next))
+    setCur(bounded)
+    const stop = action.stops[bounded]
+    if (stop) focusAnchor(stop.target)
+  }
+  if (stopCount === 0) return null
+
+  return (
+    <div className="limn-act tour">
+      <div className="limn-act-head">
+        <I.tour className="ah-ic" />
+        <span className="ah-verb">Walkthrough</span>
+        <span className="ah-anchor">{stopCount} stops{action.loop ? ' · loops' : ''}</span>
+      </div>
+      <div className="limn-tour-stops">
+        {action.stops.map((stop, i) => {
+          const label = focusTarget(stop.target)
+          return (
+            <button
+              key={i}
+              type="button"
+              className={'lt-stop' + (i === cur ? ' on' : '')}
+              onClick={() => go(i)}
+              title={stop.note}
+            >
+              <span className="lt-n">{i + 1}</span>
+              <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
+              {stop.note && <span className="lt-help" title={stop.note}>?</span>}
+            </button>
+          )
+        })}
+      </div>
+      <div className="limn-tour-bar">
+        <button className="lt-ctl" disabled={!action.loop && cur === 0} onClick={() => go(cur - 1)}>
+          <I.chevR style={{ width: 10, height: 10, transform: 'rotate(180deg)' }} />Prev
+        </button>
+        <span className="lt-pos">Stop {cur + 1} of {stopCount}</span>
+        <button className="lt-ctl" disabled={!action.loop && cur === stopCount - 1} onClick={() => go(cur + 1)}>
+          Next<I.chevR style={{ width: 10, height: 10 }} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Quote({ commentId }: { commentId?: string }) {
   const comment = useStore((s) => s.loaded?.state.comments.find((c) => c.id === commentId))
   if (!comment) return null
@@ -184,6 +235,8 @@ function renderAction(action: AgentAction, engine?: EngineId): { kind: 'chip' | 
   switch (action.kind) {
     case 'focus':
       return { kind: 'card', node: <FocusCard action={action} /> }
+    case 'tour':
+      return { kind: 'card', node: <TourCard action={action} /> }
     case 'suggest_viewed':
       return { kind: 'card', node: <SuggestCard action={action} /> }
     case 'comment_added':

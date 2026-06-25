@@ -28,7 +28,7 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const ALL_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
+const ALL_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed', 'tour']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
@@ -83,6 +83,52 @@ describe('createToolHost — focus', () => {
   })
 })
 
+describe('createToolHost — tour', () => {
+  it('creates a multi-stop walkthrough, emitting + collecting the action', async () => {
+    const { ctx, events } = makeCtx()
+    const host = createToolHost(ctx)
+    const { result, isError, action } = await host.call('tour', {
+      stops: [
+        { target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31 }, note: '  new guard  ' },
+        { target: { kind: 'section', sectionId: 's2' } }
+      ],
+      loop: true
+    })
+    const expected: AgentAction = {
+      kind: 'tour',
+      stops: [
+        {
+          target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31, hunkRange: '', lineContent: '' },
+          note: 'new guard'
+        },
+        { target: { kind: 'section', sectionId: 's2' } }
+      ],
+      loop: true
+    }
+    expect(isError).toBeFalsy()
+    expect(result).toContain('2-stop walkthrough')
+    expect(action).toEqual(expected)
+    expect(actionEvents(events)).toEqual([expected])
+    expect(host.collected()).toEqual([expected])
+  })
+
+  it('rejects malformed tours without emitting or collecting', async () => {
+    const { ctx, events } = makeCtx()
+    const host = createToolHost(ctx)
+    const oneStop = await host.call('tour', { stops: [{ target: { kind: 'summary' } }] })
+    const badStop = await host.call('tour', {
+      stops: [
+        { target: { kind: 'summary' } },
+        { target: { kind: 'diff' } }
+      ]
+    })
+    expect(oneStop.isError).toBe(true)
+    expect(badStop.isError).toBe(true)
+    expect(events).toEqual([])
+    expect(host.collected()).toEqual([])
+  })
+})
+
 describe('createToolHost — suggest_mark_viewed', () => {
   it('emits a suggestion (no side effect) and collects it', async () => {
     const { ctx, events } = makeCtx()
@@ -127,6 +173,7 @@ describe('FakeEngine chat drives the tool host', () => {
     await run.result
     const kinds = actionEvents(events).map((a) => a.kind)
     expect(kinds).toContain('focus')
+    expect(kinds).toContain('tour')
     expect(kinds).toContain('suggest_viewed')
     expect(host.collected().map((a) => a.kind)).toEqual(kinds)
   })

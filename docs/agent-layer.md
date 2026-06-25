@@ -46,7 +46,7 @@ return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
 
 A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides everything.
 
-**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
+**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `tour` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
 
 > ⚠️ `FakeEngine.id` is hardcoded `'claude'` regardless of the requested engine — a latent inconsistency if any code keys behavior off the reported id.
 
@@ -128,6 +128,7 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 | Tool | Effect |
 | --- | --- |
 | `focus` | scroll + highlight a spot; leaves a clickable chip |
+| `tour` | create an interactive multi-stop walkthrough across files, sections, summary, or diff lines |
 | `suggest_mark_viewed` | propose marking files/sections viewed (reviewer confirms) |
 | `list_comments` / `get_review` | read current DB state (ids, anchors, narration) |
 | `add_comment` / `reply_to_comment` | author an agent comment / reply, anchored to diff/file/section/summary |

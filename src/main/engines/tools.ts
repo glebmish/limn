@@ -54,6 +54,13 @@ const focusTarget = z.discriminatedUnion('kind', [
 ])
 
 const FOCUS_INPUT = { target: focusTarget } satisfies z.ZodRawShape
+const TOUR_INPUT = {
+  stops: z.array(z.object({
+    target: focusTarget,
+    note: z.string().optional()
+  })).min(2).max(8),
+  loop: z.boolean().optional()
+} satisfies z.ZodRawShape
 const SUGGEST_INPUT = {
   files: z.array(z.string()).optional(),
   sectionIds: z.array(z.string()).optional(),
@@ -78,10 +85,13 @@ const EDIT_REVIEW_INPUT = {
 } satisfies z.ZodRawShape
 
 let commentSeq = 0
-function normalizeAnchor(a: z.infer<typeof focusTarget>): CommentAnchor {
+function normalizeFocusTarget(a: z.infer<typeof focusTarget>): FocusTarget {
   return a.kind === 'diff'
     ? { kind: 'diff', file: a.file, side: a.side, line: a.line, hunkRange: a.hunkRange ?? '', lineContent: a.lineContent ?? '' }
     : a
+}
+function normalizeAnchor(a: z.infer<typeof focusTarget>): CommentAnchor {
+  return normalizeFocusTarget(a)
 }
 function anchorLabel(a: CommentAnchor): string {
   switch (a.kind) {
@@ -128,10 +138,32 @@ const TOOL_IMPLS: ToolImpl[] = [
     input: FOCUS_INPUT,
     run: (_ctx, raw) => {
       const { target } = raw as z.infer<z.ZodObject<typeof FOCUS_INPUT>>
-      const anchor: FocusTarget = target.kind === 'diff'
-        ? { kind: 'diff', file: target.file, side: target.side, line: target.line, hunkRange: target.hunkRange ?? '', lineContent: target.lineContent ?? '' }
-        : target
+      const anchor = normalizeFocusTarget(target)
       return { result: `Focused ${describeFocus(anchor)}.`, action: { kind: 'focus', anchor } }
+    }
+  },
+  {
+    name: 'tour',
+    description:
+      'Create a multi-stop walkthrough across the review. Use this when your answer points ' +
+      'at a sequence spanning multiple files, sections, or diff lines — for example a value ' +
+      'flow, call chain, lifecycle path, or cross-file risk. Each stop is a focus target and ' +
+      'an optional short note. It leaves an interactive walkthrough card in the chat; the ' +
+      'reviewer can click stops or use Prev/Next to re-focus each location. Use loop=true ' +
+      'when the sequence is cyclic or useful to repeat.',
+    input: TOUR_INPUT,
+    run: (_ctx, raw) => {
+      const { stops, loop } = raw as z.infer<z.ZodObject<typeof TOUR_INPUT>>
+      const action: AgentAction = {
+        kind: 'tour',
+        stops: stops.map((s) => ({
+          target: normalizeFocusTarget(s.target),
+          ...(s.note?.trim() ? { note: s.note.trim() } : {})
+        })),
+        ...(loop ? { loop: true } : {})
+      }
+      const labels = action.stops.map((s) => describeFocus(s.target)).join(' → ')
+      return { result: `Created a ${action.stops.length}-stop walkthrough: ${labels}.`, action }
     }
   },
   {

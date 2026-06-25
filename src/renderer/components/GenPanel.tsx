@@ -204,6 +204,19 @@ export function GenPanel() {
     ? loaded?.commits.findIndex((c) => c.sha === generatedSha) ?? 0
     : 0
   const behind = driftCount > 0
+  const submitFollowUp = (): void => {
+    const t = steer.trim()
+    if (t) {
+      useStore.getState().followUp(t)
+      setSteer('')
+    } else {
+      useStore.getState().openChat()
+    }
+  }
+  const submitExistingReviewPrimary = (): void => {
+    if (behind) void startGenerateNow(steer, true)
+    else submitFollowUp()
+  }
   return (
     <div className={'gen-cta gen-regen' + (behind ? ' gen-drift' : '')}>
       <span className={'gen-fresh' + (behind ? ' drift' : '')}>
@@ -216,7 +229,7 @@ export function GenPanel() {
           </>
         ) : <span className="ud">up to date</span>}
       </span>
-      <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
+      <SteerInput value={steer} onChange={setSteer} onSubmit={submitExistingReviewPrimary} disabled={gate.blocked} />
       <div className="gen-acts">
         {behind ? (
           <button
@@ -234,7 +247,7 @@ export function GenPanel() {
             className="btn btn-sm btn-primary"
             ref={hintL.anchorRef}
             {...hintL.hoverProps}
-            onClick={() => { const t = steer.trim(); if (t) { useStore.getState().followUp(t); setSteer('') } else useStore.getState().openChat() }}
+            onClick={submitFollowUp}
           >
             <I.arrow style={{ width: 12, height: 12 }} />Follow up
             {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Sends your note to the review agent (or opens the chat if empty) for comments, decisions and focused follow-ups.</span>}

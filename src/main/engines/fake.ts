@@ -33,7 +33,12 @@ export class FakeEngine implements ReviewEngine {
         title: `Changes on ${req.branch}`,
         summary: `Demo review of ${req.diff.files.length} files grouped into ${sections.length} sections.`,
         sections,
-        questions: [{ id: 'q1', text: 'Demo question: should the config default stay as-is?' }]
+        questions: [{
+          id: 'q1',
+          text: 'Demo question: should the config default stay as-is?',
+          context: 'Top-level files',
+          options: ['keep the current default', 'switch to the new default']
+        }]
       }
       q.push({ type: 'done' })
       q.close()
@@ -44,7 +49,8 @@ export class FakeEngine implements ReviewEngine {
 
   chat(turn: ChatTurn): EngineRun<string> {
     const q = new EventQueue()
-    const batch = Boolean(turn.tools && turn.writeEnabled)
+    const refine = turn.message.includes('The reviewer answered')
+    const batch = Boolean(turn.tools && (turn.writeEnabled || refine))
     const modelTag = turn.model ? ` using **${turn.model}**` : ''
     const chatText = [
       `Looking at your question${modelTag}:`,
@@ -63,7 +69,8 @@ export class FakeEngine implements ReviewEngine {
       'Want me to check the tests next?'
     ].join('\n')
     const batchText = 'Handled your comments: made the edit, committed it on the branch, and resolved each one. See the rollup below.'
-    const text = batch ? batchText : chatText
+    const refineText = 'Recorded your decision, updated the guided review narration, and resolved the open question.'
+    const text = refine ? refineText : batch ? batchText : chatText
     const result = (async () => {
       q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
       // structured tool-call lifecycle for the activity log (wf-D): a settled grep,
@@ -85,18 +92,29 @@ export class FakeEngine implements ReviewEngine {
         const listed = await turn.tools.call('list_comments', { status: 'sent' })
         let ids: string[] = []
         try { ids = (JSON.parse(listed.result) as { id: string }[]).map((c) => c.id) } catch { /* none */ }
-        try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
-        // commit via git, as the real agent does through its own shell
-        try {
-          await execGit(turn.repo, ['add', '--', 'src/a.ts'])
-          await execGit(turn.repo, ['commit', '-m', 'limn: batch fixes'])
-        } catch { /* repo may be read-only in tests */ }
+        if (!refine) {
+          try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
+          // commit via git, as the real agent does through its own shell
+          try {
+            await execGit(turn.repo, ['add', '--', 'src/a.ts'])
+            await execGit(turn.repo, ['commit', '-m', 'limn: batch fixes'])
+          } catch { /* repo may be read-only in tests */ }
+        } else {
+          await turn.tools.call('edit_review', { field: 'summary', value: 'Demo review updated with the reviewer decision.' })
+        }
         for (const id of ids) {
           await turn.tools.call('resolve_comment', { commentId: id, verdict: 'addressed', note: 'Done (demo).' })
         }
       } else if (turn.tools) {
         // tool-enabled read-only chat: exercise the focus + suggest action pipe
         await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })
+        await turn.tools.call('tour', {
+          stops: [
+            { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 }, note: 'The guard introduced by this branch.' },
+            { target: { kind: 'file', file: 'src/b.ts' }, note: 'The caller that consumes the guarded value.' }
+          ],
+          loop: true
+        })
         await turn.tools.call('suggest_mark_viewed', { files: ['src/a.ts'], note: 'covered above' })
       }
       // interactive approval round-trip (demo via LIMN_FAKE_APPROVAL=1 / test via the

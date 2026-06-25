@@ -12,8 +12,14 @@ export default function App() {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
       if (useStore.getState().gen.opId !== opId) return
       useStore.getState().pushOpEvent(event)
-      // focus runs live — scroll + flash the review the moment the agent calls it
-      if (event.type === 'action' && event.action.kind === 'focus') focusAnchor(event.action.anchor)
+      // focus runs live — scroll + flash the review the moment the agent points at it
+      if (event.type === 'action') {
+        if (event.action.kind === 'focus') focusAnchor(event.action.anchor)
+        if (event.action.kind === 'tour') {
+          const first = event.action.stops[0]?.target
+          if (first) focusAnchor(first)
+        }
+      }
     })
     const offResult = window.api.onOpResult(({ opId, ok, error, reload }) => {
       const st = useStore.getState()

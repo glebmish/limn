@@ -19,7 +19,13 @@ export interface PlanMap {
   steps: { n: number; text: string; sectionId: string; status: 'done' | 'changed' | 'missing' }[];
   deviations: { text: string; sectionId: string }[];
 }
-export interface AgentQuestion { id: string; text: string; context?: string }
+export interface AgentQuestion {
+  id: string
+  text: string
+  context?: string
+  /** Short reviewer-selectable answers when the agent can name concrete choices. */
+  options?: string[]
+}
 export interface ReviewAnnotations {
   title: string; summary: string; sections: Section[];
   planMap?: PlanMap; questions: AgentQuestion[]; artifactPaths?: string[];
@@ -66,11 +72,13 @@ export interface Comment {
  *  CommentAnchor (no parallel type) so a focus chip and a comment chip share the
  *  same `focusAnchor` renderer. */
 export type FocusTarget = Extract<CommentAnchor, { kind: 'summary' } | { kind: 'section' } | { kind: 'file' } | { kind: 'diff' }>
+export interface TourStop { target: FocusTarget; note?: string }
 /** A side effect (or suggestion) an agent performed during a chat turn. Emitted
  *  live as an `EngineEvent` and persisted on the agent ChatMessage so chips rebuild
  *  on reload. */
 export type AgentAction =
   | { kind: 'focus'; anchor: FocusTarget }
+  | { kind: 'tour'; stops: TourStop[]; loop?: boolean }
   | { kind: 'suggest_viewed'; files?: string[]; sectionIds?: string[]; note?: string }
   | { kind: 'comment_added'; comment: Comment }
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
