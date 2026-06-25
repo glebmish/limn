@@ -7,23 +7,23 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['node', 'app', '--dir', '/x'])).toBeNull()
   })
 
-  it('parses --dir, --base, --compare after --cli', () => {
-    const a = parseCliArgs(['node', 'app', '--cli', '--dir', '/repo', '--base', 'main', '--compare', 'feature'])
+  it('parses --dir, --base, --branch after --cli', () => {
+    const a = parseCliArgs(['node', 'app', '--cli', '--dir', '/repo', '--base', 'main', '--branch', 'feature'])
     expect(a).toEqual({ dir: '/repo', base: 'main', compare: 'feature' })
   })
 
   it('defaults dir to cwd when --dir is absent', () => {
-    const a = parseCliArgs(['node', 'app', '--cli', '--compare', 'feature'])
+    const a = parseCliArgs(['node', 'app', '--cli', '--branch', 'feature'])
     expect(a).toEqual({ dir: process.cwd(), compare: 'feature' })
   })
 
-  it('base/compare are optional', () => {
+  it('base/branch are optional', () => {
     expect(parseCliArgs(['node', 'app', '--cli', '--dir', '/repo'])).toEqual({ dir: '/repo' })
   })
 
   it('ignores unknown flags and tolerates flag order', () => {
     const a = parseCliArgs(['/Applications/limn.app/Contents/MacOS/limn',
-      '--cli', '--compare', 'feature', '--dir', '/repo', '--unknown', 'x'])
+      '--cli', '--branch', 'feature', '--dir', '/repo', '--unknown', 'x'])
     expect(a).toEqual({ dir: '/repo', compare: 'feature' })
   })
 
@@ -37,11 +37,11 @@ describe('parseCliArgs', () => {
   })
 
   it('accepts attached --name=value forms (survive argv canonicalization)', () => {
-    const a = parseCliArgs(['app', '--cli', '--dir=/repo', '--base=main', '--compare=feature'])
+    const a = parseCliArgs(['app', '--cli', '--dir=/repo', '--base=main', '--branch=feature'])
     expect(a).toEqual({ dir: '/repo', base: 'main', compare: 'feature' })
   })
 
-  it('treats --branch as the preferred alias for the compare side', () => {
+  it('parses --branch (space and attached forms) into the compare side', () => {
     expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--branch', 'feature']))
       .toEqual({ dir: '/repo', compare: 'feature' })
     expect(parseCliArgs(['app', '--cli', '--dir=/repo', '--branch=feature']))

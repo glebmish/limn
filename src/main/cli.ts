@@ -16,7 +16,7 @@ export interface CliArgs {
   dir: string
   base?: string
   /** the compare side — a branch in the current "repo as source of truth" model.
-   *  Accepts `--branch` (preferred) or `--compare` (kept for back-compat). */
+   *  Set from the `--branch` flag. */
   compare?: string
   /** open the repo hub (session list) instead of a review */
   hub?: boolean
@@ -35,9 +35,7 @@ export function parseCliArgs(argv: string[]): CliArgs | null {
     const tok = argv[i]
     if (tok === '--hub') { hub = true; continue }
     if (tok === '--new') { fresh = true; continue }
-    // `branch` is the preferred name for the compare side; `compare` is the legacy
-    // alias. Both land in opts under their own key and are reconciled below.
-    for (const name of ['dir', 'base', 'compare', 'branch']) {
+    for (const name of ['dir', 'base', 'branch']) {
       if (tok === `--${name}`) {
         // space form: only consume the next token as the value if it is not
         // itself a flag. A forwarded second-instance argv is canonicalized by
@@ -53,9 +51,7 @@ export function parseCliArgs(argv: string[]): CliArgs | null {
   }
   const out: CliArgs = { dir: opts.dir ?? process.cwd() }
   if (opts.base !== undefined) out.base = opts.base
-  // explicit --compare wins over --branch when both are somehow present
-  const compare = opts.compare ?? opts.branch
-  if (compare !== undefined) out.compare = compare
+  if (opts.branch !== undefined) out.compare = opts.branch
   if (hub) out.hub = true
   if (fresh) out.fresh = true
   return out
@@ -108,9 +104,8 @@ function shimContent(): string {
     '      exit 0;;',
     '    --base) if [ $# -ge 2 ]; then B="$2"; shift 2; else shift; fi;;',
     '    --base=*) B="${1#--base=}"; shift;;',
-    '    --branch|--compare) if [ $# -ge 2 ]; then C="$2"; shift 2; else shift; fi;;',
+    '    --branch) if [ $# -ge 2 ]; then C="$2"; shift 2; else shift; fi;;',
     '    --branch=*) C="${1#--branch=}"; shift;;',
-    '    --compare=*) C="${1#--compare=}"; shift;;',
     '    --hub) HUB=1; shift;;',
     '    --new) NEW=1; shift;;',
     '    *) shift;;',
@@ -118,7 +113,7 @@ function shimContent(): string {
     'done',
     'set -- --cli "--dir=$DIR"',
     '[ -n "$B" ] && set -- "$@" "--base=$B"',
-    '[ -n "$C" ] && set -- "$@" "--compare=$C"',
+    '[ -n "$C" ] && set -- "$@" "--branch=$C"',
     '[ -n "$HUB" ] && set -- "$@" "--hub"',
     '[ -n "$NEW" ] && set -- "$@" "--new"',
     ''
