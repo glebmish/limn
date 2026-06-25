@@ -11,7 +11,7 @@
 /* position + max-height set inline by useFloating; visuals only here. The .left/
  * .right align classes are now just preferred-edge hints (the core flips/clamps). */
 .rsw-pop {
-  z-index: 60; min-width: 200px; overflow-y: auto;
+  z-index: 60; min-width: 200px; overflow: hidden auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md);
   box-shadow: 0 8px 28px rgba(0,0,0,.14); padding: 5px;
 }
@@ -221,7 +221,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .rr-worktrees:hover { border-color: var(--line-3); color: var(--ink-2); }
 .rr-worktrees.open { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-soft); }
 .wt-menu {
-  z-index: 70; width: 340px; padding: 5px; text-align: left; cursor: default; overflow-y: auto;
+  z-index: 70; width: 340px; padding: 5px; text-align: left; cursor: default; overflow: hidden auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); font-family: var(--sans);
 }
 .wt-menu .wm-h { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); padding: 5px 8px; }
@@ -252,7 +252,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-switch .rs-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-repo-switch .rs-caret { color: var(--muted-2); flex: 0 0 auto; display: inline-flex; }
 
-.limn-repo-menu { z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; overflow-y: auto; }
+.limn-repo-menu { z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; overflow: hidden auto; }
 .limn-repo-menu .rm-search { display: flex; margin: 2px 2px 6px; }
 .limn-repo-menu .rm-search input { flex: 1 1 auto; font-family: var(--sans); font-size: 12.5px; color: var(--ink); padding: 6px 9px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); outline: none; }
 .limn-repo-menu .rm-search input:focus { border-color: var(--accent-line); }
@@ -281,7 +281,12 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-new:hover { background: var(--accent-line); }
 .limn-repo-new-caret { display: inline-flex; align-items: center; padding: 7px 7px; border: 1px solid var(--accent-line); border-left: none; background: var(--accent-soft); cursor: pointer; color: var(--accent-ink); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
 .limn-repo-new-caret:hover, .limn-repo-newwrap.open .limn-repo-new-caret, .limn-repo-newwrap.open .limn-repo-new { background: var(--accent-line); }
-.limn-repo-new-pop { z-index: 50; width: 330px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 13px; overflow-y: auto; }
+.limn-repo-new-pop { z-index: 50; width: 330px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 13px; overflow: hidden auto; }
+/* base ← compare must fit the popover width: let each picker share the row and
+ * ellipsis long branch names instead of overflowing (was forcing a scrollbar). */
+.limn-repo-new-pop .rv-refs { display: flex; width: 100%; }
+.limn-repo-new-pop .np-refs .limn-refpick { flex: 1 1 0; min-width: 0; }
+.limn-repo-new-pop .np-refs .limn-refpick-btn { max-width: none; width: 100%; box-sizing: border-box; }
 .limn-repo-new-pop .np-h { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); margin: 0 0 10px; }
 .limn-repo-new-pop .np-refs { margin-bottom: 12px; }
 .limn-repo-new-pop .np-act { display: flex; gap: 9px; align-items: center; }
