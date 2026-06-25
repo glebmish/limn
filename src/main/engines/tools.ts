@@ -119,8 +119,12 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'focus',
     description:
       'Scroll the review to a spot and briefly highlight it: the summary, a section, ' +
-      'a file, or a specific diff line. Use this to point the reviewer at what you are ' +
-      'discussing. Leaves a clickable chip in the chat so they can re-focus later.',
+      'a file, or a specific diff line. ALWAYS call this whenever your answer refers to a ' +
+      'place in the code or review (a file, a function, a diff line) — call focus to jump ' +
+      'the reviewer there instead of only naming the path in prose. Prefer the most specific ' +
+      'target available (a diff line over a file). It leaves a clickable chip in the chat so ' +
+      'the reviewer can re-focus later. Calling focus is the primary way you point at code; ' +
+      'do it proactively, not only when asked.',
     input: FOCUS_INPUT,
     run: (_ctx, raw) => {
       const { target } = raw as z.infer<z.ZodObject<typeof FOCUS_INPUT>>
@@ -133,9 +137,12 @@ const TOOL_IMPLS: ToolImpl[] = [
   {
     name: 'suggest_mark_viewed',
     description:
-      'Suggest the reviewer mark file(s) and/or section(s) as viewed — for when they ' +
-      'signal they understand a part. This only proposes: it renders a button in chat ' +
-      'and nothing changes until the reviewer confirms. Provide at least one file or section.',
+      'Propose that the reviewer mark file(s) and/or section(s) as viewed. Call this ' +
+      'proactively whenever you have finished walking the reviewer through a file or section, ' +
+      'or they signal they understand it — don\'t wait to be asked. It only proposes: it ' +
+      'renders a confirm button in chat and nothing changes until the reviewer clicks it, so ' +
+      'suggesting is low-risk. Provide at least one file or section, and a short note on what ' +
+      'was covered.',
     input: SUGGEST_INPUT,
     run: (_ctx, raw) => {
       const { files, sectionIds, note } = raw as z.infer<z.ZodObject<typeof SUGGEST_INPUT>>
@@ -157,7 +164,8 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'list_comments',
     description:
       'List the review comments (id, anchor, author, status, text), optionally filtered ' +
-      'by status. Use it to find the ids and text of the queued comments you are answering.',
+      'by status. Call this first whenever you are about to answer, reply to, or resolve ' +
+      'queued comments, so you have their exact ids and text.',
     input: LIST_COMMENTS_INPUT,
     run: (ctx, raw) => {
       const { status } = raw as z.infer<z.ZodObject<typeof LIST_COMMENTS_INPUT>>
@@ -171,7 +179,10 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'add_comment',
     description:
       'Leave a new review comment, authored by you (the agent), anchored to a diff line, ' +
-      'file, section, or the summary. Use it to flag something you noticed while answering.',
+      'file, section, or the summary. Whenever you notice a bug, risk, or noteworthy detail ' +
+      'while answering, record it with add_comment anchored to the exact spot rather than only ' +
+      'mentioning it in chat — anchored comments persist in the review; chat prose does not. ' +
+      'Anchor as specifically as possible.',
     input: ADD_COMMENT_INPUT,
     run: (ctx, raw) => {
       const { anchor: rawAnchor, text } = raw as z.infer<z.ZodObject<typeof ADD_COMMENT_INPUT>>
@@ -205,7 +216,8 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'resolve_comment',
     description:
       'Resolve a comment (by id) with a verdict — addressed, reworked, or skipped — and a short ' +
-      'note. Use it after handling a reviewer comment.',
+      'note. Always call this once you have handled a reviewer comment, whether or not it ' +
+      'required a code change, so the review\'s state stays accurate.',
     input: RESOLVE_INPUT,
     run: (ctx, raw) => {
       const { commentId, verdict, note } = raw as z.infer<z.ZodObject<typeof RESOLVE_INPUT>>

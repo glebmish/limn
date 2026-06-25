@@ -2,6 +2,14 @@ import type { CommentAnchor, SelectionScope } from '../../shared/types.js'
 import type { Comment } from '../../shared/types.js'
 import type { ChatContext, ReviewRequest } from './types.js'
 
+const CHAT_TOOL_POLICY = `
+You have review tools — use them actively, don't just describe things in prose:
+- focus: ALWAYS call focus when your answer points at a place in the code or review (a file, function, or diff line). Jump the reviewer there instead of only naming the path. Prefer the most specific target (a diff line over a whole file).
+- suggest_mark_viewed: when you've walked the reviewer through a file/section or they signal they understand it, proactively suggest marking it viewed (it only proposes; they confirm).
+- add_comment: when you spot a bug/risk/notable detail while answering, anchor a comment at that exact spot — anchored comments persist; chat prose does not.
+- list_comments / reply_to_comment / resolve_comment: use these when the reviewer is discussing or asking you to act on existing comments.
+Default to calling the relevant tool; mention the location in prose only in addition to focus, never instead of it.`
+
 function describeScope(s: SelectionScope): string {
   switch (s.region) {
     case 'summary': return 'the overall review summary'
@@ -78,7 +86,8 @@ export function buildChatPrompt(message: string, anchor?: CommentAnchor): string
   const ctx = anchor ? `\n\nContext — the user is asking about ${describeAnchor(anchor)}.` : ''
   return `${message}${ctx}
 
-Answer the question conversationally and concisely (this is a chat panel next to the code review). You may read files and run read-only git commands to check your answer. Do NOT modify any files.`
+Answer the question conversationally and concisely (this is a chat panel next to the code review). You may read files and run read-only git commands to check your answer. Do NOT modify any files.
+${CHAT_TOOL_POLICY}`
 }
 
 /** First turn of a fresh chat whose agent did NOT produce the review, so there's
@@ -93,7 +102,8 @@ You have full read access: read the changed files, grep for callers/tests, and u
 The reviewer asks:
 ${message}${aCtx}
 
-Answer conversationally and concisely.`
+Answer conversationally and concisely.
+${CHAT_TOOL_POLICY}`
 }
 
 /** The unified batch turn: the agent handles queued comments with its tools —
@@ -117,6 +127,7 @@ Handle them using your tools:
 - Address each comment by editing the code, or answer it with reply_to_comment if no change is needed.
 - When you edit code, commit it yourself with git via your shell: stage exactly the files you changed and commit with a short message ("limn: …"). Don't stage unrelated files.
 - Record the outcome of each comment with resolve_comment — pass its commentId, a verdict, and a note, whether or not it needed a code change. Verdicts: "addressed" (done as asked), "reworked" (done differently — explain), "skipped" (not done — explain).
+- When you reference a specific file or diff line, call focus to point the reviewer at it.
 - Keep the existing code style. Answers to your earlier open questions are decisions, not code comments.
 - Finish with a 2-3 sentence summary of what you did.`
 }
@@ -136,5 +147,6 @@ ${list}
 Fold these decisions into the guided review:
 - Where a decision changes how a section or the summary should read, update that narration with edit_review (fields: title, summary, section.what, section.desc).
 - Then call resolve_comment for each (verdict "addressed", with a one-line note on what you changed or confirmed).
+- When you reference a specific file or diff line, call focus to point the reviewer at it.
 This is a read-only review refinement: you may read files and run read-only git commands, but do NOT modify any files and do NOT commit.`
 }
