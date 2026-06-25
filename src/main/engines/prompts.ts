@@ -44,6 +44,14 @@ export function buildReviewPrompt(req: ReviewRequest): string {
     ? `\nSTEER FROM THE REVIEWER — weight this pass toward their focus while still covering the whole diff: ${req.steer}\n`
     : ''
 
+  const updateBlock = req.prior
+    ? `\nUPDATING AN EXISTING REVIEW — the branch gained new commits${req.prior.sinceSha ? ` since ${req.prior.sinceSha.slice(0, 7)}` : ''}. FOLD them into the review below rather than starting blank:
+  existing title: ${req.prior.title}
+  existing summary: ${req.prior.summary}
+  existing sections:\n${req.prior.sections.map((s) => `    - ${s}`).join('\n')}
+Keep the existing section structure and narration where the new commits don't touch it; revise only the sections the new commits change, and add a section only for genuinely new areas. Preserve the reviewer's framing and ordering.\n`
+    : ''
+
   return `You are the review guide for a local branch. Your job is to help a human review the branch \`${req.branch}\` against \`${req.base}\` in the repository at your working directory.
 
 EXPLORE FIRST — you have full read access to the repo:
@@ -51,7 +59,7 @@ EXPLORE FIRST — you have full read access to the repo:
 - Find callers/usages of changed functions (grep), related tests, and read them.
 - Use \`git log ${req.base}..${req.branch} --oneline\` and \`git show\` to understand the change history.
 - Read the artifacts listed below if any.
-${artifactBlock}${steerBlock}
+${artifactBlock}${steerBlock}${updateBlock}
 Changed files (${req.diff.files.length}) between merge-base ${req.diff.mergeBase.slice(0, 7)} and ${req.diff.headSha.slice(0, 7)}:
 ${fileList}
 

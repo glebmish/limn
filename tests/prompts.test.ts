@@ -18,6 +18,22 @@ describe('buildReviewPrompt steer', () => {
   })
 })
 
+describe('buildReviewPrompt update (drift "Update review")', () => {
+  it('folds the prior review in when prior is provided', () => {
+    const p = buildReviewPrompt({
+      ...baseReq,
+      prior: { title: 'Billing overhaul', summary: 'Adds subscriptions.', sections: ['Migrations', 'Lifecycle'], sinceSha: 'c'.repeat(40) }
+    })
+    expect(p).toContain('UPDATING AN EXISTING REVIEW')
+    expect(p).toContain('Billing overhaul')
+    expect(p).toContain('- Migrations')
+    expect(p).toContain('ccccccc') // sinceSha short
+  })
+  it('omits the update block on a from-scratch pass', () => {
+    expect(buildReviewPrompt(baseReq)).not.toContain('UPDATING AN EXISTING REVIEW')
+  })
+})
+
 // describeAnchor is module-private; exercise it through buildChatPrompt, which
 // embeds "the user is asking about <describeAnchor(anchor)>".
 describe('describeAnchor (via buildChatPrompt)', () => {

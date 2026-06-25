@@ -14,6 +14,9 @@ export interface ReviewRequest {
   reasoningEffort?: ReasoningEffort
   /** optional reviewer steer — focuses this generation pass (one-shot). */
   steer?: string
+  /** present on an UPDATE pass (drift "Update review"): the existing review to
+   *  fold the new commits into, rather than narrating from scratch. */
+  prior?: { title: string; summary: string; sections: string[]; sinceSha?: string }
 }
 
 /** Brief review context used to seed a fresh chat session when the chat agent

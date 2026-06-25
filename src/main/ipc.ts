@@ -234,7 +234,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     stopWatch()
   })
 
-  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, steer?: string) => {
+  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
     if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
@@ -246,11 +246,21 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const skeleton = await getDiff(repo, baseEff, compareEff)
       const state = dao.loadReviewState(db, sessionId)
       const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+      // "Update review": fold the new drift commits into the existing narration
+      // instead of re-narrating from scratch. Only meaningful if a review exists.
+      const prior = update && state.annotations
+        ? {
+            title: state.annotations.title,
+            summary: state.annotations.summary,
+            sections: state.annotations.sections.map((s) => s.name),
+            sinceSha: state.reviewedAtSha
+          }
+        : undefined
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
         repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
         model: agent.model, reasoningEffort: agent.reasoningEffort,
-        steer: steer?.trim() || undefined
+        steer: steer?.trim() || undefined, prior
       })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)

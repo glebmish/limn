@@ -12,19 +12,20 @@ function fmtElapsed(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-export function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string): void {
+export function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): void {
   useStore.getState().startOp('review', opId)
-  void window.api.generate(sessionId, agent, opId, steer)
+  void window.api.generate(sessionId, agent, opId, steer, update)
 }
 
 /** Materialize the (possibly transient) review, then run the agent with the chosen
  *  review agent. The first generate from a transient entry mints the session.
- *  `steer` is an optional one-shot note that focuses the pass. */
-export async function startGenerateNow(steer?: string): Promise<void> {
+ *  `steer` is an optional one-shot note that focuses the pass; `update` folds new
+ *  drift commits into the existing review instead of re-narrating from scratch. */
+export async function startGenerateNow(steer?: string, update?: boolean): Promise<void> {
   const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const { loaded, agent } = useStore.getState()
-  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined)
+  startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */
@@ -166,15 +167,24 @@ export function GenPanel() {
       </span>
       <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
       <div className="gen-acts">
-        <button
-          className="btn btn-sm btn-primary gh-l"
-          data-hint={behind
-            ? 'Same session. The agent folds new commits and your comments into the existing review.'
-            : 'Same session. Opens the review chat for comments, decisions and focused follow-ups.'}
-          onClick={() => useStore.getState().openChat()}
-        >
-          <I.arrow style={{ width: 12, height: 12 }} />Follow up
-        </button>
+        {behind ? (
+          <button
+            className="btn btn-sm btn-primary gh-l"
+            disabled={gate.blocked}
+            data-hint="Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive."
+            onClick={() => void startGenerateNow(steer, true)}
+          >
+            <I.changed style={{ width: 12, height: 12 }} />Update review
+          </button>
+        ) : (
+          <button
+            className="btn btn-sm btn-primary gh-l"
+            data-hint="Same session. Opens the review chat for comments, decisions and focused follow-ups."
+            onClick={() => useStore.getState().openChat()}
+          >
+            <I.arrow style={{ width: 12, height: 12 }} />Follow up
+          </button>
+        )}
         <span className="grow"></span>
         <div className="regen-split gh-r" data-hint="Fresh agent, new session. Your comments and viewed marks survive; the narration is replaced.">
           <button className="rs-go" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
@@ -184,7 +194,7 @@ export function GenPanel() {
           <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" disabled={gate.blocked} />
         </div>
       </div>
-      {behind && <div className="gen-drift-exp"><b>Follow up</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}
+      {behind && <div className="gen-drift-exp"><b>Update review</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}
       {gate.blocked && <GateNote branch={gate.branch} />}
     </div>
   )
