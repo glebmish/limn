@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import type { FileDiff } from '../../shared/types'
+import type { FileDiff, ViewMark } from '../../shared/types'
 import { I, ficonClass } from '../kit'
 import { fileViewed } from '../store'
 
@@ -39,7 +39,7 @@ function countFiles(dir: TreeDir): number {
   return n
 }
 
-function fileStatusClass(f: FileDiff, viewedAt: Record<string, string>): string {
+function fileStatusClass(f: FileDiff, viewedAt: Record<string, ViewMark>): string {
   if (f.status === 'deleted') return 'st-risk'
   if (f.hunks.some((h) => h.since || h.sinceViewed)) return 'st-amber'
   return fileViewed(f, viewedAt) ? 'st-rev' : 'st-unrev'
@@ -67,7 +67,7 @@ function DirNode({ dir, collapsed, toggle, children }: {
 
 export function FileTree({ files, viewedAt, currentFile, onFileClick, className }: {
   files: FileDiff[]
-  viewedAt: Record<string, string>
+  viewedAt: Record<string, ViewMark>
   currentFile: string | null
   onFileClick: (path: string, file: FileDiff) => void
   className?: string

@@ -58,7 +58,13 @@ export default function Review() {
   const chatOpen = store.chatOpen
 
   const sections = useMemo(() => loaded?.state.annotations ? effectiveSections(loaded) : [], [loaded])
-  const fileMap = useMemo(() => new Map((loaded?.skeleton.files ?? []).map((f) => [f.path, f])), [loaded])
+  // When the tree is dirty, the merged base→working-tree diff (committed + uncommitted
+  // lines interleaved per file, origin-tagged) drives every file surface; otherwise the
+  // plain committed spine does. skeleton/volatile stay canonical for anchoring & approval.
+  const fileMap = useMemo(() => {
+    const files = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+    return new Map(files.map((f) => [f.path, f]))
+  }, [loaded])
   const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
   // a section is done when all its files are viewed (derived — no separate flag)
   const isSectionDone = (s: Section): boolean => {
@@ -152,11 +158,18 @@ export default function Review() {
   const annotations = state.annotations
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
-  const totalAdd = skeleton.files.reduce((n, f) => n + f.add, 0)
-  const totalDel = skeleton.files.reduce((n, f) => n + f.del, 0)
+  // the files actually rendered: merged (base→working-tree) while dirty, else the spine
+  const displayFiles = loaded.dirty && loaded.merged ? loaded.merged : skeleton.files
+  // dirty-only files (untracked or worktree-only edits) have no committed section/spine
+  // entry — surfaced in a trailing band so they aren't dropped.
+  const sectionedPaths = new Set(sections.flatMap((s) => s.files))
+  // only meaningful in sectioned (annotated) mode; flat mode renders displayFiles whole
+  const looseFiles = sections.length > 0 ? displayFiles.filter((f) => !sectionedPaths.has(f.path)) : []
+  const totalAdd = displayFiles.reduce((n, f) => n + f.add, 0)
+  const totalDel = displayFiles.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter(isSectionDone).length
-  const fileCount = skeleton.files.length
-  const viewedCount = skeleton.files.filter((f) => fileViewed(f, viewedAt)).length
+  const fileCount = displayFiles.length
+  const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt)).length
   const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -374,14 +387,16 @@ export default function Review() {
     </button>
   )
 
-  const volatileBand = loaded.dirty && loaded.volatile.length > 0 && (
+  // Dirty-only files (no committed counterpart): all-uncommitted, shown in a trailing
+  // band. Mixed/committed files render inline via the merged diff, not here.
+  const looseBand = loaded.dirty && looseFiles.length > 0 && (
     <div className="vol-band">
       <div className="vol-head">
         <span className="vol-tag"><I.warn style={{ width: 12, height: 12 }} />Uncommitted</span>
-        <span className="vol-lead">Working tree — {loaded.volatile.length} file{loaded.volatile.length === 1 ? '' : 's'} changed since <span className="mono">{shortSha(skeleton.headSha)}</span></span>
-        <span className="vol-note">volatile · not pinned to a commit · auto-pins when committed</span>
+        <span className="vol-lead">Working tree — {looseFiles.length} file{looseFiles.length === 1 ? '' : 's'} with no committed changes, on top of <span className="mono">{shortSha(skeleton.headSha)}</span></span>
+        <span className="vol-note">not pinned to a commit · auto-pins when committed</span>
       </div>
-      {loaded.volatile.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
+      {looseFiles.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
     </div>
   )
 
@@ -528,7 +543,7 @@ export default function Review() {
             </div>
             {!annotations ? (
               <FileTree
-                files={skeleton.files}
+                files={displayFiles}
                 viewedAt={viewedAt}
                 currentFile={curFile}
                 onFileClick={(path) => jumpToRawFile(path)}
@@ -569,7 +584,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head">
-                <div className="eyebrow">{skeleton.files.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
+                <div className="eyebrow">{displayFiles.length} files · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
                     {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
@@ -598,15 +613,14 @@ export default function Review() {
                 <>
                   <div className="flat-toolbar">
                     <span className="ft-l">Changed files</span>
-                    <span className="ft-count">{skeleton.files.length} files · {viewedCount}/{fileCount} viewed</span>
+                    <span className="ft-count">{displayFiles.length} files · {viewedCount}/{fileCount} viewed</span>
                   </div>
                   <div className="flat-files">
-                    {skeleton.files.map((f) => <DiffView key={f.path} f={f} />)}
+                    {displayFiles.map((f) => <DiffView key={f.path} f={f} />)}
                   </div>
-                  {skeleton.files.length === 0 && !loaded.dirty && (
+                  {displayFiles.length === 0 && !loaded.dirty && (
                     <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
                   )}
-                  {volatileBand}
                 </>
               )}
 
@@ -663,11 +677,11 @@ export default function Review() {
                   secRef={(el) => { secRefs.current[s.id] = el }}
                 />
               ))}
-              {annotations && skeleton.files.length === 0 && !loaded.dirty && (
+              {annotations && displayFiles.length === 0 && !loaded.dirty && (
                 <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
               )}
 
-              {annotations && volatileBand}
+              {annotations && looseBand}
               <div style={{ height: 40 }}></div>
             </>
           )}

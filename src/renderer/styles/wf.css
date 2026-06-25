@@ -193,6 +193,16 @@
 .dline.del .code{color:#9c4636}
 /* "changed since you last reviewed" rail */
 .dline.since{box-shadow:inset 3px 0 0 var(--amber)}
+/* uncommitted (working-tree) rail — dotted, to read as "not yet pinned to a commit".
+   A pseudo-element draws it so the dotted pattern survives where box-shadow can't. */
+.dline.uncommitted{position:relative}
+.dline.uncommitted::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;z-index:2;
+  background:repeating-linear-gradient(to bottom,var(--amber) 0 3px,transparent 3px 6px)}
+/* per-file legend chip for the uncommitted rail */
+.diff-legend{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);
+  font-style:italic;margin-right:4px}
+.diff-legend .lg-rail{width:3px;height:12px;border-radius:1px;
+  background:repeating-linear-gradient(to bottom,var(--amber) 0 3px,transparent 3px 6px)}
 .hunk.since-hunk{position:relative}
 .tag-since{position:absolute;right:10px;top:6px;z-index:2}
 

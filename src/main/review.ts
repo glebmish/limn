@@ -1,10 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LoadedReview } from '../shared/ipc.js'
-import type { AgentRef, Artifact, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
+import type { AgentRef, Artifact, DiffSkeleton, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  branchCheckedOutAt, describeSide, diffSince, getDiff, headSha, isDirty, locateSide, log, markSince,
-  resolveRefInput, workingTreeDiff
+  branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
+  log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
@@ -105,9 +105,9 @@ export async function assembleReview(
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
   const byViewSha = new Map<string, Set<string>>()
-  for (const [file, sha] of Object.entries(state.viewedAt)) {
-    if (sha === skeleton.headSha) continue
-    byViewSha.set(sha, (byViewSha.get(sha) ?? new Set()).add(file))
+  for (const [file, mark] of Object.entries(state.viewedAt)) {
+    if (mark.sha === skeleton.headSha) continue
+    byViewSha.set(mark.sha, (byViewSha.get(mark.sha) ?? new Set()).add(file))
   }
   let viewedDropped = false
   for (const [sha, paths] of byViewSha) {
@@ -119,10 +119,46 @@ export async function assembleReview(
     }
   }
   if (viewedDropped && persist) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
-  // Re-anchor against the spine PLUS the volatile band: a comment on an
-  // uncommitted line stays anchored while volatile, and auto-pins once the change
-  // is committed (the line migrates from `volatile` into `skeleton`).
-  const forAnchor = volatile.length
+  // Merged base→working-tree view (only when dirty): one diff per file with each
+  // line attributed to the committed or uncommitted delta. The same drift rails are
+  // carried over, but computed in worktree space (the merged diff's new-side line
+  // numbers) so "Since approved/viewed" keeps working while the tree is dirty.
+  let merged: FileDiff[] | undefined
+  if (dirty && wt) {
+    try {
+      merged = await mergedWorkingDiff(wt, baseEff, compareEff)
+      const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
+      if (baseline && baseline !== skeleton.headSha) {
+        try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, baseline)), 'since') } catch { /* baseline unreachable */ }
+      }
+      for (const [sha, paths] of byViewSha) {
+        try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, sha)), 'sinceViewed', paths) } catch { /* view sha unreachable */ }
+      }
+    } catch { merged = undefined /* fall back to skeleton + volatile band */ }
+  }
+  // Attach the current on-disk content hash to every rendered file (whenever a working
+  // tree exists, dirty or not) so marking a file viewed snapshots it — a later
+  // uncommitted edit then re-flags the file even with no commit movement.
+  if (wt) {
+    try {
+      const paths = new Set([...skeleton.files, ...(merged ?? []), ...volatile].map((f) => f.path))
+      const hashes = await hashObjects(wt, [...paths])
+      for (const f of [...skeleton.files, ...(merged ?? []), ...volatile]) {
+        const h = hashes.get(f.path)
+        if (h) f.fileHash = h
+      }
+    } catch { /* hashing failed — viewed falls back to commit-only detection */ }
+  }
+  // Re-anchor against the surface that is actually rendered. When dirty that's the
+  // merged base→working-tree diff (committed + uncommitted lines in worktree-space
+  // line numbers), so comments on committed lines line up even when dirty edits above
+  // shift their numbers. lineContent is the durable key; the line number is only a
+  // pickNearest hint and is re-derived each load — approval/viewed never read it — so
+  // persisting worktree-space hints is safe and self-corrects once the tree is clean.
+  // Falls back to skeleton (+ volatile band) when no merged diff was produced.
+  const forAnchor = merged
+    ? { ...skeleton, files: merged }
+    : volatile.length
     ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
     : skeleton
   reanchorComments(state.comments, forAnchor, artifacts)
@@ -133,7 +169,7 @@ export async function assembleReview(
     compareContext: await describeSide(repo, pair.compare),
     baseLoc: await locateSide(repo, pair.base),
     compareLoc: await locateSide(repo, pair.compare),
-    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile,
+    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
     compareCheckedOut: wt != null

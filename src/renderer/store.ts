@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, PinNode, RepoInfo, RepoState, RepoStatus, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
@@ -56,15 +56,28 @@ export function effectiveSections(loaded: LoadedReview | null): Section[] {
   return loaded.state.annotations?.sections ?? synthesizeSections(loaded.skeleton.files)
 }
 
-/** A file counts as "viewed" once it has a viewed mark AND hasn't changed since —
- *  a later edit clears the tick (the hunk carries `sinceViewed`). */
-export function fileViewed(f: FileDiff, viewedAt: Record<string, string>): boolean {
-  return Boolean(viewedAt[f.path]) && !f.hunks.some((h) => h.sinceViewed)
+/** A file counts as "viewed" once it has a viewed mark AND hasn't changed since.
+ *  Two drift signals clear the tick: a commit touched it since viewing (the hunk
+ *  carries `sinceViewed`, set per-file by diffSince), or its on-disk content hash
+ *  no longer matches the snapshot (an uncommitted edit). A legacy mark with no hash
+ *  skips the content check and relies on commit-drift alone. */
+export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boolean {
+  const mark = viewedAt[f.path]
+  if (!mark) return false
+  if (f.hunks.some((h) => h.sinceViewed)) return false
+  return !mark.hash || mark.hash === f.fileHash
+}
+
+/** The viewed snapshot to stamp for `path`: the compare head + the file's current
+ *  content hash (from the rendered diff — merged while dirty, else the spine). */
+export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark {
+  const files = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  return { sha: loaded?.skeleton.headSha ?? '', hash: files.find((f) => f.path === path)?.fileHash ?? '' }
 }
 
 /** Section completion is derived from its files: a section is viewed when all of
  *  its files are viewed. Returns the tri-state for the section's checkbox. */
-export function sectionViewState(files: FileDiff[], viewedAt: Record<string, string>): 'none' | 'some' | 'all' {
+export function sectionViewState(files: FileDiff[], viewedAt: Record<string, ViewMark>): 'none' | 'some' | 'all' {
   if (files.length === 0) return 'none'
   const n = files.filter((f) => fileViewed(f, viewedAt)).length
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
@@ -134,7 +147,7 @@ interface AppStore {
    *  even if one already exists for the pair. */
   transientFresh: boolean
 
-  viewedAt: Record<string, string>
+  viewedAt: Record<string, ViewMark>
   collapsed: Set<string>
   /** sections force-opened for re-viewing after they were completed (all files
    *  viewed). Lets you re-open a done section without un-viewing its files. */
@@ -669,18 +682,19 @@ export const useStore = create<AppStore>((set, get) => {
 
     toggleViewed(file, currentlyViewed) {
       const viewedAt = { ...get().viewedAt }
-      // unchecking removes the record; checking (or re-checking after drift) stamps the current head
+      // unchecking removes the record; checking (or re-checking after drift) snapshots
+      // the current head AND the file's on-disk content hash, so later commits or
+      // uncommitted edits both re-flag it.
       if (currentlyViewed) delete viewedAt[file]
-      else viewedAt[file] = get().loaded?.skeleton.headSha ?? ''
+      else viewedAt[file] = viewMarkFor(get().loaded, file)
       set({ viewedAt })
       persistUi()
     },
 
     setSectionViewed(sectionId, paths, viewed) {
       const viewedAt = { ...get().viewedAt }
-      const head = get().loaded?.skeleton.headSha ?? ''
       for (const p of paths) {
-        if (viewed) viewedAt[p] = head
+        if (viewed) viewedAt[p] = viewMarkFor(get().loaded, p)
         else delete viewedAt[p]
       }
       // marking the section viewed collapses it (and, on remount, its files):

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
-  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta
+  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
@@ -387,7 +387,7 @@ export function approveArtifact(db: DatabaseSync, sessionId: number, path: strin
 }
 
 export interface UiStatePatch {
-  viewedAt?: Record<string, string>
+  viewedAt?: Record<string, ViewMark>
   reviewedSections?: string[]
   engine?: EngineId
 }
@@ -399,8 +399,8 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
   try {
     if (patch.viewedAt !== undefined) {
       db.prepare('DELETE FROM viewed_files WHERE session_id = ?').run(sessionId)
-      for (const [file, sha] of Object.entries(patch.viewedAt)) {
-        db.prepare('INSERT INTO viewed_files (session_id, file, sha) VALUES (?, ?, ?)').run(sessionId, file, sha)
+      for (const [file, mark] of Object.entries(patch.viewedAt)) {
+        db.prepare('INSERT INTO viewed_files (session_id, file, sha, hash) VALUES (?, ?, ?, ?)').run(sessionId, file, mark.sha, mark.hash)
       }
     }
     if (patch.reviewedSections !== undefined) {
@@ -435,9 +435,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   ).all(sessionId) as { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string }[])
     .map((r) => ({ n: r.n, engine: r.engine, sessionId: r.engine_session_id, endSha: r.end_sha, at: r.at, ...(r.summary ? { summary: r.summary } : {}) }))
 
-  const viewedAt: Record<string, string> = {}
-  for (const r of db.prepare('SELECT file, sha FROM viewed_files WHERE session_id = ?').all(sessionId) as { file: string; sha: string }[]) {
-    viewedAt[r.file] = r.sha
+  const viewedAt: Record<string, ViewMark> = {}
+  for (const r of db.prepare('SELECT file, sha, hash FROM viewed_files WHERE session_id = ?').all(sessionId) as { file: string; sha: string; hash: string }[]) {
+    viewedAt[r.file] = { sha: r.sha, hash: r.hash }
   }
 
   const reviewedSections = (db.prepare('SELECT section_id FROM reviewed_sections WHERE session_id = ?')

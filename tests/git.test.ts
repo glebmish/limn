@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { makeFixtureRepo, type FixtureRepo, fixtureWrite } from './helpers/fixtureRepo'
 import {
   listBranches, currentBranch, defaultBase, mergeBase, headSha, isDirty, log,
-  getDiff, diffSince, markSince
+  getDiff, diffSince, markSince, hashObjects
 } from '../src/main/git'
 
 let fx: FixtureRepo
@@ -41,6 +41,20 @@ describe('branches & metadata', () => {
     expect(commits.length).toBe(3)
     expect(commits[0].sha).toBe(fx.shas.head)
     expect(commits[2].subject).toBe('feature work')
+  })
+
+  it('hashObjects returns per-file content hashes and skips missing files', async () => {
+    const map = await hashObjects(fx.dir, ['src/a.ts', 'does/not/exist.ts'])
+    expect(map.get('src/a.ts')).toMatch(/^[0-9a-f]{40}$/)
+    expect(map.has('does/not/exist.ts')).toBe(false)
+    // identical content → identical hash; an edit changes it
+    const before = map.get('src/a.ts')
+    fixtureWrite(fx.dir, 'src/a.ts', 'totally different\n')
+    const after = (await hashObjects(fx.dir, ['src/a.ts'])).get('src/a.ts')
+    expect(after).not.toBe(before)
+    // restore so other tests see the committed content
+    const { execFileSync } = await import('node:child_process')
+    execFileSync('git', ['checkout', '--', 'src/a.ts'], { cwd: fx.dir })
   })
 })
 

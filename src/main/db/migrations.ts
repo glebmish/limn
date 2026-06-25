@@ -133,5 +133,14 @@ export const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Per-file viewed snapshot gains a content hash, so an uncommitted edit (no commit
+    // movement) re-flags a viewed file. Existing rows default to '' → hash check skipped
+    // (commit-drift detection only) until the file is viewed again.
+    version: 2,
+    up(db) {
+      db.exec(`ALTER TABLE viewed_files ADD COLUMN hash TEXT NOT NULL DEFAULT ''`)
+    }
   }
 ]

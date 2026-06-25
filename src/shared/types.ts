@@ -1,7 +1,9 @@
 // ── git ground truth ──────────────────────────────────────────
-export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean; sinceViewed?: boolean }
+export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean; sinceViewed?: boolean; origin?: 'committed' | 'uncommitted' }
 export interface Hunk { range: string; header: string; lines: DiffLine[]; since?: boolean; sinceViewed?: boolean }
-export interface FileDiff { path: string; oldPath?: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; binary: boolean; add: number; del: number; hunks: Hunk[] }
+export interface FileDiff { path: string; oldPath?: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; binary: boolean; add: number; del: number; hunks: Hunk[]; /** content hash (git blob) of the file as it currently is on disk — the "did it change since viewed" key. Absent when there is no working tree to read (non-branch compare). */ fileHash?: string }
+/** A "viewed" snapshot: the compare head sha + the file's content hash at view time. */
+export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
 export interface CommitInfo { sha: string; subject: string; author: string; date: string }
 
@@ -178,8 +180,12 @@ export interface ReviewState {
   repo: string; branch: string; base: string;
   engine?: EngineId; agent?: AgentRef; annotations?: ReviewAnnotations;
   comments: Comment[]; chats: ChatThread[];
-  /** per-file: SHA of the branch head when the file was marked viewed */
-  viewedAt: Record<string, string>;
+  /** per-file snapshot taken when the file was marked viewed. `sha` is the compare
+   *  head (drives per-file commit-drift via diffSince — catches new commits and
+   *  dirty-becoming-commits); `hash` is the file's content hash at view time
+   *  (catches uncommitted edits with no commit movement). A legacy entry may have an
+   *  empty `hash`, in which case the hash check is skipped (commit-only detection). */
+  viewedAt: Record<string, ViewMark>;
   reviewedSections: string[];
   /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;

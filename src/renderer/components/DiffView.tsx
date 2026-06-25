@@ -64,10 +64,16 @@ export function DiffView({ f, plainNote }: {
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   const hasSince = f.hunks.some((h) => h.since)
   const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
-  const viewedSha = viewedAt[f.path]
-  // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself
-  const isViewed = Boolean(viewedSha) && !hasSinceViewed
-  const fileStatus = f.status === 'deleted' ? 'st-risk' : (hasSince || hasSinceViewed) ? 'st-amber' : isViewed ? 'st-rev' : 'st-unrev'
+  const hasUncommitted = f.hunks.some((h) => h.lines.some((l) => l.origin === 'uncommitted'))
+  const viewMark = viewedAt[f.path]
+  // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself,
+  // whether the change came from a commit (hasSinceViewed) or an uncommitted edit
+  // (content hash drifted from the snapshot; legacy marks with no hash skip this).
+  const contentDrift = Boolean(viewMark?.hash) && viewMark.hash !== f.fileHash
+  const isViewed = Boolean(viewMark) && !hasSinceViewed && !contentDrift
+  // uncommitted-only drift: content changed since viewing with no commit-level marks
+  const dirtyDrift = contentDrift && !hasSinceViewed
+  const fileStatus = f.status === 'deleted' ? 'st-risk' : (hasSince || hasSinceViewed || dirtyDrift) ? 'st-amber' : isViewed ? 'st-rev' : 'st-unrev'
   // open by default, collapsed once viewed — unless the header was clicked to
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
@@ -121,7 +127,16 @@ export function DiffView({ f, plainNote }: {
         <Delta add={f.add} del={f.del} />
         {!isViewed && hasSince && <span className="pill pill-amber"><I.changed />changed since approval</span>}
         {!isViewed && !hasSince && hasSinceViewed && <span className="pill pill-amber"><I.eye />changed since viewed</span>}
+        {!isViewed && !hasSince && !hasSinceViewed && dirtyDrift && <span className="pill pill-amber"><I.eye />changed since viewed · uncommitted</span>}
         <span className="grow"></span>
+        {hasUncommitted && (
+          <span
+            className="diff-legend"
+            title="Lines on the dotted rail are uncommitted working-tree changes, shown for context. Approving and marking Viewed record the committed state only."
+          >
+            <span className="lg-rail" />uncommitted
+          </span>
+        )}
         {!isViewed && (hasSince || hasSinceViewed) && (
           <span className="seg seg-sm gfile-seg" onClick={(e) => e.stopPropagation()}>
             <button className={effectiveMode === 'branch' ? 'on' : ''} onClick={() => setMode('branch')}>Full diff</button>
@@ -189,10 +204,11 @@ export function DiffView({ f, plainNote }: {
                 const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
                 const lineNo = l.new ?? l.old
                 const threads = threadsFor(lineNo, side)
+                const uncommitted = l.origin === 'uncommitted'
                 return (
                   <Fragment key={j}>
                     <div
-                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (l.since || l.sinceViewed ? ' since' : '')}
+                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (uncommitted ? ' uncommitted' : (l.since || l.sinceViewed) ? ' since' : '')}
                       data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
                     >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>

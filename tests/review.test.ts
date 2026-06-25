@@ -4,11 +4,22 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/main/db/db'
-import { createSession } from '../src/main/db/sessions'
+import { createSession, upsertComment, replaceUiState } from '../src/main/db/sessions'
+import { fileViewed } from '../src/renderer/store'
 import { buildLoadedReview, previewReview } from '../src/main/review'
 import { resolveRefInput } from '../src/main/git'
 import { fixtureGit as git, fixtureWrite as write } from './helpers/fixtureRepo'
-import type { RefPair } from '../src/shared/types'
+import type { Comment, RefPair } from '../src/shared/types'
+
+async function sessionFor(dir: string): Promise<ReturnType<typeof createSession>> {
+  const base = await resolveRefInput(dir, 'main')
+  const compare = await resolveRefInput(dir, 'feature')
+  const pair: RefPair = {
+    base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
+    compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
+  }
+  return createSession(db, dir, pair, { engine: 'claude' })
+}
 
 let db: DatabaseSync
 
@@ -64,6 +75,81 @@ describe('previewReview', () => {
     const dir = makeRepoWithArtifact()
     await expect(previewReview(db, dir, 'no-such-ref', 'feature', { engine: 'claude' }))
       .rejects.toThrow(/not a branch or commit/)
+  })
+})
+
+describe('merged base→working-tree view (dirty)', () => {
+  it('is absent on a clean tree', async () => {
+    const dir = makeRepoWithArtifact() // feature is committed & clean
+    const loaded = await previewReview(db, dir, 'main', 'feature', { engine: 'claude' })
+    expect(loaded.dirty).toBe(false)
+    expect(loaded.merged).toBeUndefined()
+  })
+
+  it('attributes each line to committed vs uncommitted when dirty', async () => {
+    const dir = makeRepoWithArtifact()
+    // b.ts is committed as `b = 3`; append a brand-new uncommitted line
+    write(dir, 'src/b.ts', 'export const b = 3\nexport const d = 4\n')
+
+    const loaded = await previewReview(db, dir, 'main', 'feature', { engine: 'claude' })
+    expect(loaded.dirty).toBe(true)
+    const b = loaded.merged?.find((f) => f.path === 'src/b.ts')
+    expect(b).toBeDefined()
+    const lines = b!.hunks.flatMap((h) => h.lines)
+    expect(lines.find((l) => l.text.includes('b = 3'))?.origin).toBe('committed')
+    expect(lines.find((l) => l.text.includes('d = 4'))?.origin).toBe('uncommitted')
+  })
+})
+
+describe('comments line up with the merged (rendered) surface while dirty', () => {
+  it('re-anchors a committed-line comment to its worktree line number after a dirty shift', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-cmt-'))
+    git(dir, 'init', '-b', 'main')
+    write(dir, 'src/x.ts', 'L1\nL2\nL3\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'base')
+    git(dir, 'checkout', '-q', '-b', 'feature')
+    write(dir, 'src/x.ts', 'L1\nL2\nL3\nTARGET\n') // TARGET committed at line 4
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'add target')
+
+    const session = await sessionFor(dir)
+    const comment: Comment = {
+      id: 'c1',
+      anchor: { kind: 'diff', file: 'src/x.ts', side: 'new', line: 4, hunkRange: '@@', lineContent: 'TARGET' },
+      author: 'user', text: 'why TARGET?', status: 'queued', replies: [], createdAt: '2026-01-01T00:00:00Z', iteration: 0
+    }
+    upsertComment(db, session.id, comment)
+
+    // dirty edit prepends two lines, shifting TARGET to worktree line 6
+    write(dir, 'src/x.ts', 'NEW1\nNEW2\nL1\nL2\nL3\nTARGET\n')
+
+    const loaded = await buildLoadedReview(db, session)
+    const c = loaded.state.comments.find((x) => x.id === 'c1')!
+    expect(c.status).not.toBe('outdated')
+    // the comment's anchor must match the line the merged view actually renders
+    const x = loaded.merged!.find((f) => f.path === 'src/x.ts')!
+    const rendered = x.hunks.flatMap((h) => h.lines).find((l) => l.new === (c.anchor as { line: number }).line)
+    expect(rendered?.text).toBe('TARGET')
+    expect(rendered?.origin).toBe('committed')
+  })
+})
+
+describe('viewed content-hash drift', () => {
+  it('attaches a file content hash and un-views the file after an uncommitted edit', async () => {
+    const dir = makeRepoWithArtifact() // feature committed & clean; src/b.ts = `b = 3`
+    const session = await sessionFor(dir)
+
+    // view src/b.ts at its current (committed) content
+    const first = await buildLoadedReview(db, session)
+    const b0 = first.skeleton.files.find((f) => f.path === 'src/b.ts')!
+    expect(b0.fileHash).toBeTruthy()
+    replaceUiState(db, session.id, { viewedAt: { 'src/b.ts': { sha: first.skeleton.headSha, hash: b0.fileHash! } } })
+
+    // a later uncommitted edit (no commit movement) must re-flag the file
+    write(dir, 'src/b.ts', 'export const b = 3\nexport const d = 4\n')
+    const second = await buildLoadedReview(db, session)
+    const b1 = (second.merged ?? second.skeleton.files).find((f) => f.path === 'src/b.ts')!
+    expect(b1.fileHash).not.toBe(b0.fileHash)
+    expect(fileViewed(b1, second.state.viewedAt)).toBe(false)
   })
 })
 

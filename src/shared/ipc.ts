@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, PinNode, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta
+  ExecutionMode, FileDiff, PinNode, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, RepoStatus, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -24,6 +24,12 @@ export interface LoadedReview {
    *  Empty unless `dirty`. These lines carry no SHA; comments on them re-anchor
    *  by content and auto-pin once committed (they migrate into `skeleton`). */
   volatile: FileDiff[]
+  /** base→working-tree diff with each line attributed to the committed delta or the
+   *  uncommitted delta (`DiffLine.origin`). Present only when `dirty`. The renderer
+   *  shows this in place of `skeleton.files` + the volatile band so committed and
+   *  uncommitted changes interleave per file; `skeleton`/`volatile` stay canonical
+   *  for anchoring, viewed, and approval (all of which pin to commits). */
+  merged?: FileDiff[]
   /** the compare branch is checked out in some worktree (primary or linked), so
    *  agent edits have a safe place to land. False when checked out nowhere — the
    *  renderer blocks submissions and offers the checkout flow. Always false for a
@@ -39,7 +45,7 @@ export interface RefOptions { branches: string[]; defaultBase: string; commits: 
 export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: string; hub?: boolean; fresh?: boolean; error?: string }
 
 export interface UiStatePatch {
-  viewedAt?: Record<string, string>
+  viewedAt?: Record<string, ViewMark>
   reviewedSections?: string[]
   engine?: EngineId
 }
