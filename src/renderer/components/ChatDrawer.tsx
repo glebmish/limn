@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, checkoutGate, useStore } from '../store'
 import { I, Ava } from '../kit'
 import { agentLabel } from '../../shared/agents'
@@ -20,7 +20,7 @@ import type { AgentAction } from '../../shared/types'
 export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const store = useStore()
   const { loaded, gen, activeChatId } = store
-  const chats = loaded?.state.chats ?? []
+  const chats = useMemo(() => loaded?.state.chats ?? [], [loaded?.state.chats])
   const active = activeChat(loaded, activeChatId) ?? chats[chats.length - 1] ?? null
   const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
   // viewing a superseded review session (an older generation) — offer to switch

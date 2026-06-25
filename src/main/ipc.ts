@@ -19,7 +19,7 @@ import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
 import * as pins from './db/pins.js'
 import { scanPin } from './scan.js'
-import { classify } from './artifacts.js'
+import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls } from '../shared/toolcalls.js'
@@ -28,6 +28,7 @@ import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
+import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
@@ -188,9 +189,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // the leaf folder (defaults to the branch name on the renderer side). git refuses if
   // the dir already exists or the branch is already checked out elsewhere.
   handle('addWorktreeFor', async (repo: string, branch: string, name: string) => {
-    const leaf = name.trim() || branch
-    const dir = path.join(repo, '.worktrees', leaf)
-    fs.mkdirSync(path.dirname(dir), { recursive: true })
+    const leaf = assertSafeWorktreeName(name.trim() || suggestedWorktreeName(branch))
+    const root = path.resolve(repo, '.worktrees')
+    const dir = path.resolve(root, leaf)
+    if (dir !== root && !dir.startsWith(root + path.sep)) {
+      throw new Error('Worktree path must stay under .worktrees')
+    }
+    fs.mkdirSync(root, { recursive: true })
     // a worktree nested in the repo would otherwise show as untracked `.worktrees/` and
     // dirty the primary tree (blocking checkouts there). Exclude it locally — via
     // `.git/info/exclude` so no tracked file changes and nothing gets committed.
@@ -272,9 +277,16 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // the role comes from the convention, never a guess
         const refs = [...state.artifacts]
         for (const p of annotations.artifactPaths) {
-          const hit = classify(p)
-          if (hit && !refs.some((a) => a.path === p) && fs.existsSync(path.join(workdir, p))) {
-            refs.push({ role: hit.role, path: p })
+          const rel = normalizeArtifactPath(p)
+          if (!rel) continue
+          const hit = classify(rel)
+          if (hit && !refs.some((a) => a.path === rel)) {
+            try {
+              loadArtifact(workdir, rel, hit.role)
+              refs.push({ role: hit.role, path: rel })
+            } catch {
+              // unsafe, missing, unreadable, or symlink-escaping artifact path
+            }
           }
         }
         dao.setArtifacts(db, sessionId, refs)
@@ -438,11 +450,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // A refine turn (answering an intent question) is always read-only.
       const workdir = await resolveWorkdir(repo, session.pair)
       let writeEnabled = false
+      let writeBaseHead: string | undefined
       if (!refine && session.pair.compare.kind === 'branch') {
         const branch = session.pair.compare.symbol
         writeEnabled = workdir !== repo
           ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
           : !(await isDirty(repo)) && (await currentBranch(repo)) === branch
+        if (writeEnabled) writeBaseHead = await headSha(workdir)
       }
       const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
@@ -452,7 +466,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent, writeEnabled,
-        engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
+        engineSessionId: thread.engineSessionId, writeBaseHead, emit: (event) => send('op:event', { opId, event })
       })
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,

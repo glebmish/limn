@@ -7,7 +7,7 @@ import { createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolHostCtx } fr
 import { FakeEngine } from '../src/main/engines/fake'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta } from '../src/main/db/sessions'
-import { makeFixtureRepo } from './helpers/fixtureRepo'
+import { fixtureGit, makeFixtureRepo } from './helpers/fixtureRepo'
 import type { AgentAction, Comment, EngineEvent, RefPair, ReviewAnnotations } from '../src/shared/types'
 
 function makeCtx(over: Partial<ToolHostCtx> = {}): { ctx: ToolHostCtx; events: EngineEvent[] } {
@@ -298,6 +298,7 @@ describe('commit_changes (real git repo)', () => {
     const { db, ctx, sessionId, dir } = setup(true)
     fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
     const { isError, action } = await createToolHost(ctx).call('commit_changes', {
+      files: ['NEW.md'],
       message: 'limn: batch fix', resolutions: [{ commentId: 'q1', verdict: 'addressed', note: 'done' }]
     })
     expect(isError).toBeFalsy()
@@ -313,13 +314,14 @@ describe('commit_changes (real git repo)', () => {
 
   it('refuses to commit when the turn is not write-enabled', async () => {
     const { ctx } = setup(false)
-    const { isError } = await createToolHost(ctx).call('commit_changes', { message: 'nope' })
+    const { isError } = await createToolHost(ctx).call('commit_changes', { files: [], message: 'nope' })
     expect(isError).toBe(true)
   })
 
   it('records resolutions but emits no commit chip when nothing is staged', async () => {
     const { db, ctx, sessionId } = setup(true) // fixture repo is clean → nothing to commit
     const { isError, action } = await createToolHost(ctx).call('commit_changes', {
+      files: [],
       message: 'no-op', resolutions: [{ commentId: 'q1', verdict: 'skipped', note: 'not needed' }]
     })
     expect(isError).toBeFalsy()
@@ -327,5 +329,53 @@ describe('commit_changes (real git repo)', () => {
     const c = loadReviewState(db, sessionId).comments.find((x) => x.id === 'q1')!
     expect(c.status).toBe('resolved')
     expect(c.resolution!.commit).toBeUndefined() // no commit ref to backfill
+  })
+
+  it('refuses to stage the whole worktree when files are omitted', async () => {
+    const { ctx, dir } = setup(true)
+    fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
+    const { isError, result } = await createToolHost(ctx).call('commit_changes', { files: [], message: 'limn: unsafe' })
+    expect(isError).toBe(true)
+    expect(result).toContain('file paths')
+  })
+
+  it('leaves unrelated unstaged changes out of the agent commit', async () => {
+    const { ctx, dir } = setup(true)
+    fs.writeFileSync(path.join(dir, 'AGENT.md'), 'agent\n')
+    fs.writeFileSync(path.join(dir, 'USER.md'), 'user\n')
+    const { isError, action } = await createToolHost(ctx).call('commit_changes', {
+      files: ['AGENT.md'],
+      message: 'limn: agent-only'
+    })
+    expect(isError).toBeFalsy()
+    expect((action as Extract<AgentAction, { kind: 'code_committed' }>).files).toEqual(['AGENT.md'])
+    expect(fs.existsSync(path.join(dir, 'USER.md'))).toBe(true)
+    const untracked = fs.existsSync(path.join(dir, 'USER.md'))
+    expect(untracked).toBe(true)
+  })
+
+  it('rejects non-file path expansion before staging', async () => {
+    const { ctx, dir } = setup(true)
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'src', 'agent.ts'), 'agent\n')
+    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
+      files: ['src'],
+      message: 'limn: directory'
+    })
+    expect(isError).toBe(true)
+    expect(result).toContain('exact changed file paths')
+    expect(fixtureGit(dir, 'diff', '--cached', '--name-only')).toBe('')
+  })
+
+  it('refuses when HEAD moved after the write turn started', async () => {
+    const { ctx, dir } = setup(true)
+    ctx.writeBaseHead = '0'.repeat(40)
+    fs.writeFileSync(path.join(dir, 'NEW.md'), 'hello\n')
+    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
+      files: ['NEW.md'],
+      message: 'limn: stale'
+    })
+    expect(isError).toBe(true)
+    expect(result).toContain('HEAD moved')
   })
 })

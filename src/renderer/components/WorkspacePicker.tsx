@@ -4,6 +4,7 @@ import { I } from '../kit'
 import { useStore } from '../store'
 import { checkoutMatrix } from '../lib/worktreeMatrix'
 import { wtName, branchLocation } from '../lib/workspace'
+import { assertSafeWorktreeName, suggestedWorktreeName } from '../../shared/worktrees'
 
 /** Header-right worktree control: where the compare branch is checked out
  *  ("detached" when nowhere) and the action to check it out. Sessions are picked
@@ -102,7 +103,12 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                   <input className="bwp-wt-input" autoFocus value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newName.trim()) { setPendingWt(newName.trim()); setNewName(null) }
+                      if (e.key === 'Enter' && newName.trim()) {
+                        try {
+                          setPendingWt(assertSafeWorktreeName(newName))
+                          setNewName(null)
+                        } catch { /* server will surface the same validation if submitted another way */ }
+                      }
                       else if (e.key === 'Escape') { e.stopPropagation(); setNewName(null) }
                     }} />
                 </div>
@@ -111,7 +117,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
                   <I.plus style={{ width: 12, height: 12 }} /><span className="rsw-item-t">.worktrees/{pendingWt}</span><span className="ws-tag">new</span>
                 </button>
               ) : (
-                <button className="rsw-item" onClick={() => setNewName(branch)} disabled={!!loc.host}
+                <button className="rsw-item" onClick={() => setNewName(suggestedWorktreeName(branch))} disabled={!!loc.host}
                   title={loc.host
                     ? `${branch} is already checked out in ${name(loc.host)} — a branch can live in only one worktree.`
                     : `Create a new linked worktree under .worktrees/ for ${branch}`}>

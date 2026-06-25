@@ -108,7 +108,7 @@ ${list}
 
 Handle them using your tools:
 - Address each comment by editing the code, or answer it with reply_to_comment if no change is needed.
-- When you edit code, commit it with commit_changes — pass a short message ("limn: …") and the resolutions for the comments that commit addresses (each: commentId, verdict, note). Verdicts: "addressed" (done as asked), "reworked" (done differently — explain), "skipped" (not done — explain). commit_changes records the iteration.
+- When you edit code, commit it with commit_changes — pass the exact repository-relative files you changed, a short message ("limn: …"), and the resolutions for the comments that commit addresses (each: commentId, verdict, note). Verdicts: "addressed" (done as asked), "reworked" (done differently — explain), "skipped" (not done — explain). commit_changes records the iteration.
 - For comments handled without a code change, call resolve_comment with the verdict and note.
 - Keep the existing code style. Answers to your earlier open questions are decisions, not code comments.
 - Finish with a 2-3 sentence summary of what you did.`

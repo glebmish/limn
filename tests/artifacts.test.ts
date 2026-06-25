@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit, type FixtureRepo } from './helpers/fixtureRepo'
-import { detectArtifacts, loadArtifact, classify } from '../src/main/artifacts'
+import { detectArtifacts, loadArtifact, classify, normalizeArtifactPath } from '../src/main/artifacts'
 
 let fx: FixtureRepo
 beforeAll(() => {
@@ -36,6 +38,13 @@ describe('classify', () => {
     expect(classify('docs/plan.md')).toBeNull()
     expect(classify('specs/012-auth/research.md')).toBeNull()
     expect(classify('README.md')).toBeNull()
+  })
+
+  it('rejects absolute and dot-dot paths before convention matching', () => {
+    expect(normalizeArtifactPath('../docs/superpowers/specs/escape.md')).toBeNull()
+    expect(normalizeArtifactPath('/tmp/docs/superpowers/specs/escape.md')).toBeNull()
+    expect(classify('../docs/superpowers/specs/escape.md')).toBeNull()
+    expect(classify('C:\\tmp\\docs\\superpowers\\specs\\escape.md')).toBeNull()
   })
 })
 
@@ -87,5 +96,12 @@ describe('loadArtifact', () => {
     expect(art.format).toBe('sdd')
     expect(art.role).toBe('plan')
     expect(art.lines[0]).toBe('# Auth plan')
+  })
+
+  it('refuses traversal even if the escaped target exists and matches a convention', () => {
+    const outside = path.join(path.dirname(fx.dir), 'docs/superpowers/specs/escape.md')
+    fs.mkdirSync(path.dirname(outside), { recursive: true })
+    fs.writeFileSync(outside, '# Escape\n')
+    expect(() => loadArtifact(fx.dir, '../docs/superpowers/specs/escape.md', 'spec')).toThrow(/unsafe|escapes/)
   })
 })

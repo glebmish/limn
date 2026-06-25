@@ -27,6 +27,8 @@ export interface ToolHostCtx {
   writeEnabled: boolean
   /** the engine session backing this turn's thread, recorded on a commit's iteration. */
   engineSessionId?: string
+  /** HEAD when the write-enabled turn started; commit_changes refuses if it moved. */
+  writeBaseHead?: string
   /** push a live engine event to the renderer (an `action` event, here). */
   emit: (event: EngineEvent) => void
 }
@@ -104,6 +106,7 @@ function anchorLabel(a: CommentAnchor): string {
 }
 
 const COMMIT_INPUT = {
+  files: z.array(z.string().min(1)),
   message: z.string().min(1),
   resolutions: z.array(z.object({
     commentId: z.string().min(1),
@@ -111,6 +114,30 @@ const COMMIT_INPUT = {
     note: z.string()
   })).optional()
 } satisfies z.ZodRawShape
+
+function splitLines(out: string): string[] {
+  return out.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+
+function normalizeRepoPath(p: string): string {
+  const rel = p.replace(/\\/g, '/').trim()
+  if (!rel || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) throw new Error(`unsafe repository path: ${p}`)
+  if (rel.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`unsafe repository path: ${p}`)
+  return rel
+}
+
+async function stagedPaths(repo: string): Promise<string[]> {
+  return splitLines(await execGit(repo, ['diff', '--cached', '--name-only']))
+}
+
+async function changedPaths(repo: string): Promise<Set<string>> {
+  const [unstaged, staged, untracked] = await Promise.all([
+    execGit(repo, ['diff', '--name-only']),
+    execGit(repo, ['diff', '--cached', '--name-only']),
+    execGit(repo, ['ls-files', '--others', '--exclude-standard'])
+  ])
+  return new Set([...splitLines(unstaged), ...splitLines(staged), ...splitLines(untracked)])
+}
 
 // ── tool implementations ──────────────────────────────────────
 interface ToolImpl extends ToolDef {
@@ -279,19 +306,41 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'commit_changes',
     description:
       'Commit the code edits you made on the branch and record an iteration. Pass a commit ' +
-      'message and, optionally, the resolutions for the comments this commit addresses ' +
-      '(each: commentId, verdict addressed/reworked/skipped, note). Only available on write-enabled turns.',
+      'message, the exact repository-relative files to stage, and optionally the resolutions ' +
+      'for the comments this commit addresses (each: commentId, verdict addressed/reworked/skipped, note). ' +
+      'Only available on write-enabled turns.',
     input: COMMIT_INPUT,
     write: true,
     run: async (ctx, raw) => {
       if (!ctx.writeEnabled) throw new Error('Code edits are disabled this turn (dirty tree, wrong branch, or fixed-commit compare).')
-      const { message, resolutions } = raw as z.infer<z.ZodObject<typeof COMMIT_INPUT>>
-      await execGit(ctx.repo, ['add', '-A'])
-      const staged = (await execGit(ctx.repo, ['status', '--porcelain'])).trim().length > 0
+      const { files: rawFiles, message, resolutions } = raw as z.infer<z.ZodObject<typeof COMMIT_INPUT>>
+      if (ctx.writeBaseHead && await headSha(ctx.repo) !== ctx.writeBaseHead) {
+        throw new Error('Branch HEAD moved during the agent run; reload the review and retry.')
+      }
+      const files = [...new Set(rawFiles.map(normalizeRepoPath))]
+      const changed = await changedPaths(ctx.repo)
+      if (files.length === 0 && changed.size > 0) {
+        throw new Error('commit_changes must list the file paths to commit; refusing to stage the whole worktree.')
+      }
+      const missing = files.filter((p) => !changed.has(p))
+      if (missing.length > 0) {
+        throw new Error(`commit_changes files must be exact changed file paths: ${missing.join(', ')}`)
+      }
+      const allowed = new Set(files)
+      const preStaged = await stagedPaths(ctx.repo)
+      const unexpectedPreStaged = preStaged.filter((p) => !allowed.has(p))
+      if (unexpectedPreStaged.length > 0) {
+        throw new Error(`Unexpected staged changes outside commit_changes files: ${unexpectedPreStaged.join(', ')}`)
+      }
+      if (files.length > 0) await execGit(ctx.repo, ['add', '--', ...files])
+      const stagedFiles = await stagedPaths(ctx.repo)
+      const unexpectedStaged = stagedFiles.filter((p) => !allowed.has(p))
+      if (unexpectedStaged.length > 0) {
+        throw new Error(`Unexpected staged changes outside commit_changes files: ${unexpectedStaged.join(', ')}`)
+      }
+      const staged = stagedFiles.length > 0
       let sha = await headSha(ctx.repo)
-      const files: string[] = []
       if (staged) {
-        files.push(...(await execGit(ctx.repo, ['diff', '--cached', '--name-only'])).trim().split('\n').filter(Boolean))
         await execGit(ctx.repo, ['commit', '-m', message])
         sha = await headSha(ctx.repo)
         const st = loadReviewState(ctx.db, ctx.sessionId)
@@ -314,7 +363,7 @@ const TOOL_IMPLS: ToolImpl[] = [
       // only a real commit yields a code_committed action — otherwise the chip
       // would mislabel the pre-existing HEAD as this turn's commit.
       return staged
-        ? { result: `Committed ${short} (${files.length} file(s)).`, action: { kind: 'code_committed', sha: short, files, message } }
+        ? { result: `Committed ${short} (${stagedFiles.length} file(s)).`, action: { kind: 'code_committed', sha: short, files: stagedFiles, message } }
         : { result: 'No code changes to commit; recorded resolutions.' }
     }
   }

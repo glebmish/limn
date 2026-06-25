@@ -7,6 +7,8 @@ import { codexBinaryPath } from './binaries.js'
 import { registerCodexTurn } from './codexMcp.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 import { appServerEnabled, chatViaAppServer } from './codexAppServer.js'
+import { DEFAULT_EXECUTION_MODE, executionPolicy } from '../../shared/executionMode.js'
+import type { ExecutionMode } from '../../shared/types.js'
 
 /** Codex tool arguments -> kv pairs for the expanded tool-call row. */
 function kvOf(args: unknown): [string, string][] {
@@ -134,6 +136,17 @@ function parseJson(text: string): unknown {
 // auto-approval-review treats as auto-deny.
 const AUTO_APPROVAL = 'on-request' as const
 
+/** Default Codex SDK path has no interactive Limn approval bridge, but it still
+ * must enforce the selected tier's sandbox/approval knobs instead of silently
+ * running every chat as the same workspace-write/on-request turn. */
+export function codexThreadPolicy(mode: ExecutionMode | undefined, write: boolean): Pick<ThreadOptions, 'sandboxMode' | 'approvalPolicy'> {
+  const policy = executionPolicy(mode ?? DEFAULT_EXECUTION_MODE)
+  return {
+    sandboxMode: write ? policy.codexSandbox : policy.codexSandbox === 'danger-full-access' ? 'danger-full-access' : 'read-only',
+    approvalPolicy: policy.codexApprovalPolicy
+  }
+}
+
 export class CodexEngine implements ReviewEngine {
   id = 'codex' as const
   private base: CodexOptions = codexBinaryPath() ? { codexPathOverride: codexBinaryPath() } : {}
@@ -188,8 +201,7 @@ export class CodexEngine implements ReviewEngine {
         }
         const opts: ThreadOptions = {
           workingDirectory: turn.repo,
-          sandboxMode: write ? 'workspace-write' : 'read-only',
-          approvalPolicy: AUTO_APPROVAL,
+          ...codexThreadPolicy(turn.executionMode, write),
           ...modelOpts(turn.model, turn.reasoningEffort)
         }
         const thread = turn.engineSessionId ? codex.resumeThread(turn.engineSessionId, opts) : codex.startThread(opts)

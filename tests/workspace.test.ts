@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { wtName, branchLocation, reviewsForBranch } from '../src/renderer/lib/workspace'
+import { assertSafeWorktreeName, suggestedWorktreeName } from '../src/shared/worktrees'
 import type { WorktreeInfo, SessionListItem } from '../src/shared/types'
 
 const wt = (p: string, branch: string | null, primary = false, dirty = false): WorktreeInfo =>
@@ -33,5 +34,18 @@ describe('reviewsForBranch', () => {
   it('keeps only non-archived branch-compare sessions for the branch, newest first', () => {
     const out = reviewsForBranch([s(1, 'feat'), s(2, 'feat'), s(3, 'other'), s(4, 'feat', true)], 'feat')
     expect(out.map((x) => x.id)).toEqual([2, 1])
+  })
+})
+
+describe('worktree name safety', () => {
+  it('suggests a single folder name for slashy branch names', () => {
+    expect(suggestedWorktreeName('feature/auth-flow')).toBe('feature-auth-flow')
+  })
+
+  it('rejects names that would escape .worktrees', () => {
+    expect(assertSafeWorktreeName('feature-auth')).toBe('feature-auth')
+    expect(() => assertSafeWorktreeName('../escape')).toThrow()
+    expect(() => assertSafeWorktreeName('/tmp/escape')).toThrow()
+    expect(() => assertSafeWorktreeName('feature/auth')).toThrow()
   })
 })

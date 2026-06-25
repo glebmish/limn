@@ -31,10 +31,22 @@ const FORMATS: { id: ArtifactFormat; match: (rel: string) => 'spec' | 'plan' | n
   }
 ]
 
+/** Repository-relative artifact paths only. Agent-reported paths are untrusted:
+ *  reject absolute paths, dot segments, and Windows drive prefixes before any
+ *  path.join/path.resolve touches the filesystem. */
+export function normalizeArtifactPath(rel: string): string | null {
+  const norm = rel.replace(/\\/g, '/').trim()
+  if (!norm || norm.startsWith('/') || /^[A-Za-z]:/.test(norm)) return null
+  const parts = norm.split('/')
+  if (parts.some((p) => !p || p === '.' || p === '..')) return null
+  return norm
+}
+
 /** The single classifier: does this path match a known format's convention?
  *  Returns the assigned role and the detected format, or null. First match wins. */
 export function classify(rel: string): { role: 'spec' | 'plan'; format: ArtifactFormat } | null {
-  const norm = rel.split(path.sep).join('/')
+  const norm = normalizeArtifactPath(rel)
+  if (!norm) return null
   for (const f of FORMATS) {
     const role = f.match(norm)
     if (role) return { role, format: f.id }
@@ -66,26 +78,27 @@ function* walk(dir: string, depth: number): Generator<string> {
 export async function detectArtifacts(repo: string, branch: string, changedPaths: string[] = []): Promise<ArtifactRef[]> {
   const ticket = branch.match(/[A-Z]+-\d+/)?.[0]
   const branchTail = branch.split('/').pop() ?? branch
-  const changed = new Set(changedPaths)
+  const changed = new Set(changedPaths.map((p) => normalizeArtifactPath(p)).filter((p): p is string => Boolean(p)))
   const seen = new Set<string>()
   const matched: { ref: ArtifactRef; inDiff: boolean; score: number }[] = []
 
   const consider = (rel: string): void => {
-    if (seen.has(rel) || seen.size > MAX_FILES) return
-    seen.add(rel)
-    const hit = classify(rel)
+    const norm = normalizeArtifactPath(rel)
+    if (!norm || seen.has(norm) || seen.size > MAX_FILES) return
+    seen.add(norm)
+    const hit = classify(norm)
     if (!hit) return
-    const inDiff = changed.has(rel)
+    const inDiff = changed.has(norm)
     let score = inDiff ? 6 : 0
     // light relevance signal, only used to break ties in the no-diff fallback
     try {
-      const head = fs.readFileSync(path.join(repo, rel), 'utf8').split('\n').slice(0, 50).join('\n')
+      const head = fs.readFileSync(path.join(repo, norm), 'utf8').split('\n').slice(0, 50).join('\n')
       if (head.includes(branch) || head.includes(branchTail)) score += 3
       if (ticket && head.includes(ticket)) score += 3
     } catch {
       return
     }
-    matched.push({ ref: { role: hit.role, format: hit.format, path: rel }, inDiff, score })
+    matched.push({ ref: { role: hit.role, format: hit.format, path: norm }, inDiff, score })
   }
 
   // branch-diff markdown first — the artifact written for this change
@@ -119,10 +132,18 @@ function byScoreThenPath(a: { ref: ArtifactRef; score: number }, b: { ref: Artif
 }
 
 export function loadArtifact(repo: string, rel: string, role: 'spec' | 'plan' | 'doc'): Artifact {
-  const raw = fs.readFileSync(path.join(repo, rel), 'utf8')
+  const norm = normalizeArtifactPath(rel)
+  if (!norm) throw new Error(`unsafe artifact path: ${rel}`)
+  const root = fs.realpathSync(repo)
+  const full = path.resolve(root, norm)
+  const real = fs.realpathSync(full)
+  if (real !== root && !real.startsWith(root + path.sep)) {
+    throw new Error(`artifact path escapes repository: ${rel}`)
+  }
+  const raw = fs.readFileSync(real, 'utf8')
   const lines = raw.split('\n')
   const heading = lines.find((l) => l.startsWith('# '))
   // format is a pure function of the path — re-derive it rather than storing it
-  const format = classify(rel)?.format ?? 'superpowers'
-  return { role, format, path: rel, title: heading ? heading.slice(2).trim() : path.basename(rel), lines }
+  const format = classify(norm)?.format ?? 'superpowers'
+  return { role, format, path: norm, title: heading ? heading.slice(2).trim() : path.basename(norm), lines }
 }

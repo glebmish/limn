@@ -86,6 +86,7 @@ export class FakeEngine implements ReviewEngine {
         try { ids = (JSON.parse(listed.result) as { id: string }[]).map((c) => c.id) } catch { /* none */ }
         try { fs.appendFileSync(path.join(turn.repo, 'src/a.ts'), '\n// addressed by agent\n') } catch { /* repo may be read-only in tests */ }
         await turn.tools.call('commit_changes', {
+          files: ['src/a.ts'],
           message: 'limn: batch fixes',
           resolutions: ids.map((id) => ({ commentId: id, verdict: 'addressed' as const, note: 'Done (demo).' }))
         })
