@@ -413,10 +413,10 @@
 .wf.dz-spacious .title-threads { margin: 12px 44px 8px; }
 
 .page-h1-cmt, .rr-summary-cmt, .spec-req, .plan-peek-step,
-.gsec-diagram-cmt, .gsec-what-cmt, .limn-decision-cmt { position: relative; }
+.gsec-diagram-cmt, .gsec-what-cmt, .limn-decision-cmt, .limn-decision-q { position: relative; }
 /* the persistent gutter hover-zone */
 .page-h1-cmt::after, .rr-summary-cmt::after, .spec-req::after, .plan-peek-step::after,
-.gsec-diagram-cmt::after, .gsec-what-cmt::after, .limn-decision-cmt::after {
+.gsec-diagram-cmt::after, .gsec-what-cmt::after, .limn-decision-q::after {
   content: ""; position: absolute; left: -32px; top: 0; width: 32px; height: 100%; }
 .gsec-what-cmt::after { left: -24px; width: 24px; }  /* narration gutter = column gap */
 .page-h1-cmt .h1-plus { left: -28px; top: 7px; }
@@ -424,9 +424,9 @@
 .spec-req .peek-plus, .plan-peek-step .peek-plus { left: -26px; top: 1px; }
 .gsec-diagram-cmt .diagram-plus { left: -26px; top: 6px; }
 .gsec-what-cmt .narration-plus { left: -22px; top: 9px; }
-/* one AMBER + for the whole decision block (answering sends to the agent now,
-   resolving the question — not a queued comment), top-aligned with its header */
-.limn-decision-cmt .decision-plus { left: -26px; top: 13px; }
+/* a per-decision AMBER + (answering sends to the agent now, resolving that
+   question — not a queued comment), top-aligned with the question's first line */
+.limn-decision-q .decision-plus { left: -26px; top: 0; }
 .spec-plus.decision-plus { background: var(--amber); }
 .page-h1-cmt:hover .h1-plus,
 .rr-summary-cmt:hover .summary-plus,
@@ -434,7 +434,7 @@
 .plan-peek-step:hover .peek-plus,
 .gsec-diagram-cmt:hover .diagram-plus,
 .gsec-what-cmt:hover .narration-plus,
-.limn-decision-cmt:hover .decision-plus { display: flex; }
+.limn-decision-q:hover .decision-plus { display: flex; }
 
 /* section header — comment on the whole change; + sits inside the header's left
    padding (no bridge needed), rendered only while the section is open */

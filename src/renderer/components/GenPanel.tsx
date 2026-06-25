@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { checkoutGate, genCancelled, genForLoaded, newOpId, useStore } from '../store'
-import { I, EngineGlyph } from '../kit'
+import { I, EngineGlyph, shortSha, ago } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
 import { useTooltip } from '../lib/useTooltip'
-import type { AgentRef } from '../../shared/types'
+import { usePopover } from '../lib/usePopover'
+import type { AgentRef, CommitInfo } from '../../shared/types'
 
 /** mm:ss for the live elapsed counter. */
 function fmtElapsed(ms: number): string {
@@ -71,6 +72,36 @@ function SteerInput({ value, onChange, onSubmit, disabled }: {
       placeholder="Steer this pass (optional) — e.g. focus on error handling, skip test churn"
       aria-label="Steer this generation pass"
     />
+  )
+}
+
+/** Drift "View commits": a popover anchored to the button listing the commits that
+ *  landed after the generated SHA. `commits` is the newest-first drift slice of
+ *  loaded.commits (so row 0 is the branch tip). Own usePopover so the hook stays
+ *  above GenPanel's conditional returns. */
+function DriftCommits({ commits }: { commits: CommitInfo[] }) {
+  const { open, toggle, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4 })
+  return (
+    <>
+      <button className="gen-viewn" ref={anchorRef} aria-expanded={open} onClick={toggle}>View commits</button>
+      {open && (
+        <div className="drift-pop" ref={floatingRef} style={popStyle}>
+          <div className="drift-pop-hd">{commits.length} commit{commits.length === 1 ? '' : 's'} since the review</div>
+          <div className="drift-pop-list">
+            {commits.length === 0 ? (
+              <div className="dim" style={{ padding: 8, fontSize: 11.5 }}>Commit details unavailable.</div>
+            ) : commits.map((c) => (
+              // row-level title (like RefPicker's commit rows) — full message on hover
+              <div key={c.sha} className="limn-refpick-item" title={`${c.subject}\n${shortSha(c.sha)} · ${ago(c.date)}`}>
+                <span className="ri-name ri-sha">{shortSha(c.sha)}</span>
+                <span className="ri-sub">{c.subject}</span>
+                <span className="ri-age">{ago(c.date)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -217,6 +248,9 @@ export function GenPanel() {
     if (behind) void startGenerateNow(steer, true)
     else submitFollowUp()
   }
+  // drift commits = the entries ahead of the generated SHA (loaded.commits is
+  // newest-first, so the first driftCount rows are exactly the new commits).
+  const driftCommits = (loaded?.commits ?? []).slice(0, driftCount)
   return (
     <div className={'gen-cta gen-regen' + (behind ? ' gen-drift' : '')}>
       <span className={'gen-fresh' + (behind ? ' drift' : '')}>
@@ -225,7 +259,7 @@ export function GenPanel() {
         {behind ? (
           <>
             <span className="beh">{driftCount} commit{driftCount === 1 ? '' : 's'} behind</span>
-            <button className="gen-viewn" onClick={() => useStore.getState().openChat()}>View commits</button>
+            <DriftCommits commits={driftCommits} />
           </>
         ) : <span className="ud">up to date</span>}
       </span>

@@ -225,6 +225,13 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-fresh.drift .beh { color: var(--amber); font-weight: 700; }
 .gen-viewn { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-family: var(--sans); font-size: 11px; font-weight: 600; color: var(--amber); background: var(--panel); border: 1px solid var(--amber-line); border-radius: 999px; padding: 3px 10px; }
 .gen-viewn:hover { background: #fff; }
+/* drift "View commits" popover — reuses RefPicker's commit-row classes (.ri-*),
+   but the rows are read-only here so the cursor/hover affordance is neutralized. */
+.drift-pop { z-index: 50; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; overflow: hidden auto; }
+.drift-pop-hd { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 2px 8px 6px; }
+.drift-pop-list { max-height: 280px; overflow-y: auto; }
+.drift-pop .limn-refpick-item { cursor: default; }
+.drift-pop .limn-refpick-item:hover { background: transparent; }
 .gen-drift-exp { flex: 1 1 100%; font-size: 11px; color: var(--muted); line-height: 1.45; }
 .gen-drift-exp b { color: var(--ink-2); font-weight: 600; }
 .gen-regen .gen-acts { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; }
