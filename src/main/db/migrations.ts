@@ -15,19 +15,6 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`
         CREATE TABLE prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
-        CREATE TABLE pinned_dirs (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          path TEXT NOT NULL UNIQUE,
-          position INTEGER NOT NULL,
-          created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE scan_cache (
-          pin_id INTEGER PRIMARY KEY REFERENCES pinned_dirs(id) ON DELETE CASCADE,
-          tree_json TEXT NOT NULL,
-          scanned_at TEXT NOT NULL
-        );
-
         CREATE TABLE repos (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           path TEXT NOT NULL UNIQUE,
@@ -109,6 +96,7 @@ export const MIGRATIONS: Migration[] = [
           session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
           file TEXT NOT NULL,
           sha TEXT NOT NULL,
+          hash TEXT NOT NULL,
           PRIMARY KEY (session_id, file)
         );
 
@@ -132,15 +120,6 @@ export const MIGRATIONS: Migration[] = [
           PRIMARY KEY (session_id, path)
         );
       `)
-    }
-  },
-  {
-    // Per-file viewed snapshot gains a content hash, so an uncommitted edit (no commit
-    // movement) re-flags a viewed file. Existing rows default to '' → hash check skipped
-    // (commit-drift detection only) until the file is viewed again.
-    version: 2,
-    up(db) {
-      db.exec(`ALTER TABLE viewed_files ADD COLUMN hash TEXT NOT NULL DEFAULT ''`)
     }
   }
 ]
