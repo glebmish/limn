@@ -2,13 +2,10 @@ import { Codex, type CodexOptions, type Thread, type ThreadEvent, type ThreadOpt
 import type { EngineEvent, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
+import { buildReviewPrompt } from './prompts.js'
 import { codexBinaryPath } from './binaries.js'
-import { registerCodexTurn } from './codexMcp.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
-import { appServerEnabled, chatViaAppServer } from './codexAppServer.js'
-import { DEFAULT_EXECUTION_MODE, executionPolicy } from '../../shared/executionMode.js'
-import type { ExecutionMode } from '../../shared/types.js'
+import { chatViaAppServer } from './codexAppServer.js'
 
 /** Codex tool arguments -> kv pairs for the expanded tool-call row. */
 function kvOf(args: unknown): [string, string][] {
@@ -136,17 +133,6 @@ function parseJson(text: string): unknown {
 // auto-approval-review treats as auto-deny.
 const AUTO_APPROVAL = 'on-request' as const
 
-/** Default Codex SDK path has no interactive Limn approval bridge, but it still
- * must enforce the selected tier's sandbox/approval knobs instead of silently
- * running every chat as the same workspace-write/on-request turn. */
-export function codexThreadPolicy(mode: ExecutionMode | undefined, write: boolean): Pick<ThreadOptions, 'sandboxMode' | 'approvalPolicy'> {
-  const policy = executionPolicy(mode ?? DEFAULT_EXECUTION_MODE)
-  return {
-    sandboxMode: write ? policy.codexSandbox : policy.codexSandbox === 'danger-full-access' ? 'danger-full-access' : 'read-only',
-    approvalPolicy: policy.codexApprovalPolicy
-  }
-}
-
 export class CodexEngine implements ReviewEngine {
   id = 'codex' as const
   private base: CodexOptions = codexBinaryPath() ? { codexPathOverride: codexBinaryPath() } : {}
@@ -157,7 +143,7 @@ export class CodexEngine implements ReviewEngine {
     q.push({ type: 'status', text: 'Starting Codex…' })
     const thread = this.codex.startThread({
       workingDirectory: req.repo,
-      sandboxMode: 'read-only',
+      sandboxMode: 'workspace-write',
       approvalPolicy: AUTO_APPROVAL,
       ...modelOpts(req.model, req.reasoningEffort)
     })
@@ -173,60 +159,6 @@ export class CodexEngine implements ReviewEngine {
   }
 
   chat(turn: ChatTurn): EngineRun<string> {
-    // Opt-in: route through the bidirectional app-server (interactive approvals).
-    // Default stays the one-shot `codex exec` path below (the verified fallback).
-    if (appServerEnabled()) return chatViaAppServer(turn)
-
-    const q = new EventQueue()
-    const abort = new AbortController()
-    const write = Boolean(turn.writeEnabled)
-    // a write-enabled (batch) turn carries its own fully-built prompt; a read-only
-    // chat turn gets the conversational wrapper.
-    const prompt = write
-      ? turn.message
-      : turn.engineSessionId
-        ? buildChatPrompt(turn.message, turn.anchor)
-        : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
-
-    const result = (async (): Promise<{ value: string; sessionId: string }> => {
-      let release: (() => Promise<void>) | null = null
-      try {
-        // tool-enabled turns get a per-turn Codex pointed at this turn's localhost
-        // MCP server (config is constructor-scoped, so a fresh Codex per turn).
-        let codex = this.codex
-        if (turn.tools) {
-          const mcp = await registerCodexTurn(turn.tools)
-          release = mcp.release
-          codex = new Codex({ ...this.base, config: { mcp_servers: { limn: { url: mcp.url } } } })
-        }
-        const opts: ThreadOptions = {
-          workingDirectory: turn.repo,
-          ...codexThreadPolicy(turn.executionMode, write),
-          ...modelOpts(turn.model, turn.reasoningEffort)
-        }
-        const thread = turn.engineSessionId ? codex.resumeThread(turn.engineSessionId, opts) : codex.startThread(opts)
-        let finalText = ''
-        let failed: string | null = null
-        const { events } = await thread.runStreamed(prompt, { signal: abort.signal })
-        for await (const ev of events) {
-          const mapped = toEvent(ev)
-          if (mapped) q.push(mapped)
-          if (ev.type === 'item.completed' && ev.item.type === 'agent_message') finalText = ev.item.text
-          if (ev.type === 'turn.failed') failed = ev.error.message
-          if (ev.type === 'error') failed = ev.message
-        }
-        if (failed) throw new Error(`Codex run failed: ${failed}`)
-        q.push({ type: 'done' })
-        return { value: finalText, sessionId: thread.id || turn.engineSessionId || '' }
-      } catch (err) {
-        q.push({ type: 'error', message: err instanceof Error ? err.message : String(err) })
-        throw err
-      } finally {
-        q.close()
-        if (release) await release()
-      }
-    })()
-
-    return { events: q.iterable(), result, cancel: () => abort.abort() }
+    return chatViaAppServer(turn)
   }
 }

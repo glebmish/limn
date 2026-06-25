@@ -68,8 +68,7 @@ export interface Comment {
 export type FocusTarget = Extract<CommentAnchor, { kind: 'summary' } | { kind: 'section' } | { kind: 'file' } | { kind: 'diff' }>
 /** A side effect (or suggestion) an agent performed during a chat turn. Emitted
  *  live as an `EngineEvent` and persisted on the agent ChatMessage so chips rebuild
- *  on reload. Phase 1 ships `focus` + `suggest_viewed`; the rest land with the
- *  comment/review/commit tools. */
+ *  on reload. */
 export type AgentAction =
   | { kind: 'focus'; anchor: FocusTarget }
   | { kind: 'suggest_viewed'; files?: string[]; sectionIds?: string[]; note?: string }

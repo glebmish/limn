@@ -11,21 +11,14 @@ import { buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 
 /**
- * Hand-written `codex app-server` JSON-RPC-over-stdio client (the bidirectional
- * protocol that *can* answer approval server-requests — unlike `codex exec`).
+ * Hand-written `codex app-server` JSON-RPC-over-stdio client. This is the single
+ * Codex chat path because it can answer approval server-requests and route them
+ * through Limn's reviewer approval UI.
  *
- * ⚠️ LIVE-UNVERIFIED: built against the spec + a reference implementation,
- * but not exercised against a real `codex app-server`
- * here (no Codex CLI/auth/network). It is gated behind `LIMN_CODEX_APP_SERVER=1`;
- * the `codex exec` path in `codex.ts` stays the default fallback. The exact
- * method/param names should be pinned via `codex app-server generate-ts` against
- * the installed binary before flipping the default. The PURE helpers below
- * (framing, routing, decision/policy mapping, notification→event) are unit-tested.
+ * The exact method/param names are pinned from `codex app-server generate-ts`
+ * output where noted. The pure helpers below (framing, routing, decision/policy
+ * mapping, notification→event) are unit-tested.
  */
-
-export function appServerEnabled(): boolean {
-  return process.env.LIMN_CODEX_APP_SERVER === '1'
-}
 
 // ── pure helpers (unit-tested) ────────────────────────────────
 
@@ -184,7 +177,7 @@ export function appServerItemToEvent(rawItem: unknown, done: boolean): EngineEve
   return null
 }
 
-// ── stateful client (live-unverified) ─────────────────────────
+// ── stateful client ───────────────────────────────────────────
 
 function expandHome(p: string | undefined): string | undefined {
   if (!p) return undefined
@@ -285,8 +278,7 @@ function modelEffort(model?: string, effort?: ReasoningEffort): Record<string, u
   return { ...(model ? { model } : {}), ...(effort && effort !== 'max' ? { effort } : {}) }
 }
 
-/** Run one chat turn over the app-server (the `LIMN_CODEX_APP_SERVER` path). Mirrors
- *  `codex.ts` `chat()` but with interactive approvals. ⚠️ live-unverified. */
+/** Run one chat turn over the app-server with interactive approvals. */
 export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
   const q = new EventQueue()
   const write = Boolean(turn.writeEnabled)

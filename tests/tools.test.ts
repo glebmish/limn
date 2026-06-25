@@ -339,19 +339,17 @@ describe('commit_changes (real git repo)', () => {
     expect(result).toContain('file paths')
   })
 
-  it('leaves unrelated unstaged changes out of the agent commit', async () => {
+  it('refuses when unlisted changed files would be left behind', async () => {
     const { ctx, dir } = setup(true)
     fs.writeFileSync(path.join(dir, 'AGENT.md'), 'agent\n')
     fs.writeFileSync(path.join(dir, 'USER.md'), 'user\n')
-    const { isError, action } = await createToolHost(ctx).call('commit_changes', {
+    const { isError, result } = await createToolHost(ctx).call('commit_changes', {
       files: ['AGENT.md'],
       message: 'limn: agent-only'
     })
-    expect(isError).toBeFalsy()
-    expect((action as Extract<AgentAction, { kind: 'code_committed' }>).files).toEqual(['AGENT.md'])
-    expect(fs.existsSync(path.join(dir, 'USER.md'))).toBe(true)
-    const untracked = fs.existsSync(path.join(dir, 'USER.md'))
-    expect(untracked).toBe(true)
+    expect(isError).toBe(true)
+    expect(result).toContain('Unlisted changed files')
+    expect(fixtureGit(dir, 'diff', '--cached', '--name-only')).toBe('')
   })
 
   it('rejects non-file path expansion before staging', async () => {

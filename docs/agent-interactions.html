@@ -158,16 +158,16 @@
   <p>The whole agent surface is two methods. <span class="file">engines/types.ts</span></p>
 <pre><code><span class="k">interface</span> <span class="t">ReviewEngine</span> {
   id: <span class="t">EngineId</span>                                          <span class="c">// 'claude' | 'codex'</span>
-  generateReview(req: <span class="t">ReviewRequest</span>): <span class="t">EngineRun</span>&lt;<span class="t">ReviewAnnotations</span>&gt;   <span class="c">// read-only</span>
+  generateReview(req: <span class="t">ReviewRequest</span>): <span class="t">EngineRun</span>&lt;<span class="t">ReviewAnnotations</span>&gt;   <span class="c">// structured annotations</span>
   chat(turn: <span class="t">ChatTurn</span>): <span class="t">EngineRun</span>&lt;<span class="t">string</span>&gt;             <span class="c">// read-only OR write — tools decide</span>
 }</code></pre>
   <table>
     <tr><th>Operation</th><th>Method</th><th>Access</th><th>Returns</th><th>Prompt builder</th></tr>
-    <tr><td><b>Generate</b> — initial review</td><td><code>generateReview</code></td><td><span class="pill read">read-only</span></td><td><code>ReviewAnnotations</code> (structured)</td><td><code>buildReviewPrompt</code></td></tr>
+    <tr><td><b>Generate</b> — initial review</td><td><code>generateReview</code></td><td>repo exploration</td><td><code>ReviewAnnotations</code> (structured)</td><td><code>buildReviewPrompt</code></td></tr>
     <tr><td><b>Chat</b> — Q&amp;A next to the diff</td><td><code>chat</code></td><td><span class="pill read">read-only</span> + Limn tools</td><td><code>string</code> (final text)</td><td><code>buildChatPrompt</code> / <code>buildSeededChatPrompt</code></td></tr>
     <tr><td><b>Batch</b> — apply queued comments</td><td><code>chat</code></td><td><span class="pill write">write</span> when preconditions met</td><td><code>string</code> + side effects via tools</td><td><code>buildBatchPrompt</code></td></tr>
   </table>
-  <div class="note"><b>Batch is just chat with write tools.</b> The old structured <code>FixResult</code> is gone — applying comments now flows through <code>chat()</code> with the <code>commit_changes</code> / <code>resolve_comment</code> tools enabled. One conversation surface; tools, not a separate method, decide what the agent can do.</div>
+  <div class="note"><b>Batch is just chat with write tools.</b> Applying comments flows through <code>chat()</code> with the <code>commit_changes</code> / <code>resolve_comment</code> tools enabled. One conversation surface; tools, not a separate method, decide what the agent can do.</div>
 
   <!-- ─────────────────────────────────────────── -->
   <h2 id="prompts"><span class="n">04</span>Prompt construction</h2>
@@ -319,12 +319,12 @@
     <tr><td><code>add_comment</code> / <code>reply_to_comment</code></td><td>Author an agent comment / reply, anchored to diff/file/section/summary</td><td></td></tr>
     <tr><td><code>resolve_comment</code></td><td>Resolve a comment with verdict (addressed/reworked/skipped) + note</td><td></td></tr>
     <tr><td><code>edit_review</code></td><td>Amend title / summary / a section's <code>what</code>/<code>desc</code> in place</td><td></td></tr>
-    <tr><td><code>commit_changes</code></td><td><code>git add -A</code> + commit, record an iteration, attach resolutions</td><td><span class="pill write">write</span></td></tr>
+    <tr><td><code>commit_changes</code></td><td>stage exact listed files + commit, record an iteration, attach resolutions</td><td><span class="pill write">write</span></td></tr>
   </table>
   <p>The same <code>LIMN_TOOLS</code> array reaches each SDK differently:</p>
   <div class="chan">
     <div class="box"><h4><span class="pill claude">Claude</span> in-process MCP</h4><p><code>createSdkMcpServer</code> + <code>tool(name, desc, shape, handler)</code> consumes the Zod shape directly. Allowed names are prefixed <code>mcp__limn__*</code>.</p></div>
-    <div class="box"><h4><span class="pill codex">Codex</span> external MCP</h4><p>A per-turn localhost MCP server (<code>registerCodexTurn</code>) reflects the same shapes into JSON Schema; Codex is pointed at it via <code>config.mcp_servers.limn.url</code>.</p></div>
+    <div class="box"><h4><span class="pill codex">Codex</span> app-server + MCP</h4><p>A per-turn localhost MCP server (<code>registerCodexTurn</code>) reflects the same shapes into JSON Schema; <code>codex app-server</code> is pointed at it via <code>config.mcp_servers.limn.url</code>.</p></div>
   </div>
   <p>Write tools are <b>withheld</b> unless the turn is write-enabled — the agent silently degrades to review/comment-only rather than failing:</p>
 <pre><code><span class="k">export function</span> <span class="f">limnAllowedToolNames</span>(writeEnabled = <span class="p">false</span>): <span class="t">string</span>[] {
@@ -394,7 +394,7 @@
   <ol class="tight">
     <li>Acquire the per-repo lock (<code>repoLocks</code>); throw if another op is running for the repo.</li>
     <li>Build the diff skeleton (<code>getDiff</code>), load review state + artifacts.</li>
-    <li><code>engine.generateReview({ repo, branch, base, diff, artifacts, model, effort })</code> — <span class="pill read">read-only</span>.</li>
+    <li><code>engine.generateReview({ repo, branch, base, diff, artifacts, model, effort })</code>.</li>
     <li><code>pumpEvents(opId, run.events)</code> streams status/tool events to the renderer while <code>await run.result</code>.</li>
     <li><code>mergeAnnotations(skeleton, value)</code> → validated annotations + warnings (emitted as <code>status</code> events).</li>
     <li>Persist discovered artifacts; <code>updateSessionMeta</code> (annotations/title/summary, <code>reviewed_at_sha = head</code>); reset to iteration 1 recording the engine session id.</li>
@@ -432,8 +432,8 @@
     <tr><td>Session id</td><td>from <code>system/init</code> + terminal <code>result</code></td><td><code>thread.id</code></td></tr>
     <tr><td>Structured output</td><td>first-class <code>structured_output</code></td><td>final message text → <code>parseJson</code> (fence-tolerant)</td></tr>
     <tr><td>Reasoning effort</td><td><code>effort</code> option, <code>low→max</code> (drops Codex-only <code>minimal</code>)</td><td><code>modelReasoningEffort</code>, <code>minimal→xhigh</code> (drops Claude-only <code>max</code>)</td></tr>
-    <tr><td>Limn tools hosting</td><td>in-process MCP server (<code>createSdkMcpServer</code>)</td><td>per-turn localhost MCP server</td></tr>
-    <tr><td>Approvals</td><td><code>canUseTool</code> parks on <code>awaitDecision</code></td><td>app-server path (opt-in) for interactive approvals; default one-shot</td></tr>
+    <tr><td>Limn tools hosting</td><td>in-process MCP server (<code>createSdkMcpServer</code>)</td><td>app-server connected to a per-turn localhost MCP server</td></tr>
+    <tr><td>Approvals</td><td><code>canUseTool</code> parks on <code>awaitDecision</code></td><td>app-server approval requests park on <code>awaitDecision</code></td></tr>
   </table>
   <p>The shared <code>ReasoningEffort</code> union spans both ladders (<code>minimal | low | medium | high | xhigh | max</code>); each model's <code>reasoningEfforts</code> in the catalog (<code>shared/agents.ts</code>) gates which values the UI offers. <code>model</code>/<code>effort</code> left undefined means <b>Auto</b> — let the CLI pick its default.</p>
 

@@ -224,6 +224,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     return { sessionId: session.id }
   })
 
+  handle('findSession', async (repo: string, baseInput: string, compareInput: string) => {
+    const base = await resolveRefInput(repo, baseInput)
+    const compare = await resolveRefInput(repo, compareInput)
+    if (base.sha === compare.sha) return null
+    const pair: RefPair = {
+      base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
+      compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
+    }
+    const session = dao.findSession(db, repo, pair)
+    return session ? { sessionId: session.id } : null
+  })
+
   handle('loadSession', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
@@ -599,12 +611,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const session = mustGetSession(db, sessionId)
     const resolved = await resolveRefInput(session.repo, refInput)
     const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }
-    try {
-      dao.retargetSession(db, sessionId, side, refSide)
-    } catch (err) {
-      if (String(err).includes('UNIQUE')) throw new Error('A live session for that exact ref pair already exists — resume it instead', { cause: err })
-      throw err
-    }
+    dao.retargetSession(db, sessionId, side, refSide)
   })
 
   handle('installCli', async () => installCli())

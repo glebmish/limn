@@ -550,12 +550,10 @@ export const useStore = create<AppStore>((set, get) => {
         if (!repoState) return
         const base = refs?.base ?? repoState.defaultBase
         const compare = refs?.compare ?? (repoState.current !== 'HEAD' ? repoState.current : repoState.branches[0] ?? '')
-        // resume a live session for the exact pair unless a fresh review was asked for
+        // resume a live session for the exact resolved pair unless a fresh review was asked for
         if (!opts?.fresh) {
-          const match = get().repoSessions.find(
-            (s) => !s.archived && s.compareKind === 'branch' && s.compareSymbol === compare && s.baseSymbol === base
-          )
-          if (match) { await get().resumeExisting(match.id); return }
+          const match = await window.api.findSession(repoPath, base, compare)
+          if (match) { await get().resumeExisting(match.sessionId); return }
         }
         // transient: render the diff with no session row; persists on first write
         const loaded = await window.api.previewReview(repoPath, base, compare, get().agent)

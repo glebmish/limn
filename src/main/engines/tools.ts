@@ -6,17 +6,15 @@ import { execGit } from '../exec.js'
 import { headSha } from '../git.js'
 
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
-// shape directly via `tool(name, desc, shape, handler)`; Codex's external MCP
-// server reflects the same shape into JSON Schema. A handler runs in the Electron
-// main process — it may touch the DB / git, emit a live `action` event, and
-// returns the text the model sees. Phase 1 ships the two no-persistence tools
-// (`focus`, `suggest_mark_viewed`); comment/review/commit tools follow.
+// shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
+// the same shape through a per-turn external MCP server. A handler runs in the
+// Electron main process — it may touch the DB / git, emit a live `action` event,
+// and returns the text the model sees.
 
 /** Engine-agnostic tool definition (the shape both engines reflect). */
 export interface ToolDef { name: string; description: string; input: z.ZodRawShape }
 
-/** Per-turn context a tool host is bound to. Phase 1 only needs `emit`; the rest
- *  are here so the comment/review/commit tools plug in without reshaping callers. */
+/** Per-turn context a tool host is bound to. */
 export interface ToolHostCtx {
   db: DatabaseSync
   sessionId: number
@@ -327,6 +325,10 @@ const TOOL_IMPLS: ToolImpl[] = [
         throw new Error(`commit_changes files must be exact changed file paths: ${missing.join(', ')}`)
       }
       const allowed = new Set(files)
+      const unexpectedChanged = [...changed].filter((p) => !allowed.has(p))
+      if (unexpectedChanged.length > 0) {
+        throw new Error(`Unlisted changed files outside commit_changes files: ${unexpectedChanged.join(', ')}`)
+      }
       const preStaged = await stagedPaths(ctx.repo)
       const unexpectedPreStaged = preStaged.filter((p) => !allowed.has(p))
       if (unexpectedPreStaged.length > 0) {

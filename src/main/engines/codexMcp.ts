@@ -5,12 +5,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { LIMN_TOOLS, type AgentToolHost } from './tools.js'
 
-// Codex hosts custom tools only through external MCP servers: the `codex exec`
-// subprocess (not our process) opens the connection, so we run a localhost
-// streamable-HTTP MCP server in main, lazily started once. Each turn registers
-// its AgentToolHost under an unguessable path token; the loopback bind + token
-// are the only guard (headless `codex exec` has no approval prompts). One McpServer
-// + transport per turn, addressed at /mcp/<token>.
+// Codex hosts Limn tools through external MCP servers. The `codex app-server`
+// subprocess opens the connection, so we run a localhost streamable-HTTP MCP
+// server in main. Each turn registers its AgentToolHost under an unguessable path
+// token; app-server approval requests are handled separately in codexAppServer.
+// One McpServer + transport per turn, addressed at /mcp/<token>.
 
 interface Turn { server: McpServer; transport: StreamableHTTPServerTransport }
 const turns = new Map<string, Turn>()

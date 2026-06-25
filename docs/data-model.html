@@ -334,7 +334,7 @@
 }</pre>
   <div class="note key">
     <div class="hd">Stay in lockstep</div>
-    This rule is duplicated in <b>JS</b> (<code>refIdentity</code>) and in <b>SQL</b> (the <code>base_ident</code> / <code>compare_ident</code> generated columns). Uniqueness is enforced by a <b>partial unique index</b>: at most one <em>live (non-archived)</em> session per identity triple. If the two definitions ever drift apart, session keying breaks silently.
+    This rule is duplicated in <b>JS</b> (<code>refIdentity</code>) and in <b>SQL</b> (the <code>base_ident</code> / <code>compare_ident</code> generated columns). Multiple live sessions may share the same identity triple; <code>findSession</code> returns the newest live row as the resume hint. If the two identity definitions ever drift apart, session keying breaks silently.
   </div>
 
   <h2 id="session-life">Session lifecycle</h2>
@@ -359,20 +359,20 @@
   <h3>Generate — the initial review</h3>
   <ol class="steps">
     <li>Acquire a per-repo lock (throws if the repo is busy).</li>
-    <li>Read the live diff skeleton; run <code>engine.generateReview(...)</code> read-only, pumping <code>EngineEvent</code>s to the renderer.</li>
+    <li>Read the live diff skeleton; run <code>engine.generateReview(...)</code>, pumping <code>EngineEvent</code>s to the renderer.</li>
     <li><b>mergeAnnotations</b> reconciles the result against git — drops references to files no longer in the diff, guarantees 100% file coverage via a synthetic "Other changes" section.</li>
     <li>Persist annotations + discovered artifacts; set <code>reviewedAtSha = head</code>.</li>
     <li><b>resetIterations</b> → write iteration <code>n=1</code> (regenerate wipes stale <code>n&gt;1</code> rows so a later fix can't resume the wrong engine thread).</li>
     <li><b>reconcileChats</b> — first generate creates the default <code>'review'</code> + <code>'user'</code> threads; later generates re-point the review chat at the newest iteration's engine session.</li>
   </ol>
   <h3>Retarget &amp; terminate</h3>
-  <p><b>retargetSession</b> mutates a side (and thus the generated identity); it can collide with the unique index, surfaced as a friendly message. <b>archiveSession</b> stamps <code>archived_at</code>, dropping the row out of the partial unique index — children persist but become invisible. <b>"Start fresh"</b> = archive the old session, then create a new one on the now-free identity slot. Hard <code>DELETE</code> happens only on import-rollback (CASCADE drops children).</p>
+  <p><b>retargetSession</b> mutates a side (and thus the generated identity). <b>archiveSession</b> stamps <code>archived_at</code>; children persist but the row disappears from live lists and resume hints. <b>"Start fresh"</b> creates another live session for the same identity. Hard <code>DELETE</code> happens only on import-rollback (CASCADE drops children).</p>
 
   <h2 id="comment-life">Comment status machine</h2>
   <p>A comment's <code>status</code> tracks its journey from reviewer note to resolved-by-agent. <code>unresolvedCount</code> counts <code>queued</code> + <code>sent</code>.</p>
   <div class="flow">
     <span class="pill start">queued</span>
-    <span class="arr">→<small>sendFeedback</small></span>
+    <span class="arr">→<small>sendBatch</small></span>
     <span class="pill">sent</span>
     <span class="arr">→<small>agent run</small></span>
     <span class="pill end">resolved</span>

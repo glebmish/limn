@@ -17,12 +17,12 @@ All engines implement one interface (`engines/types.ts`) — just **two methods*
 ```ts
 interface ReviewEngine {
   id: EngineId  // 'claude' | 'codex'
-  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>  // read-only
+  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
   chat(turn: ChatTurn): EngineRun<string>  // read-only Q&A OR write batch — tools decide
 }
 ```
 
-Three product operations map onto these two methods — **generate** (read-only review), **chat** (read-only Q&A), and **batch** (apply queued comments: edits + commits). Batch is *not* a separate method: it is `chat()` with the write-enabled tool layer (`commit_changes` et al.). What the agent can do is decided by which **tools** the turn carries, not by which method is called. All three return the same dual-channel envelope:
+Three product operations map onto these two methods — **generate** (explore the repo and produce structured annotations), **chat** (Q&A next to the diff), and **batch** (apply queued comments: edits + commits). Batch is *not* a separate method: it is `chat()` with the write-enabled tool layer (`commit_changes` et al.). What the agent can do is decided by the engine/tool policy for the turn. All three return the same dual-channel envelope:
 
 ```ts
 interface EngineRun<T> {
@@ -67,11 +67,11 @@ A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides ev
 
 ## Codex engine (`codex.ts`)
 
-- **SDK:** `@openai/codex-sdk` — `new Codex(...)`, `startThread` / `resumeThread`, `thread.runStreamed(prompt, { outputSchema, signal })` yielding `ThreadEvent`s.
+- **SDK:** generation uses `@openai/codex-sdk` — `new Codex(...)`, `startThread`, `thread.runStreamed(prompt, { outputSchema, signal })` yielding `ThreadEvent`s. Chat/batch use `codex app-server` over JSON-RPC stdio so Limn can answer approval requests.
 - **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
-- **Sandbox (the permission analogue):** `sandboxMode: 'read-only'` for review/read-only chat, `'workspace-write'` for write-enabled batch turns. `approvalPolicy` is `'on-request'` (`AUTO_APPROVAL`) throughout the default path — *not* `'never'`, which a guardian/auto-approval-review treats as auto-deny (and would block the limn MCP tools). `workingDirectory: repo`.
-- **Tools:** the engine-agnostic Limn tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and Codex is pointed at it via `config.mcp_servers.limn.url`; because Codex config is constructor-scoped, a fresh `Codex` is built per tool-enabled turn and released after.
-- **Interactive approvals (opt-in):** when `appServerEnabled()`, chat routes through the bidirectional **app-server** path (`codexAppServer.ts`) which maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events. The default stays the verified one-shot `runStreamed` path.
+- **Sandbox (the permission analogue):** generation uses `sandboxMode: 'workspace-write'` with `approvalPolicy: 'on-request'`, matching Claude's command-capable review exploration. Chat/batch map the reviewer's execution tier through `codexAppServer.ts`: read-only for ordinary chat, workspace-write for write-enabled batch, and danger-full-access for Full access.
+- **Tools:** the engine-agnostic Limn tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and `codex app-server` is pointed at it via config args.
+- **Interactive approvals:** chat/batch always route through the bidirectional **app-server** path (`codexAppServer.ts`), which maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events.
 - **Sessions:** the thread id is the session id (`startThread` for generate / a fresh chat, `resumeThread` for a continued chat/batch).
 - **Model & effort:** `modelOpts(model, reasoningEffort)` sets `model` and `modelReasoningEffort` on `ThreadOptions` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
 - **Key difference from Claude:** Codex returns its review result as the final `agent_message` **text**, not a structured field. The engine runs it through `parseJson()`, which tries `JSON.parse` and, on failure, strips a ```` ```json ```` fence and retries before throwing. This fence-stripping is the only robustness net for schema-constrained output occasionally arriving fenced.
@@ -102,7 +102,7 @@ Plain-string builders. `describeAnchor()` renders each of the 7 `CommentAnchor` 
 - **`buildReviewPrompt(req)`** — frames the agent as a review guide and instructs an **explore-first** pass (read changed files in full, grep callers/tests, walk `git log base..branch`, read artifacts). It supplies a pre-computed changed-files list (status, ±counts, hunk ranges, merge-base/head SHAs) and an artifact block ("the intent this change is judged against"). The output contract: group **all** files into **2–8 logical sections** (by purpose, not directory; each file in exactly one section), per-section `desc` + plain-language `what`, **risk flags** keyed to exact file + hunk range, an optional **mechanism diagram** (2–5 nodes), `title` + `summary`, a **spec/plan cross-check** (`planMap`: acceptance criteria met/partial/false, plan steps mapped to sections, deviations), and `questions` needing a human decision.
 - **`buildChatPrompt(message, anchor?)`** — the thin conversational wrapper for a **resuming** read-only chat: the message, optional anchor prose, "Do NOT modify any files."
 - **`buildSeededChatPrompt(ctx, message, anchor?)`** — for a **fresh** chat whose agent did *not* produce the review (so there is no engine session to resume). Re-orients the new agent from scratch: branch/base, the review summary so far, full read access, "Do NOT modify any files."
-- **`buildBatchPrompt(comments, steer?, context?)`** — the unified apply turn. Lists each queued comment with its **stable id**, anchor, text, and reply thread, plus an optional reviewer `steer`. Instructs the agent to act **through its tools** — edit & `commit_changes` (passing per-comment resolutions: `addressed` / `reworked` / `skipped`), or `reply_to_comment` / `resolve_comment` when no code change is needed — keep existing code style, treat answers to earlier open questions as decisions, and finish with a 2–3 sentence summary. `context` seeds the review framing when the thread has no engine session to resume. It does **not** ask for a structured `FixResult`; resolutions and commits are tool calls.
+- **`buildBatchPrompt(comments, steer?, context?)`** — the unified apply turn. Lists each queued comment with its **stable id**, anchor, text, and reply thread, plus an optional reviewer `steer`. Instructs the agent to act **through its tools** — edit & `commit_changes` (passing per-comment resolutions: `addressed` / `reworked` / `skipped`), or `reply_to_comment` / `resolve_comment` when no code change is needed — keep existing code style, treat answers to earlier open questions as decisions, and finish with a 2–3 sentence summary. `context` seeds the review framing when the thread has no engine session to resume.
 
 ## Schema & validation
 
@@ -135,9 +135,9 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 | `add_comment` / `reply_to_comment` | author an agent comment / reply, anchored to diff/file/section/summary | |
 | `resolve_comment` | resolve a comment with verdict + note | |
 | `edit_review` | amend title / summary / a section's `what`/`desc` in place | |
-| `commit_changes` | `git add -A` + commit, record an iteration, attach resolutions | **write** |
+| `commit_changes` | stage exact listed files + commit, record an iteration, attach resolutions | **write** |
 
-- **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex's per-turn localhost MCP server reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__limn__<name>`.
+- **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex app-server connects to a per-turn localhost MCP server that reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__limn__<name>`.
 - **Withholding writes:** `limnAllowedToolNames(writeEnabled)` drops `write` tools unless the turn is write-enabled, so the agent degrades to review/comment-only rather than failing.
 - **Call path:** `createToolHost(ctx).call(name, args)` validates args against the Zod shape at the boundary, runs the handler, and — if it produced an `AgentAction` — emits it live (`type:'action'`) *and* collects it for persistence on the chat message (so chips rebuild on reload). A handler throw becomes `{isError:true}` text, not a crash.
 - **The comment id is the join key** that survives the whole batch round-trip: prompt → the agent's `resolve_comment`/`commit_changes` call → the DB row's `resolution`.
@@ -169,7 +169,7 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 
 1. Acquire the per-repo lock (`repoLocks`); throws if another op is running for the repo.
 2. Build the diff skeleton (`getDiff`), load review state + artifacts.
-3. `engine.generateReview({ repo, branch, base, diff, artifacts })` — read-only.
+3. `engine.generateReview({ repo, branch, base, diff, artifacts })`.
 4. Pump events; await `result`.
 5. `mergeAnnotations(skeleton, value)` → validated annotations + warnings (emitted as status events).
 6. Persist discovered artifact paths; `updateSessionMeta` (annotations/title/summary, `reviewed_at_sha = head`); `resetIterations` to iteration 1 recording the engine session id + end SHA.
@@ -184,7 +184,7 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 
 ### Batch (apply comments) — `ipc.sendBatch`
 
-Batch is **chat with write tools** — there is no `applyFeedback`/`sendFeedback` and no structured `FixResult`.
+Batch is **chat with write tools** — it returns ordinary chat text plus tool side effects, not a separate structured fix result.
 
 1. Acquire the per-repo lock. Compute `writeEnabled` from the same preconditions the old fix flow enforced: the compare side is a **branch** (can't push to a frozen commit), the working tree is **clean**, and the repo is **on that branch**. **When unmet, the turn runs write-disabled (review/comment-only) instead of failing.**
 2. Mark the selected comments `sent` and persist (a crash leaves a recoverable trail).

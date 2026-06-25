@@ -7,7 +7,6 @@ import { getDiff, diffSince, markSince, headSha } from '../src/main/git'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { FakeEngine } from '../src/main/engines/fake'
 import { toEvents, makeCanUseTool, toApprovalRequest } from '../src/main/engines/claude'
-import { codexThreadPolicy } from '../src/main/engines/codex'
 import { resolveDecision } from '../src/main/engines/approvals'
 import { createToolHost } from '../src/main/engines/tools'
 import { openDb } from '../src/main/db/db'
@@ -190,20 +189,6 @@ describe('claude canUseTool policy', () => {
     expect(toApprovalRequest('bash', 'Bash', { command: 'ls' }, 'r1')).toMatchObject({ kind: 'command', detail: { command: 'ls' } })
     expect(toApprovalRequest('e', 'Write', { file_path: 'a.ts' }, 'r2')).toMatchObject({ kind: 'file_change', detail: { files: ['a.ts'] } })
     expect(toApprovalRequest('w', 'WebFetch', { url: 'x' }, 'r3')).toMatchObject({ kind: 'tool_use', detail: { toolName: 'WebFetch' } })
-  })
-})
-
-describe('codex default adapter policy', () => {
-  it('maps the selected execution mode into thread options', () => {
-    expect(codexThreadPolicy('ask', true)).toEqual({ approvalPolicy: 'on-request', sandboxMode: 'read-only' })
-    expect(codexThreadPolicy('edits', true)).toEqual({ approvalPolicy: 'on-request', sandboxMode: 'workspace-write' })
-    expect(codexThreadPolicy('auto', true)).toEqual({ approvalPolicy: 'on-failure', sandboxMode: 'workspace-write' })
-    expect(codexThreadPolicy('full', true)).toEqual({ approvalPolicy: 'never', sandboxMode: 'danger-full-access' })
-  })
-
-  it('keeps non-write turns read-only except explicit full access', () => {
-    expect(codexThreadPolicy('edits', false)).toEqual({ approvalPolicy: 'on-request', sandboxMode: 'read-only' })
-    expect(codexThreadPolicy('full', false)).toEqual({ approvalPolicy: 'never', sandboxMode: 'danger-full-access' })
   })
 })
 

@@ -101,23 +101,19 @@ This rule exists in **two places that must stay in lockstep**:
 - `refIdentity()` in `src/shared/types.ts` (JavaScript, used by `findSession`)
 - the `base_ident` / `compare_ident` **`GENERATED ALWAYS AS … STORED`** columns on `sessions` (SQL)
 
-> ⚠️ If you change one without the other, `findSession` computes one key while the DB indexes another — resumes silently miss and you get duplicate "live" sessions. Same rule, two implementations.
+> ⚠️ If you change one without the other, `findSession` computes one key while the DB stores another — resumes silently miss and the app opens a new transient review instead of the expected saved one. Same rule, two implementations.
 
-The uniqueness guarantee is a **partial unique index**:
-
-```sql
-CREATE UNIQUE INDEX idx_sessions_pair
-  ON sessions(repo_id, base_ident, compare_ident) WHERE archived_at IS NULL;
-```
-
-At most **one live (non-archived) session per (repo, base identity, compare identity)**. Setting `archived_at` drops the row out of the index, freeing the slot so a fresh session with the same pair can be created. `createSession` and `retargetSession` can therefore throw on this index when an identity collides — `ipc.ts` catches that and turns it into a friendly message.
+Multiple live sessions may share the same `(repo, base identity, compare identity)`.
+This is intentional: "New review" creates another live session rather than archiving
+or overwriting the old one. `findSession` returns the most recently touched live row
+for an exact identity, which is the resume hint used by the default open path.
 
 > ⚠️ `assertResolved()` guards a trap: a commit side with an empty `anchorSha` would collapse all unresolved commits onto identity `c:`. Creation/retarget throws rather than allow it.
 
 ### Lifecycle
 
-- **Start vs resume:** resolve both ref inputs → `findSession`; if found, resume; else `createSession`. The compare screen does the same lookup to offer "resume existing" with an unresolved-comment count.
-- **Start fresh:** `archiveSession` stamps `archived_at` (the old session and its rows persist but become invisible to `findSession`), then a new session is created on the now-free identity slot.
+- **Start vs resume:** resolve both ref inputs → `findSession`; if found, resume; else `createSession`. The renderer asks main for this lookup so branch and commit refs use the same identity logic.
+- **Start fresh:** pass `fresh` to `startSession`; it skips `findSession` and creates another live session for the same pair. `archiveSession` only soft-deletes a row so it no longer appears in live lists or resume hints.
 - **Reviewed / approved SHAs:** `sessions` carries `reviewed_at_sha` (set on every generate, = diff head) and `approved_sha` (set on explicit approve). The review's baseline is `approved_sha ?? reviewed_at_sha`; when it differs from the current head, a "since" diff highlights what moved. `viewed_files.sha` does the same per file; `artifact_approvals` per artifact.
 
 ## Migrations

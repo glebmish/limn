@@ -89,9 +89,8 @@ Answer conversationally and concisely.`
 }
 
 /** The unified batch turn: the agent handles queued comments with its tools —
- *  editing & committing code, resolving, or replying — rather than returning a
- *  structured FixResult. When the thread has no engine session to resume,
- *  `context` seeds the review framing. */
+ *  editing & committing code, resolving, or replying. When the thread has no
+ *  engine session to resume, `context` seeds the review framing. */
 export function buildBatchPrompt(comments: Comment[], steer?: string, context?: ChatContext): string {
   const list = comments
     .map((c, i) => `${i + 1}. [id: ${c.id}] on ${describeAnchor(c.anchor)}:\n   "${c.text}"${c.replies.length ? `\n   thread: ${c.replies.map((r) => `${r.author}: ${r.text}`).join(' | ')}` : ''}`)

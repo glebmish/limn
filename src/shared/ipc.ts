@@ -71,6 +71,8 @@ export interface Api {
   /** Resolve both refs, return the session id. `fresh` forces a new session even
    *  when one already exists for the exact pair (the hub's "New review"). */
   startSession(repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean): Promise<{ sessionId: number }>
+  /** Resolve both refs and return the live session for that exact identity, if any. */
+  findSession(repo: string, baseInput: string, compareInput: string): Promise<{ sessionId: number } | null>
   /** Build a review for a ref pair without minting a session (the default entry).
    *  The renderer holds it transiently and persists on first write. Throws on an
    *  unresolvable ref. */
@@ -134,7 +136,7 @@ export interface RendererApi extends Api {
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
   'checkoutInto', 'addWorktreeFor',
-  'startSession', 'previewReview', 'loadSession', 'archiveSession',
+  'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
