@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
+  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
   RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from '../../shared/types.js'
 import { effectiveRef, refIdentity } from '../../shared/types.js'
@@ -293,6 +293,26 @@ export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessag
       m.actions && m.actions.length ? JSON.stringify(m.actions) : null,
       m.tools && m.tools.length ? JSON.stringify(m.tools) : null,
       m.segments && m.segments.length ? JSON.stringify(m.segments) : null)
+}
+
+/** Persist a resolution onto a suggest_viewed action in a thread's message history.
+ *  Finds the message row whose actions carry an action with `action.id === actionId`,
+ *  stamps `resolution`, and rewrites only that row's actions_json (segments_json and
+ *  the rest are left untouched). A non-matching id is a no-op. */
+export function setActionResolution(
+  db: DatabaseSync, threadId: number, actionId: string, resolution: 'dismissed'
+): void {
+  const rows = db.prepare('SELECT id, actions_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
+    .all(threadId) as { id: number; actions_json: string | null }[]
+  for (const row of rows) {
+    if (!row.actions_json) continue
+    const actions = JSON.parse(row.actions_json) as AgentAction[]
+    const target = actions.find((a) => a.kind === 'suggest_viewed' && a.id === actionId)
+    if (!target) continue
+    if (target.kind === 'suggest_viewed') target.resolution = resolution
+    db.prepare('UPDATE chat_messages SET actions_json = ? WHERE id = ?').run(JSON.stringify(actions), row.id)
+    return
+  }
 }
 
 export function setThreadEngineSession(db: DatabaseSync, threadId: number, engineSessionId: string): void {

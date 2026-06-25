@@ -169,7 +169,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                         </>
                       )
                   ) : m.text}
-                  {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} />}
+                  {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} threadId={active?.id} />}
                 </div>
               </div>
             ))}
@@ -182,7 +182,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   ) : (
                     <div className="tstatus"><span className="limn-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
-                  {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} />}
+                  {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} threadId={active?.id} />}
                 </div>
               </div>
             )}

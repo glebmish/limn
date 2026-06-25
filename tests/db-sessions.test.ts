@@ -13,7 +13,7 @@ import {
   approveArtifact, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, setThreadMode, setThreadTitle, deriveChatTitle,
-  pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads
+  pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads, setActionResolution
 } from '../src/main/db/sessions'
 import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
@@ -284,6 +284,32 @@ describe('chat threads DAO', () => {
     setThreadMode(db, t.id, 'full')
     expect(getChatThread(db, t.id)!.executionMode).toBe('full')
     expect(listChatThreads(db, s.id).find((c) => c.id === t.id)!.executionMode).toBe('full')
+  })
+
+  it('setActionResolution persists a dismissal onto the matching suggest_viewed action; unrelated ids no-op', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const actions: AgentAction[] = [
+      { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } },
+      { kind: 'suggest_viewed', id: 'sv-1', files: ['src/a.ts'], note: 'covered' }
+    ]
+    addChatMessage(db, t.id, { role: 'agent', text: 'done', at: 'T1', actions })
+    // unrelated row that must stay untouched
+    addChatMessage(db, t.id, { role: 'agent', text: 'more', at: 'T2', segments: [{ kind: 'text', text: 'hi' }] })
+
+    setActionResolution(db, t.id, 'sv-1', 'dismissed')
+    const msgs = getChatThread(db, t.id)!.messages
+    const sv = msgs[0].actions!.find((a) => a.kind === 'suggest_viewed')!
+    expect(sv.kind === 'suggest_viewed' && sv.resolution).toBe('dismissed')
+    // the focus action in the same row is left intact
+    expect(msgs[0].actions![0]).toEqual({ kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } })
+    // the other row's segments_json is untouched
+    expect(msgs[1].segments).toEqual([{ kind: 'text', text: 'hi' }])
+
+    // a non-matching id changes nothing
+    setActionResolution(db, t.id, 'nope', 'dismissed')
+    const after = getChatThread(db, t.id)!.messages[0].actions!.find((a) => a.kind === 'suggest_viewed')!
+    expect(after.kind === 'suggest_viewed' && after.resolution).toBe('dismissed')
   })
 
   it('round-trips agent message tools through tools_json', () => {

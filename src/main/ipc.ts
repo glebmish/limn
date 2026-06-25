@@ -493,6 +493,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     return dao.listChatThreads(db, sid)
   })
 
+  handle('dismissSuggestion', async (threadId: number, actionId: string) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    if (sid == null) throw new Error('chat thread not found')
+    dao.setActionResolution(db, threadId, actionId, 'dismissed')
+    return dao.listChatThreads(db, sid)
+  })
+
   handle('deleteChat', async (threadId: number) => {
     const sid = dao.chatThreadSessionId(db, threadId)
     if (sid == null) throw new Error('chat thread not found')

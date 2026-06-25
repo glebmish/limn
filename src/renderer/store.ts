@@ -261,6 +261,8 @@ interface AppStore {
   newChat(): Promise<void>
   setActiveChatAgent(a: AgentRef): Promise<void>
   setChatMode(threadId: number, mode: ExecutionMode): Promise<void>
+  /** Persist a reviewer's dismissal of a suggest-mark-viewed card. */
+  dismissSuggestion(threadId: number, actionId: string): Promise<void>
   /** answer a pending approval for the running op. */
   respondApproval(requestId: string, decision: ApprovalDecision): void
   /** stop the running op (also auto-denies any parked approvals in main). */
@@ -790,6 +792,14 @@ export const useStore = create<AppStore>((set, get) => {
     async setChatMode(threadId, mode) {
       try {
         setChats(await window.api.setChatMode(threadId, mode))
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
+    async dismissSuggestion(threadId, actionId) {
+      try {
+        setChats(await window.api.dismissSuggestion(threadId, actionId))
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) })
       }

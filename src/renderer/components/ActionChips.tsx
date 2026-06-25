@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph, Ava } from '../kit'
-import { effectiveSections, useStore } from '../store'
+import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
 import { focusAnchor } from '../lib/focus'
 import { agentLabel } from '../../shared/agents'
 
@@ -158,12 +158,38 @@ function CommentActionCard({ action, engine }: {
   )
 }
 
+/** The resolved state to show on mount: an explicit dismissal is persisted; the
+ *  "marked" outcome is derived from the real viewed marks (every suggested file
+ *  viewed, and every suggested section fully viewed). Anything unresolvable counts
+ *  as not-viewed, so the card stays actionable. */
+function suggestResolved(action: Extract<AgentAction, { kind: 'suggest_viewed' }>): 'idle' | 'done' | 'dismissed' {
+  if (action.resolution === 'dismissed') return 'dismissed'
+  const files = action.files ?? []
+  const sectionIds = action.sectionIds ?? []
+  if (files.length === 0 && sectionIds.length === 0) return 'idle'
+  const { loaded, viewedAt } = useStore.getState()
+  const diffFiles = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  const sections = effectiveSections(loaded)
+  const filesViewed = files.every((p) => {
+    const fd = diffFiles.find((f) => f.path === p)
+    return fd ? fileViewed(fd, viewedAt) : false
+  })
+  const sectionsViewed = sectionIds.every((id) => {
+    const sec = sections.find((s) => s.id === id)
+    if (!sec) return false
+    return sectionViewState(diffFiles.filter((f) => sec.files.includes(f.path)), viewedAt) === 'all'
+  })
+  return filesViewed && sectionsViewed ? 'done' : 'idle'
+}
+
 /** suggest_mark_viewed renders as a button — nothing happens until the reviewer
  *  confirms, at which point the files (and every file of a suggested section) get
- *  their viewed mark; a section is "viewed" exactly when all its files are. */
-function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest_viewed' }> }) {
-  const { toggleViewed, setSectionViewed, loaded } = useStore()
-  const [state, setState] = useState<'idle' | 'done' | 'dismissed'>('idle')
+ *  their viewed mark; a section is "viewed" exactly when all its files are. The
+ *  resolution survives chat re-entry: a dismissal is persisted, and the "marked"
+ *  outcome is re-derived from the real viewed marks on mount. */
+function SuggestCard({ action, threadId }: { action: Extract<AgentAction, { kind: 'suggest_viewed' }>; threadId?: number }) {
+  const { toggleViewed, setSectionViewed, dismissSuggestion, loaded } = useStore()
+  const [state, setState] = useState<'idle' | 'done' | 'dismissed'>(() => suggestResolved(action))
   const sections = effectiveSections(loaded)
   const items = useMemo(() => {
     const files = action.files ?? []
@@ -225,20 +251,23 @@ function SuggestCard({ action }: { action: Extract<AgentAction, { kind: 'suggest
           }
           setState('done')
         }}><I.check style={{ width: 11, height: 11 }} />Mark {selectedCount} viewed</button>
-        <button className="btn btn-sm btn-ghost" onClick={() => setState('dismissed')}>Dismiss</button>
+        <button className="btn btn-sm btn-ghost" onClick={() => {
+          setState('dismissed')
+          if (threadId != null && action.id) void dismissSuggestion(threadId, action.id)
+        }}>Dismiss</button>
       </div>
     </div>
   )
 }
 
-function renderAction(action: AgentAction, engine?: EngineId): { kind: 'chip' | 'card'; node: ReactNode } | null {
+function renderAction(action: AgentAction, engine?: EngineId, threadId?: number): { kind: 'chip' | 'card'; node: ReactNode } | null {
   switch (action.kind) {
     case 'focus':
       return { kind: 'card', node: <FocusCard action={action} /> }
     case 'tour':
       return { kind: 'card', node: <TourCard action={action} /> }
     case 'suggest_viewed':
-      return { kind: 'card', node: <SuggestCard action={action} /> }
+      return { kind: 'card', node: <SuggestCard action={action} threadId={threadId} /> }
     case 'comment_added':
     case 'comment_replied':
       return { kind: 'card', node: <CommentActionCard action={action} engine={engine} /> }
@@ -261,9 +290,9 @@ function renderAction(action: AgentAction, engine?: EngineId): { kind: 'chip' | 
 }
 
 /** The action chips for one turn (live or settled). */
-export function ActionChips({ actions, engine }: { actions: AgentAction[]; engine?: EngineId }) {
+export function ActionChips({ actions, engine, threadId }: { actions: AgentAction[]; engine?: EngineId; threadId?: number }) {
   if (!actions.length) return null
-  const rendered = actions.map((a) => renderAction(a, engine)).filter((n): n is { kind: 'chip' | 'card'; node: ReactNode } => Boolean(n))
+  const rendered = actions.map((a) => renderAction(a, engine, threadId)).filter((n): n is { kind: 'chip' | 'card'; node: ReactNode } => Boolean(n))
   const chips = rendered.filter((r) => r.kind === 'chip')
   const cards = rendered.filter((r) => r.kind === 'card')
   return (

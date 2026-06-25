@@ -79,7 +79,10 @@ export interface TourStop { target: FocusTarget; note?: string }
 export type AgentAction =
   | { kind: 'focus'; anchor: FocusTarget }
   | { kind: 'tour'; stops: TourStop[]; loop?: boolean }
-  | { kind: 'suggest_viewed'; files?: string[]; sectionIds?: string[]; note?: string }
+  // `id` addresses this action for the dismiss-persist path; `resolution` records
+  // only an explicit dismissal — the "marked" outcome is derived from real viewedAt
+  // marks on reload, so it is never persisted here.
+  | { kind: 'suggest_viewed'; id?: string; files?: string[]; sectionIds?: string[]; note?: string; resolution?: 'dismissed' }
   | { kind: 'comment_added'; comment: Comment }
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
   | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }

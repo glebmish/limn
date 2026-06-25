@@ -139,7 +139,8 @@ describe('createToolHost — suggest_mark_viewed', () => {
     })
     expect(isError).toBeFalsy()
     expect(result.length).toBeGreaterThan(0)
-    expect(action).toEqual({ kind: 'suggest_viewed', files: ['src/auth/jwt.ts'], note: 'looks fully understood' })
+    expect(action).toMatchObject({ kind: 'suggest_viewed', files: ['src/auth/jwt.ts'], note: 'looks fully understood' })
+    expect(action?.kind === 'suggest_viewed' && typeof action.id).toBe('string') // stamped for the dismiss-persist path
     expect(actionEvents(events)).toEqual([action])
     expect(host.collected()).toEqual([action])
   })
@@ -148,7 +149,7 @@ describe('createToolHost — suggest_mark_viewed', () => {
     const { ctx } = makeCtx()
     const host = createToolHost(ctx)
     const ok = await host.call('suggest_mark_viewed', { sectionIds: ['s1'] })
-    expect(ok.action).toEqual({ kind: 'suggest_viewed', sectionIds: ['s1'] })
+    expect(ok.action).toMatchObject({ kind: 'suggest_viewed', sectionIds: ['s1'] })
     const empty = await host.call('suggest_mark_viewed', {})
     expect(empty.isError).toBe(true)
   })

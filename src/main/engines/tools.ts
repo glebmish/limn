@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations } from '../../shared/types.js'
 import { loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
@@ -185,6 +186,7 @@ const TOOL_IMPLS: ToolImpl[] = [
       }
       const action: AgentAction = {
         kind: 'suggest_viewed',
+        id: randomUUID(),  // stable handle for the dismiss-persist path
         ...(fileCount ? { files } : {}),
         ...(sectionCount ? { sectionIds } : {}),
         ...(note ? { note } : {})

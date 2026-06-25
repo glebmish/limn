@@ -101,6 +101,9 @@ export interface Api {
   setChatAgent(threadId: number, agent: AgentRef): Promise<ChatThread[]>
   /** Set the per-chat execution mode (approvals ladder tier). */
   setChatMode(threadId: number, mode: ExecutionMode): Promise<ChatThread[]>
+  /** Persist a reviewer's dismissal of a suggest-mark-viewed card so it stays
+   *  resolved across chat re-entry. Returns the refreshed thread list. */
+  dismissSuggestion(threadId: number, actionId: string): Promise<ChatThread[]>
   deleteChat(threadId: number): Promise<ChatThread[]>
   /** The unified batch turn: send queued comments to a chat thread's agent, which
    *  handles them with its tools (edit+commit code, resolve, or reply). */
@@ -140,7 +143,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'checkoutInto', 'addWorktreeFor',
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
-  'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'deleteChat',
+  'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
   'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
