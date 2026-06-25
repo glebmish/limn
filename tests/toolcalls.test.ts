@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reduceToolCalls, deriveVerb, deriveMeta, clampOut } from '../src/shared/toolcalls'
+import { reduceToolCalls, reduceSegments, deriveVerb, deriveMeta, clampOut } from '../src/shared/toolcalls'
 import type { EngineEvent } from '../src/shared/types'
 
 describe('reduceToolCalls', () => {
@@ -37,6 +37,60 @@ describe('reduceToolCalls', () => {
 
   it('keeps a still-running call as run when no completion arrives', () => {
     expect(reduceToolCalls([{ type: 'tool', call: { id: 'a', verb: 'grep', name: 'Grep', state: 'run' } }])[0].state).toBe('run')
+  })
+})
+
+describe('reduceSegments', () => {
+  it('preserves interleaved text/tool/text/tool order', () => {
+    const events: EngineEvent[] = [
+      { type: 'text', text: 'Looking…' },
+      { type: 'tool', call: { id: 'a', verb: 'read', name: 'Read', state: 'run' } },
+      { type: 'text', text: 'Found it.' },
+      { type: 'tool', call: { id: 'b', verb: 'grep', name: 'Grep', state: 'run' } },
+    ]
+    expect(reduceSegments(events)).toEqual([
+      { kind: 'text', text: 'Looking…' },
+      { kind: 'tool', id: 'a' },
+      { kind: 'text', text: 'Found it.' },
+      { kind: 'tool', id: 'b' },
+    ])
+  })
+
+  it('coalesces consecutive text deltas into one segment', () => {
+    const events: EngineEvent[] = [
+      { type: 'text', text: 'Hello ' },
+      { type: 'text', text: 'world' },
+      { type: 'status', text: 'thinking' },
+      { type: 'text', text: '!' },
+    ]
+    expect(reduceSegments(events)).toEqual([{ kind: 'text', text: 'Hello world!' }])
+  })
+
+  it('emits one tool segment for a run+ok pair (dedupe by id)', () => {
+    const events: EngineEvent[] = [
+      { type: 'tool', call: { id: 'a', verb: 'grep', name: 'Grep', state: 'run' } },
+      { type: 'tool', call: { id: 'a', verb: 'grep', name: 'Grep', state: 'ok', out: 'x' } },
+    ]
+    expect(reduceSegments(events)).toEqual([{ kind: 'tool', id: 'a' }])
+  })
+
+  it('preserves a leading tool followed by text', () => {
+    const events: EngineEvent[] = [
+      { type: 'tool', call: { id: 'a', verb: 'read', name: 'Read', state: 'run' } },
+      { type: 'text', text: 'done' },
+    ]
+    expect(reduceSegments(events)).toEqual([
+      { kind: 'tool', id: 'a' },
+      { kind: 'text', text: 'done' },
+    ])
+  })
+
+  it('skips empty / whitespace-only text segments', () => {
+    const events: EngineEvent[] = [
+      { type: 'text', text: '   ' },
+      { type: 'tool', call: { id: 'a', verb: 'read', name: 'Read', state: 'run' } },
+    ]
+    expect(reduceSegments(events)).toEqual([{ kind: 'tool', id: 'a' }])
   })
 })
 

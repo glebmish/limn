@@ -20,7 +20,7 @@ import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } fr
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
-import { reduceToolCalls } from '../shared/toolcalls.js'
+import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { clearPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
@@ -451,6 +451,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const at = new Date().toISOString()
       const actions = tools.collected()
       const toolCalls = reduceToolCalls(events)
+      const segments = reduceSegments(events)
       // auto-title a user chat from its first message (re-checked at persist time so
       // a concurrent turn can't double-title). The review thread keeps its own title.
       if (thread.kind === 'user' && !thread.title) {
@@ -458,7 +459,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         if (current && current.messages.length === 0) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
       }
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
@@ -557,12 +558,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const at = new Date().toISOString()
       const actions = tools.collected()
       const toolCalls = reduceToolCalls(events)
+      const segments = reduceSegments(events)
       dao.addChatMessage(db, threadId, {
         role: 'user', at,
         text: refine ? `Answered ${comments.length} open question(s).`
           : steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
       })
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true, reload: true })
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length

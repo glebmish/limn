@@ -121,5 +121,13 @@ export const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // ordered text↔tool segments for inline tool-call rendering in chat messages.
+    // Nullable: old rows have NULL → renderer falls back to the legacy tools-then-text path.
+    version: 2,
+    up(db) {
+      db.exec('ALTER TABLE chat_messages ADD COLUMN segments_json TEXT')
+    }
   }
 ]

@@ -1,4 +1,4 @@
-import type { EngineEvent, ToolCall, ToolVerb } from './types.js'
+import type { EngineEvent, MessageSegment, ToolCall, ToolVerb } from './types.js'
 
 const VERB_TABLE: [RegExp, ToolVerb][] = [
   [/^(read|read_file|view|cat)$/i, 'read'],
@@ -70,4 +70,33 @@ export function reduceToolCalls(events: EngineEvent[]): ToolCall[] {
     })
   }
   return order.map((id) => byId.get(id)!)
+}
+
+/** Fold an event stream into ORDERED message segments, preserving the agent's
+ *  text↔tool interleaving so tool rows render inline at their call site. Consecutive
+ *  `text` deltas coalesce into one segment (flushed when a tool appears); a tool is
+ *  emitted once, at first sighting of its id (its run→ok updates share that id).
+ *  Empty/whitespace-only text is dropped. Non-text/non-tool events are ignored.
+ *  Pairs with `reduceToolCalls`: segments give ORDER (+ tool ids), reduceToolCalls
+ *  gives the folded ToolCall objects — resolve a segment's id against that list at
+ *  render. Pure, so live (renderer) and persisted (main) render identically. */
+export function reduceSegments(events: EngineEvent[]): MessageSegment[] {
+  const segments: MessageSegment[] = []
+  const seen = new Set<string>()
+  let pending = ''
+  const flush = (): void => {
+    if (pending.trim()) segments.push({ kind: 'text', text: pending })
+    pending = ''
+  }
+  for (const ev of events) {
+    if (ev.type === 'text') { pending += ev.text; continue }
+    if (ev.type === 'tool') {
+      if (seen.has(ev.call.id)) continue
+      seen.add(ev.call.id)
+      flush()
+      segments.push({ kind: 'tool', id: ev.call.id })
+    }
+  }
+  flush()
+  return segments
 }

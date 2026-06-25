@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, checkoutGate, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
-import type { CommentAnchor } from '../../shared/types'
+import type { CommentAnchor, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
@@ -11,7 +11,7 @@ import { ModeSelector } from './ModeSelector'
 import { ApprovalCard } from './ApprovalCard'
 import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
-import { reduceToolCalls } from '../../shared/toolcalls'
+import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 
 /** Right-sidebar multi-chat panel: a list of chats tied to the review, each with
@@ -46,10 +46,12 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // stream the running op into whichever thread it targets — review generation and
   // chat turns both flow through this one path (routed by threadId, not kind).
   const streaming = gen.running && gen.threadId != null && gen.threadId === active?.id
-  const partial = streaming
-    ? gen.log.filter((e) => e.type === 'text').map((e) => ('text' in e ? e.text : '')).join('')
-    : ''
+  // ordered segments (text↔tool interleave) + the folded tool calls they reference;
+  // rendered inline so live + persisted messages keep the agent's true call order.
+  const liveSegments = streaming ? reduceSegments(gen.log) : []
   const liveCalls = streaming ? reduceToolCalls(gen.log) : []
+  // a scalar that grows with every streamed event — drives the follow-scroll effect.
+  const streamLen = streaming ? gen.log.length : 0
   const statusLine = streaming
     ? [...gen.log].reverse().find((e) => e.type === 'status')
     : undefined
@@ -68,7 +70,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // the bottom unconditionally. onBodyScroll re-arms following near the bottom.
   useEffect(() => {
     if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [active?.messages.length, partial])
+  }, [active?.messages.length, streamLen])
   useEffect(() => {
     stickRef.current = true
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -157,8 +159,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 </Ava>
                 <div className="chat-bubble">
                   {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
-                  {m.role === 'agent' && m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
-                  {m.role === 'agent' ? <Markdown text={m.text} /> : m.text}
+                  {m.role === 'agent' ? (
+                    m.segments && m.segments.length > 0
+                      ? <SegmentBody segments={m.segments} calls={m.tools ?? []} />
+                      : (
+                        <>
+                          {m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
+                          <Markdown text={m.text} />
+                        </>
+                      )
+                  ) : m.text}
                   {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} />}
                 </div>
               </div>
@@ -167,8 +177,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <div className="chat-msg agent">
                 <Ava ai><EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /></Ava>
                 <div className="chat-bubble">
-                  <ToolCallLog calls={liveCalls} />
-                  {partial ? <Markdown text={partial} /> : (
+                  {liveSegments.length > 0 ? (
+                    <SegmentBody segments={liveSegments} calls={liveCalls} />
+                  ) : (
                     <div className="tstatus"><span className="limn-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
                   {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} />}
@@ -250,6 +261,22 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
         </>
       )}
     </div>
+  )
+}
+
+/** Render an agent message's ordered segments inline: prose as markdown, each tool
+ *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;
+ *  skipped if absent). Keeps tool rows at their true call site instead of grouping. */
+function SegmentBody({ segments, calls }: { segments: MessageSegment[]; calls: ToolCall[] }) {
+  const byId = new Map(calls.map((c) => [c.id, c]))
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.kind === 'text') return <Markdown key={i} text={seg.text} />
+        const call = byId.get(seg.id)
+        return call ? <ToolCallLog key={i} calls={[call]} /> : null
+      })}
+    </>
   )
 }
 

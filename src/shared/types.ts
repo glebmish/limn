@@ -165,7 +165,12 @@ export const FORMAT_LABELS: Record<ArtifactFormat, string> = {
   sdd: 'Spec Kit'
 }
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactFormat; path: string; title: string; lines: string[] }
-export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[] }
+/** An ordered slice of an agent message: either a run of prose or a reference to a
+ *  tool call (by id, resolved against `ChatMessage.tools`). Preserves the
+ *  interleaving the agent emitted so tool rows render inline at their call site,
+ *  not grouped. Built by `reduceSegments`; `text`/`tools` stay for back-compat. */
+export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string }
+export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are
  *  started by the reviewer and may target any agent. */
