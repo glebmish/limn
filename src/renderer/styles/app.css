@@ -263,7 +263,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 button.limn-chip { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); line-height: 1.7; }
 button.limn-chip:hover { background: var(--accent-line); }
 .limn-suggest { width: 100%; box-sizing: border-box; border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: var(--r-md); padding: 8px 10px; font-size: 11.5px; color: var(--ink); }
-.limn-suggest .ls-head { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--accent-ink); }
+.limn-suggest .ls-head { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--accent-ink); white-space: nowrap; min-width: 0; }
 .limn-suggest .ls-targets { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--muted); margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-suggest .ls-note { margin-top: 5px; color: var(--ink-2); line-height: 1.45; }
 .limn-suggest .ls-sub { margin-top: 5px; font-size: 10.5px; color: var(--muted); }
@@ -369,7 +369,7 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .chatdd-del { flex: 0 0 auto; margin-left: 6px; padding: 2px; display: inline-flex; color: var(--muted); background: none; border: none; cursor: pointer; }
 .chatdd-del:hover { color: var(--red); }
 /* agent + execution-mode pickers, docked under the composer (mockup) */
-.chat-botbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.chat-botbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 0 13px 10px; background: var(--panel-2); }
 /* banner shown when viewing a superseded (older) review session */
 .chat-oldsession { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 13px;
   background: var(--amber-soft); border-bottom: 1px solid var(--amber-line); }
