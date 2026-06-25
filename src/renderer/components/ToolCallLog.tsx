@@ -8,6 +8,14 @@ const VERB_ICON: Record<ToolVerb, keyof typeof I> = {
   read: 'doc', grep: 'search', edit: 'edit', bash: 'term', list: 'list', other: 'doc',
 }
 
+/** Row label: known verbs read nicely on their own; an `other` row falls back to
+ *  the tool's real name (minus any `mcp__server__` prefix) instead of the opaque
+ *  "other" bucket. */
+function rowLabel(c: ToolCall): string {
+  if (c.verb !== 'other') return c.verb
+  return c.name.replace(/^mcp__[^_]+__/, '') || 'other'
+}
+
 /** Dev-only: LIMN_EXPAND_TOOL force-opens rows for a static screenshot
  *  ("all" or a comma list of indices like "1,4"). */
 function devExpanded(): Set<number> {
@@ -36,7 +44,7 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
           <div key={c.id || i} className={cls}>
             <div className="tcall-head" onClick={() => toggle(i)}>
               <Ico className="tcall-ico" />
-              <span className="tcall-verb">{c.verb}</span>
+              <span className="tcall-verb">{rowLabel(c)}</span>
               <span className="tcall-arg" title={c.arg}>{c.arg}</span>
               {c.state === 'run' && <span className="tcall-stat run"><span className="limn-spin" />running</span>}
               {c.state === 'ok' && <span className="tcall-stat ok">{c.meta ?? 'done'}</span>}

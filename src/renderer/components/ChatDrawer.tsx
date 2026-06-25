@@ -25,7 +25,10 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
   // viewing a superseded review session (an older generation) — offer to switch
   const onOldReview = active?.kind === 'review' && latestReview != null && active.id !== latestReview.id
-  const hasReview = (loaded?.state.iterations.length ?? 0) > 0
+  // the drawer renders the chat list, so gate on whether any chat exists. chats
+  // are persisted on review completion (reconcileChats), so during the first
+  // in-flight generation this is still empty — `regenerating` covers that gap.
+  const hasChats = chats.length > 0
   // a review (re)generation is running — surface it in the open sidebar; the fresh
   // session opens here automatically when it completes (see store.reload).
   const regenerating = gen.running && gen.kind === 'review'
@@ -55,9 +58,27 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     ? gen.log.flatMap((e) => (e.type === 'approval_request' ? [e.request] : [])).filter((r) => !answered.has(r.id))
     : []
 
+  // the very first review is generating and no session exists yet — mirror its
+  // live stream here so the review agent is present in the chat from the start
+  // (when it completes, store.reload opens the real session and hasChats flips).
+  const reviewCalls = regenerating ? reduceToolCalls(gen.log) : []
+  const reviewStatus = regenerating ? [...gen.log].reverse().find((e) => e.type === 'status') : undefined
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [active?.messages.length, partial, activeChatId, open])
+
+  // follow the live review stream only while parked at the bottom, so new tool
+  // calls don't yank the reader down (matches GenPanel). re-armed by onReviewScroll.
+  const reviewStickRef = useRef(true)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el && reviewStickRef.current) el.scrollTo({ top: el.scrollHeight })
+  }, [gen.log])
+  const onReviewScroll = () => {
+    const el = scrollRef.current
+    if (el) reviewStickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+  }
 
   // dev-only: activate a specific seeded chat for screenshots
   const pinnedDev = useRef(false)
@@ -97,12 +118,25 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
         </button>
       </div>
 
-      {!hasReview ? (
-        <div className="chat-body">
-          <div className="chat-hint">
-            Generate a guided review first. The review agent becomes your first chat — with full
-            context about this branch — and you can open more chats with any agent.
-          </div>
+      {!hasChats ? (
+        <div className="chat-body" ref={regenerating ? scrollRef : undefined} onScroll={regenerating ? onReviewScroll : undefined}>
+          {regenerating ? (
+            <div className="chat-msg agent">
+              <Ava ai>AI</Ava>
+              <div className="chat-bubble">
+                <ToolCallLog calls={reviewCalls} />
+                <div className="tstatus">
+                  <span className="limn-spin" />
+                  {reviewStatus?.text ?? 'Exploring the branch…'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="chat-hint">
+              Generate a guided review first. The review agent becomes your first chat — with full
+              context about this branch — and you can open more chats with any agent.
+            </div>
+          )}
         </div>
       ) : (
         <>
