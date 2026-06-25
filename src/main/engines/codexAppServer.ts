@@ -58,13 +58,10 @@ export function classifyMessage(msg: unknown): FrameKind {
 }
 
 /** The server→client approval requests we answer (verified against `codex
- *  app-server generate-ts`, 0.135.0): legacy `execCommandApproval`/`applyPatchApproval`
- *  + the v2 `item/.../requestApproval` pair. Everything else (requestUserInput,
- *  elicitation, item/permissions/requestApproval, item/tool/call) is an unsupported
- *  surface we auto-deny so the turn never wedges. */
+ *  app-server generate-ts`, 0.139.0): the v2 `item/.../requestApproval` pair.
+ *  Everything else (requestUserInput, elicitation, item/permissions/requestApproval,
+ *  item/tool/call) is an unsupported surface we auto-deny so the turn never wedges. */
 const APPROVAL_METHODS = new Set([
-  'execCommandApproval',
-  'applyPatchApproval',
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
 ])
@@ -72,11 +69,11 @@ export function isApprovalMethod(method: string): boolean {
   return APPROVAL_METHODS.has(method)
 }
 
-/** Map our decision to the app-server's approval result value. Some binaries use
- *  `approved|denied` (legacy), others `accept|decline` (modern) — pin against the
- *  installed binary. We emit the legacy form and accept either on the wire. */
-export function mapApprovalDecision(decision: ApprovalDecision): 'approved' | 'denied' {
-  return decision === 'allow' ? 'approved' : 'denied'
+/** Map our decision to the v2 app-server's approval result value
+ *  (`CommandExecutionApprovalDecision` / `FileChangeApprovalDecision`, both
+ *  `accept | decline | …`; verified against generate-ts, 0.139.0). */
+export function mapApprovalDecision(decision: ApprovalDecision): 'accept' | 'decline' {
+  return decision === 'allow' ? 'accept' : 'decline'
 }
 
 /** AskForApproval value for a tier (executionPolicy is the source of truth). */
@@ -95,21 +92,16 @@ export function sandboxPolicyFor(mode: ExecutionMode, repo: string, writeEnabled
   return { type: 'readOnly', networkAccess: false }
 }
 
-/** Build an ApprovalRequest from an app-server approval server-request's params.
- *  Handles the legacy shapes (`command: string[]` + `cwd`; `fileChanges: {[path]}`)
- *  and the v2 shapes (`command: string` + `cwd`; fileChange carries only `itemId`/
- *  `reason`). Read leniently — params differ across the 4 approval methods. */
+/** Build an ApprovalRequest from a v2 app-server approval server-request's params
+ *  (verified against generate-ts, 0.139.0). `item/commandExecution/requestApproval`
+ *  carries `command: string` + `cwd`; `item/fileChange/requestApproval` carries only
+ *  `itemId`/`reason` (no file list), so a patch approval shows its reason. */
 export function approvalRequestFromParams(id: string, params: unknown): ApprovalRequest {
   const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
-  const command = typeof p.command === 'string' ? p.command
-    : Array.isArray(p.command) ? (p.command as unknown[]).join(' ') : undefined
+  const command = typeof p.command === 'string' ? p.command : undefined
   const cwd = typeof p.cwd === 'string' ? p.cwd : undefined
-  const files = p.fileChanges && typeof p.fileChanges === 'object'
-    ? Object.keys(p.fileChanges as Record<string, unknown>)
-    : Array.isArray(p.files) ? (p.files as unknown[]).map(String) : undefined
   const reason = typeof p.reason === 'string' ? p.reason : undefined
   if (command) return { id, engine: 'codex', kind: 'command', summary: `Run \`${command}\``, detail: { command, ...(cwd ? { cwd } : {}), ...(reason ? { reason } : {}) } }
-  if (files && files.length) return { id, engine: 'codex', kind: 'patch', summary: `Apply changes to ${files.length} file(s)`, detail: { files, ...(reason ? { reason } : {}) } }
   return { id, engine: 'codex', kind: 'file_change', summary: reason ?? 'Apply file changes', detail: { ...(reason ? { reason } : {}) } }
 }
 

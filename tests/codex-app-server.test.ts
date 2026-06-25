@@ -29,19 +29,19 @@ describe('classifyMessage', () => {
 })
 
 describe('approval routing + decision mapping', () => {
-  it('recognizes the real approval methods; auto-denies the unsupported surfaces', () => {
-    // verified against `codex app-server generate-ts` (0.135.0)
-    expect(isApprovalMethod('execCommandApproval')).toBe(true)
-    expect(isApprovalMethod('applyPatchApproval')).toBe(true)
+  it('recognizes the v2 approval methods; auto-denies legacy + unsupported surfaces', () => {
+    // verified against `codex app-server generate-ts` (0.139.0)
     expect(isApprovalMethod('item/commandExecution/requestApproval')).toBe(true)
     expect(isApprovalMethod('item/fileChange/requestApproval')).toBe(true)
+    expect(isApprovalMethod('execCommandApproval')).toBe(false) // legacy → unsupported
+    expect(isApprovalMethod('applyPatchApproval')).toBe(false)  // legacy → unsupported
     expect(isApprovalMethod('item/permissions/requestApproval')).toBe(false) // unsupported → auto-deny
     expect(isApprovalMethod('item/tool/requestUserInput')).toBe(false)
     expect(isApprovalMethod('mcpServer/elicitation/request')).toBe(false)
   })
-  it('maps allow/deny to approved/denied', () => {
-    expect(mapApprovalDecision('allow')).toBe('approved')
-    expect(mapApprovalDecision('deny')).toBe('denied')
+  it('maps allow/deny to the v2 accept/decline vocabulary', () => {
+    expect(mapApprovalDecision('allow')).toBe('accept')
+    expect(mapApprovalDecision('deny')).toBe('decline')
   })
 })
 
@@ -59,17 +59,11 @@ describe('executionPolicy → app-server params', () => {
 })
 
 describe('approvalRequestFromParams', () => {
-  it('reads a command (string or array) + cwd', () => {
+  it('reads a command + cwd (item/commandExecution/requestApproval)', () => {
     expect(approvalRequestFromParams('1', { command: 'npm test', cwd: '/r' }))
       .toMatchObject({ kind: 'command', summary: 'Run `npm test`', detail: { command: 'npm test', cwd: '/r' } })
-    expect(approvalRequestFromParams('1b', { command: ['rm', '-rf', 'x'] }))
-      .toMatchObject({ kind: 'command', summary: 'Run `rm -rf x`' })
   })
-  it('reads a patch from fileChanges (object keyed by path)', () => {
-    expect(approvalRequestFromParams('2', { fileChanges: { 'a.ts': { add: {} }, 'b.ts': { update: {} } } }))
-      .toMatchObject({ kind: 'patch', detail: { files: ['a.ts', 'b.ts'] } })
-  })
-  it('falls back to file_change with the reason', () => {
+  it('falls back to file_change with the reason (fileChange carries no file list)', () => {
     expect(approvalRequestFromParams('3', { reason: 'extra write access' }))
       .toMatchObject({ kind: 'file_change', summary: 'extra write access' })
   })
