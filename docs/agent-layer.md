@@ -86,14 +86,9 @@ The agent for a review — and for each chat thread — is an `AgentRef` = `{ en
 
 ## Binary resolution (`binaries.ts`)
 
-Per CLI, resolution order is:
+Each CLI is resolved from the user's **system PATH** only (`claude` / `codex`) — each candidate is checked for executability and that it's a file/symlink. Nothing is bundled: the SDKs' platform binaries are excluded from the app package (`electron-builder.yml`), so the user supplies and updates the CLIs via their own installs.
 
-1. **System PATH** (preferred — keeps the bundle small and tracks the user's own install). Each candidate is checked for executability and that it's a file/symlink.
-2. **SDK-bundled platform binary** in `node_modules` (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude`; `@openai/codex-<platform>-<arch>/vendor/<rust-triple>/bin/codex`).
-
-> ⚠️ **Packaging gotcha:** `child_process` cannot spawn an executable inside an `app.asar` archive (`ENOTDIR`). `unasar()` rewrites `app.asar/` → `app.asar.unpacked/` for bundled binaries.
-
-> Codex's Rust triple is computed only for darwin/linux — **Windows is unhandled**. There is **no version pinning or checking** anywhere; whatever CLI is first on PATH is used and assumed SDK-compatible.
+> There is **no version pinning or checking** anywhere; whatever CLI is first on PATH is used and assumed SDK-compatible.
 
 ## Prompts (`prompts.ts`)
 
