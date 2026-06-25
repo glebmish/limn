@@ -138,7 +138,11 @@ export function GenPanel() {
     )
   }
 
-  if (gen.error && gen.error !== 'cancelled') {
+  // treat an engine-level abort as a cancel even if it surfaces as an error string
+  // (belt-and-suspenders with the main-side detection).
+  const wasCancelled = gen.error != null && (gen.error === 'cancelled' || /\babort(ed)?\b/i.test(gen.error))
+
+  if (gen.error && !wasCancelled) {
     return (
       <div className="gen-strip err">
         <div className="gs-head">
@@ -153,7 +157,7 @@ export function GenPanel() {
   // a cancelled run reopens the generation section so you can pick a different
   // agent/model or steer the next pass, then retry. (If a review already exists,
   // fall through to its regenerate controls instead.)
-  if (gen.error === 'cancelled' && !loaded?.state.annotations) {
+  if (wasCancelled && !loaded?.state.annotations) {
     return (
       <div className="gen-cta gen-cancelled">
         <span className="gc-tx">
