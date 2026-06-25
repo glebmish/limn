@@ -444,6 +444,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           ? undefined
           : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
       })
+      // persist the user turn up front so a failed/cancelled run doesn't silently
+      // drop what the reviewer typed (mirrors the generate path).
+      dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
       activeOps.set(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
@@ -454,16 +457,22 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const segments = reduceSegments(events)
       // auto-title a user chat from its first message (re-checked at persist time so
       // a concurrent turn can't double-title). The review thread keeps its own title.
+      // The user turn is now persisted up front, so "first message" means exactly that
+      // one message is present (== 1), not an empty thread.
       if (thread.kind === 'user' && !thread.title) {
         const current = dao.getChatThread(db, threadId)
-        if (current && current.messages.length === 0) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
+        if (current && current.messages.length === 1) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
       }
-      dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
-      send('op:result', { opId, kind: 'chat', ok: false, error: String(err instanceof Error ? err.message : err) })
+      const msg = String(err instanceof Error ? err.message : err)
+      // the user turn is already persisted; record the failure as an agent note so
+      // the thread shows what happened (cancel stays quiet), and reload so both the
+      // user message and the note surface in the drawer.
+      if (msg !== 'cancelled') dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
+      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
