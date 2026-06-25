@@ -66,7 +66,10 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boo
   const mark = viewedAt[f.path]
   if (!mark) return false
   if (f.hunks.some((h) => h.sinceViewed)) return false
-  return mark.hash === f.fileHash
+  // compare against the same `?? ''` convention viewMarkFor stamps with, so a file
+  // with no content hash (non-branch compare / hashing skipped) doesn't read back
+  // as drifted and clear its own tick.
+  return mark.hash === (f.fileHash ?? '')
 }
 
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
@@ -258,6 +261,8 @@ interface AppStore {
   /** stop the running op (also auto-denies any parked approvals in main). */
   cancelOp(): void
   sendChat(text: string, anchor?: CommentAnchor): void
+  /** continue the review thread with a follow-up chat turn (opens the drawer). */
+  followUp(text: string): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
   sendBatch(threadId: number, commentIds: string[], steer?: string, refine?: boolean): void
   deleteChat(id: number): Promise<void>
@@ -777,12 +782,34 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     sendChat(text, anchor) {
-      const active = activeChat(get().loaded, get().activeChatId)
+      const loaded = get().loaded
+      const active = activeChat(loaded, get().activeChatId)
       const body = text.trim()
       if (!active || !body || get().gen.running) return
       const opId = newOpId()
+      // optimistically render the user's turn immediately so it shows the moment
+      // they hit send (not only after the whole response finishes + reload). The
+      // op:result reload then replaces it with the persisted copy.
+      if (loaded) {
+        setChats(loaded.state.chats.map((c) => c.id === active.id
+          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: body, at: new Date().toISOString(), ...(anchor ? { anchor } : {}) }] }
+          : c))
+      }
       get().startOp('chat', opId, active.id)
       void window.api.sendChat(active.id, body, opId, anchor)
+    },
+
+    /** "Follow up" from the generate panel: continue the review thread (the agent
+     *  that authored the review) with a chat turn, opening the drawer so it streams. */
+    followUp(text) {
+      const body = text.trim()
+      if (!body || get().gen.running) return
+      const loaded = get().loaded
+      const review = [...(loaded?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
+      const target = review ?? activeChat(loaded, get().activeChatId)
+      if (!target) return
+      get().openChat(target.id)   // drawer visible + activeChatId = the review thread
+      get().sendChat(body)        // sends into the now-active review thread
     },
 
     sendBatch(threadId, commentIds, steer, refine) {

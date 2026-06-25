@@ -234,10 +234,10 @@ export function GenPanel() {
             className="btn btn-sm btn-primary"
             ref={hintL.anchorRef}
             {...hintL.hoverProps}
-            onClick={() => useStore.getState().openChat()}
+            onClick={() => { const t = steer.trim(); if (t) { useStore.getState().followUp(t); setSteer('') } else useStore.getState().openChat() }}
           >
             <I.arrow style={{ width: 12, height: 12 }} />Follow up
-            {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Opens the review chat for comments, decisions and focused follow-ups.</span>}
+            {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Sends your note to the review agent (or opens the chat if empty) for comments, decisions and focused follow-ups.</span>}
           </button>
         )}
         <span className="grow"></span>
@@ -250,7 +250,6 @@ export function GenPanel() {
           {hintR.show && <span className="gen-hint gen-hint--r" ref={hintR.floatingRef} style={hintR.style} data-side={hintR.side}>Fresh agent, new session. Your comments and viewed marks survive; the narration is replaced.</span>}
         </div>
       </div>
-      {behind && <div className="gen-drift-exp"><b>Update review</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}
       {gate.blocked && <GateNote branch={gate.branch} />}
     </div>
   )

@@ -19,6 +19,12 @@ describe('fileViewed', () => {
   it('is false when the file changed after being viewed', () => {
     expect(fileViewed(file('a.ts', true), { 'a.ts': vm() })).toBe(false)
   })
+  it('stays viewed when the file has no content hash (non-branch compare / hashing skipped)', () => {
+    // viewMarkFor stamps '' when fileHash is absent; the read side must use the same
+    // convention or the mark reads back as drifted and the tick never sticks.
+    const noHash = { path: 'a.ts', hunks: [{ sinceViewed: false }] } as unknown as FileDiff
+    expect(fileViewed(noHash, { 'a.ts': { sha: 's', hash: '' } })).toBe(true)
+  })
 })
 
 describe('sectionViewState (derives section completion from its files)', () => {
