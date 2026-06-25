@@ -12,8 +12,8 @@ import {
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
   approveArtifact, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
-  deleteChatThread, threadIsEmpty, reconcileChats, setThreadMode,
-  setThreadEngineSession, pruneOrphanReviewThreads
+  deleteChatThread, threadIsEmpty, setThreadMode, setThreadTitle, deriveChatTitle,
+  pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads
 } from '../src/main/db/sessions'
 import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
@@ -150,25 +150,39 @@ describe('sessions DAO', () => {
 })
 
 describe('chat threads DAO', () => {
-  const sha = 'a'.repeat(40)
+  it('deriveChatTitle: first non-empty line, trimmed to ~40 chars with an ellipsis when long', () => {
+    expect(deriveChatTitle('Fix the bug')).toBe('Fix the bug')
+    expect(deriveChatTitle('  Fix the bug  ')).toBe('Fix the bug')          // trims surrounding ws
+    expect(deriveChatTitle('\n\nFirst real line\nsecond')).toBe('First real line') // skips leading blanks
+    const long = 'a'.repeat(60)
+    const out = deriveChatTitle(long)
+    expect(out).toBe('a'.repeat(40) + '…')
+    expect([...out].length).toBe(41)                                         // 40 chars + ellipsis
+  })
 
-  it('reconcileChats backs the default user chat once a review exists (review thread is created up front, not here)', () => {
-    const s = createSession(db, '/repo', pair, { engine: 'claude', model: 'opus' })
-    reconcileChats(db, s.id)
-    expect(listChatThreads(db, s.id)).toHaveLength(0) // no iteration yet → no chats
+  it('setThreadTitle round-trips the title onto the thread', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    expect(getChatThread(db, t.id)!.title).toBeUndefined()
+    setThreadTitle(db, t.id, 'Refactor the store')
+    expect(getChatThread(db, t.id)!.title).toBe('Refactor the store')
+  })
 
-    // beginReview creates the review thread before generation; reconcileChats runs
-    // on completion and only ensures the companion "New chat" exists.
-    createChatThread(db, s.id, { kind: 'review', agent: { engine: 'claude', model: 'opus' }, engineSessionId: 'es-1', title: 'Review agent' })
-    addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: sha, at: 'T1' })
-    reconcileChats(db, s.id)
-    const chats = listChatThreads(db, s.id)
-    expect(chats.map((c) => c.kind)).toEqual(['review', 'user'])
-    const userChat = chats.find((c) => c.kind === 'user')!
-    expect(userChat.agent).toEqual({ engine: 'claude', model: 'opus' })
+  it('pruneEmptyUserChats removes empty user chats but keeps ones with a message or engine session, and never review threads', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const agent = { engine: 'claude' as const }
 
-    reconcileChats(db, s.id)                            // idempotent — no duplicate user chat
-    expect(listChatThreads(db, s.id)).toHaveLength(2)
+    const empty = createChatThread(db, s.id, { kind: 'user', agent })                       // no messages, no session → pruned
+    const withMsg = createChatThread(db, s.id, { kind: 'user', agent })
+    addChatMessage(db, withMsg.id, { role: 'user', text: 'hi', at: 'T1' })                  // has a message → kept
+    const withSession = createChatThread(db, s.id, { kind: 'user', agent, engineSessionId: 'es-x' }) // bound session → kept
+    const review = createChatThread(db, s.id, { kind: 'review', agent, title: 'Review agent' }) // empty but review → kept
+
+    pruneEmptyUserChats(db, s.id)
+
+    const ids = listChatThreads(db, s.id).map((c) => c.id)
+    expect(ids).not.toContain(empty.id)
+    expect(ids).toEqual(expect.arrayContaining([withMsg.id, withSession.id, review.id]))
   })
 
   it('pruneOrphanReviewThreads drops a crash-orphaned review (lone user turn, no session) but keeps finished/failed/active ones', () => {

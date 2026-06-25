@@ -222,6 +222,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // clean up review threads orphaned by a hard crash mid-generation (a lone user
     // turn, no engine session); the in-flight op's thread is exempt.
     dao.pruneOrphanReviewThreads(db, sessionId, activeReviewThreads)
+    // drop empty user chats (no messages, no engine session) — legacy persisted
+    // "New chat" companions and any orphaned draft. Never touches a chat with a
+    // message or a bound engine session.
+    dao.pruneEmptyUserChats(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
     if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
       startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
@@ -332,7 +336,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         reviewedAtSha: skeleton.headSha
       })
       dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
-      dao.reconcileChats(db, sessionId) // ensure the default user chat exists
       // finalize the review thread created at op start: bind it to the engine
       // session that produced the review and persist the agent's turn (the user
       // turn was persisted by beginReview). The thread IS the review agent's
@@ -448,6 +451,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const at = new Date().toISOString()
       const actions = tools.collected()
       const toolCalls = reduceToolCalls(events)
+      // auto-title a user chat from its first message (re-checked at persist time so
+      // a concurrent turn can't double-title). The review thread keeps its own title.
+      if (thread.kind === 'user' && !thread.title) {
+        const current = dao.getChatThread(db, threadId)
+        if (current && current.messages.length === 0) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
+      }
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at, anchor })
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
@@ -463,7 +472,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('createChat', async (sessionId: number, agent: AgentRef) => {
-    dao.createChatThread(db, sessionId, { kind: 'user', agent, title: 'New chat' })
+    // title stays null — the renderer shows "New chat" for an untitled chat and the
+    // first message auto-derives a real title (see sendChat).
+    dao.createChatThread(db, sessionId, { kind: 'user', agent })
     return dao.listChatThreads(db, sessionId)
   })
 

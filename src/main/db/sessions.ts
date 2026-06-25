@@ -306,6 +306,18 @@ export function setThreadMode(db: DatabaseSync, threadId: number, mode: Executio
   db.prepare('UPDATE chat_threads SET execution_mode = ? WHERE id = ?').run(mode, threadId)
 }
 
+export function setThreadTitle(db: DatabaseSync, threadId: number, title: string): void {
+  db.prepare('UPDATE chat_threads SET title = ? WHERE id = ?').run(title, threadId)
+}
+
+/** Derive a chat title from its first user message: the first non-empty line,
+ *  trimmed to ~40 chars with an ellipsis when truncated. */
+export function deriveChatTitle(message: string): string {
+  const MAX = 40
+  const firstLine = message.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? message.trim()
+  return firstLine.length > MAX ? firstLine.slice(0, MAX).trimEnd() + '…' : firstLine
+}
+
 export function deleteChatThread(db: DatabaseSync, threadId: number): void {
   db.prepare('DELETE FROM chat_threads WHERE id = ?').run(threadId)
 }
@@ -318,18 +330,16 @@ export function threadIsEmpty(db: DatabaseSync, threadId: number): boolean {
   return Boolean(t) && t!.messages.length === 0 && !t!.engineSessionId
 }
 
-/** Guarantee the default user chat once a review session exists. The review thread
- *  itself is created up front by `beginReview` (per generation), so this only backs
- *  the "New chat" companion. Idempotent — safe to call after every generation. */
-export function reconcileChats(db: DatabaseSync, sessionId: number): void {
-  const meta = getSession(db, sessionId)
-  if (!meta) return
-  const last = db.prepare('SELECT engine FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1')
-    .get(sessionId) as { engine: EngineId } | undefined
-  if (!last) return // no review generated yet
-  const reviewAgent: AgentRef = meta.agent ?? { engine: last.engine }
-  const hasUserChat = db.prepare(`SELECT 1 FROM chat_threads WHERE session_id = ? AND kind = 'user' LIMIT 1`).get(sessionId)
-  if (!hasUserChat) createChatThread(db, sessionId, { kind: 'user', agent: reviewAgent, title: 'New chat' })
+/** Remove persisted user chats that never got a first turn (no messages, no bound
+ *  engine session) — e.g. legacy "New chat" companions, or a draft whose creation
+ *  raced a reload. Reuses `threadIsEmpty`, so a chat with ANY message or an engine
+ *  session is always kept. Review threads are left to `pruneOrphanReviewThreads`. */
+export function pruneEmptyUserChats(db: DatabaseSync, sessionId: number): void {
+  const rows = db.prepare(`SELECT id FROM chat_threads WHERE session_id = ? AND kind = 'user'`)
+    .all(sessionId) as { id: number }[]
+  for (const r of rows) {
+    if (threadIsEmpty(db, r.id)) deleteChatThread(db, r.id)
+  }
 }
 
 /** Remove review threads orphaned by a hard crash mid-generation: a lone opening

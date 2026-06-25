@@ -2,6 +2,11 @@ import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
 import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
+import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
+
+/** Sentinel id for a local-only "New chat" draft: an empty composer that isn't
+ *  persisted (and so doesn't appear in the picker) until its first message lands. */
+const DRAFT_CHAT_ID = -1
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
@@ -726,24 +731,31 @@ export const useStore = create<AppStore>((set, get) => {
 
     async newChat() {
       const { sessionId, loaded, agent } = get()
-      if (sessionId == null) return
+      if (sessionId == null || !loaded) return
       const active = activeChat(loaded, get().activeChatId)
-      const a = active?.agent ?? loaded?.state.agent ?? agent
-      try {
-        const chats = await window.api.createChat(sessionId, a)
-        setChats(chats)
-        set({ activeChatId: chats[chats.length - 1]?.id ?? null })
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
+      const a = active?.agent ?? loaded.state.agent ?? agent
+      // A new chat is a renderer-only draft (id DRAFT_CHAT_ID) — no DB write, so empty
+      // chats never persist or pile up. It materializes on its first message (sendChat).
+      const chats = loaded.state.chats
+      if (chats.some((c) => c.id === DRAFT_CHAT_ID)) { set({ activeChatId: DRAFT_CHAT_ID }); return } // reuse the existing draft
+      const draft: ChatThread = {
+        id: DRAFT_CHAT_ID, kind: 'user', agent: a, messages: [],
+        createdAt: new Date().toISOString(), executionMode: DEFAULT_EXECUTION_MODE
       }
+      setChats([...chats, draft])
+      set({ activeChatId: DRAFT_CHAT_ID })
     },
 
-    /** Change the active chat's agent. Empty chat → retarget in place; a chat
-     *  that already has messages or a bound session → fork a new chat. */
+    /** Change the active chat's agent. Draft/empty chat → retarget in place (draft
+     *  stays local); a chat with messages or a bound session → fork a new chat. */
     async setActiveChatAgent(a) {
       const { sessionId, loaded } = get()
       const active = activeChat(loaded, get().activeChatId)
       if (sessionId == null || !active) return
+      if (active.id === DRAFT_CHAT_ID) {
+        if (loaded) setChats(loaded.state.chats.map((c) => c.id === DRAFT_CHAT_ID ? { ...c, agent: a } : c))
+        return
+      }
       const isEmpty = active.messages.length === 0 && !active.engineSessionId
       try {
         if (isEmpty) {
@@ -782,21 +794,41 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     sendChat(text, anchor) {
-      const loaded = get().loaded
-      const active = activeChat(loaded, get().activeChatId)
       const body = text.trim()
-      if (!active || !body || get().gen.running) return
-      const opId = newOpId()
-      // optimistically render the user's turn immediately so it shows the moment
-      // they hit send (not only after the whole response finishes + reload). The
-      // op:result reload then replaces it with the persisted copy.
-      if (loaded) {
-        setChats(loaded.state.chats.map((c) => c.id === active.id
-          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: body, at: new Date().toISOString(), ...(anchor ? { anchor } : {}) }] }
-          : c))
-      }
-      get().startOp('chat', opId, active.id)
-      void window.api.sendChat(active.id, body, opId, anchor)
+      if (!body || get().gen.running) return
+      const active = activeChat(get().loaded, get().activeChatId)
+      if (!active) return
+      void (async () => {
+        let targetId = active.id
+        // a draft chat persists lazily on its first turn: mint the real thread now,
+        // swap the picker/active id to it, then send into THAT id.
+        if (active.id === DRAFT_CHAT_ID) {
+          const { sessionId } = get()
+          if (sessionId == null) return
+          try {
+            const chats = await window.api.createChat(sessionId, active.agent)
+            setChats(chats)
+            targetId = chats[chats.length - 1]?.id ?? DRAFT_CHAT_ID
+            if (targetId === DRAFT_CHAT_ID) return
+            set({ activeChatId: targetId })
+          } catch (err) {
+            set({ error: err instanceof Error ? err.message : String(err) })
+            return
+          }
+        }
+        // optimistically render the user's turn immediately so it shows the moment
+        // they hit send (not only after the whole response finishes + reload). The
+        // op:result reload then replaces it with the persisted copy.
+        const loaded = get().loaded
+        if (loaded) {
+          setChats(loaded.state.chats.map((c) => c.id === targetId
+            ? { ...c, messages: [...c.messages, { role: 'user' as const, text: body, at: new Date().toISOString(), ...(anchor ? { anchor } : {}) }] }
+            : c))
+        }
+        const opId = newOpId()
+        get().startOp('chat', opId, targetId)
+        void window.api.sendChat(targetId, body, opId, anchor)
+      })()
     },
 
     /** "Follow up" from the generate panel: continue the review thread (the agent
@@ -827,6 +859,13 @@ export const useStore = create<AppStore>((set, get) => {
     async deleteChat(id) {
       const { sessionId } = get()
       if (sessionId == null) return
+      if (id === DRAFT_CHAT_ID) {
+        // the draft was never persisted — just drop it locally.
+        const chats = (get().loaded?.state.chats ?? []).filter((c) => c.id !== DRAFT_CHAT_ID)
+        setChats(chats)
+        if (get().activeChatId === id) set({ activeChatId: pickActiveChat(chats, null) })
+        return
+      }
       try {
         const chats = await window.api.deleteChat(id)
         setChats(chats)

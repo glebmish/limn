@@ -179,7 +179,6 @@ export async function assembleReview(
 /** Load a persisted session into a renderer-facing review (with DB-side reconciliation
  *  + writes). */
 export async function buildLoadedReview(db: DatabaseSync, session: SessionMeta): Promise<LoadedReview> {
-  dao.reconcileChats(db, session.id) // ensure default chats exist + review chat tracks latest iteration
   const state = dao.loadReviewState(db, session.id)
   return assembleReview(db, session, state, { persist: true })
 }

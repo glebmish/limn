@@ -22,8 +22,10 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   // reviews pinned to the top in chronological order (oldest up, current last),
   // user chats below — grouped under headers so the two are visually distinct.
   // Labels come from the full `chats` (id order), so display order can't skew them.
+  // the unpersisted "New chat" draft (id < 0) is the active/trigger entry but is
+  // never listed in the menu — it appears there only once it has its first message.
   const reviews = chats.filter((c) => c.kind === 'review')
-  const userChats = chats.filter((c) => c.kind === 'user')
+  const userChats = chats.filter((c) => c.kind === 'user' && c.id >= 0)
 
   const Opt = (c: ChatThread) => (
     <div key={c.id} className={'chatdd-opt' + (c.kind === 'review' ? ' is-review' : '') + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}>
@@ -71,7 +73,10 @@ function chatName(c: ChatThread, all: ChatThread[]): string {
     return `Review · old ${reviews.findIndex((x) => x.id === c.id) + 1}`
   }
   if (c.title) return c.title
-  const userChats = all.filter((x) => x.kind === 'user')
+  // a draft or an as-yet-untitled empty chat shows the placeholder; a titled chat
+  // shows its (auto-derived) title; the `Chat N` form is the remaining fallback.
+  if (c.id < 0 || c.messages.length === 0) return 'New chat'
+  const userChats = all.filter((x) => x.kind === 'user' && x.id >= 0)
   const n = userChats.findIndex((x) => x.id === c.id)
   return `Chat ${n + 2}` // review is chat 1
 }
