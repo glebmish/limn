@@ -3,6 +3,7 @@ import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
 import { I, EngineGlyph } from '../kit'
 import { useDismiss } from '../lib/useDismiss'
+import { useFloating } from '../lib/useFloating'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
@@ -20,6 +21,9 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   const [open, setOpen] = useState(Boolean(window.limnDev?.openPicker))
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
   const wrap = useRef<HTMLDivElement>(null)
+  // anchor the popover to the trigger; the shared core flips/clamps it on-screen
+  // (the `align` prop is just the *preferred* edge now — overflow is handled).
+  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: align === 'left' ? 'start' : 'end' })
 
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
@@ -42,7 +46,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
 
   return (
     <div className="ag-wrap" ref={wrap}>
-      <button className="ag-trigger" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label="agent">
+      <button ref={anchorRef} className="ag-trigger" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label="agent">
         <EngineGlyph engine={value.engine} style={{ width: 13, height: 13, flex: '0 0 auto', color: 'var(--accent)' }} />
         {engineLabel(value.engine)}
         <span className="ag-sub">· {sub}</span>
@@ -50,7 +54,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
       </button>
 
       {open && (
-        <div className={'ag-pop' + (align === 'left' ? ' ag-pop--left' : '')}>
+        <div ref={floatingRef} style={popStyle} className="ag-pop">
           <div className="ag-sec">Engine</div>
           {AGENT_CATALOG.map((c) => {
             const st = auth[c.engine]

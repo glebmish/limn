@@ -14,6 +14,7 @@ import { FileTree } from '../components/FileTree'
 import { addComment, sendComments } from '../lib/comments'
 import { Composer, InlineThread } from '../components/Threads'
 import { Commentable, SelectionThreads } from '../components/Commentable'
+import { Tooltip } from '../components/Tooltip'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 
@@ -188,10 +189,13 @@ export default function Review() {
       c?.subject ?? null
     ].filter(Boolean).join(' · ')
   }
-  const timelineTip = (sha: string, labels: string[]) => {
+  // tooltip body for a timeline mark — wrapped by <Tooltip> which positions the
+  // `.cm-tip` bubble on-screen (it flips below the bar instead of clipping off the
+  // top, and clamps to the viewport instead of spilling left/right).
+  const timelineTipContent = (sha: string, labels: string[]) => {
     const c = commits.find((item) => item.sha === sha)
     return (
-      <span className="cm-tip">
+      <>
         <span className="l1">
           <span className="lead">{labels.join(' · ')}</span>
           <span className="sep">·</span>
@@ -199,7 +203,7 @@ export default function Review() {
           {c?.date ? <><span className="sep">·</span>{ago(c.date)}</> : null}
         </span>
         {c?.subject ? <span className="l2">{c.subject}</span> : null}
-      </span>
+      </>
     )
   }
   const timelineGroups = (() => {
@@ -230,27 +234,26 @@ export default function Review() {
       </>
     )
 
+    const tip = timelineTipContent(group.sha, labels)
     if (hasHead && (hasGenerated || hasApproved)) {
       return (
-        <span key={group.sha} className="cm-merge tip-r" aria-label={title}>
+        <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" content={tip} aria-label={title}>
           {roleIcons}
           {(hasGenerated || hasApproved) && <span className="cm-div"></span>}
           <span className="cm-sha">{shortSha(group.sha)}</span>
-          {timelineTip(group.sha, labels)}
-        </span>
+        </Tooltip>
       )
     }
     if (hasHead) {
-      return <span key={group.sha} className="cm-head tip-r" aria-label={title}>{shortSha(group.sha)}{timelineTip(group.sha, labels)}</span>
+      return <Tooltip key={group.sha} className="cm-head" tipClassName="cm-tip" content={tip} aria-label={title}>{shortSha(group.sha)}</Tooltip>
     }
     if (hasGenerated && hasApproved) {
-      return <span key={group.sha} className="cm-merge" aria-label={title}>{roleIcons}{timelineTip(group.sha, labels)}</span>
+      return <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" content={tip} aria-label={title}>{roleIcons}</Tooltip>
     }
     return (
-      <span key={group.sha} className={'cm-pin ' + (hasApproved ? 'appr' : 'gen')} aria-label={title}>
+      <Tooltip key={group.sha} className={'cm-pin ' + (hasApproved ? 'appr' : 'gen')} tipClassName="cm-tip" content={tip} aria-label={title}>
         {hasApproved ? <I.check /> : <I.changed />}
-        {timelineTip(group.sha, labels)}
-      </span>
+      </Tooltip>
     )
   }
 
@@ -405,10 +408,10 @@ export default function Review() {
         </span>
         <span className="grow"></span>
         <span className="ctmark">
-          <span className="cm-pin" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}>
+          <Tooltip className="cm-pin" tipClassName="cm-tip" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}
+            content={timelineTipContent(skeleton.mergeBase, [base || 'Branch start'])}>
             <I.branch />
-            {timelineTip(skeleton.mergeBase, [base || 'Branch start'])}
-          </span>
+          </Tooltip>
           {timelineGroups.map((group, i) => {
             const prevPos = i === 0 ? commits.length : timelineGroups[i - 1].pos
             const n = Math.max(0, prevPos - group.pos)

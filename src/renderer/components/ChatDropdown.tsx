@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { I, EngineGlyph } from '../kit'
 import { useDismiss } from '../lib/useDismiss'
+import { useFloating } from '../lib/useFloating'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
 
@@ -15,6 +16,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
 }) {
   const [open, setOpen] = useState(Boolean(window.limnDev?.openChatList))
   const wrap = useRef<HTMLDivElement>(null)
+  // full-width dropdown that scrolls (not overflows) once chats pile up
+  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'start', gap: 5, matchWidth: true })
   const active = chats.find((c) => c.id === activeId) ?? null
 
   useDismiss(open, () => setOpen(false), wrap)
@@ -37,14 +40,14 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
 
   return (
     <div className="chatdd" ref={wrap}>
-      <button className="chatdd-trig" onClick={() => setOpen((o) => !o)}>
+      <button ref={anchorRef} className="chatdd-trig" onClick={() => setOpen((o) => !o)}>
         <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>
         <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevR style={{ width: 13, height: 13 }} />}</span>
       </button>
       {open && (
-        <div className="chatdd-menu">
+        <div className="chatdd-menu" ref={floatingRef} style={menuStyle}>
           {reviews.length > 0 && <div className="chatdd-grp">Review{reviews.length > 1 ? ' sessions' : ''}</div>}
           {reviews.map(Opt)}
           {userChats.length > 0 && <div className="chatdd-grp">Chats</div>}

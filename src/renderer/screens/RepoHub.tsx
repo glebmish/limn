@@ -4,6 +4,7 @@ import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
 import { SessionRow } from '../components/SessionRow'
 import { useDismiss } from '../lib/useDismiss'
+import { useFloating } from '../lib/useFloating'
 import type { RepoIndexEntry, RepoState } from '../../shared/types'
 
 const tilde = (p: string): string => p.replace(/^\/(?:Users|home)\/[^/]+/, '~')
@@ -29,19 +30,20 @@ function RepoSwitcher({ repo, repos, onSwitch, onOpenRepository }: {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef<HTMLSpanElement>(null)
+  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLSpanElement, HTMLDivElement>(open, { side: 'bottom', align: 'start' })
   useDismiss(open, () => setOpen(false), ref)
   const f = q.trim().toLowerCase()
   const list = repos.filter((r) => !f || baseName(r.path).toLowerCase().includes(f) || r.path.toLowerCase().includes(f))
   return (
     <span ref={ref} className={'limn-repo-switchwrap' + (open ? ' open' : '')}>
-      <span className="limn-repo-switch" title="Switch repository" onClick={() => setOpen((o) => !o)}>
+      <span ref={anchorRef} className="limn-repo-switch" title="Switch repository" onClick={() => setOpen((o) => !o)}>
         <RepoGlyph cls="rs-glyph" />
         <span className="rs-name">{baseName(repo)}</span>
         <span className="rs-path">{tilde(repo)}</span>
         <span className="rs-caret"><I.chevD style={{ width: 11, height: 11 }} /></span>
       </span>
       {open && (
-        <div className="limn-repo-menu" onClick={(e) => e.stopPropagation()}>
+        <div className="limn-repo-menu" ref={floatingRef} style={menuStyle} onClick={(e) => e.stopPropagation()}>
           <div className="rm-search">
             <input autoFocus placeholder="Switch repository…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
@@ -79,6 +81,7 @@ function NewReviewSplit({ repo, repoState, onStart }: {
   const [base, setBase] = useState('')
   const [cmp, setCmp] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'end' })
   useDismiss(open, () => setOpen(false), ref)
   const effBase = base || repoState?.defaultBase || 'HEAD'
   const effCmp = cmp || repoState?.current || ''
@@ -87,11 +90,11 @@ function NewReviewSplit({ repo, repoState, onStart }: {
       <button className="limn-repo-new" onClick={() => onStart(effBase, repoState?.current ?? '')} title="Fresh review on the current branch">
         <I.plus style={{ width: 11, height: 11 }} />New review
       </button>
-      <button className="limn-repo-new-caret" title="Choose base ← compare" onClick={() => setOpen((o) => !o)}>
+      <button ref={anchorRef} className="limn-repo-new-caret" title="Choose base ← compare" onClick={() => setOpen((o) => !o)}>
         <I.chevD style={{ width: 11, height: 11 }} />
       </button>
       {open && (
-        <div className="limn-repo-new-pop" onClick={(e) => e.stopPropagation()}>
+        <div className="limn-repo-new-pop" ref={floatingRef} style={popStyle} onClick={(e) => e.stopPropagation()}>
           <p className="np-h">Start a review</p>
           <div className="np-refs">
             <span className="rv-refs">

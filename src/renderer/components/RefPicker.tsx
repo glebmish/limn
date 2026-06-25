@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
 import { useDismiss } from '../lib/useDismiss'
+import { useFloating } from '../lib/useFloating'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
@@ -39,9 +40,11 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // commits are the additional mode: collapsed by default (branch picking is the
   // default), opened by the toggle or automatically once the query looks like a SHA.
   const [showCommits, setShowCommits] = useState(false)
-  const popRef = useRef<HTMLDivElement>(null)
   // wraps trigger + popover; useDismiss keeps pointers inside it from closing.
   const wrap = useRef<HTMLDivElement>(null)
+  // anchor the popover on-screen (flips up / clamps to the viewport) — fixes the
+  // compare picker overrunning the right edge when nested in the new-review popover.
+  const { anchorRef, floatingRef, style: popStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'bottom', align: 'start', gap: 4 })
   const loadedFor = useRef<string>('')
 
   // The branch the input currently names (if any). When set, the commit list is
@@ -100,7 +103,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
 
   return (
     <div className="limn-refpick" ref={wrap}>
-      <button className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
+      <button ref={anchorRef} className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); setOpen((o) => !o) }}>
         {prominent && loc?.kind !== 'commit' && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         {loc ? (
           <>
@@ -119,7 +122,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
         {prominent && <I.chevD style={{ width: 11, height: 11, color: 'var(--muted)' }} />}
       </button>
       {open && (
-        <div className="limn-refpick-pop" ref={popRef}>
+        <div className="limn-refpick-pop" ref={floatingRef} style={popStyle}>
           <input
             autoFocus
             value={draft}

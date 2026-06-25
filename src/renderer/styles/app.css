@@ -52,6 +52,8 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .gen-strip.err .gs-title { color: var(--red); }
 .gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: limn-spin .8s linear infinite; flex: 0 0 auto; }
 @keyframes limn-spin { to { transform: rotate(360deg); } }
+/* fade-in for floating tooltips (.cm-tip / .chip-tip) now mounted on hover */
+@keyframes limn-tip-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── agent tool-call log (wf-D) — ported from the wireframe ─── */
 .limn-spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--amber-line); border-top-color: var(--amber); animation: limn-spin .8s linear infinite; flex: 0 0 auto; }
@@ -91,7 +93,10 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 .mode-trig.auto .mt-ico { color: var(--amber); }
 .mode-trig.full { border-color: var(--red-line); background: var(--red-soft); color: var(--red); }
 .mode-trig.full .mt-ico { color: var(--red); }
-.mode-menu { position: absolute; bottom: calc(100% + 6px); left: 9px; width: 290px; z-index: 24; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 10px 28px rgba(40,40,40,.16); overflow: hidden; }
+/* position (fixed top/left + max-height) is set inline by useFloating; this rule
+ * carries visuals only. overflow hidden-x / auto-y keeps the rounded corners while
+ * letting the menu scroll if it's ever taller than the room available. */
+.mode-menu { width: 290px; z-index: 24; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 10px 28px rgba(40,40,40,.16); overflow: hidden auto; }
 .mode-menu .mm-hd { padding: 8px 12px; font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; border-bottom: 1px solid var(--line); }
 .mode-opt { display: flex; gap: 10px; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .mode-opt:last-child { border-bottom: none; }
@@ -342,7 +347,9 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .chatdd-trig .cd-name { font-size: 12px; font-weight: 700; color: var(--ink); }
 .chatdd-trig .cd-sub { font-size: 10.5px; color: var(--muted); }
 .chatdd-trig .cd-car { margin-left: auto; color: var(--muted); display: inline-flex; }
-.chatdd-menu { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(40,40,40,.14); overflow: hidden; }
+/* width matches the trigger + position set inline by useFloating; scrolls (not
+ * overflows the viewport bottom) once chats pile up. */
+.chatdd-menu { z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(40,40,40,.14); overflow: hidden auto; }
 .chatdd-grp { font-family: var(--mono); font-size: 9.5px; letter-spacing: .11em; text-transform: uppercase; color: var(--muted); padding: 8px 11px 4px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
 .chatdd-opt { display: flex; align-items: center; gap: 8px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .chatdd-opt.is-review { background: var(--accent-soft-2, rgba(58,125,84,.05)); }
@@ -377,12 +384,9 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .ag-trigger .ag-sub { color: var(--muted); font-weight: 500; }
 .ag-trigger .ag-cv { color: var(--faint); margin-left: 1px; }
 
-/* anchored to the trigger's right edge so it opens leftward — the agent bar
- * lives in the right sidebar, so a left-anchored popover would overflow. */
-.ag-pop { position: absolute; top: calc(100% + 5px); right: 0; z-index: 30; width: 280px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 14px 40px rgba(0,0,0,.18); padding: 6px; font-family: var(--sans); }
-/* trigger near a horizontally-clipped column's left edge (e.g. the GenPanel
-   regenerate row in .gmain, which is overflow-x:hidden) — open rightward instead. */
-.ag-pop.ag-pop--left { left: 0; right: auto; }
+/* positioned inline by useFloating (flips/clamps to the viewport — no more
+ * hand-set align). visuals + width only here. */
+.ag-pop { z-index: 30; width: 280px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 14px 40px rgba(0,0,0,.18); padding: 6px; font-family: var(--sans); overflow-y: auto; }
 .ag-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 8px 7px 4px; }
 .ag-opt { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: var(--r-sm); cursor: pointer; }
 .ag-opt:hover { background: var(--panel-2); }
@@ -496,7 +500,8 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 /* frozen-commit pin — sits just after the sha; hover the pin for the explanation.
    small padding enlarges the hover target for the tooltip; no special cursor. */
 .rp-pin { display: inline-flex; align-items: center; margin-left: 1px; padding: 3px; color: var(--amber); }
-.limn-refpick-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; width: 300px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; }
+/* positioned inline by useFloating (flips/clamps on-screen). visuals + width only. */
+.limn-refpick-pop { z-index: 50; width: 300px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 10px 32px rgba(0,0,0,.16); padding: 8px; overflow-y: auto; }
 .limn-refpick-pop input { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); margin-bottom: 6px; }
 .limn-refpick-sec { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; padding: 6px 4px 3px; }
 .limn-refpick-sec-btn { display: flex; align-items: center; gap: 6px; width: 100%; border: none; background: none; font-family: inherit; cursor: pointer; }

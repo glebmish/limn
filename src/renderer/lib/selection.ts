@@ -18,9 +18,12 @@ export interface CapturedSelection {
   quote: string
   prefix: string
   suffix: string
-  /** position (relative to the container's top-left) for a floating control */
-  x: number
-  y: number
+  /** the selection's bounding rect, relative to the container's top-left, used to
+   *  position the floating "Comment" pill (clamped to the container so it never
+   *  spills past the column edges). */
+  rect: { top: number; left: number; width: number; height: number }
+  /** the container's content size at capture time — the bounds the pill is clamped to */
+  bounds: { width: number; height: number }
 }
 
 /** Capture the current window selection when it is non-empty and fully inside
@@ -46,5 +49,9 @@ export function captureSelection(container: HTMLElement): CapturedSelection | nu
 
   const r = range.getBoundingClientRect()
   const box = container.getBoundingClientRect()
-  return { quote, prefix, suffix, x: r.left - box.left + r.width / 2, y: r.bottom - box.top }
+  return {
+    quote, prefix, suffix,
+    rect: { top: r.top - box.top, left: r.left - box.left, width: r.width, height: r.height },
+    bounds: { width: container.clientWidth, height: container.clientHeight },
+  }
 }

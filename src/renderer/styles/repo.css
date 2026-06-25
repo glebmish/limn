@@ -8,12 +8,13 @@
 .rsw-btn:hover { border-color: var(--line-3); background: var(--panel-2); }
 .rsw-btn .rsw-val { font-family: var(--mono); color: var(--ink); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .rsw-btn .rsw-lab { color: var(--muted); font-size: 11px; }
+/* position + max-height set inline by useFloating; visuals only here. The .left/
+ * .right align classes are now just preferred-edge hints (the core flips/clamps). */
 .rsw-pop {
-  position: absolute; top: calc(100% + 5px); z-index: 60; min-width: 200px; max-height: 360px; overflow-y: auto;
+  z-index: 60; min-width: 200px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md);
   box-shadow: 0 8px 28px rgba(0,0,0,.14); padding: 5px;
 }
-.rsw-pop.left { left: 0; } .rsw-pop.right { right: 0; }
 .rsw-head { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 5px 8px 3px; display: flex; gap: 6px; align-items: baseline; }
 .rsw-head .rsw-sub { text-transform: none; letter-spacing: 0; font-size: 10.5px; color: var(--muted-2); }
 .rsw-item {
@@ -199,13 +200,17 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 /* branch chip → click opens the main ← branch review; hover previews the target */
 .limn-repo-row .limn-chip { position: relative; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .limn-repo-row .limn-chip:hover { border-color: var(--accent-line); color: var(--accent-ink); background: var(--panel); }
+/* position (fixed top/left) is set inline by <Tooltip>/useFloating, which flips it
+ * below↔above and clamps it to the viewport; this rule is visuals only. The arrow
+ * follows the chosen side via [data-side]. */
 .chip-tip {
-  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); z-index: 80; box-sizing: border-box; max-width: min(260px, calc(100vw - 32px)); white-space: normal; overflow-wrap: break-word; text-align: center;
+  z-index: 80; box-sizing: border-box; max-width: min(260px, calc(100vw - 32px)); white-space: normal; overflow-wrap: break-word; text-align: center;
   background: var(--ink); color: #fff; font-family: var(--mono); font-size: 10.5px; padding: 5px 9px; border-radius: var(--r-sm);
-  opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 0 8px 22px rgba(40,38,32,.28);
+  pointer-events: none; box-shadow: 0 8px 22px rgba(40,38,32,.28); animation: limn-tip-in .12s ease;
 }
-.chip-tip::after { content: ""; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
-.limn-repo-row .limn-chip:hover .chip-tip { opacity: 1; }
+.chip-tip::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); border: 5px solid transparent; }
+.chip-tip[data-side="bottom"]::after { bottom: 100%; border-bottom-color: var(--ink); }
+.chip-tip[data-side="top"]::after { top: 100%; border-top-color: var(--ink); }
 
 /* linked-worktree pill → click reveals the repo's worktrees; each opens its review */
 .rr-worktrees {
@@ -216,7 +221,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .rr-worktrees:hover { border-color: var(--line-3); color: var(--ink-2); }
 .rr-worktrees.open { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-soft); }
 .wt-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 70; width: 340px; padding: 5px; text-align: left; cursor: default;
+  z-index: 70; width: 340px; padding: 5px; text-align: left; cursor: default; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); font-family: var(--sans);
 }
 .wt-menu .wm-h { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); padding: 5px 8px; }
@@ -247,7 +252,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-switch .rs-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .limn-repo-switch .rs-caret { color: var(--muted-2); flex: 0 0 auto; display: inline-flex; }
 
-.limn-repo-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; }
+.limn-repo-menu { z-index: 60; width: 320px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 5px; overflow-y: auto; }
 .limn-repo-menu .rm-search { display: flex; margin: 2px 2px 6px; }
 .limn-repo-menu .rm-search input { flex: 1 1 auto; font-family: var(--sans); font-size: 12.5px; color: var(--ink); padding: 6px 9px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2); outline: none; }
 .limn-repo-menu .rm-search input:focus { border-color: var(--accent-line); }
@@ -276,7 +281,7 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-new:hover { background: var(--accent-line); }
 .limn-repo-new-caret { display: inline-flex; align-items: center; padding: 7px 7px; border: 1px solid var(--accent-line); border-left: none; background: var(--accent-soft); cursor: pointer; color: var(--accent-ink); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
 .limn-repo-new-caret:hover, .limn-repo-newwrap.open .limn-repo-new-caret, .limn-repo-newwrap.open .limn-repo-new { background: var(--accent-line); }
-.limn-repo-new-pop { position: absolute; top: calc(100% + 5px); right: 0; z-index: 50; width: 330px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 13px; }
+.limn-repo-new-pop { z-index: 50; width: 330px; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: 0 12px 32px rgba(40,38,32,.20); padding: 13px; overflow-y: auto; }
 .limn-repo-new-pop .np-h { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--muted-2); margin: 0 0 10px; }
 .limn-repo-new-pop .np-refs { margin-bottom: 12px; }
 .limn-repo-new-pop .np-act { display: flex; gap: 9px; align-items: center; }

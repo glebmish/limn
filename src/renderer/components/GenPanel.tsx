@@ -70,15 +70,24 @@ export function GenPanel() {
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)
   const [now, setNow] = useState(() => Date.now())
   const [steer, setSteer] = useState('')
 
-  // keep the latest tool call in view (gen.log is a fresh array each event, so
-  // this fires on every event — gen.log.length plateaus at the 200 cap)
+  // follow the latest tool call only while the user is parked at the bottom.
+  // once they scroll up to read, new calls stop yanking them down; following
+  // resumes when they scroll back to the bottom. (gen.log is a fresh array each
+  // event, so this fires on every event — its length plateaus at the 200 cap)
   useEffect(() => {
     const el = logRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight })
+    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight })
   }, [gen.log])
+
+  // a scroll landing within ~24px of the bottom re-arms following
+  const onLogScroll = () => {
+    const el = logRef.current
+    if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
+  }
 
   // tick the elapsed counter once a second while an op is running
   useEffect(() => {
@@ -109,7 +118,7 @@ export function GenPanel() {
           <span><b>{calls.length}</b> tool call{calls.length === 1 ? '' : 's'}</span>
           <span><b>{fmtElapsed(gen.startedAt ? now - gen.startedAt : 0)}</b> elapsed</span>
         </div>
-        <div className="gs-log" ref={logRef}>
+        <div className="gs-log" ref={logRef} onScroll={onLogScroll}>
           <ToolCallLog calls={calls} />
         </div>
       </div>
@@ -191,7 +200,7 @@ export function GenPanel() {
             <I.changed />Regenerate
           </button>
           <span className="rs-sep"></span>
-          <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" disabled={gate.blocked} />
+          <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="right" disabled={gate.blocked} />
         </div>
       </div>
       {behind && <div className="gen-drift-exp"><b>Update review</b> folds new commits in with the existing review; <b>Regenerate</b> re-runs from scratch.</div>}

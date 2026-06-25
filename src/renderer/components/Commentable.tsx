@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { SelectionScope } from '../../shared/types'
 import { I } from '../kit'
 import { useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { captureSelection, sameScope, type CapturedSelection } from '../lib/selection'
+import { computePosition } from '../lib/floating'
 import { Composer, InlineThread } from './Threads'
 
 const snip = (s: string, n = 48): string => (s.length > n ? s.slice(0, n - 1) + '…' : s)
@@ -20,7 +21,10 @@ export function Commentable({ scope, className, children }: {
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const pillRef = useRef<HTMLButtonElement>(null)
   const [pill, setPill] = useState<CapturedSelection | null>(null)
+  // hidden until measured so it never flashes at the wrong spot; computed below
+  const [pillStyle, setPillStyle] = useState<CSSProperties>({ visibility: 'hidden' })
   const [composing, setComposing] = useState<{ quote: string; prefix: string; suffix: string } | null>(null)
 
   useEffect(() => {
@@ -31,13 +35,26 @@ export function Commentable({ scope, className, children }: {
     return () => document.removeEventListener('mousedown', onDocDown)
   }, [])
 
+  // place the pill below the selection, centered, and clamp it to the container so
+  // an edge-of-column selection doesn't push it past the left/right margins.
+  useLayoutEffect(() => {
+    if (!pill || !pillRef.current) { setPillStyle({ visibility: 'hidden' }); return }
+    const fr = pillRef.current.getBoundingClientRect()
+    const placed = computePosition({
+      anchor: pill.rect, floating: { width: fr.width, height: fr.height },
+      viewport: pill.bounds, side: 'bottom', align: 'center', gap: 6, margin: 6,
+    })
+    setPillStyle({ left: placed.left, top: placed.top })
+  }, [pill])
+
   return (
     <div ref={ref} className={'limn-commentable' + (className ? ` ${className}` : '')} onMouseUp={() => ref.current && setPill(captureSelection(ref.current))}>
       {children}
       {pill && (
         <button
+          ref={pillRef}
           className="sel-cmt-pill"
-          style={{ left: pill.x, top: pill.y }}
+          style={pillStyle}
           onMouseDown={(e) => e.preventDefault()}  // don't collapse the selection
           onClick={() => {
             setComposing({ quote: pill.quote, prefix: pill.prefix, suffix: pill.suffix })

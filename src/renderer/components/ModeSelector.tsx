@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { I } from '../kit'
 import { useDismiss } from '../lib/useDismiss'
+import { useFloating } from '../lib/useFloating'
 import { EXECUTION_TIERS } from '../../shared/executionMode'
 import type { ExecutionMode } from '../../shared/types'
 
@@ -19,6 +20,8 @@ export function ModeSelector({ mode, disabled, onChange }: {
   const [open, setOpen] = useState(Boolean(window.limnDev?.openMode))
   const [confirmFull, setConfirmFull] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  // opens upward by preference; flips down / clamps if the composer sits high
+  const { anchorRef, floatingRef, style: menuStyle } = useFloating<HTMLButtonElement, HTMLDivElement>(open, { side: 'top', align: 'start' })
 
   useDismiss(open, () => { setOpen(false); setConfirmFull(false) }, ref)
 
@@ -33,6 +36,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
   return (
     <div className="modebar" ref={ref}>
       <button
+        ref={anchorRef}
         className={'mode-trig ' + active.key}
         disabled={disabled}
         onClick={() => { setOpen((o) => !o); setConfirmFull(false) }}
@@ -42,7 +46,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
         <span className="mt-car"><I.chevD style={{ width: 12, height: 12 }} /></span>
       </button>
       {open && (
-        <div className="mode-menu">
+        <div className="mode-menu" ref={floatingRef} style={menuStyle}>
           <div className="mm-hd">Execution mode</div>
           {EXECUTION_TIERS.map((t) => {
             const Ico = I[TIER_ICON[t.key]]

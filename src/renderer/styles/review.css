@@ -269,17 +269,19 @@
 .ctmark .cm-merge svg{width:13px;height:13px;flex:0 0 auto}
 .ctmark .cm-merge .cm-div{width:1px;height:13px;background:var(--accent-line);flex:0 0 auto}
 .ctmark .cm-merge .cm-sha{font-family:var(--mono);font-size:11px;font-weight:600;background:none;border:0;border-radius:0;padding:0;color:inherit}
-.ctmark .cm-tip{position:absolute;bottom:calc(100% + 9px);left:50%;transform:translateX(-50%) translateY(4px);display:flex;flex-direction:column;gap:2px;white-space:nowrap;text-align:left;background:var(--ink);padding:7px 10px;border-radius:var(--r-sm);box-shadow:0 12px 28px -10px rgba(40,38,32,.6);opacity:0;pointer-events:none;transition:opacity .12s,transform .12s;z-index:40}
-.ctmark .cm-tip::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%) translateY(-4px) rotate(45deg);width:9px;height:9px;background:var(--ink)}
+/* position (fixed top/left) is set inline by <Tooltip>/useFloating, which flips the
+ * bubble below the titlebar instead of clipping it off the top of the window and
+ * clamps the width to the viewport. Visuals only here; the arrow follows the chosen
+ * side via [data-side]. */
+.ctmark .cm-tip{display:flex;flex-direction:column;gap:2px;max-width:min(420px,calc(100vw - 32px));white-space:normal;overflow-wrap:break-word;text-align:left;background:var(--ink);padding:7px 10px;border-radius:var(--r-sm);box-shadow:0 12px 28px -10px rgba(40,38,32,.6);pointer-events:none;z-index:40;animation:limn-tip-in .12s ease}
+.ctmark .cm-tip::after{content:"";position:absolute;left:50%;transform:translateX(-50%) rotate(45deg);width:9px;height:9px;background:var(--ink)}
+.ctmark .cm-tip[data-side="top"]::after{top:100%;margin-top:-4px}
+.ctmark .cm-tip[data-side="bottom"]::after{bottom:100%;margin-bottom:-4px}
 .ctmark .cm-tip .l1{font-family:var(--sans);font-size:10.5px;font-weight:400;color:rgba(255,255,255,.66)}
 .ctmark .cm-tip .l1 .lead{font-weight:600;color:#fff}
 .ctmark .cm-tip .l1 .sha{font-family:var(--mono);background:none;border:0;border-radius:0;padding:0;color:rgba(255,255,255,.85)}
 .ctmark .cm-tip .l1 .sep{margin:0 3px;opacity:.4}
 .ctmark .cm-tip .l2{font-family:var(--sans);font-size:11.5px;font-weight:500;color:#fff}
-.ctmark .cm-pin:hover>.cm-tip,.ctmark .cm-head:hover>.cm-tip,.ctmark .cm-merge:hover>.cm-tip{opacity:1;transform:translateX(-50%) translateY(0)}
-.ctmark .tip-r>.cm-tip{left:auto;right:0;transform:translateX(0) translateY(4px)}
-.ctmark .tip-r>.cm-tip::after{left:auto;right:13px;transform:translateY(-4px) rotate(45deg)}
-.ctmark .tip-r:hover>.cm-tip{transform:translateX(0) translateY(0)}
 .ctmark .cm-arr{font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--muted-2);padding:0 4px}
 .ctmark .cm-arr::before{content:"\2014";margin-right:3px;color:var(--line-3)}
 .ctmark .cm-arr::after{content:"\2192";margin-left:3px;color:var(--line-3)}
@@ -454,7 +456,9 @@
 
 /* text-selection commenting (Commentable wrapper) */
 .limn-commentable { position: relative; }
-.sel-cmt-pill { position: absolute; transform: translate(-50%, 6px); z-index: 20; display: inline-flex; align-items: center;
+/* left/top set inline by Commentable via computePosition (centered on the
+ * selection, clamped to the column so it never spills past the edges). */
+.sel-cmt-pill { position: absolute; z-index: 20; display: inline-flex; align-items: center;
   gap: 5px; font-family: var(--sans); font-size: 11px; font-weight: 600; color: #fff; background: var(--accent);
   border: none; border-radius: 6px; padding: 4px 9px; cursor: pointer; white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0,0,0,.22); }
