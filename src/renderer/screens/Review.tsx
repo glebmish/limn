@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
+import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
@@ -25,7 +26,7 @@ let devGenRan = false
 let devDocRan = false
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
-function fakeGenState(): { running: true; opId: string; kind: 'review'; threadId: null; log: EngineEvent[]; error: null; startedAt: number } {
+function fakeGenState(): GenState {
   const tool = (id: string, verb: ToolVerb, arg: string, state: 'run' | 'ok', meta?: string): EngineEvent =>
     ({ type: 'tool', call: { id, verb, name: verb, arg, state, ...(meta ? { meta } : {}) } })
   const log: EngineEvent[] = [
@@ -38,7 +39,7 @@ function fakeGenState(): { running: true; opId: string; kind: 'review'; threadId
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000 }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, cancelled: false }
 }
 
 export default function Review() {

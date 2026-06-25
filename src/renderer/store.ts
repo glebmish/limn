@@ -94,6 +94,18 @@ export interface GenState {
   error: string | null
   /** epoch ms the op started — drives the live "elapsed" counter. */
   startedAt: number | null
+  /** set the instant the user cancels, so the terminal result routes back to the
+   *  generate block regardless of what error text the aborted engine reports. */
+  cancelled: boolean
+}
+
+/** Whether a finished op ended by user cancellation rather than a real failure.
+ *  The explicit `cancelled` flag is authoritative (set the moment the user clicks
+ *  Cancel); the error-string heuristic is belt-and-suspenders for cancels that are
+ *  only classified downstream (e.g. surfaced by the engine as an abort message). */
+export function genCancelled(gen: GenState): boolean {
+  if (gen.cancelled) return true
+  return gen.error != null && (gen.error === 'cancelled' || /\babort(ed)?\b/i.test(gen.error))
 }
 
 /** The active chat thread (or a sensible default) within the loaded review. */
@@ -319,7 +331,7 @@ export const useStore = create<AppStore>((set, get) => {
     focusTarget: null,
     docPath: null,
 
-    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false },
 
     async boot() {
       try {
@@ -662,7 +674,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     startOp(kind, opId, threadId) {
-      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now() } })
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), cancelled: false } })
     },
 
     pushOpEvent(ev) {
@@ -743,8 +755,13 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     cancelOp() {
-      const opId = get().gen.opId
-      if (opId) void window.api.cancel(opId)
+      const gen = get().gen
+      if (!gen.opId) return
+      void window.api.cancel(gen.opId)
+      // record the cancel up front and leave the running strip immediately, so the UI
+      // returns to the generate block; the late op:result (whatever its error text)
+      // is then classified as a cancel, never a failure.
+      set({ gen: { ...gen, running: false, cancelled: true } })
     },
 
     sendChat(text, anchor) {

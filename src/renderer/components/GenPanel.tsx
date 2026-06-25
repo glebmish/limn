@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { checkoutGate, newOpId, useStore } from '../store'
+import { checkoutGate, genCancelled, newOpId, useStore } from '../store'
 import { I, EngineGlyph } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
@@ -122,7 +122,7 @@ export function GenPanel() {
           <span className="gs-title">{label}</span>
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => { if (gen.opId) void window.api.cancel(gen.opId); useStore.getState().finishOp('cancelled') }}
+            onClick={() => useStore.getState().cancelOp()}
           >
             Cancel
           </button>
@@ -138,9 +138,9 @@ export function GenPanel() {
     )
   }
 
-  // treat an engine-level abort as a cancel even if it surfaces as an error string
-  // (belt-and-suspenders with the main-side detection).
-  const wasCancelled = gen.error != null && (gen.error === 'cancelled' || /\babort(ed)?\b/i.test(gen.error))
+  // a user-initiated cancel must reopen the generate block, never the failure
+  // banner — classified by the explicit flag set on cancel (genCancelled).
+  const wasCancelled = genCancelled(gen)
 
   if (gen.error && !wasCancelled) {
     return (
