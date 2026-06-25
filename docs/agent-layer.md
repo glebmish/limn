@@ -3,8 +3,6 @@
 How Limn drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
 > **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives in `src/main/engines/` and is orchestrated by `src/main/ipc.ts`.
->
-> A visual, code-grounded companion lives at [`agent-interactions.html`](agent-interactions.html) — open it in a browser for the same material with diagrams and the real prompt/schema text.
 
 ## Guiding principle: git is ground truth
 
