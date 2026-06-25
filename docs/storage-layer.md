@@ -6,7 +6,7 @@ How Limn persists review state: SQLite schema, the session-identity model, migra
 
 ## Overview
 
-All review state — sessions, comments, chat, iterations, approvals, pinned dirs, scan caches, prefs — lives in a single SQLite file. Everything else (diffs, file content, branch SHAs) is read live from git and is **never** persisted; git is ground truth, the DB only stores the *review layer* on top of it.
+All review state — sessions, comments, chat, iterations, approvals, prefs — lives in a single SQLite file. Everything else (diffs, file content, branch SHAs) is read live from git and is **never** persisted; git is ground truth, the DB only stores the *review layer* on top of it.
 
 - **Engine:** Node's built-in `node:sqlite` (`DatabaseSync`). No third-party driver. All access is **synchronous**.
 - **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/main/index.ts` and threaded explicitly into `registerIpc(db, …)`.
@@ -20,7 +20,6 @@ All review state — sessions, comments, chat, iterations, approvals, pinned dir
 | `db/db.ts` | Open, pragmas, corruption recovery, migration runner |
 | `db/migrations.ts` | The forward-only migration list (the schema *is* the migrations) |
 | `db/sessions.ts` | The session/comment/chat/iteration/artifact DAO |
-| `db/pins.ts` | Pinned dirs + scan-cache DAO |
 
 ## Connection setup & resilience
 
@@ -55,11 +54,9 @@ repos ──1:N──> sessions ──1:N──> comments
                         ├──1:N──> reviewed_sections
                         ├──1:N──> artifacts
                         └──1:N──> artifact_approvals
-
-pinned_dirs ──1:1──> scan_cache
 ```
 
-Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children in one statement — relied on by `removePin`.
+Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat, iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals — in one statement.
 
 ### Tables
 
@@ -67,19 +64,17 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 |-------|---------------------------|
 | `meta` | `schema_version` only. Created outside migrations. |
 | `prefs` | App key/value (e.g. `engine`). Accessed directly, not via a DAO. |
-| `pinned_dirs` | Dashboard pins. `path UNIQUE`, `position` for ordering. |
-| `scan_cache` | One row per pin; `tree_json` is the serialized directory scan. Cascades on pin delete. |
 | `repos` | `path UNIQUE`, `last_opened_at` (drives recents), `first_commit_sha` (identity hint). |
 | `sessions` | The core table — see below. |
 | `comments` | PK `(session_id, id)`; full `Comment` in the `json` blob; `status` duplicated as a column for `unresolvedCount`. |
 | `chat_messages` | Autoincrement id (read order), `role`, `text`, optional `anchor_json`. |
-| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat/fix; `end_sha`, `summary`. |
+| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`. |
 | `viewed_files` | PK `(session_id, file)`; per-file "viewed at SHA" markers. |
 | `reviewed_sections` | PK `(session_id, section_id)`; set membership. |
 | `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
 
-JSON-blob columns: `scan_cache.tree_json`, `sessions.annotations_json` (the full `ReviewAnnotations`), `comments.json` (the full `Comment`), `chat_messages.anchor_json` (a `CommentAnchor`).
+JSON-blob columns: `sessions.annotations_json` (the full `ReviewAnnotations`), `comments.json` (the full `Comment`), `chat_messages.anchor_json` (a `CommentAnchor`).
 
 > Several columns are **denormalized for cheap list queries**: `sessions.title`/`summary` mirror fields inside `annotations_json`; `comments.status` mirrors a field inside `comments.json`. Keep them in sync when you write.
 
@@ -136,11 +131,7 @@ Every function takes `db` first. Highlights and contracts:
 - **Transactional, replace-semantics** helpers: `resetIterations` (regenerate — wipes stale `n>1` rows so a fix can't resume the wrong engine thread), `setArtifacts`, `replaceUiState` (delete-all-then-reinsert per field — replace, not merge).
 - `loadReviewState(db, id)` — the assembler. Reads one row-set per child table, JSON-parses blobs, maps DB column names back to TS shapes. **Comments are ordered `(created_at, id)`, chat by `id`, iterations by `n`; the set-like tables are read without `ORDER BY`** (fine because they become sets/objects — don't start relying on their row order).
 
-**`pins.ts`**
-- `listPins` (by `position`), `addPin` (appends at `MAX(position)+1`; UNIQUE violation rethrown as "already pinned"), `removePin`.
-- `getScanCache` **swallows JSON-parse errors** and returns null, so a corrupt cache row degrades to a rescan instead of crashing the dashboard. `setScanCache` upserts on `pin_id`.
-
 ### Transaction model — sharp edges
 
 - Transactions are raw `db.exec('BEGIN'|'COMMIT'|'ROLLBACK')`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
-- **Asymmetric JSON error handling:** `scan_cache` corruption is swallowed, but `comments.json` / `annotations_json` / chat `anchor_json` are `JSON.parse`d with no guard in `loadReviewState` — a malformed blob there fails the whole session load.
+- **Unguarded JSON parsing:** `comments.json` / `annotations_json` / chat `anchor_json` are `JSON.parse`d with no guard in `loadReviewState` — a malformed blob there fails the whole session load.

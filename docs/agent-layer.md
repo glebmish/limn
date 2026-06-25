@@ -8,7 +8,7 @@ How Limn drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to t
 
 ## Guiding principle: git is ground truth
 
-The displayed diff is **always** computed from `git diff`, never from the agent. The agent only *annotates* the diff (sections, narration, risk flags, diagrams, spec cross-check) and, in the fix flow, *edits and commits* on the branch — after which the app re-reads git. The agent can never assert what changed or alter what you see. The validation layer enforces this: any agent reference to a file not in the diff is dropped, and every file in the diff is guaranteed coverage.
+The displayed diff is **always** computed from `git diff`, never from the agent. The agent only *annotates* the diff (sections, narration, risk flags, diagrams, spec cross-check) and, on a write-enabled batch turn, *edits and commits* on the branch using its own engine shell (git) — after which the app re-reads git. The agent can never assert what changed or alter what you see. The validation layer enforces this: any agent reference to a file not in the diff is dropped, and every file in the diff is guaranteed coverage.
 
 ## Engine abstraction
 
@@ -22,7 +22,7 @@ interface ReviewEngine {
 }
 ```
 
-Three product operations map onto these two methods — **generate** (explore the repo and produce structured annotations), **chat** (Q&A next to the diff), and **batch** (apply queued comments: edits + commits). Batch is *not* a separate method: it is `chat()` with the write-enabled tool layer (`commit_changes` et al.). What the agent can do is decided by the engine/tool policy for the turn. All three return the same dual-channel envelope:
+Three product operations map onto these two methods — **generate** (explore the repo and produce structured annotations), **chat** (Q&A next to the diff), and **batch** (apply queued comments: edits + commits). Batch is *not* a separate method: it is `chat()` with `writeEnabled` set, which lets the engine's own shell/edit tools (Bash/Edit/Write — git via bash) act under the execution-mode gate. Limn hosts no write tool of its own; the agent edits files and commits on the branch itself. What the agent can do is decided by the engine/tool policy for the turn. All three return the same dual-channel envelope:
 
 ```ts
 interface EngineRun<T> {
@@ -34,7 +34,7 @@ interface EngineRun<T> {
 
 The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC channel `op:event`) for live progress while awaiting `result` for the terminal payload (the validated `ReviewAnnotations` for generate; the final assistant text for chat/batch).
 
-- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, code_committed…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its SDK's native event stream into this union via a local `toEvents()`/`toEvent()` mapper.
+- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, comment_resolved…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its SDK's native event stream into this union via a local `toEvents()`/`toEvent()` mapper.
 - **`EventQueue`** bridges push-style SDK callbacks to a pull-style `AsyncIterable`. It is **single-consumer** (one FIFO waiter queue) and **drops events pushed after `close()`**. It does not surface errors as rejections — errors travel as an `{type:'error'}` event plus a rejected `result` promise.
 
 **`ChatTurn`** (`engines/types.ts`) is the carrier for both chat and batch. Beyond `repo`/`message`/`anchor`/`model`/`reasoningEffort` it threads the context that distinguishes the two: `engineSessionId` (resume this session, else start fresh + seed from `context`), `tools` (the per-turn `AgentToolHost`), `writeEnabled` (code-editing tools allowed this turn), `opId` (keys the approval registry), and `executionMode` (the autonomy tier).
@@ -48,7 +48,7 @@ return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
 
 A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides everything.
 
-**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it calls `resolve_comment` and `commit_changes` so the actual commit/iteration/resolution path runs offline. Read-only chat turns exercise the `focus` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
+**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
 
 > ⚠️ `FakeEngine.id` is hardcoded `'claude'` regardless of the requested engine — a latent inconsistency if any code keys behavior off the reported id.
 
@@ -102,7 +102,7 @@ Plain-string builders. `describeAnchor()` renders each of the 7 `CommentAnchor` 
 - **`buildReviewPrompt(req)`** — frames the agent as a review guide and instructs an **explore-first** pass (read changed files in full, grep callers/tests, walk `git log base..branch`, read artifacts). It supplies a pre-computed changed-files list (status, ±counts, hunk ranges, merge-base/head SHAs) and an artifact block ("the intent this change is judged against"). The output contract: group **all** files into **2–8 logical sections** (by purpose, not directory; each file in exactly one section), per-section `desc` + plain-language `what`, **risk flags** keyed to exact file + hunk range, an optional **mechanism diagram** (2–5 nodes), `title` + `summary`, a **spec/plan cross-check** (`planMap`: acceptance criteria met/partial/false, plan steps mapped to sections, deviations), and `questions` needing a human decision.
 - **`buildChatPrompt(message, anchor?)`** — the thin conversational wrapper for a **resuming** read-only chat: the message, optional anchor prose, "Do NOT modify any files."
 - **`buildSeededChatPrompt(ctx, message, anchor?)`** — for a **fresh** chat whose agent did *not* produce the review (so there is no engine session to resume). Re-orients the new agent from scratch: branch/base, the review summary so far, full read access, "Do NOT modify any files."
-- **`buildBatchPrompt(comments, steer?, context?)`** — the unified apply turn. Lists each queued comment with its **stable id**, anchor, text, and reply thread, plus an optional reviewer `steer`. Instructs the agent to act **through its tools** — edit & `commit_changes` (passing per-comment resolutions: `addressed` / `reworked` / `skipped`), or `reply_to_comment` / `resolve_comment` when no code change is needed — keep existing code style, treat answers to earlier open questions as decisions, and finish with a 2–3 sentence summary. `context` seeds the review framing when the thread has no engine session to resume.
+- **`buildBatchPrompt(comments, steer?, context?)`** — the unified apply turn. Lists each queued comment with its **stable id**, anchor, text, and reply thread, plus an optional reviewer `steer`. Instructs the agent to address each comment by editing the code (or `reply_to_comment` when no change is needed); to **commit its edits itself with git through its own shell** — "stage exactly the files you changed and commit with a short message (`limn: …`)"; and to record each outcome with `resolve_comment` (its `commentId` plus a verdict — `addressed` / `reworked` / `skipped` — and a note), whether or not a code change was needed. It also says to keep existing code style, treat answers to earlier open questions as decisions, and finish with a 2–3 sentence summary. `context` seeds the review framing when the thread has no engine session to resume.
 
 ## Schema & validation
 
@@ -125,22 +125,21 @@ Returned warnings are surfaced to the UI as `status` events. Note this runs in `
 
 ## The tool layer (`tools.ts`)
 
-Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review through one **engine-agnostic** tool set defined once and hosted two ways. A `ToolDef` is `{ name, description, input: z.ZodRawShape }`; a handler runs in the Electron **main** process — it may touch the DB/git, emit a live `action` event, and returns the text the model sees.
+Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review through one **engine-agnostic** tool set defined once and hosted two ways. A `ToolDef` is `{ name, description, input: z.ZodRawShape }`; a handler runs in the Electron **main** process — it may touch the DB/git, emit a live `action` event, and returns the text the model sees. These are all read/annotate tools: **Limn hosts no write tool**. Code edits and commits go through the engine's *own* shell/edit tools (Bash/Edit/Write — git via bash), gated by the execution mode, not through a Limn tool.
 
-| Tool | Effect | Write? |
-| --- | --- | --- |
-| `focus` | scroll + highlight a spot; leaves a clickable chip | |
-| `suggest_mark_viewed` | propose marking files/sections viewed (reviewer confirms) | |
-| `list_comments` / `get_review` | read current DB state (ids, anchors, narration) | |
-| `add_comment` / `reply_to_comment` | author an agent comment / reply, anchored to diff/file/section/summary | |
-| `resolve_comment` | resolve a comment with verdict + note | |
-| `edit_review` | amend title / summary / a section's `what`/`desc` in place | |
-| `commit_changes` | stage exact listed files + commit, record an iteration, attach resolutions | **write** |
+| Tool | Effect |
+| --- | --- |
+| `focus` | scroll + highlight a spot; leaves a clickable chip |
+| `suggest_mark_viewed` | propose marking files/sections viewed (reviewer confirms) |
+| `list_comments` / `get_review` | read current DB state (ids, anchors, narration) |
+| `add_comment` / `reply_to_comment` | author an agent comment / reply, anchored to diff/file/section/summary |
+| `resolve_comment` | resolve a comment (by id) with verdict + note |
+| `edit_review` | amend title / summary / a section's `what`/`desc` in place |
 
 - **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex app-server connects to a per-turn localhost MCP server that reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__limn__<name>`.
-- **Withholding writes:** `limnAllowedToolNames(writeEnabled)` drops `write` tools unless the turn is write-enabled, so the agent degrades to review/comment-only rather than failing.
+- **The write path is the engine's own:** since Limn has no write tool, `limnAllowedToolNames()` always returns the same set; the *code-editing* capability is the engine's Bash/Edit/Write tools, gated by the turn's `writeEnabled` + execution mode (see *Execution modes & approvals*). A non-write turn degrades to review/comment-only.
 - **Call path:** `createToolHost(ctx).call(name, args)` validates args against the Zod shape at the boundary, runs the handler, and — if it produced an `AgentAction` — emits it live (`type:'action'`) *and* collects it for persistence on the chat message (so chips rebuild on reload). A handler throw becomes `{isError:true}` text, not a crash.
-- **The comment id is the join key** that survives the whole batch round-trip: prompt → the agent's `resolve_comment`/`commit_changes` call → the DB row's `resolution`.
+- **The comment id is the join key** that survives the whole batch round-trip: prompt → the agent's `resolve_comment` / `reply_to_comment` call → the DB row's `resolution`.
 
 ## Execution modes & approvals
 
@@ -186,11 +185,11 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 
 Batch is **chat with write tools** — it returns ordinary chat text plus tool side effects, not a separate structured fix result.
 
-1. Acquire the per-repo lock. Compute `writeEnabled` from the same preconditions the old fix flow enforced: the compare side is a **branch** (can't push to a frozen commit), the working tree is **clean**, and the repo is **on that branch**. **When unmet, the turn runs write-disabled (review/comment-only) instead of failing.**
+1. Acquire the per-repo lock. Compute `writeEnabled` from the batch preconditions: the compare side is a **branch** (can't push to a frozen commit), the working tree (the primary repo or its linked worktree) is **clean**, and that worktree is **on that branch**. **When unmet, the turn runs write-disabled (review/comment-only) instead of failing.**
 2. Mark the selected comments `sent` and persist (a crash leaves a recoverable trail).
 3. Build the tool host (now `writeEnabled`, carrying `engineSessionId` for the commit's iteration) and `buildBatchPrompt(comments, steer, context?)` — `context` only when there's no session to resume.
-4. `engine.chat({ engineSessionId, message: <batch prompt>, tools, writeEnabled, executionMode, … })`. The agent edits, calls **`commit_changes`** (commits on the branch + records the iteration), and `resolve_comment`/`reply_to_comment` per comment id. **The agent commits via its tool — the app never commits.**
-5. Reconcile: reload state; **any comment still `sent` (un-addressed) rolls back to `queued`** so it isn't lost. (Resolutions and the iteration were already written by the `resolve_comment`/`commit_changes` handlers.)
+4. `engine.chat({ engineSessionId, message: <batch prompt>, tools, writeEnabled, executionMode, … })`. The agent edits files and **commits on the branch using its own engine shell** (running `git add`/`git commit`), and calls `resolve_comment`/`reply_to_comment` per comment id. **The agent commits via git in its shell — the app never commits.**
+5. Reconcile: reload state; **any comment still `sent` (un-addressed) rolls back to `queued`** so it isn't lost. (Resolutions were already written by the `resolve_comment` handler; the commit landed in git directly.)
 6. Emit `op:result {kind:'chat', reload:true}`; notify. Finally: release lock, `clearPending(opId)`.
 
 After a batch, the next `loadSession` re-diffs against git and tags the new commits as "since you reviewed" — the agent's output is never trusted for what changed.

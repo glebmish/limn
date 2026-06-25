@@ -44,7 +44,7 @@ describe('deriveVerb', () => {
   it.each([
     ['Read', 'read'], ['read_file', 'read'], ['Grep', 'grep'], ['ripgrep', 'grep'],
     ['Edit', 'edit'], ['Write', 'edit'], ['file_change', 'edit'], ['Bash', 'bash'],
-    ['command_execution', 'bash'], ['commit_changes', 'bash'], ['Glob', 'list'],
+    ['command_execution', 'bash'], ['Glob', 'list'],
     ['list_comments', 'list'], ['mcp__limn__add_comment', 'edit'], ['unknown_tool', 'other'],
   ] as const)('%s -> %s', (name, verb) => { expect(deriveVerb(name)).toBe(verb) })
 })

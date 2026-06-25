@@ -141,7 +141,7 @@
   <a class="sub" href="#chat">Chat thread / message</a>
   <a class="sub" href="#iteration">Iteration</a>
   <a class="sub" href="#artifact">Artifact</a>
-  <a class="sub" href="#ui">UI-state & pins</a>
+  <a class="sub" href="#ui">UI-state sets</a>
   <div class="grp">Lifecycle</div>
   <a href="#identity">Identity invariant</a>
   <a href="#session-life">Session lifecycle</a>
@@ -177,7 +177,7 @@
   </div>
 
   <h2 id="graph">Entity graph</h2>
-  <p>Every child→parent link is a foreign key with <code>ON DELETE CASCADE</code>. Pins are a separate Dashboard concern, not part of the session graph.</p>
+  <p>Every child→parent link is a foreign key with <code>ON DELETE CASCADE</code>.</p>
   <div class="graph">
 <pre><b>repos</b> ──1:N──&gt; <b>sessions</b> ──1:N──&gt; <span class="c">comments</span>
                    ├──1:N──&gt; <span class="c">chat_threads</span> ──1:N──&gt; <span class="c">chat_messages</span>
@@ -185,9 +185,7 @@
                    ├──1:N──&gt; <span class="c">viewed_files</span>
                    ├──1:N──&gt; <span class="c">reviewed_sections</span>
                    ├──1:N──&gt; <span class="c">artifacts</span>
-                   └──1:N──&gt; <span class="c">artifact_approvals</span>
-
-<span class="p">pinned_dirs</span> ──1:1──&gt; <span class="p">scan_cache</span>          <span style="color:#4b5263">(dashboard · separate)</span></pre>
+                   └──1:N──&gt; <span class="c">artifact_approvals</span></pre>
   </div>
   <p class="muted" style="font-size:13.5px">Some links live <em>inside JSON blobs</em>, not as FKs: <code>Comment.threadId</code> → a chat thread; <code>Comment.anchor.sectionId</code> and <code>PlanMap.steps[].sectionId</code> → a <code>Section.id</code> inside <code>annotations_json</code>. These are validated/sanitized in code on load, not enforced by the DB.</p>
 
@@ -321,9 +319,9 @@
   </div>
 
   <div class="ent" id="ui">
-    <div class="top"><span class="nm">UI-state sets &amp; Pins</span><span class="tbl">viewed_files · reviewed_sections · pinned_dirs · scan_cache</span><span class="store">SQLite</span></div>
+    <div class="top"><span class="nm">UI-state sets</span><span class="tbl">viewed_files · reviewed_sections</span><span class="store">SQLite</span></div>
     <div class="bd">
-      <p><b>viewed_files</b> <code>(session_id, file) → sha</code>: per-file "viewed at this branch-head SHA" marker. <b>reviewed_sections</b> <code>(session_id, section_id)</code>: set of sections marked reviewed. <b>pinned_dirs</b> + <b>scan_cache</b> are a Dashboard concern (a cached recursive directory scan of <code>PinNode</code> trees), entirely separate from the session graph.</p>
+      <p><b>viewed_files</b> <code>(session_id, file) → sha</code>: per-file "viewed at this branch-head SHA" marker. <b>reviewed_sections</b> <code>(session_id, section_id)</code>: set of sections marked reviewed.</p>
     </div>
   </div>
 
@@ -411,11 +409,6 @@
       <h4>SQLite</h4>
       <p style="margin:6px 0 0;font-size:13.5px"><code>&lt;userData&gt;/limn.db</code> (WAL; <code>-wal</code>/<code>-shm</code> sidecars). Opened once at app-ready; the handle is threaded explicitly into every DAO (no module global, so tests use throwaway temp DBs). Forward-only integer <code>MIGRATIONS[]</code> against <code>meta.schema_version</code>, each in a <code>BEGIN/COMMIT</code>.</p>
     </div>
-    <div class="card git">
-      <div class="ic">import-only legacy</div>
-      <h4>Filesystem JSON</h4>
-      <p style="margin:6px 0 0;font-size:13.5px">The old format was per-file <code>&lt;repo&gt;/.limn/review-*.json</code>. On <code>openRepo</code>/<code>startSession</code> these are migrated into SQLite, then renamed <code>*.imported</code> (idempotent: skip if a session already exists).</p>
-    </div>
   </div>
 
   <h2 id="sources">Source map</h2>
@@ -424,7 +417,6 @@
     <tr><td>All shared types/shapes</td><td class="t">src/shared/types.ts</td></tr>
     <tr><td>Schema &amp; migrations</td><td class="t">src/main/db/migrations.ts</td></tr>
     <tr><td>Session DAO &amp; transitions</td><td class="t">src/main/db/sessions.ts</td></tr>
-    <tr><td>Pins / scan cache DAO</td><td class="t">src/main/db/pins.ts</td></tr>
     <tr><td>Legacy import</td><td class="t">src/main/db/import.ts</td></tr>
     <tr><td>Lifecycle orchestration (IPC)</td><td class="t">src/main/ipc.ts</td></tr>
     <tr><td>Engine contract</td><td class="t">src/main/engines/types.ts</td></tr>

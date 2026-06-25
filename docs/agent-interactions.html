@@ -167,7 +167,7 @@
     <tr><td><b>Chat</b> — Q&amp;A next to the diff</td><td><code>chat</code></td><td><span class="pill read">read-only</span> + Limn tools</td><td><code>string</code> (final text)</td><td><code>buildChatPrompt</code> / <code>buildSeededChatPrompt</code></td></tr>
     <tr><td><b>Batch</b> — apply queued comments</td><td><code>chat</code></td><td><span class="pill write">write</span> when preconditions met</td><td><code>string</code> + side effects via tools</td><td><code>buildBatchPrompt</code></td></tr>
   </table>
-  <div class="note"><b>Batch is just chat with write tools.</b> Applying comments flows through <code>chat()</code> with the <code>commit_changes</code> / <code>resolve_comment</code> tools enabled. One conversation surface; tools, not a separate method, decide what the agent can do.</div>
+  <div class="note"><b>Batch is just chat with write tools.</b> Applying comments flows through <code>chat()</code> with <code>writeEnabled</code> set — the agent's <i>own</i> shell/edit tools (Bash/Edit/Write — git via bash) become available under the execution-mode gate, and it records outcomes with the <code>resolve_comment</code> Limn tool. One conversation surface; the turn's write flag + tool policy, not a separate method, decide what the agent can do.</div>
 
   <!-- ─────────────────────────────────────────── -->
   <h2 id="prompts"><span class="n">04</span>Prompt construction</h2>
@@ -214,12 +214,13 @@
 <span class="s">   thread: user: are you sure? | agent: checking…</span>
 
 <span class="s">Handle them using your tools:</span>
-<span class="s">- Address each comment by editing the code, or answer with reply_to_comment ...</span>
-<span class="s">- When you edit code, commit it with commit_changes — pass a message and the</span>
-<span class="s">  resolutions (each: commentId, verdict, note). Verdicts: addressed/reworked/skipped.</span>
-<span class="s">- For comments handled without a code change, call resolve_comment ...</span>
+<span class="s">- Address each comment by editing the code, or answer it with reply_to_comment ...</span>
+<span class="s">- When you edit code, commit it yourself with git via your shell: stage exactly</span>
+<span class="s">  the files you changed and commit with a short message ("limn: …").</span>
+<span class="s">- Record the outcome of each comment with resolve_comment — pass its commentId,</span>
+<span class="s">  a verdict, and a note. Verdicts: addressed/reworked/skipped.</span>
 <span class="s">- Finish with a 2-3 sentence summary of what you did.`</span></code></pre>
-  <div class="note">The <b>comment id</b> is the join key that survives the whole round-trip: prompt → agent's <code>resolve_comment</code>/<code>commit_changes</code> call → the DB row's <code>resolution</code>. The model is told the ids explicitly so its tool calls can reference them.</div>
+  <div class="note">The agent commits its edits <b>itself, with git through its own shell</b> — Limn hosts no commit tool. The <b>comment id</b> is the join key that survives the whole round-trip: prompt → agent's <code>resolve_comment</code> call → the DB row's <code>resolution</code>. The model is told the ids explicitly so its tool calls can reference them.</div>
 
   <!-- ─────────────────────────────────────────── -->
   <h2 id="context"><span class="n">05</span>Context propagation</h2>
@@ -312,23 +313,25 @@
 <span class="c">// and returns the text the model sees.</span>
 <span class="k">interface</span> <span class="t">ToolDef</span> { name: <span class="t">string</span>; description: <span class="t">string</span>; input: <span class="t">z.ZodRawShape</span> }</code></pre>
   <table>
-    <tr><th>Tool</th><th>Effect</th><th>Write?</th></tr>
-    <tr><td><code>focus</code></td><td>Scroll + highlight a spot in the review; leaves a clickable chip</td><td></td></tr>
-    <tr><td><code>suggest_mark_viewed</code></td><td>Propose marking files/sections viewed (renders a button; reviewer confirms)</td><td></td></tr>
-    <tr><td><code>list_comments</code> / <code>get_review</code></td><td>Read current DB state (ids, anchors, narration)</td><td></td></tr>
-    <tr><td><code>add_comment</code> / <code>reply_to_comment</code></td><td>Author an agent comment / reply, anchored to diff/file/section/summary</td><td></td></tr>
-    <tr><td><code>resolve_comment</code></td><td>Resolve a comment with verdict (addressed/reworked/skipped) + note</td><td></td></tr>
-    <tr><td><code>edit_review</code></td><td>Amend title / summary / a section's <code>what</code>/<code>desc</code> in place</td><td></td></tr>
-    <tr><td><code>commit_changes</code></td><td>stage exact listed files + commit, record an iteration, attach resolutions</td><td><span class="pill write">write</span></td></tr>
+    <tr><th>Tool</th><th>Effect</th></tr>
+    <tr><td><code>focus</code></td><td>Scroll + highlight a spot in the review; leaves a clickable chip</td></tr>
+    <tr><td><code>suggest_mark_viewed</code></td><td>Propose marking files/sections viewed (renders a button; reviewer confirms)</td></tr>
+    <tr><td><code>list_comments</code> / <code>get_review</code></td><td>Read current DB state (ids, anchors, narration)</td></tr>
+    <tr><td><code>add_comment</code> / <code>reply_to_comment</code></td><td>Author an agent comment / reply, anchored to diff/file/section/summary</td></tr>
+    <tr><td><code>resolve_comment</code></td><td>Resolve a comment (by id) with verdict (addressed/reworked/skipped) + note</td></tr>
+    <tr><td><code>edit_review</code></td><td>Amend title / summary / a section's <code>what</code>/<code>desc</code> in place</td></tr>
   </table>
+  <div class="note"><b>None of these is a write tool.</b> Limn hosts no commit/edit tool — code edits and commits run through the engine's <i>own</i> Bash/Edit/Write tools (git via bash), gated by the turn's <code>writeEnabled</code> + execution mode (§<a class="ref" href="#approvals">09</a>). The Limn tools only read and annotate the review.</div>
   <p>The same <code>LIMN_TOOLS</code> array reaches each SDK differently:</p>
   <div class="chan">
     <div class="box"><h4><span class="pill claude">Claude</span> in-process MCP</h4><p><code>createSdkMcpServer</code> + <code>tool(name, desc, shape, handler)</code> consumes the Zod shape directly. Allowed names are prefixed <code>mcp__limn__*</code>.</p></div>
     <div class="box"><h4><span class="pill codex">Codex</span> app-server + MCP</h4><p>A per-turn localhost MCP server (<code>registerCodexTurn</code>) reflects the same shapes into JSON Schema; <code>codex app-server</code> is pointed at it via <code>config.mcp_servers.limn.url</code>.</p></div>
   </div>
-  <p>Write tools are <b>withheld</b> unless the turn is write-enabled — the agent silently degrades to review/comment-only rather than failing:</p>
-<pre><code><span class="k">export function</span> <span class="f">limnAllowedToolNames</span>(writeEnabled = <span class="p">false</span>): <span class="t">string</span>[] {
-  <span class="k">return</span> TOOL_IMPLS.filter(t =&gt; writeEnabled || !t.write).map(t =&gt; <span class="s">`mcp__limn__${t.name}`</span>)
+  <p>Every Limn tool is allowed each turn — there is no write tool to withhold. The <i>code-editing</i> capability is the engine's own Bash/Edit/Write tools, gated by the turn's <code>writeEnabled</code> + execution mode; a non-write turn degrades to review/comment-only:</p>
+<pre><code><span class="c">// limn hosts no write tool — code edits + commits go through the engine's own</span>
+<span class="c">// shell/edit tools (git via bash), gated by the execution mode.</span>
+<span class="k">export function</span> <span class="f">limnAllowedToolNames</span>(): <span class="t">string</span>[] {
+  <span class="k">return</span> TOOL_IMPLS.map(t =&gt; <span class="s">`mcp__limn__${t.name}`</span>)
 }</code></pre>
   <p>Each tool call validates its args against the Zod shape, runs the handler, and — if the handler produced one — emits a live <code>AgentAction</code> event <i>and</i> collects it for persistence on the chat message (so chips rebuild on reload):</p>
 <pre><code><span class="k">async</span> <span class="f">call</span>(name, args) {
@@ -366,7 +369,7 @@
   | { type: <span class="s">'status'</span>; text }              <span class="c">// "Codex is working…", reasoning snippets, notes</span>
   | { type: <span class="s">'tool'</span>; call: <span class="t">ToolCall</span> }       <span class="c">// tool-call lifecycle (run → ok/err), same id</span>
   | { type: <span class="s">'text'</span>; text }                <span class="c">// streamed assistant text (chat)</span>
-  | { type: <span class="s">'action'</span>; action: <span class="t">AgentAction</span> } <span class="c">// Limn tool effect (focus, comment_added, code_committed…)</span>
+  | { type: <span class="s">'action'</span>; action: <span class="t">AgentAction</span> } <span class="c">// Limn tool effect (focus, comment_added, comment_resolved…)</span>
   | { type: <span class="s">'approval_request'</span>; request }  <span class="c">// needs reviewer go-ahead</span>
   | { type: <span class="s">'done'</span> }
   | { type: <span class="s">'error'</span>; message }</code></pre>
@@ -386,7 +389,7 @@
   <span class="c">// first `run` event and is STICKY; a completion event (Claude's tool_result carries</span>
   <span class="c">// only the id) updates state/meta/out without clobbering identity.</span>
 }</code></pre>
-  <p>The display <b>verb</b> (read/grep/edit/bash/list/other) is derived from the raw tool name via a regex table — so <code>commit_changes</code> reads as <code>bash</code>, <code>list_comments</code> as <code>list</code>, the MCP prefix is stripped first, and unknown names fall through to <code>other</code>.</p>
+  <p>The display <b>verb</b> (read/grep/edit/bash/list/other) is derived from the raw tool name via a regex table — so a git shell call (<code>command_execution</code>) reads as <code>bash</code>, <code>list_comments</code> as <code>list</code>, the <code>mcp__limn__*</code> prefix is stripped first, and unknown names fall through to <code>other</code>.</p>
 
   <!-- ─────────────────────────────────────────── -->
   <h2 id="flow-generate"><span class="n">12</span>Flow — Generate (initial review)</h2>
@@ -416,7 +419,7 @@
     <li>Lock the repo. Compute <code>writeEnabled</code> from preconditions: compare side is a <b>branch</b>, tree is <b>clean</b>, repo is <b>on that branch</b>. If unmet, the agent runs write-disabled (review/comment-only) — it doesn't fail.</li>
     <li>Mark the selected comments <code>sent</code> and persist (a crash leaves a recoverable trail).</li>
     <li>Build the tool host (now <code>writeEnabled</code>, carrying <code>engineSessionId</code> for the commit's iteration) and <code>buildBatchPrompt(comments, steer, context?)</code>.</li>
-    <li><code>engine.chat({ …, tools, writeEnabled, executionMode })</code> — the agent edits, calls <code>commit_changes</code> (commits on the branch + records an iteration), and <code>resolve_comment</code>/<code>reply_to_comment</code> per comment id. <b>The app never commits — the agent does.</b></li>
+    <li><code>engine.chat({ …, tools, writeEnabled, executionMode })</code> — the agent edits files and <b>commits on the branch with git through its own shell</b> (<code>git add</code>/<code>git commit</code>), and calls <code>resolve_comment</code>/<code>reply_to_comment</code> per comment id. <b>The app never commits — the agent does, via git.</b></li>
     <li>Reconcile: any comment still <code>sent</code> (un-addressed) rolls back to <code>queued</code> so it isn't lost.</li>
     <li>Emit <code>op:result {kind:'chat', reload:true}</code>; the next <code>loadSession</code> re-diffs against git and tags new commits as "since you reviewed".</li>
   </ol>

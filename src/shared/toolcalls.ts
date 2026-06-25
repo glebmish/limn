@@ -5,7 +5,7 @@ const VERB_TABLE: [RegExp, ToolVerb][] = [
   [/^(grep|ripgrep|rg|search)$/i, 'grep'],
   [/^(edit|write|str_replace|file_change|multiedit)$/i, 'edit'],
   [/^(glob|list|ls|list_comments)$/i, 'list'],
-  [/^(bash|shell|command_execution|commit_changes)$/i, 'bash'],
+  [/^(bash|shell|command_execution)$/i, 'bash'],
 ]
 
 /** Map a raw engine/tool name to a display verb. limn MCP tools
