@@ -41,7 +41,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew }: {
         <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>
-        <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevD style={{ width: 13, height: 13, transform: 'rotate(-90deg)' }} />}</span>
+        <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevR style={{ width: 13, height: 13 }} />}</span>
       </button>
       {open && (
         <div className="chatdd-menu">

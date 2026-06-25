@@ -73,30 +73,6 @@
 .gside-foot{flex:0 0 auto;border-top:1px solid var(--line);padding:13px;background:var(--panel-2)}
 .gside-note{font-size:11px;color:var(--muted);text-align:center;margin-top:7px;line-height:1.4}
 
-/* ---- review verdict: split CTA (primary action + caret menu) ---- */
-.split-cta{position:relative;display:flex;border-radius:var(--r-sm);overflow:visible}
-.split-cta .sc-main{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  font-family:var(--sans);font-size:13px;font-weight:600;padding:10px 14px;border:none;cursor:pointer;
-  color:#fff;border-radius:var(--r-sm) 0 0 var(--r-sm);white-space:nowrap}
-.split-cta .sc-main svg{width:14px;height:14px}
-.split-cta .sc-caret{flex:0 0 auto;width:36px;display:flex;align-items:center;justify-content:center;
-  border:none;border-left:1px solid rgba(255,255,255,.28);cursor:pointer;color:#fff;border-radius:0 var(--r-sm) var(--r-sm) 0}
-.split-cta.changes .sc-main,.split-cta.changes .sc-caret{background:var(--amber)}
-.split-cta.changes .sc-main:hover,.split-cta.changes .sc-caret:hover{background:#946716}
-.split-cta.approve .sc-main,.split-cta.approve .sc-caret{background:var(--accent)}
-.split-cta.approve .sc-main:hover,.split-cta.approve .sc-caret:hover{background:var(--accent-ink)}
-.sc-menu{position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:var(--panel);
-  border:1px solid var(--line-2);border-radius:var(--r-md);box-shadow:0 8px 26px rgba(0,0,0,.14);
-  overflow:hidden;z-index:20}
-.sc-menu button{display:flex;align-items:flex-start;gap:9px;width:100%;text-align:left;border:none;
-  background:none;padding:10px 12px;cursor:pointer;font-family:var(--sans);color:var(--ink)}
-.sc-menu button + button{border-top:1px solid var(--line)}
-.sc-menu button:hover{background:var(--panel-2)}
-.sc-menu button svg{flex:0 0 auto;margin-top:2px;color:var(--muted)}
-.sc-menu button span{display:flex;flex-direction:column;gap:1px}
-.sc-menu button b{font-size:12.5px;font-weight:600}
-.sc-menu button small{font-size:11px;color:var(--muted);line-height:1.35}
-
 /* no scroll-behavior:smooth — it makes section jumps and doc open/close animate
    (it even applies to direct scrollTop assignments in Chromium). focusAnchor passes
    behavior:'smooth' explicitly where a smooth scroll IS wanted. */
@@ -191,27 +167,6 @@
 .gfile-regen.on{color:var(--accent-ink)}
 .gsec-body{padding:0 30px 24px}
 
-/* ---- stage strip (lifecycle indicator, low-profile) ---- */
-.stage-strip{flex:0 0 auto;display:flex;align-items:center;gap:0;padding:5px 16px;
-  background:var(--panel-2);border-bottom:1px solid var(--line)}
-.ss-node{display:flex;align-items:center;gap:7px;padding:3px 10px;border-radius:18px;flex:0 0 auto}
-.ss-node .ss-dot{width:7px;height:7px;border-radius:50%;background:var(--line-3);flex:0 0 auto}
-.ss-node .ss-tx{display:flex;align-items:baseline;gap:6px;line-height:1.1}
-.ss-node .ss-tx b{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
-.ss-node .ss-tx span{font-size:10px;color:var(--muted-2);white-space:nowrap}
-.ss-node.active{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line)}
-.ss-node.active .ss-dot{background:var(--accent)}
-.ss-node.active .ss-tx b{color:var(--accent-ink)}
-.ss-node.active .ss-tx span{color:var(--accent-ink);opacity:.8}
-.ss-node.done .ss-dot{background:var(--accent)}
-.ss-node.done .ss-tx b{color:var(--ink-2)}
-.ss-conn{flex:1 1 auto;height:2px;background:var(--line-2);margin:0 6px;border-radius:1px;min-width:16px}
-.ss-conn.dashed{background:transparent;border-top:2px dashed var(--line-3);height:0}
-.ss-conn.drift{position:relative;background:var(--amber);min-width:118px}
-.ss-conn-lab{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;
-  background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:18px;padding:1px 8px;
-  font-size:9.5px;font-weight:600;color:var(--amber);display:flex;align-items:center;gap:4px}
-
 /* context band: diagram + what-changed side by side */
 .gsec-cols{display:grid;grid-template-columns:1.5fr 1fr;gap:24px;align-items:stretch;margin-bottom:14px}
 .gsec-diagram{border:1px solid var(--line-2);border-radius:var(--r-md);background:var(--panel-2);
@@ -259,10 +214,6 @@
 .tchart-legend .idle-lab{color:var(--muted)}
 .ins-caption{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
 .gsec-what{border-radius:var(--r-md);border:1px solid var(--accent-line);align-items:flex-start}
-
-/* re-review banner */
-.rr-banner{display:flex;align-items:center;gap:11px;padding:10px 14px;background:var(--amber-soft);
-  border:1px solid var(--amber-line);border-radius:var(--r-md);margin-bottom:14px}
 
 /* file diff block */
 .gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}

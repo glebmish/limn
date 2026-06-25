@@ -422,7 +422,7 @@ export default function Review() {
             const drift = group.roles.includes('head') && Boolean(generatedSha && generatedSha !== skeleton.headSha)
             return (
               <Fragment key={group.sha}>
-                <span className={'cm-arr' + (drift ? ' drift' : '')}>{n > 0 ? n : drift ? 'drift' : 0}</span>
+                <span className={'cm-arr' + (drift ? ' drift' : '')}>{n > 0 ? n : ''}</span>
                 {renderTimelineStop(group)}
               </Fragment>
             )

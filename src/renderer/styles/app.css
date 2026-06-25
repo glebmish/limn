@@ -178,8 +178,8 @@ html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 /* ---- word-level diff marks (ch-offset overlays under the code text) ---- */
 .dline .code { position: relative; }
 .dline .code .wd { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; z-index: 0; pointer-events: none; }
-.dline.add .code .wd { background: #c2e2cc; }
-.dline.del .code .wd { background: #eccabd; }
+.dline.add .code .wd { background: var(--add-wd); }
+.dline.del .code .wd { background: var(--del-wd); }
 .dline .code .code-syn { position: relative; z-index: 1; }
 
 /* ---- syntax tokens: muted scheme in the wf palette ---- */

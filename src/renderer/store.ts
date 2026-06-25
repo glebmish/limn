@@ -11,7 +11,9 @@ export type Guidance = 'minimal' | 'guided' | 'narrated'
  *  `GUIDANCE === 'narrated'` stay valid. */
 export const DENSITY: Density = 'comfortable'
 export const GUIDANCE: Guidance = 'guided'
-/** Brand accent palette: [base, ink, soft, line] → CSS --accent* vars. */
+/** Brand accent palette: [base, ink, soft, line] → CSS --accent* vars.
+ *  Source of truth is wf.css :root (--accent/--accent-ink/--accent-soft/--accent-line);
+ *  keep these four in sync with it (re-injected onto the root in App.tsx). */
 export const ACCENT: string[] = ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5']
 
 let opCounter = 0

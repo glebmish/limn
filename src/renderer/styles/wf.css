@@ -33,6 +33,9 @@
   --add-rail:#7fb38f;
   --del-bg:#f6e9e5;
   --del-rail:#d0a99e;
+  --add-wd:#c2e2cc;          /* word-level add highlight */
+  --del-wd:#eccabd;          /* word-level del highlight */
+  --del-ink:#9c4636;         /* deleted-line code text */
 
   --r-sm:5px;
   --r-md:8px;
@@ -193,7 +196,7 @@
 .dline.del{background:var(--del-bg)}
 .dline.del .sign{color:var(--red)}
 .dline.add .code{color:var(--accent-ink)}
-.dline.del .code{color:#9c4636}
+.dline.del .code{color:var(--del-ink)}
 /* "changed since you last reviewed" rail */
 .dline.since{box-shadow:inset 3px 0 0 var(--amber)}
 /* uncommitted (working-tree) rail — dotted, to read as "not yet pinned to a commit".

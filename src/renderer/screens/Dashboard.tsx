@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { I } from '../kit'
+import { I, ago } from '../kit'
 import { useDismiss } from '../lib/useDismiss'
 import type { RepoIndexEntry, WorktreeInfo } from '../../shared/types'
 
@@ -71,6 +71,7 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
         <span className="chip-tip">{tip}</span>
       </span>
       <WorktreePill entry={entry} onOpen={onOpenBranch} />
+      <span className="rr-age" title={`last activity ${ago(entry.lastActivity)}`}>{ago(entry.lastActivity).replace(' ago', '')}</span>
       <I.chevR className="rr-chev" style={{ width: 13, height: 13 }} />
     </div>
   )

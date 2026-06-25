@@ -269,7 +269,6 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 /* flat session list (within one repo) */
 .limn-sesslist { display: flex; flex-direction: column; gap: 3px; }
 .limn-sesslist .limn-sess { margin-bottom: 0; }
-.limn-sess-eph { font-family: var(--mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line-3); border-radius: 999px; padding: 1px 7px; flex: 0 0 auto; }
 
 /* new-review split control + base←compare popover */
 .limn-repo-newwrap { position: relative; display: inline-flex; align-items: center; flex: 0 0 auto; }
