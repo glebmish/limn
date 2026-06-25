@@ -187,6 +187,9 @@ export class AppServerConn {
   private stderrBuf = ''   // tail of the child's stderr — surfaced when a turn errors
   private onNotify: ((method: string, params: unknown) => void) | null = null
   private onServerRequest: ((id: number | string, method: string, params: unknown) => void) | null = null
+  /** Called once when the child exits — lets an in-flight turn settle even though
+   *  `turn/start` already resolved and nothing is left in `pending` to reject. */
+  onExit: (() => void) | null = null
   threadId: string | null = null
 
   constructor(mcpConfigArgs: string[] = []) {
@@ -198,7 +201,7 @@ export class AppServerConn {
     this.child.stdout.on('data', (chunk: string) => this.ingest(chunk))
     this.child.stderr.setEncoding('utf8')
     this.child.stderr.on('data', (chunk: string) => { this.stderrBuf = (this.stderrBuf + chunk).slice(-4000) })
-    this.child.on('exit', () => { for (const p of this.pending.values()) p.reject(new Error('app-server exited')); this.pending.clear() })
+    this.child.on('exit', () => { for (const p of this.pending.values()) p.reject(new Error('app-server exited')); this.pending.clear(); this.onExit?.() })
   }
 
   /** Last ~4KB of the app-server's stderr, trimmed — the real diagnostic when a
@@ -289,6 +292,7 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
       : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
 
   let conn: AppServerConn | null = null
+  let aborted = false   // set by cancel() before dispose, so the child's exit settles as 'cancelled'
   const result = (async (): Promise<{ value: string; sessionId: string }> => {
     let release: (() => Promise<void>) | null = null
     let finalText = ''
@@ -301,18 +305,25 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
       }
       conn = new AppServerConn(mcpArgs)
       let resolveTurn: (() => void) | null = null
+      let settled = false   // first settler wins — a real result must not be clobbered by exit
       let turnErr: string | null = null
       const turnDone = new Promise<void>((res) => { resolveTurn = res })
+      const settle = (err?: string) => { if (settled) return; settled = true; if (err) turnErr = err; resolveTurn?.() }
+
+      // The child dying mid-turn (cancel, crash, version skew) leaves `turn/start`
+      // already resolved and nothing pending — without this the turn would hang
+      // forever and the repo lock would never release. Map cancel → 'cancelled'
+      // (the IPC layer suppresses the error strip for that sentinel).
+      conn.onExit = () => settle(aborted ? 'cancelled' : 'app-server exited')
 
       conn.setHandlers(
         (method, params) => {
-          if (/turn\/completed|turn\/aborted/.test(method)) { resolveTurn?.(); return }
+          if (/turn\/completed|turn\/aborted/.test(method)) { settle(); return }
           if (/^error$/.test(method)) {
             const pm = (params as { message?: string })?.message
             // many app-server `error` notifications omit `.message` (esp. on CLI
             // version skew) — fall back to the full params so the reason isn't lost
-            turnErr = pm || (params ? JSON.stringify(params) : '') || 'error'
-            resolveTurn?.(); return
+            settle(pm || (params ? JSON.stringify(params) : '') || 'error'); return
           }
           const ev = appServerNotifToEvent(method, params)
           if (ev) { if (ev.type === 'text') finalText += ev.text; q.push(ev) }
@@ -374,5 +385,5 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
     }
   })()
 
-  return { events: q.iterable(), result, cancel: () => { conn?.dispose() } }
+  return { events: q.iterable(), result, cancel: () => { aborted = true; conn?.dispose() } }
 }

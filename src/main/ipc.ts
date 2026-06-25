@@ -99,6 +99,20 @@ function ignoreLocally(repo: string, pattern: string): void {
   } catch { /* excludes are a nicety; failing to write one shouldn't block the worktree */ }
 }
 
+/** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
+ *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
+ *  call a dao helper that opens its own transaction (e.g. resetIterations/setArtifacts). */
+function inTx(db: DatabaseSync, fn: () => void): void {
+  db.exec('BEGIN')
+  try {
+    fn()
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   const s = dao.getSession(db, id)
   if (!s) throw new Error(`session ${id} not found`)
@@ -330,32 +344,45 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         }
         dao.setArtifacts(db, sessionId, refs)
       }
-      dao.updateSessionMeta(db, sessionId, {
-        engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
-        annotations, title: annotations.title, summary: annotations.summary,
-        reviewedAtSha: skeleton.headSha
-      })
+      // resetIterations opens its own transaction, so it can't nest inside inTx
+      // below; run it FIRST so the iterations row already reflects the new engine
+      // session before meta/reconcile read it. This eliminates the dangerous window
+      // where a crash left annotations bound to stale n>1 iterations and reconcileChats
+      // then resynced the review chat to the wrong engine session.
       dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
-      // finalize the review thread created at op start: bind it to the engine
-      // session that produced the review and persist the agent's turn (the user
-      // turn was persisted by beginReview). The thread IS the review agent's
-      // history — generation first, later comment/decision turns after.
-      if (dao.getChatThread(db, reviewThreadId)) {
-        const at = new Date().toISOString()
-        const genTools = reduceToolCalls(genEvents)
-        dao.setThreadEngineSession(db, reviewThreadId, engineSession)
-        dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
-        dao.addChatMessage(db, reviewThreadId, {
-          role: 'agent', at,
-          text: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
-          ...(genTools.length ? { tools: genTools } : {})
+      // the meta + review-thread finalization are one atomic group: a crash mid-way
+      // must not leave annotations saved without the review thread bound to them.
+      inTx(db, () => {
+        dao.updateSessionMeta(db, sessionId, {
+          engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
+          annotations, title: annotations.title, summary: annotations.summary,
+          reviewedAtSha: skeleton.headSha
         })
-      }
+        // finalize the review thread created at op start: bind it to the engine
+        // session that produced the review and persist the agent's turn (the user
+        // turn was persisted by beginReview). The thread IS the review agent's
+        // history — generation first, later comment/decision turns after.
+        if (dao.getChatThread(db, reviewThreadId)) {
+          const at = new Date().toISOString()
+          const genTools = reduceToolCalls(genEvents)
+          dao.setThreadEngineSession(db, reviewThreadId, engineSession)
+          dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
+          dao.addChatMessage(db, reviewThreadId, {
+            role: 'agent', at,
+            text: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
+            ...(genTools.length ? { tools: genTools } : {})
+          })
+        }
+      })
       send('op:result', { opId, kind: 'review', ok: true, reload: true })
       notifyIfUnfocused('Guided review ready',
         `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
     } catch (err) {
-      const msg = String(err instanceof Error ? err.message : err)
+      // off-schema/empty engine output surfaces as a raw ZodError from
+      // parseReviewOutput — keep the dump in the log, show the user plain English.
+      const msg = err instanceof Error && err.name === 'ZodError'
+        ? 'The agent returned an unexpected or empty review format — try regenerating.'
+        : String(err instanceof Error ? err.message : err)
       // a user cancel (flagged) or an engine-level abort both count as a quiet stop,
       // not a failure — some engines surface cancellation only as an abort error.
       const cancelled = cancelledOps.has(opId) || /\babort(ed)?\b/i.test(msg)
@@ -591,8 +618,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      send('op:result', { opId, kind: 'chat', ok: false, error: String(err instanceof Error ? err.message : err) })
-      notifyIfUnfocused('Agent batch run failed', String(err instanceof Error ? err.message : err).slice(0, 120))
+      const msg = String(err instanceof Error ? err.message : err)
+      // record the failure as an agent note so the thread shows what happened (cancel
+      // stays quiet), and reload so it surfaces — mirrors the sendChat failure path.
+      if (msg !== 'cancelled') dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
+      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
+      notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
