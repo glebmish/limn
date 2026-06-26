@@ -10,11 +10,18 @@ Git is ground truth throughout: diffs are always parsed from `git diff`; the age
 
 Download the latest macOS Apple Silicon DMG from [GitHub Releases](https://github.com/glebmish/limn/releases/latest). The release asset is named `Limn-<version>-arm64.dmg`.
 
-The app is currently ad-hoc signed but not notarized. If macOS says it is damaged or cannot verify the developer, run this after dragging `Limn.app` to `/Applications`:
+The app is currently ad-hoc signed but not Apple-notarized. After dragging
+`Limn.app` to `/Applications`, macOS may show **"Limn Not Opened"** with
+**"Apple could not verify 'Limn' is free of malware..."**, or say the app is
+damaged. Remove the quarantine flag for this app, then open it again:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Limn.app
+open /Applications/Limn.app
 ```
+
+If you installed it somewhere else, replace `/Applications/Limn.app` with that
+path.
 
 ## Prerequisites
 
