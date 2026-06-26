@@ -98,6 +98,20 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     setTimeout(() => store.sendChat(text), 400)
   }, [active, gen.running, store])
 
+  // a11y: on open, move focus into the drawer (announced via the complementary
+  // landmark on the root); on close, restore focus to whatever opened it.
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const restoreRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (open) {
+      restoreRef.current = document.activeElement as HTMLElement | null
+      drawerRef.current?.focus()
+    } else if (restoreRef.current) {
+      restoreRef.current.focus()
+      restoreRef.current = null
+    }
+  }, [open])
+
   if (!open) return null
 
   const send = (): void => {
@@ -108,7 +122,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   }
 
   return (
-    <div className="chat-drawer">
+    <div className="chat-drawer" ref={drawerRef} role="complementary" aria-label="Chats" tabIndex={-1}>
       <div className="chat-head">
         {hasChats ? (
           <ChatDropdown chats={chats} activeId={active?.id ?? null}

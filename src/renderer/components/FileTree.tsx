@@ -97,14 +97,18 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className 
       ))}
       {dir.files.map((f) => {
         const name = f.path.split('/').pop() ?? f.path
+        const stat = fileStatusClass(f, viewedAt)
+        // status as text too — the glyph is otherwise color-only (invisible to AT
+        // and to colorblind users); this enriches the row's accessible name + tooltip.
+        const label = stat === 'st-risk' ? 'deleted' : stat === 'st-amber' ? 'changed' : stat === 'st-rev' ? 'viewed' : 'unreviewed'
         return (
           <div
             key={f.path}
             className={'gnav-file' + (currentFile === f.path ? ' cur' : '')}
-            title={f.path}
+            title={`${f.path} · ${label}`}
             {...clickable(() => onFileClick(f.path, f))}
           >
-            <span className={'ficon ' + fileStatusClass(f, viewedAt)}></span>
+            <span className={'ficon ' + stat}></span>
             <span className="nm">{name}</span>
           </div>
         )
