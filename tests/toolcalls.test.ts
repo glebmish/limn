@@ -130,6 +130,9 @@ describe('bashArg', () => {
   it('passes a bare command through unchanged', () => {
     expect(bashArg('git log')).toBe('git log')
   })
+  it('keeps a line with a << bitshift (only heredoc openers are skipped)', () => {
+    expect(bashArg('echo $((1<<4))')).toBe('echo $((1<<4))')
+  })
   it('returns empty for empty input', () => {
     expect(bashArg('')).toBe('')
   })

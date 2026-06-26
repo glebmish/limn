@@ -39,7 +39,10 @@ export function bashArg(command: string): string {
   const m = command.trim().match(/^(?:\/\S+\/)?(?:zsh|bash|sh)\s+-l?c\s+(['"])([\s\S]*)\1\s*$/)
   const inner = m ? m[2] : command
   const lines = inner.split('\n').map((l) => l.trim())
-  const pick = lines.find((l) => l && !l.startsWith('#') && !l.includes('<<'))
+  // skip blank lines, comments, and heredoc OPENERS (`<<EOF`, `<<-'EOF'`, `<< "X"`)
+  // — but not a `<<` bitshift like `echo $((1<<4))`, which a bare includes('<<') hit.
+  const isHeredoc = (l: string) => /<<[-~]?\s*\\?['"]?[A-Za-z_]/.test(l)
+  const pick = lines.find((l) => l && !l.startsWith('#') && !isHeredoc(l))
   return cap(pick ?? lines.find((l) => l) ?? inner)
 }
 
