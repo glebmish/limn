@@ -26,6 +26,7 @@ mac:
       arch: arm64
     - target: dmg
       arch: arm64
-  identity: null
+  identity: "-"
+  hardenedRuntime: false
   category: public.app-category.developer-tools
 npmRebuild: false
