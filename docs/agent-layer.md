@@ -2,7 +2,7 @@
 
 How Limn drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
-> **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives in `src/main/engines/` and is orchestrated by `src/main/ipc.ts`.
+> **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/main/engines/` (with anchoring in `src/main/anchor.ts` and artifact detection in `src/main/artifacts.ts`) and is orchestrated by `src/main/ipc.ts`.
 
 ## Guiding principle: git is ground truth
 
@@ -95,7 +95,7 @@ Each CLI is resolved from the user's **system PATH** only (`claude` / `codex`) �
 
 ## Prompts (`prompts.ts`)
 
-Plain-string builders. `describeAnchor()` renders each of the 7 `CommentAnchor` kinds into prose the agent can act on. Four builders cover every turn:
+Plain-string builders. `describeAnchor()` renders each of the 11 `CommentAnchor` kinds (`shared/types.ts`) into prose the agent can act on. Four builders cover every turn:
 
 - **`buildReviewPrompt(req)`** — frames the agent as a review guide and instructs an **explore-first** pass (read changed files in full, grep callers/tests, walk `git log base..branch`, read artifacts). It supplies a pre-computed changed-files list (status, ±counts, hunk ranges, merge-base/head SHAs) and an artifact block ("the intent this change is judged against"). The output contract: group **all** files into **2–8 logical sections** (by purpose, not directory; each file in exactly one section), per-section `desc` + plain-language `what`, **risk flags** keyed to exact file + hunk range, an optional **mechanism diagram** (2–5 nodes), `title` + `summary`, a **spec/plan cross-check** (`planMap`: acceptance criteria met/partial/false, plan steps mapped to sections, deviations), and `questions` needing a human decision.
 - **`buildChatPrompt(message, anchor?)`** — the thin conversational wrapper for a **resuming** read-only chat: the message, optional anchor prose, "Do NOT modify any files."
@@ -155,7 +155,7 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 
 ## Anchoring & artifacts
 
-**Anchoring (`anchor.ts`)** keeps **comments** attached to the right lines after the branch moves — it is *not* how narration ties to the diff (that's `section.files` + `flag.hunkRange`, validated above). `reanchorComments(...)` runs on every session load. For diff/artifact anchors it searches the new skeleton for a line whose text **exactly equals** the stored `lineContent` on the correct side and picks the candidate nearest the old line number; no match → `outdated` (and a previously-outdated comment that re-matches is revived). Section/summary/file/question/plan-step anchors reference ids/paths and are left untouched.
+**Anchoring (`anchor.ts`)** keeps **comments** attached to the right lines after the branch moves — it is *not* how narration ties to the diff (that's `section.files` + `flag.hunkRange`, validated above). `reanchorComments(...)` runs on every session load. For diff/artifact anchors it searches the new skeleton for a line whose text **exactly equals** the stored `lineContent` on the correct side and picks the candidate nearest the old line number; no match → `outdated` (and a previously-outdated comment that re-matches is revived). Only `diff` and `artifact` anchors are repositioned; every other kind (`section`, `summary`, `file`, `question`, `plan-step`, `title`, `acceptance`, `deviation`, `selection`) references ids/paths/quoted text and is left untouched.
 
 > ⚠️ Matching is **exact-text + nearest-line**, not semantic. Comments can go `outdated` on trivial reformatting, and repeated identical lines (boilerplate) can mis-anchor.
 

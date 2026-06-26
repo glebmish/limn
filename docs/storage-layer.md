@@ -31,12 +31,13 @@ All review state — sessions, comments, chat, iterations, approvals, prefs — 
 4. `PRAGMA integrity_check` → throws if not `ok`
 5. `migrate(db)`
 
-Two failure modes are handled **differently**, and the distinction is load-bearing:
+Three failure modes are handled **differently**, and the distinctions are load-bearing:
 
-- **Corruption** — if steps 1–4 throw, the file is renamed aside to `<file>.corrupt-<timestamp>`, the `-wal`/`-shm` sidecars are removed, and a fresh DB is created. The backup path is returned as `recoveredFrom` and surfaced to the UI as a boot notice. **This loses data** (recreated empty).
-- **Migration failure** — if `migrate()` throws, the DB is closed and the error rethrown, leaving the file **intact**. A migration failure must never be mistaken for corruption, or user data is silently sacrificed.
+- **Corruption** — if `open()` (steps 1–4) throws *and* `isCorruptionError(err)` matches (an `integrity_check` failure, `SQLITE_NOTADB`, "file is encrypted", "malformed", etc.), the file is renamed aside to `<file>.corrupt-<timestamp>`, the `-wal`/`-shm` sidecars are removed, and a fresh DB is created. The backup path is returned as `recoveredFrom` and surfaced to the UI as a boot notice. **This loses data** (recreated empty).
+- **Transient open failure** — if `open()` throws but the error is *not* corruption (lock contention from a concurrent desktop+web open, a permissions error, `SQLITE_BUSY`), it is **rethrown with the file intact**. The recovery path is never taken, so a momentary failure can't drop the user's real database.
+- **Migration failure** — if `migrate()` throws, the DB is closed and the error rethrown, leaving the file **intact**.
 
-> ⚠️ The discriminator is purely *which function throws*. If you ever make `open()` throw for a recoverable reason, you route it down the data-losing corruption path.
+> ⚠️ The discriminator is `isCorruptionError(err)` (a message match), **not** "which function threw." If you ever change that classifier, be conservative: a false positive routes recoverable errors down the data-losing corruption path. When unsure, rethrow rather than recover.
 
 > ⚠️ `PRAGMA foreign_keys = ON` is **per-connection**. Every `ON DELETE CASCADE` in the schema depends on it. Any code that opens its own `DatabaseSync` without going through `openDb` silently loses FK enforcement.
 
