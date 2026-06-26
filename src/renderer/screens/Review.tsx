@@ -446,7 +446,7 @@ export default function Review() {
 
       <div className="wf-body">
         {/* LEFT spine */}
-        <div className="gside">
+        <nav className="gside" aria-label="Review sections">
           {artifacts.length > 0 && (
             <div className="gside-arts">
               {(['spec', 'plan'] as const).map((role) => {
@@ -575,10 +575,10 @@ export default function Review() {
             })}
           </div>
 
-        </div>
+        </nav>
 
         {/* MAIN */}
-        <div className="gmain" ref={scrollRef}>
+        <main className="gmain" ref={scrollRef}>
           {docPath ? (
             <ArtifactDoc path={docPath} onClose={closeDocBack} />
           ) : (
@@ -685,7 +685,7 @@ export default function Review() {
               <div style={{ height: 40 }}></div>
             </>
           )}
-        </div>
+        </main>
 
         <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
