@@ -217,7 +217,13 @@
 .gsec-what{border-radius:var(--r-md);border:1px solid var(--accent-line);align-items:flex-start}
 
 /* file diff block */
-.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}
+/* content-visibility lets the browser skip layout/paint of off-screen file diffs.
+   A large review (100+ files, 10k+ diff lines) otherwise lays out ~190k nodes on
+   every reflow (~900ms); this confines that work to the files near the viewport.
+   `auto` intrinsic-size has the browser remember each file's real height after it
+   first renders, so the scrollbar stays stable. */
+.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel);
+  content-visibility:auto;contain-intrinsic-size:auto 400px}
 .gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel-2);border-bottom:1px solid var(--line)}
 .gfile-head .pth{font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
 .gfile-caret{color:var(--muted-2);flex:0 0 auto}
