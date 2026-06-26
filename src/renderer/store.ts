@@ -207,6 +207,8 @@ interface AppStore {
   loadDashboard(): Promise<void>
   setFilter(s: string): void
   openRepository(): Promise<void>
+  /** Refresh live branch/worktree state for the current repo without reloading the review. */
+  refreshRepoContext(): Promise<void>
   // repo (source of truth)
   /** Open a repo: jump into the latest session for the active branch, else the
    *  new-review setup. The entry point from the dashboard. */
@@ -443,6 +445,11 @@ export const useStore = create<AppStore>((set, get) => {
       // shows up under Recent afterwards
       const dir = await window.api.pickRepo()
       if (dir) await get().openRepo(dir)
+    },
+
+    async refreshRepoContext() {
+      const repo = get().repo
+      if (repo) await loadRepoContext(repo)
     },
 
     async openRepo(repoPath) {

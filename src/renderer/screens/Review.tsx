@@ -3,6 +3,7 @@ import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } fr
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
+import { approvalFresh } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
@@ -210,6 +211,8 @@ export default function Review() {
   const looseFiles = sections.length > 0 ? displayFiles.filter((f) => !sectionedPaths.has(f.path)) : []
   const totalAdd = displayFiles.reduce((n, f) => n + f.add, 0)
   const totalDel = displayFiles.reduce((n, f) => n + f.del, 0)
+  const dirtyAdd = loaded.volatile.reduce((n, f) => n + f.add, 0)
+  const dirtyDel = loaded.volatile.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter(isSectionDone).length
   const fileCount = displayFiles.length
   const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt)).length
@@ -217,9 +220,13 @@ export default function Review() {
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
   const criterionComments = (i: number) => state.comments.filter((c) => c.anchor.kind === 'acceptance' && c.anchor.index === i)
-  const baseline = state.approvedSha ?? state.reviewedAtSha
+  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const approvedHashes = state.approvedHashes ?? approvedShas
+  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
   const lastIteration = state.iterations[state.iterations.length - 1]
-  const approved = state.approvedSha === skeleton.headSha
+  const commitApproved = approvalFresh(approvedShas, skeleton.headSha)
+  const approved = approvalFresh(approvedHashes, loaded.branchHash)
+  const dirtyNeedsApproval = loaded.dirty && commitApproved && !approved
   const generatedSha = state.reviewedAtSha ?? lastIteration?.endSha
   const commitIndex = (sha: string): number => {
     if (sha === skeleton.headSha) return 0
@@ -264,7 +271,7 @@ export default function Review() {
       grouped.set(sha, group)
     }
     add(generatedSha, 'generated')
-    add(state.approvedSha, 'approved')
+    add(commitApproved ? skeleton.headSha : state.approvedSha !== skeleton.headSha ? state.approvedSha : undefined, 'approved')
     add(skeleton.headSha, 'head')
     return [...grouped.values()].sort((a, b) => b.pos - a.pos)
   })()
@@ -273,23 +280,31 @@ export default function Review() {
     const hasHead = group.roles.includes('head')
     const hasGenerated = group.roles.includes('generated')
     const hasApproved = group.roles.includes('approved')
+    const hasLoadedDirty = hasHead && loaded.dirty && !store.pendingDrift
+    const commitOnlyApproved = hasApproved && hasLoadedDirty && !approved
     const labels = group.roles.map((role) => role === 'generated' ? 'Review generated' : role === 'approved' ? 'Approved by you' : 'HEAD')
     const title = timelineTitle(group.sha, labels)
     const roleIcons = (
       <>
         {hasGenerated && <I.changed />}
         {hasGenerated && hasApproved && <span className="cm-div"></span>}
-        {hasApproved && <I.check />}
+        {hasApproved && <I.check className={commitOnlyApproved ? 'cm-commit-approved' : undefined} />}
       </>
     )
 
-    const tip = timelineTipContent(group.sha, labels)
-    if (hasHead && (hasGenerated || hasApproved)) {
+    const tip = (
+      <>
+        {timelineTipContent(group.sha, labels)}
+        {hasLoadedDirty && <span className="l2">Working tree: +{dirtyAdd} -{dirtyDel} uncommitted</span>}
+      </>
+    )
+    if (hasHead && (hasGenerated || hasApproved || hasLoadedDirty)) {
       return (
         <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>
           {roleIcons}
           {(hasGenerated || hasApproved) && <span className="cm-div"></span>}
           <span className="cm-sha">{shortSha(group.sha)}</span>
+          {hasLoadedDirty && <I.edit className="cm-dirty-ico" />}
         </Tooltip>
       )
     }
@@ -419,16 +434,25 @@ export default function Review() {
   const approveButton = (
     <button
       className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost rv-approved' : 'btn-primary')}
-      disabled={gen.running || approved}
-      title={loaded.dirty
-        ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
-        : 'Record the current commit as reviewed & approved'}
+      disabled={gen.running}
+      title={approved
+        ? 'Clear your approval for this commit'
+        : dirtyNeedsApproval
+          ? 'Approve this commit together with its current uncommitted working-tree changes'
+        : loaded.dirty
+          ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
+          : 'Record the current commit as approved'}
       onClick={async () => {
         const id = await store.materialize()
-        if (id != null) void window.api.approve(id).then(() => store.reload())
+        if (id != null) void (approved ? window.api.unapprove(id) : window.api.approve(id)).then(() => store.reload())
       }}
     >
-      <I.check style={{ width: 13, height: 13 }} />{approved ? 'Approved' : 'Approve'}
+      <span className="rv-approve-main">
+        {approved
+          ? <><I.x style={{ width: 13, height: 13 }} />Unapprove</>
+          : <><I.check style={{ width: 13, height: 13 }} />{dirtyNeedsApproval ? 'Committed changes approved' : 'Approve'}</>}
+      </span>
+      {dirtyNeedsApproval && <span className="rv-approve-dirty">new uncommitted changes</span>}
     </button>
   )
 

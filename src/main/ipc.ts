@@ -1,4 +1,5 @@
 import { installCli, takeCliOpen } from './cli.js'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -9,9 +10,9 @@ import type {
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
 import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
-import { effectiveRef } from '../shared/types.js'
+import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
-  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, headSha, isDirty,
+  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha, isDirty,
   listBranches, recentCommits, repoState, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
@@ -52,19 +53,29 @@ let watcher: {
   loadedSha: string; loadSig: string; lastSig: string
 } | null = null
 
-/** Cheap change-detector + current head: branch head sha plus the porcelain status
- *  of its worktree (empty when checked out nowhere). Gates the heavier drift diff. */
+/** Change detector + current head. For dirty worktrees this hashes actual diff
+ *  content, not just porcelain shape, so editing an already-dirty file emits a new
+ *  pending update. */
 async function watchState(repo: string, branch: string, workdir: string | null): Promise<{ head: string; sig: string }> {
   const head = await headSha(repo, branch)
-  const porcelain = workdir ? (await execGit(workdir, ['status', '--porcelain'])).trim() : ''
-  return { head, sig: `${head}\n${porcelain}` }
+  if (!workdir) return { head, sig: `${head}\n` }
+  const porcelain = (await execGit(workdir, ['status', '--porcelain'])).trim()
+  if (!porcelain) return { head, sig: `${head}\n` }
+  const h = createHash('sha256')
+  h.update(`head\0${head}\0status\0${porcelain}\0`)
+  h.update(await execGit(workdir, ['diff', '--binary', 'HEAD']))
+  const untracked = (await execGit(workdir, ['ls-files', '--others', '--exclude-standard', '-z']))
+    .split('\0').filter(Boolean)
+  const hashes = await hashObjects(workdir, untracked)
+  for (const p of untracked.sort()) h.update(`untracked\0${p}\0${hashes.get(p) ?? ''}\0`)
+  return { head, sig: `${head}\n${h.digest('hex')}` }
 }
 
 async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
   stopWatch()
   const workdir = await branchCheckedOutAt(repo, branch)
   const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
-  const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 2000) }
+  const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 500) }
   watcher = w
   async function poll(): Promise<void> {
     if (repoLocks.has(repo)) return // our own agent op — reload arrives via op:result
@@ -72,10 +83,10 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
       const { head, sig } = await watchState(repo, branch, w.workdir)
       if (sig === w.lastSig) return
       w.lastSig = sig
-      // drift is measured against the LOAD-time state: null when the tree returns to
-      // it, or when the only change is untracked (numstat excludes untracked → zeros).
+      // drift is measured against the LOAD-time state: null when the tree returns
+      // to it; dirty-only changes still broadcast so worktree indicators stay live.
       const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
-      const drift = d && (d.commits > 0 || d.files > 0) ? d : null
+      const drift = driftHasChanges(d) ? d : null
       send('repo:changed', { repo, branch, headSha: head, drift })
     } catch {
       // branch deleted / repo gone — stop quietly
@@ -98,6 +109,20 @@ function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMs
  *  notification when the window is in the background; the web server no-ops. */
 function notifyIfUnfocused(title: string, body: string): void {
   transport.notify(title, body)
+}
+
+function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.loadReviewState>, refine?: boolean, steer?: string): string {
+  if (refine) {
+    const byId = new Map((state.annotations?.questions ?? []).map((q) => [q.id, q]))
+    const lines = comments.map((c) => {
+      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
+      const q = byId.get(qid)
+      const label = q?.text ?? q?.context ?? (qid || 'Open question')
+      return `- ${label}\n  Answer: ${c.text}`
+    })
+    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
+  }
+  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
 
 /** Forward engine events to the renderer and collect them, so the caller can fold
@@ -274,8 +299,15 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // The default entry: build a review for a ref pair WITHOUT minting a session row.
   // The renderer holds it as a transient (sessionId null) and materializes via
   // startSession on the first write. Read-only — never touches the DB.
-  handle('previewReview', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) =>
-    previewReview(db, repo, baseInput, compareInput, agent))
+  handle('previewReview', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) => {
+    const loaded = await previewReview(db, repo, baseInput, compareInput, agent)
+    if (!loaded.refMissing && loaded.session.pair.compare.kind === 'branch') {
+      void startWatch(repo, loaded.session.pair.compare.symbol, loaded.skeleton.headSha)
+    } else {
+      stopWatch()
+    }
+    return loaded
+  })
 
   handle('archiveSession', async (sessionId: number) => {
     dao.archiveSession(db, sessionId)
@@ -594,6 +626,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
       for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
+      const userAt = new Date().toISOString()
+      dao.addChatMessage(db, threadId, { role: 'user', at: userAt, text: batchUserMessage(comments, state, refine, steer) })
 
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
@@ -625,11 +659,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const actions = tools.collected()
       const toolCalls = reduceToolCalls(events)
       const segments = reduceSegments(events)
-      dao.addChatMessage(db, threadId, {
-        role: 'user', at,
-        text: refine ? `Answered ${comments.length} open question(s).`
-          : steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
-      })
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true, reload: true })
@@ -658,8 +687,15 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('approve', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
-    const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
-    dao.updateSessionMeta(db, sessionId, { approvedSha: sha, reviewedAtSha: sha })
+    const loaded = await buildLoadedReview(db, session)
+    dao.approveSessionSurface(db, sessionId, loaded.skeleton.headSha, loaded.branchHash)
+    return dao.loadReviewState(db, sessionId)
+  })
+
+  handle('unapprove', async (sessionId: number) => {
+    const session = mustGetSession(db, sessionId)
+    const loaded = await buildLoadedReview(db, session)
+    dao.unapproveSessionSurface(db, sessionId, loaded.branchHash)
     return dao.loadReviewState(db, sessionId)
   })
 
@@ -667,6 +703,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const session = mustGetSession(db, sessionId)
     const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
     dao.approveArtifact(db, sessionId, artifactPath, sha)
+    return dao.loadReviewState(db, sessionId)
+  })
+
+  handle('unapproveArtifact', async (sessionId: number, artifactPath: string) => {
+    dao.unapproveArtifact(db, sessionId, artifactPath)
     return dao.loadReviewState(db, sessionId)
   })
 

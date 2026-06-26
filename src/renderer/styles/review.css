@@ -274,6 +274,8 @@
 .ctmark .cm-head{position:relative;display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--amber-line);background:transparent;color:var(--amber);font-family:var(--mono);font-size:11px;font-weight:600;flex:0 0 auto}
 .ctmark .cm-merge{position:relative;display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--accent-line);background:transparent;color:var(--accent-ink);flex:0 0 auto}
 .ctmark .cm-merge svg{width:13px;height:13px;flex:0 0 auto}
+.ctmark .cm-merge svg.cm-dirty-ico{color:var(--amber)}
+.ctmark .cm-merge svg.cm-commit-approved{padding:1px;border-radius:3px;background:repeating-linear-gradient(135deg,var(--accent-soft),var(--accent-soft) 4px,rgba(169,121,27,.18) 4px,rgba(169,121,27,.18) 7px)}
 .ctmark .cm-merge .cm-div{width:1px;height:13px;background:var(--accent-line);flex:0 0 auto}
 .ctmark .cm-merge .cm-sha{font-family:var(--mono);font-size:11px;font-weight:600;background:none;border:0;border-radius:0;padding:0;color:inherit}
 /* position (fixed top/left) is set inline by <Tooltip>/useFloating, which flips the
@@ -310,7 +312,6 @@
   background:currentColor;flex:0 0 auto}
 .ctmark .cm-fetch .cmf-dot::after{content:"";position:absolute;inset:-3px;border-radius:50%;
   border:1.5px solid currentColor;animation:cmfPulse 1.9s ease-out infinite}
-.ctmark .cm-fetch:hover .cmf-dot::after{animation:none;opacity:0}
 @keyframes cmfPulse{0%{transform:scale(.55);opacity:.75}100%{transform:scale(1.8);opacity:0}}
 @media (prefers-reduced-motion:reduce){.ctmark .cm-fetch .cmf-dot::after{animation:none;opacity:.35}}
 /* the counts collapse on their own width so the dot stays free to pulse */
@@ -328,7 +329,16 @@
 .ctmark .cm-fetch.gone{opacity:0;transform:scale(.9);transition:opacity .25s,transform .25s}
 /* forced-open (dev static capture): reveal the counts without a hover */
 .ctmark .cm-fetch.is-open .cmf-rest{max-width:138px;opacity:1;margin-left:6px}
-.ctmark .cm-fetch.is-open .cmf-dot::after{animation:none;opacity:0}
+
+.wf .rv-approve{position:relative;overflow:hidden}
+.wf .rv-approve .rv-approve-main{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0}
+.wf .rv-approve .rv-approve-dirty{display:flex;align-items:center;justify-content:center;width:calc(100% + 2px);margin:5px -1px -1px;padding:3px 8px;
+  background:repeating-linear-gradient(135deg,#fffaf0,#fffaf0 7px,rgba(169,121,27,.16) 7px,rgba(169,121,27,.16) 11px);
+  border-top:1px solid var(--amber-line);color:#805a12;font-family:var(--mono);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.wf .rv-approve:has(.rv-approve-dirty){height:auto;min-height:34px;flex-direction:column;align-items:stretch;gap:0;padding:7px 0 0}
+.wf .rv-approve:has(.rv-approve-dirty) .rv-approve-main{padding:0 13px}
+.wf .rv-approve.btn-primary:has(.rv-approve-dirty){background:#fffdf7;border-color:var(--amber-line);color:var(--accent-ink)}
+.wf .rv-approve.btn-primary:has(.rv-approve-dirty):hover{background:var(--amber-soft);color:var(--accent-ink)}
 
 /* ---- top "changes since last review" callout ---- */
 .rr-summary{display:flex;align-items:center;gap:12px;margin:14px 30px 2px;padding:11px 14px;

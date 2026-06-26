@@ -32,7 +32,10 @@ export default function App() {
       if (st.screen !== 'review' || st.gen.running) return
       // the branch moved while reading — notify via the titlebar fetch pill instead
       // of yanking the surface out from under the reviewer. They click to fold it in.
-      if (st.repo === repo && st.branch === branch) st.setPendingDrift(drift)
+      if (st.repo === repo && st.branch === branch) {
+        st.setPendingDrift(drift)
+        void st.refreshRepoContext()
+      }
     })
     // CLI: open a repo on Compare (or surface an error on the dashboard).
     // The initial pending open is consumed by store.boot() AFTER the dashboard

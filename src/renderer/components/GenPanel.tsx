@@ -239,6 +239,8 @@ export function GenPanel() {
     : 0
   const driftCount = genIdx < 0 ? (loaded?.commits.length ?? 0) : genIdx
   const behind = driftCount > 0
+  const dirtyBehind = !behind && Boolean(loaded?.dirty)
+  const needsUpdate = behind || dirtyBehind
   const submitFollowUp = (): void => {
     const t = steer.trim()
     if (t) {
@@ -249,27 +251,27 @@ export function GenPanel() {
     }
   }
   const submitExistingReviewPrimary = (): void => {
-    if (behind) void startGenerateNow(steer, true)
+    if (needsUpdate) void startGenerateNow(steer, true)
     else submitFollowUp()
   }
   // drift commits = the entries ahead of the generated SHA (loaded.commits is
   // newest-first, so the first driftCount rows are exactly the new commits).
   const driftCommits = (loaded?.commits ?? []).slice(0, driftCount)
   return (
-    <div className={'gen-cta gen-regen' + (behind ? ' gen-drift' : '')}>
-      <span className={'gen-fresh' + (behind ? ' drift' : '')}>
-        {behind ? <I.flag style={{ width: 13, height: 13 }} /> : <I.check style={{ width: 13, height: 13 }} />}
+    <div className={'gen-cta gen-regen' + (needsUpdate ? ' gen-drift' : '')}>
+      <span className={'gen-fresh' + (needsUpdate ? ' drift' : '')}>
+        {needsUpdate ? <I.flag style={{ width: 13, height: 13 }} /> : <I.check style={{ width: 13, height: 13 }} />}
         {generatedSha ? <>generated at <span className="mono">{generatedSha.slice(0, 7)}</span> · </> : null}
         {behind ? (
           <>
             <span className="beh">{driftCount} commit{driftCount === 1 ? '' : 's'} behind</span>
             <DriftCommits commits={driftCommits} />
           </>
-        ) : <span className="ud">up to date</span>}
+        ) : dirtyBehind ? <span className="beh">working tree changed</span> : <span className="ud">up to date</span>}
       </span>
       <SteerInput value={steer} onChange={setSteer} onSubmit={submitExistingReviewPrimary} disabled={gate.blocked} />
       <div className="gen-acts">
-        {behind ? (
+        {needsUpdate ? (
           <button
             className="btn btn-sm btn-primary"
             disabled={gate.blocked || gen.running}

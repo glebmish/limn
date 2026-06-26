@@ -54,10 +54,11 @@ repos ──1:N──> sessions ──1:N──> comments
                         ├──1:N──> viewed_files
                         ├──1:N──> reviewed_sections
                         ├──1:N──> artifacts
-                        └──1:N──> artifact_approvals
+                        ├──1:N──> artifact_approvals
+                        └──1:N──> session_approvals
 ```
 
-Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat, iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals — in one statement.
+Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat, iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals, session_approvals — in one statement.
 
 ### Tables
 
@@ -74,6 +75,7 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 | `reviewed_sections` | PK `(session_id, section_id)`; set membership. |
 | `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
+| `session_approvals` | PK `(session_id, hash)`; every branch surface explicitly approved for the session. Clean surfaces use `hash = sha`; dirty surfaces use a hash of the commit plus uncommitted working-tree content/status. |
 
 JSON-blob columns: `sessions.annotations_json` (the full `ReviewAnnotations`), `comments.json` (the full `Comment`), `chat_messages.anchor_json` (a `CommentAnchor`).
 
@@ -110,7 +112,7 @@ for an exact identity, which is the resume hint used by the default open path.
 
 - **Start vs resume:** resolve both ref inputs → `findSession`; if found, resume; else `createSession`. The renderer asks main for this lookup so branch and commit refs use the same identity logic.
 - **Start fresh:** pass `fresh` to `startSession`; it skips `findSession` and creates another live session for the same pair. `archiveSession` only soft-deletes a row so it no longer appears in live lists or resume hints.
-- **Reviewed / approved SHAs:** `sessions` carries `reviewed_at_sha` (set on every generate, = diff head) and `approved_sha` (set on explicit approve). The review's baseline is `approved_sha ?? reviewed_at_sha`; when it differs from the current head, a "since" diff highlights what moved. `viewed_files.sha` does the same per file; `artifact_approvals` per artifact.
+- **Reviewed / approved SHAs:** `sessions` carries `reviewed_at_sha` (set on every generate, = diff head) and `approved_sha` (the latest approval baseline pointer). `session_approvals` stores the full set of approved branch surfaces. Clean approvals are keyed by commit SHA; dirty approvals are keyed by a branch surface hash (`HEAD` plus uncommitted working-tree content/status). Reopening or checking out any previously approved surface shows as approved again. If the commit is approved but the dirty surface is not, the approval control shows the uncommitted-change approval affordance. The review's "since approved" baseline is the loaded HEAD when it is in the approved commit set, otherwise `approved_sha ?? reviewed_at_sha`. `viewed_files.sha` does the same per file; `artifact_approvals` per artifact.
 
 ## Migrations
 

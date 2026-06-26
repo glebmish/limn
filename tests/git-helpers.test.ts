@@ -73,6 +73,12 @@ describe('driftSummary', () => {
     expect(d).toEqual({ headSha: head, commits: 0, files: 1, add: 1, del: 0, dirty: true })
   })
 
+  it('reports dirty for untracked working-tree changes even when numstat is empty', async () => {
+    fixtureWrite(dir, 'src/untracked.ts', 'export const u = 1\n')
+    const d = await driftSummary(dir, 'feature', head, dir)
+    expect(d).toEqual({ headSha: head, commits: 0, files: 0, add: 0, del: 0, dirty: true })
+  })
+
   it('combines committed commits and uncommitted edits since the SHA', async () => {
     fixtureWrite(dir, 'src/a.ts', ['export function a() {', '  return 2', '}', 'export const K = 10', 'export const J = 20', 'export const Z = 99', ''].join('\n')) // +1 uncommitted line on a.ts
     const d = await driftSummary(dir, 'feature', shas.firstFeature, dir)

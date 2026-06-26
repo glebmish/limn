@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, Artifact, DiffSkeleton, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
@@ -48,6 +49,19 @@ function mergeFilesByPath(a: FileDiff[], b: FileDiff[]): FileDiff[] {
   return [...out.values()]
 }
 
+function branchSurfaceHash(head: string, volatile: FileDiff[]): string {
+  if (volatile.length === 0) return head
+  const h = createHash('sha256')
+  h.update(`head\0${head}\0`)
+  for (const f of [...volatile].sort((a, b) => a.path.localeCompare(b.path))) {
+    h.update(`file\0${f.path}\0${f.status}\0${f.fileHash ?? ''}\0${f.add}\0${f.del}\0`)
+    if (!f.fileHash) {
+      for (const line of f.hunks.flatMap((x) => x.lines)) h.update(`${line.kind}\0${line.text}\0`)
+    }
+  }
+  return `dirty:${h.digest('hex')}`
+}
+
 /** Assemble the renderer-facing review (git diff, worktree band, artifacts, commits,
  *  drift tagging, comment re-anchoring) from a session + its `ReviewState`. Shared by
  *  the persisted load (`buildLoadedReview`, persist:true) and the transient preview
@@ -73,6 +87,7 @@ export async function assembleReview(
         baseLoc: await locateSide(repo, pair.base),
         compareLoc: await locateSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
+        branchHash: '',
         artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [], compareCheckedOut: false,
         refMissing: { side, symbol }
       }
@@ -96,7 +111,8 @@ export async function assembleReview(
   const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path), persist)
   const commits = await log(repo, baseEff, compareEff)
   let sinceTagged = false
-  const baseline = state.approvedSha ?? state.reviewedAtSha
+  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
   if (baseline && baseline !== skeleton.headSha) {
     try {
       const since = await diffSince(repo, baseline, compareEff)
@@ -128,7 +144,7 @@ export async function assembleReview(
     try {
       merged = await mergedWorkingDiff(wt, baseEff, compareEff)
       const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
-      if (baseline && baseline !== skeleton.headSha) {
+      if (baseline) {
         try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, baseline)), 'since') } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
@@ -149,6 +165,7 @@ export async function assembleReview(
       }
     } catch { /* hashing failed — viewed falls back to commit-only detection */ }
   }
+  const branchHash = branchSurfaceHash(skeleton.headSha, dirty ? volatile : [])
   // Re-anchor against the surface that is actually rendered. When dirty that's the
   // merged base→working-tree diff (committed + uncommitted lines in worktree-space
   // line numbers), so comments on committed lines line up even when dirty edits above
@@ -169,7 +186,7 @@ export async function assembleReview(
     compareContext: await describeSide(repo, pair.compare),
     baseLoc: await locateSide(repo, pair.base),
     compareLoc: await locateSide(repo, pair.compare),
-    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
+    skeleton, branchHash, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
     compareCheckedOut: wt != null

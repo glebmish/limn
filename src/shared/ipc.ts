@@ -13,6 +13,9 @@ export interface LoadedReview {
   baseLoc: RefLoc
   compareLoc: RefLoc
   skeleton: DiffSkeleton
+  /** Hash of the loaded branch surface. Clean tree: head SHA. Dirty tree: head SHA
+   *  plus uncommitted working-tree content/status. Used for branch approval freshness. */
+  branchHash: string
   state: ReviewState
   artifacts: Artifact[]
   commits: CommitInfo[]
@@ -109,7 +112,9 @@ export interface Api {
    *  handles them with its tools (edit+commit code, resolve, or reply). */
   sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
+  unapprove(sessionId: number): Promise<ReviewState>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
+  unapproveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
   getPrefs(): Promise<Record<string, string>>
   setPref(key: string, value: string): Promise<void>
@@ -144,7 +149,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'unapprove', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

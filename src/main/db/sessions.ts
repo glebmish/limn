@@ -3,7 +3,7 @@ import type {
   AgentAction, AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
   RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from '../../shared/types.js'
-import { effectiveRef, refIdentity } from '../../shared/types.js'
+import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
@@ -71,6 +71,19 @@ interface SessionDbRow {
 }
 
 const SESSION_SELECT = `SELECT s.*, r.path AS repo_path FROM sessions s JOIN repos r ON r.id = s.repo_id`
+
+function sessionApprovals(db: DatabaseSync, sessionId: number, legacyApprovedSha?: string | null): { shas: string[]; hashes: string[] } {
+  const shas = new Set<string>()
+  const hashes = new Set<string>()
+  const rows = db.prepare('SELECT sha, hash FROM session_approvals WHERE session_id = ?').all(sessionId) as { sha: string; hash: string }[]
+  if (legacyApprovedSha) shas.add(legacyApprovedSha)
+  if (rows.length === 0 && legacyApprovedSha) hashes.add(legacyApprovedSha)
+  for (const r of rows) {
+    shas.add(r.sha)
+    hashes.add(r.hash)
+  }
+  return { shas: [...shas], hashes: [...hashes] }
+}
 
 function rowToMeta(row: SessionDbRow): SessionMeta {
   return {
@@ -156,6 +169,7 @@ export function recentSessions(db: DatabaseSync, repoPaths: string[], limit: num
 
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
   const meta = rowToMeta(row)
+  const approvals = sessionApprovals(db, row.id, row.approved_sha)
   return {
     id: row.id,
     baseSymbol: row.base_symbol,
@@ -163,7 +177,7 @@ function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
     compareKind: row.compare_kind,
     title: row.title ?? undefined,
     hasReview: Boolean(row.annotations_json),
-    approved: Boolean(row.approved_sha) && row.approved_sha === row.reviewed_at_sha,
+    approved: approvalFresh(approvals.hashes, row.reviewed_at_sha ?? undefined),
     archived: Boolean(row.archived_at),
     unresolved: unresolvedCount(db, row.id),
     updatedAt: meta.updatedAt,
@@ -189,8 +203,8 @@ export interface SessionMetaPatch {
   title?: string
   summary?: string
   annotations?: ReviewAnnotations
-  approvedSha?: string
-  reviewedAtSha?: string
+  approvedSha?: string | null
+  reviewedAtSha?: string | null
 }
 
 export function updateSessionMeta(db: DatabaseSync, id: number, patch: SessionMetaPatch): void {
@@ -427,6 +441,45 @@ export function approveArtifact(db: DatabaseSync, sessionId: number, path: strin
     ON CONFLICT(session_id, path) DO UPDATE SET sha = excluded.sha`).run(sessionId, path, sha)
 }
 
+export function unapproveArtifact(db: DatabaseSync, sessionId: number, path: string): void {
+  db.prepare('DELETE FROM artifact_approvals WHERE session_id = ? AND path = ?').run(sessionId, path)
+}
+
+export function approveSessionSurface(db: DatabaseSync, sessionId: number, sha: string, hash: string): void {
+  db.exec('BEGIN')
+  try {
+    db.prepare(`INSERT INTO session_approvals (session_id, sha, hash, approved_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(session_id, hash) DO UPDATE SET sha = excluded.sha, approved_at = excluded.approved_at`).run(sessionId, sha, hash, now())
+    updateSessionMeta(db, sessionId, { approvedSha: sha })
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
+export function approveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
+  approveSessionSurface(db, sessionId, sha, sha)
+}
+
+export function unapproveSessionSurface(db: DatabaseSync, sessionId: number, hash: string): void {
+  db.exec('BEGIN')
+  try {
+    db.prepare('DELETE FROM session_approvals WHERE session_id = ? AND hash = ?').run(sessionId, hash)
+    const latest = db.prepare(`SELECT sha FROM session_approvals WHERE session_id = ?
+      ORDER BY approved_at DESC LIMIT 1`).get(sessionId) as { sha: string } | undefined
+    updateSessionMeta(db, sessionId, { approvedSha: latest?.sha ?? null })
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
+export function unapproveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
+  unapproveSessionSurface(db, sessionId, sha)
+}
+
 export interface UiStatePatch {
   viewedAt?: Record<string, ViewMark>
   reviewedSections?: string[]
@@ -491,6 +544,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   for (const r of db.prepare('SELECT path, sha FROM artifact_approvals WHERE session_id = ?').all(sessionId) as { path: string; sha: string }[]) {
     artifactApprovals[r.path] = r.sha
   }
+  const approvals = sessionApprovals(db, sessionId, row.approved_sha)
 
   return {
     repo: meta.repo,
@@ -501,6 +555,8 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     annotations: row.annotations_json ? (JSON.parse(row.annotations_json) as ReviewAnnotations) : undefined,
     comments, chats, viewedAt, reviewedSections,
     approvedSha: row.approved_sha ?? undefined,
+    approvedShas: approvals.shas,
+    approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
     artifactApprovals, iterations, artifacts
   }

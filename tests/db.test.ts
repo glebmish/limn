@@ -19,6 +19,7 @@ describe('openDb', () => {
       .map((r) => r.name)
     for (const t of ['repos', 'sessions', 'comments', 'chat_messages', 'iterations',
       'viewed_files', 'reviewed_sections', 'artifacts', 'artifact_approvals',
+      'session_approvals',
       'prefs', 'meta']) {
       expect(tables).toContain(t)
     }

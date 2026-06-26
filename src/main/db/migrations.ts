@@ -129,5 +129,47 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE chat_messages ADD COLUMN segments_json TEXT')
     }
+  },
+  {
+    // Approval is a set of previously approved committed states. `sessions.approved_sha`
+    // remains the current baseline pointer for older code/data, while this table lets
+    // reopening or checking out any earlier approved SHA restore the approved state.
+    version: 3,
+    up(db) {
+      db.exec(`
+        CREATE TABLE session_approvals (
+          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          sha TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          approved_at TEXT NOT NULL,
+          PRIMARY KEY (session_id, hash)
+        );
+        INSERT INTO session_approvals (session_id, sha, hash, approved_at)
+          SELECT id, approved_sha, approved_sha, updated_at FROM sessions WHERE approved_sha IS NOT NULL;
+      `)
+    }
+  },
+  {
+    // Compatibility for dev builds that created the first approval-history table as
+    // `(session_id, sha)` only. Re-key it by branch surface hash; legacy rows use
+    // `hash = sha`, which is exactly the clean-tree surface hash.
+    version: 4,
+    up(db) {
+      const cols = db.prepare('PRAGMA table_info(session_approvals)').all() as { name: string }[]
+      if (cols.some((c) => c.name === 'hash')) return
+      db.exec(`
+        CREATE TABLE session_approvals_new (
+          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          sha TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          approved_at TEXT NOT NULL,
+          PRIMARY KEY (session_id, hash)
+        );
+        INSERT INTO session_approvals_new (session_id, sha, hash, approved_at)
+          SELECT session_id, sha, sha, approved_at FROM session_approvals;
+        DROP TABLE session_approvals;
+        ALTER TABLE session_approvals_new RENAME TO session_approvals;
+      `)
+    }
   }
 ]

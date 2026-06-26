@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Review State Mocks</title>
+  <style>
+    :root {
+      --bg: #f4f3ef;
+      --panel: #fbfaf7;
+      --ink: #292826;
+      --muted: #8d8981;
+      --line: #ddd8ce;
+      --line-2: #cfc8bb;
+      --green: #2f714d;
+      --green-line: #b8d7c7;
+      --green-soft: #eef7f2;
+      --amber: #a9791b;
+      --amber-line: #d3aa62;
+      --amber-soft: #fff6df;
+      --red: #a94737;
+      --red-soft: #fff0ec;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+    .page { max-width: 1220px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.15; letter-spacing: 0; }
+    .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    .mock { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(43, 40, 35, .06); }
+    .mock-h { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: #fffdf9; }
+    .mock-title { font-weight: 750; font-size: 14px; }
+    .mock-note { color: var(--muted); font-size: 12px; }
+    .bar { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 11px 16px; border-bottom: 1px solid var(--line); overflow: hidden; }
+    .ref { display: inline-flex; align-items: center; gap: 8px; height: 31px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: 7px; background: #fff; font-family: var(--mono); font-weight: 750; color: var(--green); white-space: nowrap; }
+    .timeline { display: inline-flex; align-items: center; gap: 7px; flex: 1; justify-content: center; min-width: 260px; }
+    .node { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line-2); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font-family: var(--mono); font-size: 12px; background: #fff; }
+    .arrow { color: var(--muted); font-family: var(--mono); font-weight: 700; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; height: 31px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--green-line); background: var(--green-soft); color: var(--green); font-family: var(--mono); font-weight: 750; white-space: nowrap; }
+    .drift { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; position: relative; flex: 0 0 auto; }
+    .pulse::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid currentColor; animation: pulse 1.6s ease-out infinite; }
+    @keyframes pulse { from { transform: scale(.55); opacity: .8; } to { transform: scale(1.9); opacity: 0; } }
+    .worktree { display: inline-flex; align-items: center; gap: 8px; height: 31px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 7px; background: #fff; color: var(--muted); font-family: var(--mono); font-weight: 750; white-space: nowrap; }
+    .worktree .dot { color: var(--amber); }
+    .body { padding: 18px 20px 22px; }
+    .eyebrow { color: var(--muted); font-family: var(--mono); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px; }
+    .title-row { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+    .title { font-size: 24px; line-height: 1.2; font-weight: 820; flex: 1; min-width: 0; }
+    .approve { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--green-line); background: var(--green-soft); color: var(--green); font-weight: 750; white-space: nowrap; }
+    .approve.stale { border-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+    .approve.primary { background: var(--green); border-color: var(--green); color: #fff; }
+    .approve .stripe { align-self: stretch; display: inline-flex; align-items: center; margin: -1px -14px -1px 2px; padding: 0 8px; border-left: 1px solid var(--amber-line); background: repeating-linear-gradient(135deg, var(--amber-soft), var(--amber-soft) 5px, rgba(169,121,27,.18) 5px, rgba(169,121,27,.18) 9px); font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+    .panel { border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; padding: 13px; margin-top: 12px; }
+    .gen-head { display: flex; align-items: center; gap: 9px; color: var(--green); font-weight: 750; margin-bottom: 10px; }
+    .gen-head.warn { color: var(--amber); }
+    .gen-input { height: 34px; border: 1px solid var(--line-2); border-radius: 6px; color: var(--muted); display: flex; align-items: center; padding: 0 10px; }
+    .rows { display: grid; gap: 9px; margin-top: 14px; }
+    .row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+    .row:first-child { border-top: 0; }
+    .label { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
+    .text { font-size: 13px; line-height: 1.45; }
+    .tag { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line-2); background: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .tag.green { color: var(--green); border-color: var(--green-line); background: var(--green-soft); }
+    .tag.amber { color: var(--amber); border-color: var(--amber-line); background: var(--amber-soft); }
+    .tag.red { color: var(--red); border-color: #e0b3aa; background: var(--red-soft); }
+    .files { display: grid; gap: 7px; margin-top: 6px; }
+    .file { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-family: var(--mono); font-size: 12px; }
+    .file .grow { flex: 1; }
+    .foot { margin-top: 20px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .timeline { justify-content: flex-start; } .bar { flex-wrap: wrap; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>Review State Mocks</h1>
+    <p class="sub">Lightweight model of what should happen while a review is open and after the reviewer clicks the pending update. The examples include both possible incoming changes: new commits and dirty working-tree edits.</p>
+
+    <section class="grid">
+      <article class="mock">
+        <div class="mock-h">
+          <div>
+            <div class="mock-title">A. Screen Already Open</div>
+            <div class="mock-note">Do not jump the diff. Show passive pending state.</div>
+          </div>
+          <span class="tag amber">pending update</span>
+        </div>
+        <div class="bar">
+          <span class="ref">main 0063004</span>
+          <div class="timeline">
+            <span class="node">⎇</span>
+            <span class="arrow">−16→</span>
+            <span class="chip"><span>↻</span><span>✓</span><span>0063004</span></span>
+            <span class="chip drift"><span class="dot pulse"></span><span>2 commits</span><span>✎</span></span>
+          </div>
+          <span class="worktree">worktree primary <span class="dot"></span></span>
+        </div>
+        <div class="body">
+          <div class="eyebrow">36 files · +725 / −267 · guided by codex</div>
+          <div class="title-row">
+            <div class="title">Secure local/web review flow with drift-aware review UI</div>
+            <button class="approve primary">✓ Approved</button>
+          </div>
+          <div class="panel">
+            <div class="gen-head">✓ generated at 0063004 · up to date for loaded snapshot</div>
+            <div class="gen-input">Steer this pass (optional) — pending changes are not folded in yet</div>
+          </div>
+          <div class="rows">
+            <div class="row">
+              <div class="label">Timeline</div>
+            <div class="text">Keep the existing generated/approved commit selected. Add one pulsing pending badge at HEAD. Commit count and pen are visible; +/- details live in hover.</div>
+            </div>
+            <div class="row">
+              <div class="label">Review Button</div>
+            <div class="text"><span class="tag green">Approved</span> remains valid for the loaded snapshot because the visible review still represents 0063004. Pending facts do not mutate approval until reload.</div>
+            </div>
+            <div class="row">
+              <div class="label">Viewed State</div>
+              <div class="text">Do not reclassify viewed files yet. Avoid changing sidebar ticks while the user is reading the old surface.</div>
+            </div>
+            <div class="row">
+              <div class="label">Generate</div>
+              <div class="text">Keep current generated status, but the pending badge makes it clear a reload/update pass is available.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="mock">
+        <div class="mock-h">
+          <div>
+            <div class="mock-title">B. After Click / Reload</div>
+            <div class="mock-note">Fold commits and dirty tree into the visible review.</div>
+          </div>
+          <span class="tag amber">loaded dirty</span>
+        </div>
+        <div class="bar">
+          <span class="ref">main 0063011</span>
+          <div class="timeline">
+            <span class="node">⎇</span>
+            <span class="arrow">−18→</span>
+            <span class="chip"><span>↻</span><span>✓</span><span>✎</span><span>0063011</span></span>
+          </div>
+          <span class="worktree">worktree primary <span class="dot"></span></span>
+        </div>
+        <div class="body">
+          <div class="eyebrow">38 files · +802 / −287 · guided by codex</div>
+          <div class="title-row">
+            <div class="title">Secure local/web review flow with drift-aware review UI</div>
+            <button class="approve stale">✓ Approve working tree <span class="stripe">uncommitted changes</span></button>
+          </div>
+          <div class="panel">
+            <div class="gen-head warn">↻ review is behind loaded changes · update review</div>
+            <div class="gen-input">Steer update pass — folds new commits and current working tree context</div>
+          </div>
+          <div class="rows">
+            <div class="row">
+              <div class="label">Timeline</div>
+              <div class="text">Pending badge disappears. Timeline moves to new HEAD. The same pen icon is now inside the HEAD pin. +/- dirty details are only in the timeline hover.</div>
+            </div>
+            <div class="row">
+              <div class="label">Review Button</div>
+              <div class="text">Approval is keyed by branch surface hash. Clean commit approval is `commit`; dirty approval is `commit + working-tree hash`. A previously approved surface restores automatically.</div>
+              <div class="files" style="grid-column: 2;">
+                <div class="file">commit approved + clean <span class="grow"></span><span class="tag green">Approved</span></div>
+                <div class="file">commit unapproved + any dirty state <span class="grow"></span><span class="tag amber">Approve</span></div>
+                <div class="file">commit approved + dirty hash unapproved <span class="grow"></span><span class="tag amber">Approve working tree</span></div>
+                <div class="file">commit approved + dirty hash approved <span class="grow"></span><span class="tag green">Approved</span></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label">Viewed State</div>
+              <div class="text">Recompute viewed ticks now. Files touched by new commits or dirty content hash drift become unviewed/amber.</div>
+              <div class="files" style="grid-column: 2;">
+                <div class="file">src/review.ts <span class="grow"></span><span class="tag amber">changed since viewed</span></div>
+                <div class="file">src/ipc.ts <span class="grow"></span><span class="tag amber">dirty</span></div>
+                <div class="file">src/types.ts <span class="grow"></span><span class="tag green">viewed</span></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label">Generate</div>
+              <div class="text">Switch to update-review for commit drift. If HEAD matches the generated commit but the branch hash changed, show “working tree changed” instead of “commit behind”.</div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="foot">
+      <b>Rule of thumb:</b> pending drift protects the reader from sudden jumps while the page is open. Reload converts pending facts into loaded facts. Once loaded, dirty state must be visible persistently and approval must be freshness-based, not just SHA-based.
+    </section>
+  </main>
+</body>
+</html>

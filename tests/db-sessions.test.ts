@@ -10,7 +10,7 @@ import {
   listRepoSessions, latestSessionForBranch, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
   upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
-  approveArtifact, unresolvedCount,
+  approveArtifact, unapproveArtifact, approveSessionSha, approveSessionSurface, unapproveSessionSha, unapproveSessionSurface, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, setThreadMode, setThreadTitle, deriveChatTitle,
   pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads, setActionResolution
@@ -121,6 +121,54 @@ describe('sessions DAO', () => {
     expect(st.engine).toBe('codex')
     expect(st.annotations?.title).toBe('T')
     expect(st.approvedSha).toBe('b'.repeat(40))
+  })
+
+  it('can clear session and artifact approvals', () => {
+    const s = createSession(db, '/repo', pair)
+    approveSessionSha(db, s.id, 'b'.repeat(40))
+    approveArtifact(db, s.id, 'docs/spec.md', 'b'.repeat(40))
+
+    unapproveSessionSha(db, s.id, 'b'.repeat(40))
+    unapproveArtifact(db, s.id, 'docs/spec.md')
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBeUndefined()
+    expect(st.approvedShas).toEqual([])
+    expect(st.artifactApprovals).toEqual({})
+  })
+
+  it('keeps approval history so returning to an older approved state is approved', () => {
+    const s = createSession(db, '/repo', pair)
+    const a = 'a'.repeat(40)
+    const b = 'b'.repeat(40)
+    approveSessionSha(db, s.id, a)
+    approveSessionSha(db, s.id, b)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBe(b)
+    expect(st.approvedShas?.sort()).toEqual([a, b].sort())
+
+    unapproveSessionSha(db, s.id, b)
+    const after = loadReviewState(db, s.id)
+    expect(after.approvedSha).toBe(a)
+    expect(after.approvedShas).toEqual([a])
+  })
+
+  it('tracks multiple approved dirty surfaces on the same commit by hash', () => {
+    const s = createSession(db, '/repo', pair)
+    const sha = 'c'.repeat(40)
+    const h1 = 'dirty:h1'
+    const h2 = 'dirty:h2'
+    approveSessionSurface(db, s.id, sha, h1)
+    approveSessionSurface(db, s.id, sha, h2)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBe(sha)
+    expect(st.approvedShas).toEqual([sha])
+    expect(st.approvedHashes?.sort()).toEqual([h1, h2].sort())
+
+    unapproveSessionSurface(db, s.id, h2)
+    expect(loadReviewState(db, s.id).approvedHashes).toEqual([h1])
   })
 
   it('repos: ensure + touch drives recents ordering', () => {

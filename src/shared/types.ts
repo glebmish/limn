@@ -12,6 +12,10 @@ export interface CommitInfo { sha: string; subject: string; author: string; date
  *  "since you reviewed" fetch pill (commit chip + working-tree-edit chip). */
 export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number; dirty: boolean }
 
+export function driftHasChanges(drift: DriftSummary | null | undefined): drift is DriftSummary {
+  return Boolean(drift && (drift.commits > 0 || drift.files > 0 || drift.dirty))
+}
+
 // ── annotations (engine output, validated) ───────────────────
 export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]
 export interface Section {
@@ -205,6 +209,10 @@ export interface ReviewState {
   reviewedSections: string[];
   /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;
+  /** every committed state explicitly approved in this session */
+  approvedShas?: string[];
+  /** every loaded branch surface explicitly approved; clean surfaces use hash=headSha */
+  approvedHashes?: string[];
   /** per-artifact plan/spec approval: path → SHA at approval time */
   artifactApprovals: Record<string, string>;
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
@@ -264,6 +272,14 @@ export function effectiveRef(side: RefSide): string {
   return side.kind === 'branch' ? side.symbol : side.anchorSha
 }
 
+/** A review approval covers a committed tree, not uncommitted working-tree edits.
+ *  It is fresh only when the approved SHA is the loaded HEAD and the loaded
+ *  working tree is clean. */
+export function approvalFresh(approvedHashes: readonly string[] | string | undefined, branchHash: string | undefined): boolean {
+  const hashes = Array.isArray(approvedHashes) ? approvedHashes : approvedHashes ? [approvedHashes] : []
+  return Boolean(branchHash && hashes.includes(branchHash))
+}
+
 export interface SessionMeta {
   id: number
   repo: string
@@ -283,7 +299,7 @@ export interface SessionListItem {
   compareKind: RefKind
   title?: string
   hasReview: boolean       // an annotation/review has been generated
-  approved: boolean        // approvedSha === reviewedAtSha (latest state approved)
+  approved: boolean        // committed review state is approved; live dirty state is evaluated on load
   archived: boolean        // soft-deleted (archived_at set) — shown only on demand
   unresolved: number       // queued + sent comments
   updatedAt: string
