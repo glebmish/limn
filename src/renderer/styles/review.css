@@ -295,6 +295,41 @@
 .ctmark .cm-arr.drift{color:var(--amber)}
 .ctmark .cm-arr.drift::before,.ctmark .cm-arr.drift::after{color:var(--amber)}
 
+/* ---- live watcher: "branch moved while you read" — passive signal + manual pull ---- */
+/* Limn never re-renders under you. When the watched branch advances past the loaded
+   snapshot, a single pulsing dot appears at HEAD. Hover to reveal what's waiting —
+   commits + the line delta (committed + uncommitted). Click = pull (reload).
+   NOTE: no overflow:hidden on the button — that would clip the pulse ring. The counts
+   collapse via cmf-rest's own max-width instead, leaving the dot free to pulse. */
+.ctmark .cm-fetch{display:inline-flex;align-items:center;height:25px;margin-left:6px;padding:0 7px;
+  border-radius:999px;border:1px solid var(--amber-line);background:var(--amber-soft);color:var(--amber);
+  font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;flex:0 0 auto;
+  transition:background .14s,border-color .14s,color .14s}
+.ctmark .cm-fetch:hover{background:var(--amber-soft);color:var(--amber);border-color:var(--amber)}
+.ctmark .cm-fetch .cmf-dot{position:relative;width:7px;height:7px;border-radius:50%;
+  background:currentColor;flex:0 0 auto}
+.ctmark .cm-fetch .cmf-dot::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+  border:1.5px solid currentColor;animation:cmfPulse 1.9s ease-out infinite}
+.ctmark .cm-fetch:hover .cmf-dot::after{animation:none;opacity:0}
+@keyframes cmfPulse{0%{transform:scale(.55);opacity:.75}100%{transform:scale(1.8);opacity:0}}
+@media (prefers-reduced-motion:reduce){.ctmark .cm-fetch .cmf-dot::after{animation:none;opacity:.35}}
+/* the counts collapse on their own width so the dot stays free to pulse */
+.ctmark .cm-fetch .cmf-rest{display:inline-flex;align-items:center;gap:6px;max-width:0;opacity:0;
+  overflow:hidden;white-space:nowrap;transition:max-width .2s ease,opacity .16s ease,margin-left .2s ease}
+.ctmark .cm-fetch:hover .cmf-rest,.ctmark .cm-fetch:focus-visible .cmf-rest{max-width:138px;opacity:1;margin-left:6px}
+.ctmark .cm-fetch .cmf-chip{display:inline-flex;align-items:center;gap:3px}
+.ctmark .cm-fetch .cmf-chip svg{width:13px;height:13px}
+/* overall line delta from the loaded HEAD (commits + working tree combined) */
+.ctmark .cm-fetch .cmf-delta{display:inline-flex;align-items:center;gap:4px;
+  font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amber)}
+.ctmark .cm-fetch .cmf-del{color:var(--red)}
+/* the pull animation: badge collapses on click */
+.ctmark .cm-fetch.pulling{pointer-events:none}
+.ctmark .cm-fetch.gone{opacity:0;transform:scale(.9);transition:opacity .25s,transform .25s}
+/* forced-open (dev static capture): reveal the counts without a hover */
+.ctmark .cm-fetch.is-open .cmf-rest{max-width:138px;opacity:1;margin-left:6px}
+.ctmark .cm-fetch.is-open .cmf-dot::after{animation:none;opacity:0}
+
 /* ---- top "changes since last review" callout ---- */
 .rr-summary{display:flex;align-items:center;gap:12px;margin:14px 30px 2px;padding:11px 14px;
   background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:var(--r-md)}

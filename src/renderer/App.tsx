@@ -27,10 +27,12 @@ export default function App() {
       st.finishOp(ok ? undefined : error ?? 'unknown error')
       if (ok || reload) void st.reload()
     })
-    const offChanged = window.api.onRepoChanged(({ repo, branch }) => {
+    const offChanged = window.api.onRepoChanged(({ repo, branch, drift }) => {
       const st = useStore.getState()
       if (st.screen !== 'review' || st.gen.running) return
-      if (st.repo === repo && st.branch === branch) void st.reload()
+      // the branch moved while reading — notify via the titlebar fetch pill instead
+      // of yanking the surface out from under the reviewer. They click to fold it in.
+      if (st.repo === repo && st.branch === branch) st.setPendingDrift(drift)
     })
     // CLI: open a repo on Compare (or surface an error on the dashboard).
     // The initial pending open is consumed by store.boot() AFTER the dashboard

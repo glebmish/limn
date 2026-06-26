@@ -13,6 +13,11 @@ Both ride existing patterns: `tour` is a sibling of the existing `focus` tool;
 the fetch-pill enriches the existing 2 s HEAD-watcher and the existing `.ctmark`
 timeline.
 
+> **Status (2026-06-26):** **A. `tour`** was already implemented and committed in
+> HEAD before this work began (tool + `TourCard` + `I.tour` + tests all present and
+> green) — the section below documents it but no code change was needed. **B. the
+> drift fetch-pill** is the work built in this branch.
+
 ---
 
 ## A. `tour` agent tool

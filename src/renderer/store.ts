@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
+import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
 
@@ -191,6 +191,10 @@ interface AppStore {
   /** transient: force-render a focus target (a viewed file / done section)
    *  without mutating viewedAt. Set by focusAnchor. */
   focusTarget: { file?: string; sectionId?: string } | null
+  /** the branch moved (commits and/or working-tree edits) since this review was
+   *  loaded — drives the titlebar fetch pill. Set by the watcher via onRepoChanged;
+   *  cleared on reload (the click folds it in). null = up to date with the load. */
+  pendingDrift: DriftSummary | null
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
@@ -248,6 +252,8 @@ interface AppStore {
   setCur(id: string): void
   setCurFile(file: string | null): void
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
+  /** stash (or clear) the drift the watcher reported for the loaded review. */
+  setPendingDrift(d: DriftSummary | null): void
   openDoc(path: string): void
   closeDoc(): void
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
@@ -370,6 +376,7 @@ export const useStore = create<AppStore>((set, get) => {
     cur: null,
     curFile: null,
     focusTarget: null,
+    pendingDrift: null,
     docPath: null,
 
     gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false },
@@ -466,7 +473,7 @@ export const useStore = create<AppStore>((set, get) => {
       const repo = repoPath ?? get().repo
       if (!repo) { get().backToDashboard(); return }
       // remember the review we came from so the hub can offer a jump-back
-      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null })
+      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null })
       await loadRepoContext(repo)
     },
 
@@ -546,7 +553,7 @@ export const useStore = create<AppStore>((set, get) => {
           screen: 'review', sessionId: null, loaded, repo: repoPath,
           branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-          activeChatId: null, transientFresh: opts?.fresh ?? false, error: null
+          activeChatId: null, transientFresh: opts?.fresh ?? false, error: null, pendingDrift: null
         })
         void loadRepoContext(repoPath)
       } catch (err) {
@@ -595,7 +602,8 @@ export const useStore = create<AppStore>((set, get) => {
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
           agent: loaded.state.agent ?? get().agent,
-          activeChatId: pickActiveChat(loaded.state.chats, null)
+          activeChatId: pickActiveChat(loaded.state.chats, null),
+          pendingDrift: null
         })
         void loadRepoContext(loaded.state.repo)
       } catch (err) {
@@ -606,7 +614,7 @@ export const useStore = create<AppStore>((set, get) => {
     backToDashboard() {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
-        repoState: null, repoSessions: []
+        repoState: null, repoSessions: [], pendingDrift: null
       })
       void get().loadDashboard()
     },
@@ -661,7 +669,8 @@ export const useStore = create<AppStore>((set, get) => {
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
-        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId)
+        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
+        pendingDrift: null // the reload folded any drift in; the watcher re-baselines
       })
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     },
@@ -715,6 +724,9 @@ export const useStore = create<AppStore>((set, get) => {
     },
     setFocusTarget(t) {
       set({ focusTarget: t })
+    },
+    setPendingDrift(d) {
+      set({ pendingDrift: d })
     },
 
     startOp(kind, opId, threadId) {

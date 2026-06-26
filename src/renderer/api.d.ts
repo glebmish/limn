@@ -37,6 +37,9 @@ declare global {
       /** inject a synthetic running review op (tool calls + status) so the live
        *  generation panel can be captured without a real agent run */
       fakeGen?: boolean
+      /** seed a synthetic "branch moved since loaded" drift so the titlebar fetch
+       *  pill can be captured (rendered force-open) without a real external commit */
+      fakeDrift?: boolean
       /** dev-only: open a spec/plan artifact doc by path once the review mounts */
       openDoc?: string | null
       /** dev-only: expand a left-spine artifact peek panel by path for a static capture */

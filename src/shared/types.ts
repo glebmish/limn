@@ -6,6 +6,10 @@ export interface FileDiff { path: string; oldPath?: string; status: 'modified' |
 export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
 export interface CommitInfo { sha: string; subject: string; author: string; date: string }
+/** What landed on the compare branch since the loaded review snapshot: new commits
+ *  plus the file/line delta (committed + uncommitted) since the loaded SHA. Backs the
+ *  titlebar "since you reviewed" fetch pill. */
+export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number }
 
 // ── annotations (engine output, validated) ───────────────────
 export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]

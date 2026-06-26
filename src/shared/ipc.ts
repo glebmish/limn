@@ -1,5 +1,5 @@
 import type {
-  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
+  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
   ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
@@ -129,7 +129,7 @@ export interface OpResultMsg {
   reload?: boolean
 }
 
-export interface RepoChangedMsg { repo: string; branch: string; headSha: string }
+export interface RepoChangedMsg { repo: string; branch: string; headSha: string; drift: DriftSummary | null }
 
 export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void

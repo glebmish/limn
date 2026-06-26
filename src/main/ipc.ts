@@ -11,7 +11,7 @@ import type {
 import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
-  addWorktree, checkoutBranch, currentBranch, defaultBase, getDiff, headSha, isDirty,
+  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, headSha, isDirty,
   listBranches, recentCommits, repoState, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
@@ -43,21 +43,40 @@ const activeReviewThreads = new Set<number>()
 // module is identical whether it's carried by Electron IPC or the web server.
 let transport: Transport
 
-// ── watch mode: poll the open review's branch head; push when it moves ──
-let watcher: { timer: NodeJS.Timeout; repo: string; branch: string; lastSha: string } | null = null
+// ── watch mode: poll the open review's branch; notify (don't auto-reload) when the
+// branch head moves OR its working tree changes, carrying a drift summary "since the
+// loaded snapshot" so the titlebar can show the fetch pill. The reviewer clicks to
+// fold it in (reload); we never yank the surface out from under them.
+let watcher: {
+  timer: NodeJS.Timeout; repo: string; branch: string; workdir: string | null
+  loadedSha: string; loadSig: string; lastSig: string
+} | null = null
 
-function startWatch(repo: string, branch: string, sha: string): void {
-  if (watcher) clearInterval(watcher.timer)
-  const w = { repo, branch, lastSha: sha, timer: setInterval(() => void poll(), 2000) }
+/** Cheap change-detector + current head: branch head sha plus the porcelain status
+ *  of its worktree (empty when checked out nowhere). Gates the heavier drift diff. */
+async function watchState(repo: string, branch: string, workdir: string | null): Promise<{ head: string; sig: string }> {
+  const head = await headSha(repo, branch)
+  const porcelain = workdir ? (await execGit(workdir, ['status', '--porcelain'])).trim() : ''
+  return { head, sig: `${head}\n${porcelain}` }
+}
+
+async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
+  stopWatch()
+  const workdir = await branchCheckedOutAt(repo, branch)
+  const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
+  const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 2000) }
   watcher = w
   async function poll(): Promise<void> {
     if (repoLocks.has(repo)) return // our own agent op — reload arrives via op:result
     try {
-      const head = await headSha(repo, branch)
-      if (head !== w.lastSha) {
-        w.lastSha = head
-        send('repo:changed', { repo, branch, headSha: head })
-      }
+      const { head, sig } = await watchState(repo, branch, w.workdir)
+      if (sig === w.lastSig) return
+      w.lastSig = sig
+      // drift is measured against the LOAD-time state: null when the tree returns to
+      // it, or when the only change is untracked (numstat excludes untracked → zeros).
+      const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
+      const drift = d && (d.commits > 0 || d.files > 0) ? d : null
+      send('repo:changed', { repo, branch, headSha: head, drift })
     } catch {
       // branch deleted / repo gone — stop quietly
       clearInterval(w.timer)
@@ -245,7 +264,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     dao.pruneEmptyUserChats(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
     if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
-      startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
+      void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
       stopWatch()
     }

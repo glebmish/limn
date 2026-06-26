@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
-import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
+import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
@@ -25,6 +25,7 @@ let devFocusRan = false
 let devBatchRan = false
 let devGenRan = false
 let devDocRan = false
+let devDriftRan = false
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
 function fakeGenState(): GenState {
@@ -41,6 +42,35 @@ function fakeGenState(): GenState {
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
   return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, cancelled: false }
+}
+
+/** Titlebar fetch pill: the branch moved past the loaded snapshot (commits and/or
+ *  working-tree edits). A pulsing dot at HEAD; hover reveals what's waiting; click
+ *  folds it in (reload). Commits vs uncommitted-only drift are told apart by icon. */
+function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummary; loadedSha: string; onPull: () => void; open?: boolean }) {
+  const [pulling, setPulling] = useState(false)
+  const commitsOnly = drift.commits > 0
+  const tip =
+    `The branch moved while you were reading — `
+    + (drift.commits ? `${drift.commits} new commit${drift.commits === 1 ? '' : 's'}` : 'working-tree edits')
+    + (drift.files ? `, ${drift.files} file${drift.files === 1 ? '' : 's'}` : '')
+    + ` (+${drift.add} −${drift.del}) since ${shortSha(loadedSha)}, not yet loaded. Click to refresh.`
+  return (
+    <button
+      className={'cm-fetch' + (pulling ? ' pulling gone' : '') + (open ? ' is-open' : '')}
+      title={tip}
+      aria-label={tip}
+      onClick={() => { if (pulling) return; setPulling(true); window.setTimeout(onPull, 240) }}
+    >
+      <span className="cmf-dot"></span>
+      <span className="cmf-rest">
+        <span className="cmf-chip">
+          {commitsOnly ? <I.changed /> : <I.warn />}{commitsOnly ? drift.commits : drift.files}
+        </span>
+        <span className="cmf-delta">+{drift.add} <span className="cmf-del">−{drift.del}</span></span>
+      </span>
+    </button>
+  )
 }
 
 export default function Review() {
@@ -102,6 +132,12 @@ export default function Review() {
     if (window.limnDev?.fakeGen && !devGenRan && loaded) {
       devGenRan = true
       useStore.setState({ gen: fakeGenState() })
+    }
+    // dev-only: LIMN_FAKE_DRIFT seeds a synthetic "branch moved" so the titlebar
+    // fetch pill can be captured without a real external commit (open it via is-open)
+    if (window.limnDev?.fakeDrift && !devDriftRan && loaded) {
+      devDriftRan = true
+      store.setPendingDrift({ headSha: loaded.skeleton.headSha, commits: 2, files: 1, add: 24, del: 7 })
     }
     // dev-only: LIMN_OPEN_DOC opens a spec/plan artifact doc once after mount
     if (window.limnDev?.openDoc && !devDocRan && loaded) {
@@ -425,6 +461,9 @@ export default function Review() {
               </Fragment>
             )
           })}
+          {store.pendingDrift && (
+            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(window.limnDev?.fakeDrift)} />
+          )}
         </span>
         <WorkspacePicker branch={branch} />
         <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
