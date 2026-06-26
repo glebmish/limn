@@ -147,7 +147,16 @@ function main(): void {
     if (!fs.existsSync(path.join(STATIC_ROOT, 'index.html'))) {
       console.warn(`[limn] WARNING: ${STATIC_ROOT}/index.html missing — run "npm run build" first.`)
     }
-    if (!TOKEN) console.warn('[limn] no LIMN_WEB_TOKEN set — relying on network-level access control (e.g. Tailscale ACLs).')
+    if (!TOKEN) {
+      // No token is fine on loopback (local-only); on a non-loopback bind it means
+      // anyone who can reach the port gets full access — surface that loudly.
+      const loopback = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1'
+      if (loopback) {
+        console.log('[limn] no LIMN_WEB_TOKEN set — fine on loopback (local-only).')
+      } else {
+        console.warn(`[limn] ⚠ SECURITY: bound to ${HOST} with NO token — anyone who can reach :${PORT} can read this host's repos, working trees, and use its agent credentials. Set LIMN_WEB_TOKEN to require auth, or LIMN_WEB_HOST=127.0.0.1 for local-only (relying only on network ACLs, e.g. Tailscale, otherwise).`)
+      }
+    }
   })
 }
 
