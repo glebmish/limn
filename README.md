@@ -1,8 +1,12 @@
 # limn
 
 [![CI](https://github.com/glebmish/limn/actions/workflows/ci.yml/badge.svg)](https://github.com/glebmish/limn/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
+[![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
 A native macOS app for **agentic review of local git branches** — before you open a PR.
+
+![Limn's guided-review screen: the diff split into logical sections, AI-generated "what changed" narration, reviewer comments queued for the agent, and an agent question awaiting a decision.](docs/review.png)
 
 Pick a repo and a branch; the app shows the diff against a base branch in a guided-review UI. An AI agent — **Claude (Agent SDK) or Codex (Codex SDK), your choice per review** — explores the repository (callers, tests, history, specs) and turns the raw diff into a narrated review: logical sections, plain-language "what changed" notes, risk flags, mechanism diagrams, and a cross-check against the spec/plan the change was built from. You comment on anything — diff lines, spec lines, plan steps, section narration — chat with the agent about the code, then send your comments back: the agent applies fixes as a new iteration on the branch, and the app shows you only what changed since you approved.
 
@@ -136,3 +140,7 @@ Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO`
 **Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LIMN_DB` / `LIMN_OPEN_SESSION` + the dev hooks `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
 
 Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dives in [docs/agent-layer.md](docs/agent-layer.md), [docs/storage-layer.md](docs/storage-layer.md), and the [Codex app-server protocol](docs/codex-app-server.md).
+
+## License
+
+[ISC](LICENSE) © Gleb Mishchenko
