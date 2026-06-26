@@ -6,14 +6,47 @@ Pick a repo and a branch; the app shows the diff against a base branch in a guid
 
 Git is ground truth throughout: diffs are always parsed from `git diff`; the agent only annotates them and can never alter the code you see.
 
-## Download
+## Security & privacy
+
+Limn is a local app with no telemetry, accounts, hosted backend, or cloud sync of
+its own. It does not store Claude, Codex, Anthropic, or OpenAI credentials. It uses
+the credentials and command-line agents already installed and authorized on your
+machine (`claude`, `codex`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`).
+
+Review state lives in one local SQLite database at the app's user-data location
+(`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
+review layer: repositories you opened, sessions, comments, chat, generated review
+notes, viewed flags, and approvals. Git remains the source of truth for code:
+diffs, file contents, and branch state are read from your working tree.
+
+When you choose Claude or Codex, the selected provider receives the prompts and
+repository context needed for the review, using your existing provider account or
+API key. Limn itself does not send data anywhere else.
+
+Limn runs a coding agent against your repo. The execution tier, set per review,
+controls how much it can do on its own:
+
+- **Ask for approval** / **Accept edits** — the agent confirms before running
+  commands; safe defaults for unfamiliar code.
+- **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
+  without confirming each step; **Full access** also lifts the sandbox (network and
+  any file).
+
+Only use **Auto mode** or **Full access** on repos you trust. For code you have not
+vetted, stay on **Ask for approval** or **Accept edits**.
+
+## Install
+
+### Download the DMG
 
 Download the latest macOS Apple Silicon DMG from [GitHub Releases](https://github.com/glebmish/limn/releases/latest). The release asset is named `Limn-<version>-arm64.dmg`.
 
-The app is currently ad-hoc signed but not Apple-notarized. After dragging
-`Limn.app` to `/Applications`, macOS may show **"Limn Not Opened"** with
-**"Apple could not verify 'Limn' is free of malware..."**, or say the app is
-damaged. Remove the quarantine flag for this app, then open it again:
+The app is distributed as-is: ad-hoc signed, but not Developer ID signed or
+Apple-notarized. That is because Limn is a demo tool, not a production product
+distribution, and there is no active paid Apple Developer account behind these
+builds. After dragging `Limn.app` to `/Applications`, macOS may show **"Limn Not
+Opened"** with **"Apple could not verify 'Limn' is free of malware..."**. Remove
+the quarantine flag for this app, then open it again:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Limn.app
@@ -22,6 +55,19 @@ open /Applications/Limn.app
 
 If you installed it somewhere else, replace `/Applications/Limn.app` with that
 path.
+
+### Build from source
+
+This avoids the downloaded-app quarantine path because the app is built on your
+machine.
+
+```bash
+npm install
+npm run package
+open dist/mac-arm64/Limn.app
+```
+
+You can also move `dist/mac-arm64/Limn.app` to `/Applications`.
 
 ## Prerequisites
 
@@ -55,35 +101,17 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. You also get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
-Review state (sessions, comments, chat, approvals) lives in a SQLite database in the app's userData.
-
-## Trust & safety
-
-Limn runs a coding agent against your repo. The execution tier (set per review)
-controls how much it can do on its own:
-
-- **Ask for approval** / **Accept edits** — the agent confirms before running
-  commands; safe defaults for unfamiliar code.
-- **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
-  without confirming each step; **Full access** also lifts the sandbox (network and
-  any file).
-
-The agent reads the repository to do its job, so a repo's contents can influence
-what it does. Only use **Auto mode** or **Full access** on repos you trust. For code
-you haven't vetted, stay on **Ask for approval** or **Accept edits**.
-
 ## Limitations
 
 - **macOS, Apple Silicon (arm64) only** — the build target is arm64; there is no Intel or non-macOS build.
-- **Unsigned build** — distributed ad-hoc signed, so first launch needs the `xattr` / right-click → Open step above.
+- **Not Apple-notarized** — downloaded DMGs require the quarantine-removal step above unless you build locally from source.
 - **Local credentials required** — a Claude and/or Codex login (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) must be present on the machine.
 - **Single-machine state** — review state is a local SQLite file; it does not sync across machines.
 - Early, active development — storage layout and APIs may change.
 
 ## Development
 
-Requires Node 20+. Local install/build commands are for development only; released
-DMGs are produced by CI and published on GitHub Releases.
+Requires Node 20+.
 
 ```bash
 npm install
