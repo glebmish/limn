@@ -57,7 +57,9 @@ export async function driftSummary(repo: string, branch: string, sinceSha: strin
     add += Number(a) || 0
     del += Number(d) || 0
   }
-  return { headSha: head, commits, files, add, del }
+  // `dirty` distinguishes the working-tree-edit chip from the commit chip in the pill.
+  const dirty = workdir ? await isDirty(workdir) : false
+  return { headSha: head, commits, files, add, del, dirty }
 }
 
 /** Parse `git worktree list --porcelain`. The first entry is the primary

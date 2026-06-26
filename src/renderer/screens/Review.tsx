@@ -44,17 +44,20 @@ function fakeGenState(): GenState {
   return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, cancelled: false }
 }
 
-/** Titlebar fetch pill: the branch moved past the loaded snapshot (commits and/or
- *  working-tree edits). A pulsing dot at HEAD; hover reveals what's waiting; click
- *  folds it in (reload). Commits vs uncommitted-only drift are told apart by icon. */
+/** Titlebar fetch pill (design: 04-drift-close). The branch moved past the loaded
+ *  snapshot — a single pulsing dot sits at HEAD; the counts stay collapsed until
+ *  hover (Limn never re-renders under you). On hover: a commit chip and, separately,
+ *  a working-tree-edit (pencil) chip — committed vs uncommitted told apart by ICON —
+ *  plus the combined +X −Y delta. Click folds it in (reload). */
 function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummary; loadedSha: string; onPull: () => void; open?: boolean }) {
   const [pulling, setPulling] = useState(false)
-  const commitsOnly = drift.commits > 0
   const tip =
-    `The branch moved while you were reading — `
-    + (drift.commits ? `${drift.commits} new commit${drift.commits === 1 ? '' : 's'}` : 'working-tree edits')
-    + (drift.files ? `, ${drift.files} file${drift.files === 1 ? '' : 's'}` : '')
-    + ` (+${drift.add} −${drift.del}) since ${shortSha(loadedSha)}, not yet loaded. Click to refresh.`
+    `The agent moved the branch while you were reading — `
+    + [
+      drift.commits ? `${drift.commits} new commit${drift.commits === 1 ? '' : 's'}` : null,
+      drift.dirty ? 'uncommitted edits' : null
+    ].filter(Boolean).join(' and ')
+    + ` (+${drift.add} −${drift.del} since ${shortSha(loadedSha)}), not yet loaded. Click to refresh.`
   return (
     <button
       className={'cm-fetch' + (pulling ? ' pulling gone' : '') + (open ? ' is-open' : '')}
@@ -64,9 +67,17 @@ function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummar
     >
       <span className="cmf-dot"></span>
       <span className="cmf-rest">
-        <span className="cmf-chip">
-          {commitsOnly ? <I.changed /> : <I.warn />}{commitsOnly ? drift.commits : drift.files}
-        </span>
+        {drift.commits > 0 && (
+          <span className="cmf-chip">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="7" cy="7" r="2.6" /><path d="M.6 7h3.8M9.6 7h3.8" strokeLinecap="round" /></svg>
+            {drift.commits}
+          </span>
+        )}
+        {drift.dirty && (
+          <span className="cmf-chip" title="uncommitted working-tree edits">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round"><path d="M8.4 2.7l2.9 2.9M2.4 11.6l.7-2.7 5.3-5.3 2 2-5.3 5.3-2.7.7z" /></svg>
+          </span>
+        )}
         <span className="cmf-delta">+{drift.add} <span className="cmf-del">−{drift.del}</span></span>
       </span>
     </button>
@@ -137,7 +148,7 @@ export default function Review() {
     // fetch pill can be captured without a real external commit (open it via is-open)
     if (window.limnDev?.fakeDrift && !devDriftRan && loaded) {
       devDriftRan = true
-      store.setPendingDrift({ headSha: loaded.skeleton.headSha, commits: 2, files: 1, add: 24, del: 7 })
+      store.setPendingDrift({ headSha: loaded.skeleton.headSha, commits: 2, files: 1, add: 24, del: 7, dirty: true })
     }
     // dev-only: LIMN_OPEN_DOC opens a spec/plan artifact doc once after mount
     if (window.limnDev?.openDoc && !devDocRan && loaded) {
@@ -462,7 +473,7 @@ export default function Review() {
             )
           })}
           {store.pendingDrift && (
-            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(window.limnDev?.fakeDrift)} />
+            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(window.limnDev?.fakeDriftOpen)} />
           )}
         </span>
         <WorkspacePicker branch={branch} />

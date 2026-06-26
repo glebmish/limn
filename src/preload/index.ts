@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('limnDev', {
   openMode: process.env.LIMN_OPEN_MODE === '1',
   fakeGen: process.env.LIMN_FAKE_GEN === '1',
   fakeDrift: process.env.LIMN_FAKE_DRIFT === '1',
+  fakeDriftOpen: process.env.LIMN_FAKE_DRIFT_OPEN === '1',
   openDoc: process.env.LIMN_OPEN_DOC ?? null,
   openPeek: process.env.LIMN_OPEN_PEEK ?? null
 })

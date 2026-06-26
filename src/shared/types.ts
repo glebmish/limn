@@ -7,9 +7,10 @@ export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
 export interface CommitInfo { sha: string; subject: string; author: string; date: string }
 /** What landed on the compare branch since the loaded review snapshot: new commits
- *  plus the file/line delta (committed + uncommitted) since the loaded SHA. Backs the
- *  titlebar "since you reviewed" fetch pill. */
-export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number }
+ *  plus the file/line delta (committed + uncommitted) since the loaded SHA, and
+ *  whether the worktree currently carries uncommitted edits. Backs the titlebar
+ *  "since you reviewed" fetch pill (commit chip + working-tree-edit chip). */
+export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number; dirty: boolean }
 
 // ── annotations (engine output, validated) ───────────────────
 export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]

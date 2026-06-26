@@ -59,18 +59,18 @@ describe('driftSummary', () => {
   it('counts new commits and the committed line delta since a SHA (clean tree)', async () => {
     // firstFeature → head: tweak b (return 42→43: +1 −1), add c (new file: +1)
     const d = await driftSummary(dir, 'feature', shas.firstFeature, dir)
-    expect(d).toEqual({ headSha: head, commits: 2, files: 2, add: 2, del: 1 })
+    expect(d).toEqual({ headSha: head, commits: 2, files: 2, add: 2, del: 1, dirty: false })
   })
 
   it('reports zero drift when the SHA is the branch head and the tree is clean', async () => {
     const d = await driftSummary(dir, 'feature', head, dir)
-    expect(d).toEqual({ headSha: head, commits: 0, files: 0, add: 0, del: 0 })
+    expect(d).toEqual({ headSha: head, commits: 0, files: 0, add: 0, del: 0, dirty: false })
   })
 
-  it('counts uncommitted working-tree edits with no new commits', async () => {
+  it('counts uncommitted working-tree edits (dirty flag set) with no new commits', async () => {
     fixtureWrite(dir, 'src/c.ts', 'export const c = 3\nexport const d = 4\n') // +1 line, uncommitted
     const d = await driftSummary(dir, 'feature', head, dir)
-    expect(d).toEqual({ headSha: head, commits: 0, files: 1, add: 1, del: 0 })
+    expect(d).toEqual({ headSha: head, commits: 0, files: 1, add: 1, del: 0, dirty: true })
   })
 
   it('combines committed commits and uncommitted edits since the SHA', async () => {
@@ -81,13 +81,14 @@ describe('driftSummary', () => {
     expect(d.files).toBe(3)                // a.ts (dirty) + b.ts + c.ts (committed)
     expect(d.add).toBe(3)                  // b.ts +1, c.ts +1, a.ts +1
     expect(d.del).toBe(1)                  // b.ts −1
+    expect(d.dirty).toBe(true)             // a.ts is an uncommitted edit
   })
 
-  it('falls back to a committed-only delta when the branch is checked out nowhere', async () => {
+  it('falls back to a committed-only delta (dirty false) when checked out nowhere', async () => {
     // workdir null → no working tree to read; uncommitted edits are invisible.
     fixtureGit(dir, 'checkout', '-q', '--detach') // free the branch from any worktree
     fixtureWrite(dir, 'src/c.ts', 'export const c = 3\nexport const dirty = 1\n') // ignored (no worktree)
     const d = await driftSummary(dir, 'feature', shas.firstFeature, null)
-    expect(d).toEqual({ headSha: head, commits: 2, files: 2, add: 2, del: 1 })
+    expect(d).toEqual({ headSha: head, commits: 2, files: 2, add: 2, del: 1, dirty: false })
   })
 })
