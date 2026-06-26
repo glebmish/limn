@@ -30,7 +30,10 @@ import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktre
 
 const activeOps = new Map<string, () => void>()
 const repoLocks = new Set<string>()
-// opIds the user cancelled — lets the generate handler note "cancelled" vs "failed".
+// opIds the user explicitly cancelled, so a turn's catch can tell a user cancel
+// (stay quiet) apart from a genuine failure — regardless of how the engine words
+// the abort (Codex wraps it as "Codex run failed: cancelled", Claude throws an
+// AbortError), which a bare string match on 'cancelled' would miss.
 const cancelledOps = new Set<string>()
 // review threads whose generation op is in flight (created at op start, finalized
 // or noted at op end). Exempts them from the orphan self-heal on mid-op reloads.
@@ -494,11 +497,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       send('op:result', { opId, kind: 'chat', ok: true })
     } catch (err) {
-      const msg = String(err instanceof Error ? err.message : err)
-      // the user turn is already persisted; record the failure as an agent note so
-      // the thread shows what happened (cancel stays quiet), and reload so both the
-      // user message and the note surface in the drawer.
-      if (msg !== 'cancelled') dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
+      const cancelled = cancelledOps.has(opId)
+      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+      // the user turn is already persisted; on a genuine failure record an agent note
+      // so the thread shows what happened (a user cancel stays quiet), and reload so the
+      // user message (and any note) surface in the drawer.
+      if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
       send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
     } finally {
       repoLocks.delete(repo)
@@ -618,12 +622,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      const msg = String(err instanceof Error ? err.message : err)
-      // record the failure as an agent note so the thread shows what happened (cancel
-      // stays quiet), and reload so it surfaces — mirrors the sendChat failure path.
-      if (msg !== 'cancelled') dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
+      const cancelled = cancelledOps.has(opId)
+      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+      // on a genuine failure record an agent note so the thread shows what happened (a
+      // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
+      if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
       send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
-      notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
+      if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
     } finally {
       repoLocks.delete(repo)
       activeOps.delete(opId)
