@@ -1,6 +1,6 @@
 # limn
 
-A native macOS app for **agentic review of local git branches** — before the code leaves your machine.
+A native macOS app for **agentic review of local git branches** — before you open a PR.
 
 Pick a repo and a branch; the app shows the diff against a base branch in a guided-review UI. An AI agent — **Claude (Agent SDK) or Codex (Codex SDK), your choice per review** — explores the repository (callers, tests, history, specs) and turns the raw diff into a narrated review: logical sections, plain-language "what changed" notes, risk flags, mechanism diagrams, and a cross-check against the spec/plan the change was built from. You comment on anything — diff lines, spec lines, plan steps, section narration — chat with the agent about the code, then send your comments back: the agent applies fixes as a new iteration on the branch, and the app shows you only what changed since you approved.
 
@@ -126,7 +126,7 @@ npm run package    # local package: dist/mac-arm64/Limn.app, plus DMG and zip in
 ```
 
 Release builds are created by pushing a `v*` tag that matches `package.json`
-(`v0.1.1`, for example). The release workflow builds macOS arm64 artifacts and
+(`v0.1.2`, for example). The release workflow builds macOS arm64 artifacts and
 attaches the DMG, zip, and blockmaps to the GitHub Release.
 
 Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer), `LIMN_SHOT=/path.png` (capture the window, with `LIMN_SHOT_DELAY` / `LIMN_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/smoke-claude.ts` / `smoke-codex.ts`.
