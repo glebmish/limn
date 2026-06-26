@@ -421,7 +421,9 @@ export async function repoRoot(dir: string): Promise<string | null> {
 }
 
 export async function aheadCount(dir: string, from: string, to: string): Promise<number> {
-  return parseInt((await execGit(dir, ['rev-list', '--count', `${from}..${to}`])).trim(), 10)
+  // `|| 0` guards empty/unexpected output (matches driftSummary) so callers never
+  // render `+NaN since` / `NaN behind tip` in header/drift text.
+  return Number((await execGit(dir, ['rev-list', '--count', `${from}..${to}`])).trim()) || 0
 }
 
 export async function commitSubject(dir: string, sha: string): Promise<string> {
