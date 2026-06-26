@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { FileDiff, ViewMark } from '../../shared/types'
 import { I } from '../kit'
 import { fileViewed } from '../store'
+import { clickable } from '../lib/clickable'
 
 interface TreeDir {
   name: string
@@ -57,7 +58,7 @@ function DirNode({ dir, collapsed, toggle, children }: {
   const isCollapsed = collapsed.has(dir.path)
   return (
     <div className={'gnav-dir' + (isCollapsed ? ' collapsed' : '')}>
-      <div className="gnav-folder" onClick={() => toggle(dir.path)} title={dir.path}>
+      <div className="gnav-folder" {...clickable(() => toggle(dir.path), { expanded: !isCollapsed })} title={dir.path}>
         <span className="gnav-caret"></span>
         <I.folder className="ficon" />
         <span className="fname">{dir.name}</span>
@@ -101,7 +102,7 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className 
             key={f.path}
             className={'gnav-file' + (currentFile === f.path ? ' cur' : '')}
             title={f.path}
-            onClick={(e) => { e.stopPropagation(); onFileClick(f.path, f) }}
+            {...clickable(() => onFileClick(f.path, f))}
           >
             <span className={'ficon ' + fileStatusClass(f, viewedAt)}></span>
             <span className="nm">{name}</span>

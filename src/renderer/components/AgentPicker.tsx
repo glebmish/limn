@@ -42,7 +42,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
 
   return (
     <div className="ag-wrap">
-      <button ref={anchorRef} className="ag-trigger" disabled={disabled} onClick={toggle} aria-label="agent">
+      <button ref={anchorRef} className="ag-trigger" disabled={disabled} aria-expanded={open} onClick={toggle} aria-label="agent">
         <EngineGlyph engine={value.engine} style={{ width: 13, height: 13, flex: '0 0 auto', color: 'var(--accent)' }} />
         {engineLabel(value.engine)}
         <span className="ag-sub">· {sub}</span>

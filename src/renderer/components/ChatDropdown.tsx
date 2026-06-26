@@ -44,7 +44,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
 
   return (
     <div className="chatdd">
-      <button ref={anchorRef} className="chatdd-trig" onClick={toggle}>
+      <button ref={anchorRef} className="chatdd-trig" aria-expanded={open} onClick={toggle}>
         <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>

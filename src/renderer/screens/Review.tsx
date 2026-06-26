@@ -18,6 +18,7 @@ import { Commentable, SelectionThreads } from '../components/Commentable'
 import { Tooltip } from '../components/Tooltip'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
+import { clickable } from '../lib/clickable'
 
 let devFlowRan = false
 let devFocusRan = false
@@ -434,7 +435,7 @@ export default function Review() {
         </button>
       </div>
 
-      {store.error && <div className="limn-error limn-toast" style={{ marginTop: 12 }}>{store.error}</div>}
+      {store.error && <div className="limn-error limn-toast" role="alert" style={{ marginTop: 12 }}>{store.error}</div>}
 
       {loaded?.refMissing && (
         <div className="limn-error" style={{ margin: '12px 24px' }}>
@@ -501,7 +502,7 @@ export default function Review() {
                       ) : a.role === 'plan' && annotations?.planMap ? (
                         annotations.planMap.steps.map((st) => (
                           <Fragment key={st.n}>
-                            <div className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} onClick={() => st.sectionId && jumpTo(st.sectionId)}>
+                            <div className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} {...clickable(() => { if (st.sectionId) jumpTo(st.sectionId) })}>
                               <CmtPlus extra="peek-plus" stop onClick={() => setCommentStep(st.n)} />
                               <span className="pps-n">{st.n}</span>
                               <span className="pps-t" title={st.text}>{st.text}</span>
@@ -556,7 +557,7 @@ export default function Review() {
                 <div
                   key={s.id}
                   className={'gnav-sec' + (cur === s.id && !done ? ' cur' : '') + (hasSince ? ' amber' : '') + (done ? ' done' : '')}
-                  onClick={() => jumpTo(s.id)}
+                  {...clickable(() => jumpTo(s.id))}
                 >
                   <div className="gnav-head">
                     <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
@@ -635,8 +636,8 @@ export default function Review() {
                       </Commentable>
                       <span className="grow"></span>
                       <span className="seg seg-sm">
-                        <button className={topFilter === 'changed' ? 'on' : ''} onClick={() => setTopFilter('changed')}>Just the changes</button>
-                        <button className={topFilter === 'all' ? 'on' : ''} onClick={() => setTopFilter('all')}>Everything</button>
+                        <button className={topFilter === 'changed' ? 'on' : ''} aria-pressed={topFilter === 'changed'} onClick={() => setTopFilter('changed')}>Just the changes</button>
+                        <button className={topFilter === 'all' ? 'on' : ''} aria-pressed={topFilter === 'all'} onClick={() => setTopFilter('all')}>Everything</button>
                       </span>
                     </div>
                   ) : (

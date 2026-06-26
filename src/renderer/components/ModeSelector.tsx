@@ -34,6 +34,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
         ref={anchorRef}
         className={'mode-trig ' + active.key}
         disabled={disabled}
+        aria-expanded={open}
         onClick={() => { toggle(); setConfirmFull(false) }}
       >
         <Trig className="mt-ico" />

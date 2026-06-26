@@ -3,6 +3,9 @@
 
 html, body, #root { height: 100%; margin: 0; background: var(--paper); }
 
+/* visible keyboard-focus ring on text inputs (keeps the existing border-color cue) */
+input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+
 .wf { height: 100vh; }
 
 /* real traffic lights live in the top-left; titlebar is a drag region */

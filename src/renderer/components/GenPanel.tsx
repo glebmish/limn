@@ -162,7 +162,7 @@ export function GenPanel() {
             Cancel
           </button>
         </div>
-        <div className="counts">
+        <div className="counts" role="status" aria-live="polite">
           <span><b>{calls.length}</b> tool call{calls.length === 1 ? '' : 's'}</span>
           <span><b>{fmtElapsed(gen.startedAt ? now - gen.startedAt : 0)}</b> elapsed</span>
         </div>

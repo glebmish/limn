@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { I } from '../kit'
+import { clickable } from '../lib/clickable'
 import type { ToolCall, ToolVerb } from '../../shared/types'
 
 /** Verb → kit icon. `read`/`other` reuse the doc glyph; the rest were ported
@@ -42,7 +43,7 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
         const Caret = isOpen ? I.chevD : I.chevR
         return (
           <div key={c.id || i} className={cls}>
-            <div className="tcall-head" onClick={() => toggle(i)}>
+            <div className="tcall-head" {...clickable(() => toggle(i), { expanded: isOpen })}>
               <Ico className="tcall-ico" />
               <span className="tcall-verb">{rowLabel(c)}</span>
               <span className="tcall-arg" title={c.arg}>{c.arg}</span>

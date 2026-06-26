@@ -52,7 +52,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     )
     return (
       <Tag className={'cmt' + (className ? ` ${className}` : '')}>
-        <button className="spec-plus" tabIndex={-1} title="Comment" onClick={() => setComposerLine(line)}>
+        <button className="spec-plus" title="Comment" onClick={() => setComposerLine(line)}>
           <I.plus style={{ width: 12, height: 12 }} />
         </button>
         {children}

@@ -7,6 +7,7 @@ import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
+import { clickable } from '../lib/clickable'
 
 function splitPath(path: string): { dir: string; name: string } {
   const i = path.lastIndexOf('/')
@@ -102,7 +103,7 @@ export function DiffView({ f, plainNote }: {
       <div
         className="gfile-head"
         data-limn-file={f.path}
-        onClick={() => setManualOpen(!effectiveOpen)}
+        {...clickable(() => setManualOpen(!effectiveOpen), { expanded: showBody })}
         title={effectiveOpen ? 'Collapse this file' : 'Expand this file'}
         style={{ cursor: 'pointer' }}
       >
@@ -139,9 +140,9 @@ export function DiffView({ f, plainNote }: {
         )}
         {!isViewed && (hasSince || hasSinceViewed) && (
           <span className="seg seg-sm gfile-seg" onClick={(e) => e.stopPropagation()}>
-            <button className={effectiveMode === 'branch' ? 'on' : ''} onClick={() => setMode('branch')}>Full diff</button>
-            {hasSince && <button className={effectiveMode === 'approved' ? 'on' : ''} onClick={() => setMode('approved')}>Since approved</button>}
-            {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} onClick={() => setMode('viewed')}>Since viewed</button>}
+            <button className={effectiveMode === 'branch' ? 'on' : ''} aria-pressed={effectiveMode === 'branch'} onClick={() => setMode('branch')}>Full diff</button>
+            {hasSince && <button className={effectiveMode === 'approved' ? 'on' : ''} aria-pressed={effectiveMode === 'approved'} onClick={() => setMode('approved')}>Since approved</button>}
+            {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} aria-pressed={effectiveMode === 'viewed'} onClick={() => setMode('viewed')}>Since viewed</button>}
           </span>
         )}
         <label className="file-viewed" onClick={(e) => e.stopPropagation()}>

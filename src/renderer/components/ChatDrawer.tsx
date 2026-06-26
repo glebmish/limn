@@ -121,7 +121,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <span className="dim" style={{ fontSize: 10.5 }}>tied to this review</span>
           </>
         )}
-        <button className="btn btn-sm btn-ghost chat-head-x" onClick={onClose}>
+        <button className="btn btn-sm btn-ghost chat-head-x" aria-label="Close chats" onClick={onClose}>
           <I.x style={{ width: 11, height: 11 }} />
         </button>
       </div>
@@ -174,7 +174,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               </div>
             ))}
             {streaming && (
-              <div className="chat-msg agent">
+              <div className="chat-msg agent" aria-live="polite">
                 <Ava ai><EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /></Ava>
                 <div className="chat-bubble">
                   {liveSegments.length > 0 ? (

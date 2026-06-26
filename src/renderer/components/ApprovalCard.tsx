@@ -12,7 +12,7 @@ export function ApprovalCard({ request, index, total, onDecide, onStop }: {
 }) {
   const files = request.detail?.files
   return (
-    <div className="approval-card">
+    <div className="approval-card" role="alertdialog" aria-label="Approval required">
       <div className="ac-head">
         <I.warn className="ac-ico" />
         <span className="ac-kind">{request.kind.replace(/_/g, ' ')}</span>
