@@ -9,6 +9,11 @@ import { openDb } from './db/db.js'
 import { parseCliArgs, handleCliArgs, installCliWithDialog } from './cli.js'
 import type { CliArgs } from './cli.js'
 
+// Limn does not store app secrets. Chromium/Electron may otherwise initialize
+// "Limn Safe Storage" in macOS Keychain for its profile encryption key, which
+// creates a misleading first-run password prompt.
+if (process.platform === 'darwin') app.commandLine.appendSwitch('use-mock-keychain')
+
 // GUI apps on macOS don't inherit the shell PATH; engines need git/node tools from it.
 function bootstrapPath(): void {
   try {

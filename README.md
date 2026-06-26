@@ -11,7 +11,10 @@ Git is ground truth throughout: diffs are always parsed from `git diff`; the age
 Limn is a local app with no telemetry, accounts, hosted backend, or cloud sync of
 its own. It does not store Claude, Codex, Anthropic, or OpenAI credentials. It uses
 the credentials and command-line agents already installed and authorized on your
-machine (`claude`, `codex`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`).
+machine (`claude`, `codex`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`). Limn also
+does not use macOS Keychain; Electron's default Keychain-backed safe-storage
+integration is disabled so the app does not create or request access to a
+`Limn Safe Storage` keychain item.
 
 Review state lives in one local SQLite database at the app's user-data location
 (`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
