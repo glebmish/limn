@@ -57,7 +57,16 @@ export async function registerCodexTurn(host: AgentToolHost): Promise<{ url: str
       return { content: [{ type: 'text' as const, text: result }], isError }
     })
   }
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), enableJsonResponse: true })
+  // Defense-in-depth: this transport is loopback-only behind an unguessable path
+  // token, but enabling the SDK's DNS-rebinding protection (Host allowlist) blocks
+  // a rebinding attack from reaching it even so. The app-server connects via
+  // 127.0.0.1:<port>, so that's the only Host we accept.
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true,
+    enableDnsRebindingProtection: true,
+    allowedHosts: [`127.0.0.1:${port}`, `localhost:${port}`]
+  })
   await server.connect(transport)
   turns.set(token, { server, transport })
   return {

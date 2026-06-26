@@ -185,6 +185,8 @@ export class AppServerConn {
   private pending = new Map<number, Pending>()
   private stdoutBuf = ''
   private stderrBuf = ''   // tail of the child's stderr — surfaced when a turn errors
+  private alive = true     // false once the child has errored/exited; gates writes
+  private gone = false     // ensures onExit fires at most once
   private onNotify: ((method: string, params: unknown) => void) | null = null
   private onServerRequest: ((id: number | string, method: string, params: unknown) => void) | null = null
   /** Called once when the child exits — lets an in-flight turn settle even though
@@ -194,14 +196,43 @@ export class AppServerConn {
 
   constructor(mcpConfigArgs: string[] = []) {
     const bin = codexBinaryPath() ?? 'codex'
+    // `detached` puts the child in its own process group so cancel/dispose can kill
+    // the whole tree (codex spawns sandboxed exec/tool subprocesses), not just the
+    // app-server itself — otherwise descendants linger across cancelled turns.
     this.child = spawn(bin, ['app-server', ...mcpConfigArgs], {
+      detached: true,
       env: { ...process.env, ...(expandHome(process.env.CODEX_HOME) ? { CODEX_HOME: expandHome(process.env.CODEX_HOME) } : {}) }
     }) as ChildProcessWithoutNullStreams
     this.child.stdout.setEncoding('utf8')
     this.child.stdout.on('data', (chunk: string) => this.ingest(chunk))
     this.child.stderr.setEncoding('utf8')
     this.child.stderr.on('data', (chunk: string) => { this.stderrBuf = (this.stderrBuf + chunk).slice(-4000) })
-    this.child.on('exit', () => { for (const p of this.pending.values()) p.reject(new Error('app-server exited')); this.pending.clear(); this.onExit?.() })
+    // A spawn failure (ENOENT when `codex` isn't on PATH, EACCES) emits 'error'
+    // asynchronously — with no listener Node throws an uncaught exception that
+    // crashes the whole Electron main process. Route both 'error' and 'exit'
+    // through one idempotent settler so a missing/broken codex binary surfaces as
+    // a normal turn error instead.
+    this.child.on('error', (err: Error) => this.handleGone(err))
+    this.child.on('exit', () => this.handleGone(new Error('app-server exited')))
+  }
+
+  /** Mark the child dead, reject everything in flight, and fire onExit once.
+   *  Safe to call multiple times (error→exit, or repeated exits). */
+  private handleGone(err: Error): void {
+    this.alive = false
+    for (const p of this.pending.values()) p.reject(err)
+    this.pending.clear()
+    if (this.gone) return
+    this.gone = true
+    this.onExit?.()
+  }
+
+  /** Best-effort framed write to the child's stdin. Returns false (never throws)
+   *  when the child is gone or the pipe has ended (EPIPE / write-after-end). */
+  private writeFrame(frame: string): boolean {
+    if (!this.alive || !this.child.stdin.writable) return false
+    try { this.child.stdin.write(frame); return true }
+    catch { return false }
   }
 
   /** Last ~4KB of the app-server's stderr, trimmed — the real diagnostic when a
@@ -238,20 +269,25 @@ export class AppServerConn {
 
   request(method: string, params?: unknown): Promise<unknown> {
     const id = this.nextId++
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, method, params }))
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }))
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      if (!this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, method, params }))) {
+        this.pending.delete(id)
+        reject(new Error('app-server not running'))
+      }
+    })
   }
 
   notify(method: string, params?: unknown): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', method, params }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', method, params }))
   }
 
   respond(id: number | string, result: unknown): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, result }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, result }))
   }
 
   respondError(id: number | string, code: number, message: string): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, error: { code, message } }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, error: { code, message } }))
   }
 
   setHandlers(onNotify: (m: string, p: unknown) => void, onServerRequest: (id: number | string, m: string, p: unknown) => void): void {
@@ -272,7 +308,17 @@ export class AppServerConn {
   }
 
   dispose(): void {
-    try { this.child.kill() } catch { /* already gone */ }
+    this.alive = false
+    const pid = this.child.pid
+    // Kill the whole process group (negative pid) so codex's own exec/tool
+    // descendants die too, not just the app-server. Falls back to a direct kill
+    // if the group signal fails (already-reaped, or no group).
+    try {
+      if (pid) process.kill(-pid, 'SIGTERM')
+      else this.child.kill()
+    } catch {
+      try { this.child.kill() } catch { /* already gone */ }
+    }
   }
 }
 
@@ -347,8 +393,11 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
           }
           if (isApprovalMethod(method) && turn.opId) {
             const req = approvalRequestFromParams(String(id), params)
+            // respond() is now write-guarded, but the decision promise itself can
+            // reject (op cancelled); swallow so it never becomes an unhandled rejection.
             void awaitDecision(turn.opId, req, (e) => q.push(e))
               .then((d) => conn?.respond(id, { decision: mapApprovalDecision(d) }))
+              .catch(() => { /* connection gone or op cancelled — nothing to answer */ })
           } else {
             conn?.respondError(id, -32601, 'methodNotFound') // unsupported surface → back off
           }
