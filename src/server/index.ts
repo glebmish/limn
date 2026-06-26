@@ -2,6 +2,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import crypto from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { registerIpc } from '../main/ipc.js'
 import { openDb } from '../main/db/db.js'
@@ -48,11 +49,19 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon', '.map': 'application/json; charset=utf-8'
 }
 
+// constant-time string compare (avoids leaking the token via response timing).
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a), bb = Buffer.from(b)
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb)
+}
+
 function authorized(req: http.IncomingMessage, url: URL): boolean {
   if (!TOKEN) return true
-  if (url.searchParams.get('token') === TOKEN) return true
+  // header is preferred (doesn't land in logs/history); query param kept for convenience
   const h = req.headers.authorization
-  return h === `Bearer ${TOKEN}`
+  if (typeof h === 'string' && h.startsWith('Bearer ') && safeEqual(h.slice(7), TOKEN)) return true
+  const q = url.searchParams.get('token')
+  return q != null && safeEqual(q, TOKEN)
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -164,7 +173,9 @@ function serveStatic(pathname: string, res: http.ServerResponse): void {
   // resolve against STATIC_ROOT and refuse to escape it
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
   const full = path.join(STATIC_ROOT, rel)
-  if (!full.startsWith(STATIC_ROOT)) { res.writeHead(403).end('forbidden'); return }
+  // stay within STATIC_ROOT — require an exact match or a real path-separator boundary
+  // (a bare startsWith would also accept a sibling like `${STATIC_ROOT}-other`)
+  if (full !== STATIC_ROOT && !full.startsWith(STATIC_ROOT + path.sep)) { res.writeHead(403).end('forbidden'); return }
 
   fs.readFile(full, (err, buf) => {
     if (err) {
