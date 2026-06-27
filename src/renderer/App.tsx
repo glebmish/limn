@@ -4,9 +4,11 @@ import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
 import RepoHub from './screens/RepoHub'
 import Review from './screens/Review'
+import { SettingsDialog } from './components/SettingsDialog'
+import { dev } from './dev'
 
 export default function App() {
-  const { screen } = useStore()
+  const { screen, settingsOpen, closeSettings } = useStore()
 
   useEffect(() => {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
@@ -37,6 +39,8 @@ export default function App() {
         void st.refreshRepoContext()
       }
     })
+    const offSettings = window.api.onSettingsOpen(() => useStore.getState().openSettings())
+    if (dev.openSettings) useStore.getState().openSettings()
     // CLI: open a repo on Compare (or surface an error on the dashboard).
     // The initial pending open is consumed by store.boot() AFTER the dashboard
     // loads (so its error toast survives loadDashboard's reset) — boot's
@@ -47,15 +51,19 @@ export default function App() {
       offEvent()
       offResult()
       offChanged()
+      offSettings()
       offCli()
     }
   }, [])
 
-  if (screen === 'review') return <Review />
+  const settings = settingsOpen ? <SettingsDialog onClose={closeSettings} /> : null
+
+  if (screen === 'review') return <><Review />{settings}</>
 
   return (
     <div className={`wf dz-${DENSITY}`}>
       {screen === 'hub' ? <RepoHub /> : <Dashboard />}
+      {settings}
     </div>
   )
 }

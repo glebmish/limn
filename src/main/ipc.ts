@@ -26,9 +26,10 @@ import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
-import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
+import { engineBinaryStatus, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator } from './operations.js'
+import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 
 const operations = new OperationCoordinator()
 
@@ -198,6 +199,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   const handle = <K extends keyof Api>(name: K, fn: Api[K]): void => {
     transport.handle(name, (...args) => (fn as (...a: unknown[]) => unknown)(...args))
   }
+  const readPrefs = (): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
+      out[r.key] = r.value
+    }
+    return out
+  }
+  setEngineBinaryPrefs(readPrefs())
 
   handle('pickRepo', async () => transport.pickDirectory())
 
@@ -704,22 +713,19 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('authStatus', async (engine: EngineId) => {
     const home = os.homedir()
     if (engine === 'claude') {
-      const bin = claudeBinaryPath()
-      if (!bin) return { ok: false, hint: 'Install Claude Code (`claude` not found on PATH)' }
+      const bin = engineBinaryStatus('claude')
+      if (!bin.ok) return { ok: false, hint: bin.configured ? `Claude path is invalid: ${bin.hint}` : 'Install Claude Code (`claude` not found on PATH)' }
       const ok = Boolean(process.env.ANTHROPIC_API_KEY) || fs.existsSync(path.join(home, '.claude'))
-      return { ok, hint: ok ? 'Using Claude Code login or API key' : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
+      return { ok, hint: ok ? `${bin.configured ? 'Configured Claude path' : 'Claude Code from PATH'} · login or API key found` : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
     }
-    const bin = codexBinaryPath()
-    if (!bin) return { ok: false, hint: 'Install Codex CLI (`codex` not found on PATH)' }
+    const bin = engineBinaryStatus('codex')
+    if (!bin.ok) return { ok: false, hint: bin.configured ? `Codex path is invalid: ${bin.hint}` : 'Install Codex CLI (`codex` not found on PATH)' }
     const ok = Boolean(process.env.OPENAI_API_KEY) || fs.existsSync(path.join(home, '.codex', 'auth.json'))
-    return { ok, hint: ok ? 'Using codex login or API key' : 'Run `codex login`, or set OPENAI_API_KEY' }
+    return { ok, hint: ok ? `${bin.configured ? 'Configured Codex path' : 'Codex from PATH'} · login or API key found` : 'Run `codex login`, or set OPENAI_API_KEY' }
   })
 
   handle('getPrefs', async () => {
-    const out: Record<string, string> = {}
-    for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
-      out[r.key] = r.value
-    }
+    const out = readPrefs()
     if (bootNotices.length > 0) out['boot-notices'] = JSON.stringify(bootNotices)
     return out
   })
@@ -727,6 +733,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('setPref', async (key: string, value: string) => {
     db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
+    if (key === ENGINE_PATH_PREF_KEYS.claude || key === ENGINE_PATH_PREF_KEYS.codex) {
+      setEngineBinaryPrefs(readPrefs())
+    }
   })
 
   handle('dashboard', async () => await buildDashboard(db, bootNotices))

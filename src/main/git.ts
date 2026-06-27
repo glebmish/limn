@@ -162,7 +162,7 @@ async function syntheticAddedFile(dir: string, path: string): Promise<FileDiff |
   let content: string
   try { content = fs.readFileSync(abs, 'utf8') }
   catch { return null } // gone, unreadable, or binary read failure
-  if (content.includes(' ')) return { path, status: 'added', binary: true, add: 0, del: 0, hunks: [] }
+  if (content.includes('\0')) return { path, status: 'added', binary: true, add: 0, del: 0, hunks: [] }
   const lines = content.split('\n')
   if (lines[lines.length - 1] === '') lines.pop() // trailing newline → drop the empty tail
   return {

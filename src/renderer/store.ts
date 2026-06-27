@@ -180,6 +180,20 @@ function pickActiveChat(chats: ChatThread[], current: number | null): number | n
   return (emptyUser ?? chats[chats.length - 1])?.id ?? null
 }
 
+function batchUserPreview(comments: Comment[], loaded: LoadedReview | null, refine?: boolean, steer?: string): string {
+  if (refine) {
+    const byId = new Map((loaded?.state.annotations?.questions ?? []).map((q) => [q.id, q]))
+    const lines = comments.map((c) => {
+      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
+      const q = byId.get(qid)
+      const label = q?.text ?? q?.context ?? (qid || 'Open question')
+      return `- ${label}\n  Answer: ${c.text}`
+    })
+    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
+  }
+  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
+}
+
 interface AppStore {
   screen: 'dashboard' | 'hub' | 'review'
   recents: string[]
@@ -207,6 +221,7 @@ interface AppStore {
   /** whether the chat drawer is open (lifted here so an agent-identity click in
    *  the review can open a specific chat). */
   chatOpen: boolean
+  settingsOpen: boolean
   error: string | null
 
   // dashboard
@@ -309,6 +324,8 @@ interface AppStore {
   switchChat(id: number): void
   openChat(threadId?: number): void
   closeChat(): void
+  openSettings(): void
+  closeSettings(): void
   newChat(): Promise<void>
   setActiveChatAgent(a: AgentRef): Promise<void>
   setChatMode(threadId: number, mode: ExecutionMode): Promise<void>
@@ -408,6 +425,7 @@ export const useStore = create<AppStore>((set, get) => {
     activeChatId: null,
     draftChat: null,
     chatOpen: dev.flow === 'chat',
+    settingsOpen: false,
     error: null,
 
     dashboard: null,
@@ -852,6 +870,14 @@ export const useStore = create<AppStore>((set, get) => {
       set({ chatOpen: false })
     },
 
+    openSettings() {
+      set({ settingsOpen: true })
+    },
+
+    closeSettings() {
+      set({ settingsOpen: false })
+    },
+
     async newChat() {
       const { sessionId, loaded, agent } = get()
       if (sessionId == null || !loaded) return
@@ -987,6 +1013,13 @@ export const useStore = create<AppStore>((set, get) => {
       if (get().gen.running) return
       const trimmed = steer?.trim() || undefined
       if (commentIds.length === 0 && !trimmed) return
+      const loaded = get().loaded
+      if (loaded && commentIds.length > 0) {
+        const comments = loaded.state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
+        setChats(loaded.state.chats.map((c) => c.id === threadId
+          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: batchUserPreview(comments, loaded, refine, trimmed), at: new Date().toISOString() }] }
+          : c))
+      }
       const opId = newOpId()
       // sending to the agent (queued comments OR a decision answer) opens the chat
       // so the turn + its tool calls are visible as they run

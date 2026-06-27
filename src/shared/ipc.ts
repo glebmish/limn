@@ -148,6 +148,7 @@ export interface RendererApi extends Api {
   onOpResult(cb: (msg: OpResultMsg) => void): () => void
   onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
   onCliOpen(cb: (msg: CliOpenMsg) => void): () => void
+  onSettingsOpen(cb: () => void): () => void
 }
 
 export const API_CHANNELS: (keyof Api)[] = [

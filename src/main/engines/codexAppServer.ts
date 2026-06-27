@@ -147,7 +147,19 @@ export function appServerAgentMessageText(method: string, params: unknown): stri
     if (structured && typeof structured === 'object') return JSON.stringify(structured)
     return contentText(item.text) || contentText(item.content) || contentText(item.message)
   }
+  if (method === 'rawResponseItem/completed') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    const item = (p.item && typeof p.item === 'object' ? p.item : {}) as Record<string, unknown>
+    return item.type === 'message' && item.role === 'assistant' ? contentText(item.content) : ''
+  }
   return ''
+}
+
+export function collectAppServerFinalText(current: string, method: string, params: unknown, structured: boolean): string {
+  const msgText = appServerAgentMessageText(method, params)
+  if (!msgText) return current
+  if (structured) return method === 'item/completed' || method === 'rawResponseItem/completed' ? msgText : current
+  return method === 'item/completed' && current ? current : current + msgText
 }
 
 /** Codex tool arguments → kv pairs for the expanded tool-call row. */
@@ -411,8 +423,7 @@ export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> 
             // version skew) — fall back to the full params so the reason isn't lost
             settle(pm || (params ? JSON.stringify(params) : '') || 'error'); return
           }
-          const msgText = appServerAgentMessageText(method, params)
-          if (msgText) finalText = method === 'item/completed' && finalText ? finalText : finalText + msgText
+          finalText = collectAppServerFinalText(finalText, method, params, Boolean(opts.outputSchema))
           const ev = appServerNotifToEvent(method, params)
           if (ev && (streamText || ev.type !== 'text')) q.push(ev)
         },

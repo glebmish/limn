@@ -503,6 +503,9 @@ export default function Review() {
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
         </button>
+        <button className="wf-iconbtn" onClick={store.openSettings} title="Settings" aria-label="Settings">
+          <I.gear style={{ width: 13, height: 13 }} />
+        </button>
       </div>
 
       {store.error && <div className="limn-error limn-toast" role="alert" style={{ marginTop: 12 }}>{store.error}</div>}

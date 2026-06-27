@@ -31,6 +31,12 @@ api.onCliOpen = (cb: (msg: CliOpenMsg) => void) => {
   return () => ipcRenderer.removeListener('cli:open', fn)
 }
 
+api.onSettingsOpen = (cb: () => void) => {
+  const fn = (): void => cb()
+  ipcRenderer.on('settings:open', fn)
+  return () => ipcRenderer.removeListener('settings:open', fn)
+}
+
 contextBridge.exposeInMainWorld('api', api)
 
 // dev-only: LIMN_OPEN_REPO/LIMN_OPEN_BRANCH now flow through the CLI path (devCliArgs in main);
@@ -60,6 +66,7 @@ contextBridge.exposeInMainWorld('limnDev', {
   fakeGen: process.env.LIMN_FAKE_GEN === '1',
   fakeDrift: process.env.LIMN_FAKE_DRIFT === '1',
   fakeDriftOpen: process.env.LIMN_FAKE_DRIFT_OPEN === '1',
+  openSettings: process.env.LIMN_OPEN_SETTINGS === '1',
   openDoc: process.env.LIMN_OPEN_DOC ?? null,
   openPeek: process.env.LIMN_OPEN_PEEK ?? null
 })

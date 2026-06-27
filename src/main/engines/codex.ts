@@ -5,7 +5,7 @@ import { buildReviewPrompt } from './prompts.js'
 import { chatViaAppServer, runAppServerTurn } from './codexAppServer.js'
 
 function jsonSlice(text: string): string | null {
-  const start = text.search(/[\[{]/)
+  const start = text.search(/[[{]/)
   if (start < 0) return null
   const open = text[start]
   const close = open === '{' ? '}' : ']'

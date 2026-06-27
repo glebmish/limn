@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appServerAgentMessageText, appServerItemToEvent, appServerNotifToEvent } from '../src/main/engines/codexAppServer'
+import { appServerAgentMessageText, appServerItemToEvent, appServerNotifToEvent, collectAppServerFinalText } from '../src/main/engines/codexAppServer'
 
 // app-server notifications map Codex work into the engine-agnostic event stream.
 // Tool activity is represented as a structured ToolCall with run -> ok/err
@@ -53,5 +53,29 @@ describe('codex app-server events — tool-call lifecycle', () => {
 
   it('extracts structured completed agent output when the app-server provides it out-of-band', () => {
     expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agent_message', structured_output: { title: 'T' } } })).toBe('{"title":"T"}')
+  })
+
+  it('extracts completed raw response assistant messages', () => {
+    expect(appServerAgentMessageText('rawResponseItem/completed', {
+      item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"T"}' }] }
+    })).toBe('{"title":"T"}')
+  })
+
+  it('uses the latest completed message, not planning deltas, for structured turns', () => {
+    let text = ''
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: '{"title":"Planning"}' }, true)
+    text = collectAppServerFinalText(text, 'item/completed', { item: { id: 'm1', type: 'agentMessage', text: '{"title":"Early"}' } }, true)
+    text = collectAppServerFinalText(text, 'rawResponseItem/completed', {
+      item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"Final"}' }] }
+    }, true)
+    expect(text).toBe('{"title":"Final"}')
+  })
+
+  it('keeps delta behavior for chat turns', () => {
+    let text = ''
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: 'hel' }, false)
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: 'lo' }, false)
+    text = collectAppServerFinalText(text, 'item/completed', { item: { id: 'm', type: 'agentMessage', text: 'hello' } }, false)
+    expect(text).toBe('hello')
   })
 })

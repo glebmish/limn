@@ -13,6 +13,9 @@ import type { CliArgs } from './cli.js'
 // "Limn Safe Storage" in macOS Keychain for its profile encryption key, which
 // creates a misleading first-run password prompt.
 if (process.platform === 'darwin') app.commandLine.appendSwitch('use-mock-keychain')
+// Dev/screenshot runs can opt into an isolated profile so Electron's
+// single-instance lock doesn't forward to a manually running app.
+if (process.env.LIMN_USER_DATA) app.setPath('userData', process.env.LIMN_USER_DATA)
 
 // GUI apps on macOS don't inherit the shell PATH; engines need git/node tools from it.
 function bootstrapPath(): void {
@@ -122,6 +125,8 @@ function buildMenu(): void {
       role: 'appMenu',
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CommandOrControl+,', click: () => { getWindow()?.webContents.send('settings:open') } },
         { type: 'separator' },
         { label: 'Install Command-Line Tool…', click: () => { installCliWithDialog() } },
         { type: 'separator' },

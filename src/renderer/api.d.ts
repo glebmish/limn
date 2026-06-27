@@ -43,6 +43,8 @@ declare global {
       /** force the seeded fetch pill open (counts revealed) — the design's is-open
        *  specimen state, for a static expanded capture */
       fakeDriftOpen?: boolean
+      /** dev-only: open Settings once the app mounts */
+      openSettings?: boolean
       /** dev-only: open a spec/plan artifact doc by path once the review mounts */
       openDoc?: string | null
       /** dev-only: expand a left-spine artifact peek panel by path for a static capture */
