@@ -28,9 +28,9 @@ export function SessionRow({ s, repoName, onRepoClick, onOpen, onDelete, onResto
           onClick={(e) => { e.stopPropagation(); onRepoClick?.() }}>{repoName}</button>
       )}
       {repoName && <span className="limn-chip">{s.compareSymbol}</span>}
+      <span className="limn-sess-id" title={`Session id ${s.id}`}>id: {s.id}</span>
       <span className="limn-sess-title">{s.title ?? `Session #${s.id}`}</span>
       <span className="grow" />
-      <span className="limn-sess-id" title={`Session #${s.id}`}>#{s.id}</span>
       <span className={'limn-sess-st ' + statusKind}>{status}</span>
       {chip && !repoName && <span className="limn-chip">{s.compareSymbol}</span>}
       <span className="limn-sess-age">{ago(s.updatedAt)}</span>

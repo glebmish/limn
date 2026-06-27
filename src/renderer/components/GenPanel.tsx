@@ -19,7 +19,7 @@ export async function startGenerate(sessionId: number, agent: AgentRef, opId: st
   // create the review thread (with its opening user turn) and select it BEFORE the
   // agent runs, so generation streams into a real, persisted chat from the first
   // moment — the live stream renders through the normal chat path.
-  const threadId = await window.api.beginReview(sessionId, agent)
+  const threadId = await window.api.beginReview(sessionId, agent, update, steer)
   await store.reload()              // pull the new review thread into loaded state
   store.switchChat(threadId)        // select it (drawer shows the live stream if open)
   store.startOp('review', opId, threadId)

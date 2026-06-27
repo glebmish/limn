@@ -85,10 +85,10 @@ export interface Api {
   /** Generate (or, with `update`, fold new drift commits into) the review on this
    *  session in place. `update` passes the existing narration to the agent so it
    *  revises rather than re-narrates from scratch. */
-  /** Create the review thread (with its opening user turn) before generation runs,
-   *  so the review agent is a persisted chat from the first moment. Returns the new
-   *  thread id, which is then passed to `generate` to finalize on completion. */
-  beginReview(sessionId: number, agent: AgentRef): Promise<number>
+  /** Create or reuse the review thread before generation runs, so the review agent
+   *  is a persisted chat from the first moment. `update` appends to the latest
+   *  review thread; fresh generation starts a new review thread. */
+  beginReview(sessionId: number, agent: AgentRef, update?: boolean, steer?: string): Promise<number>
   generate(sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void>
   cancel(opId: string): Promise<void>
   copyReviewFrom(sourceSessionId: number, sourceIteration: number, targetSessionId: number): Promise<ReviewState>

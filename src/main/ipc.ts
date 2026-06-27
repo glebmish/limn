@@ -318,13 +318,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // Create the review thread up front so the review agent is a real, persisted
   // chat from the moment generation starts (the live stream renders through the
   // normal chat path). The matching `generate(...threadId...)` call finalizes it.
-  handle('beginReview', async (sessionId: number, agent: AgentRef) => {
+  handle('beginReview', async (sessionId: number, agent: AgentRef, update?: boolean, steer?: string) => {
     const session = mustGetSession(db, sessionId)
-    const thread = dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
+    const existing = update
+      ? dao.listChatThreads(db, sessionId).filter((t) => t.kind === 'review').at(-1)
+      : undefined
+    const thread = existing ?? dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
     operations.markReviewThread(thread.id)
+    const action = existing ? 'Update' : 'Generate'
+    const note = steer?.trim()
     dao.addChatMessage(db, thread.id, {
       role: 'user', at: new Date().toISOString(),
-      text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.`
+      text: `${action} a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.${note ? `\n\nReviewer steer: ${note}` : ''}`
     })
     return thread.id
   })
