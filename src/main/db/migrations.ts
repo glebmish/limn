@@ -87,7 +87,9 @@ export const MIGRATIONS: Migration[] = [
           engine TEXT NOT NULL,
           engine_session_id TEXT NOT NULL,
           end_sha TEXT NOT NULL,
+          title TEXT NOT NULL,
           summary TEXT,
+          annotations_json TEXT NOT NULL,
           at TEXT NOT NULL,
           PRIMARY KEY (session_id, n)
         );

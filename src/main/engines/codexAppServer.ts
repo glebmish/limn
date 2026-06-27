@@ -12,7 +12,7 @@ import { deriveVerb, clampOut, bashArg } from '../../shared/toolcalls.js'
 
 /**
  * Hand-written `codex app-server` JSON-RPC-over-stdio client. This is the single
- * Codex chat path because it can answer approval server-requests and route them
+ * Codex path because it can answer approval server-requests and route them
  * through Limn's reviewer approval UI.
  *
  * The exact method/param names are pinned from `codex app-server generate-ts`
@@ -122,6 +122,19 @@ export function appServerNotifToEvent(method: string, params: unknown): EngineEv
     return appServerItemToEvent(p.item, method === 'item/completed')
   }
   return null
+}
+
+function appServerAgentMessageText(method: string, params: unknown): string {
+  if (method === 'item/agentMessage/delta') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    return typeof p.delta === 'string' ? p.delta : ''
+  }
+  if (method === 'item/completed') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    const item = (p.item && typeof p.item === 'object' ? p.item : {}) as Record<string, unknown>
+    return item.type === 'agentMessage' && typeof item.text === 'string' ? item.text : ''
+  }
+  return ''
 }
 
 /** Codex tool arguments → kv pairs for the expanded tool-call row. */
@@ -326,16 +339,30 @@ function modelEffort(model?: string, effort?: ReasoningEffort): Record<string, u
   return { ...(model ? { model } : {}), ...(effort && effort !== 'max' ? { effort } : {}) }
 }
 
-/** Run one chat turn over the app-server with interactive approvals. */
-export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
+interface AppServerTurnOptions {
+  repo: string
+  prompt: string
+  engineSessionId?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  tools?: ChatTurn['tools']
+  writeEnabled?: boolean
+  opId?: string
+  executionMode?: ExecutionMode
+  outputSchema?: unknown
+  streamText?: boolean
+  status?: string
+}
+
+/** Run one Codex turn over app-server. Chat, batch, and review generation share
+ *  this lifecycle so approval routing, MCP setup, cancellation, and event mapping
+ *  stay in one place. */
+export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> {
   const q = new EventQueue()
-  const write = Boolean(turn.writeEnabled)
-  const mode = turn.executionMode ?? DEFAULT_EXECUTION_MODE
-  const prompt = write
-    ? turn.message
-    : turn.engineSessionId
-      ? buildChatPrompt(turn.message, turn.anchor)
-      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
+  if (opts.status) q.push({ type: 'status', text: opts.status })
+  const write = Boolean(opts.writeEnabled)
+  const mode = opts.executionMode ?? DEFAULT_EXECUTION_MODE
+  const streamText = opts.streamText ?? !opts.outputSchema
 
   let conn: AppServerConn | null = null
   let aborted = false   // set by cancel() before dispose, so the child's exit settles as 'cancelled'
@@ -344,8 +371,8 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
     let finalText = ''
     try {
       let mcpArgs: string[] = []
-      if (turn.tools) {
-        const mcp = await registerCodexTurn(turn.tools)
+      if (opts.tools) {
+        const mcp = await registerCodexTurn(opts.tools)
         release = mcp.release
         mcpArgs = ['-c', `mcp_servers.limn.url=${mcp.url}`]
       }
@@ -371,8 +398,10 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
             // version skew) — fall back to the full params so the reason isn't lost
             settle(pm || (params ? JSON.stringify(params) : '') || 'error'); return
           }
+          const msgText = appServerAgentMessageText(method, params)
+          if (msgText) finalText = method === 'item/completed' && finalText ? finalText : finalText + msgText
           const ev = appServerNotifToEvent(method, params)
-          if (ev) { if (ev.type === 'text') finalText += ev.text; q.push(ev) }
+          if (ev && (streamText || ev.type !== 'text')) q.push(ev)
         },
         (id, method, params) => {
           // MCP tool-call approvals arrive as an RMCP elicitation (verified against
@@ -391,11 +420,11 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
             conn?.respond(id, { action: kind && kind !== 'mcp_tool_call' ? 'decline' : 'accept', content: null, _meta: null })
             return
           }
-          if (isApprovalMethod(method) && turn.opId) {
+          if (isApprovalMethod(method) && opts.opId) {
             const req = approvalRequestFromParams(String(id), params)
             // respond() is now write-guarded, but the decision promise itself can
             // reject (op cancelled); swallow so it never becomes an unhandled rejection.
-            void awaitDecision(turn.opId, req, (e) => q.push(e))
+            void awaitDecision(opts.opId, req, (e) => q.push(e))
               .then((d) => conn?.respond(id, { decision: mapApprovalDecision(d) }))
               .catch(() => { /* connection gone or op cancelled — nothing to answer */ })
           } else {
@@ -404,17 +433,18 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
         }
       )
 
-      await conn.handshake(turn.engineSessionId)
+      await conn.handshake(opts.engineSessionId)
       await conn.request('turn/start', {
         threadId: conn.threadId,
-        input: [{ type: 'text', text: prompt, text_elements: [] }],
-        cwd: turn.repo,
+        input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
+        cwd: opts.repo,
         approvalPolicy: approvalPolicyFor(mode),
         // route approvals to US (the reviewer), not the guardian subagent that
         // auto-denies untrusted MCP/exec in headless mode — the core unblock.
         approvalsReviewer: 'user',
-        sandboxPolicy: sandboxPolicyFor(mode, turn.repo, write),
-        ...modelEffort(turn.model, turn.reasoningEffort)
+        sandboxPolicy: sandboxPolicyFor(mode, opts.repo, write),
+        ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {}),
+        ...modelEffort(opts.model, opts.reasoningEffort)
       })
       await turnDone
       if (turnErr) {
@@ -422,9 +452,9 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
         throw new Error(`Codex run failed: ${turnErr}${tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : ''}`)
       }
       q.push({ type: 'done' })
-      return { value: finalText, sessionId: conn.threadId || turn.engineSessionId || '' }
+      return { value: finalText, sessionId: conn.threadId || opts.engineSessionId || '' }
     } catch (err) {
-      console.error('[codex app-server] chat turn failed:', err instanceof Error ? err.message : err)
+      console.error('[codex app-server] turn failed:', err instanceof Error ? err.message : err)
       q.push({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       throw err
     } finally {
@@ -435,4 +465,25 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
   })()
 
   return { events: q.iterable(), result, cancel: () => { aborted = true; conn?.dispose() } }
+}
+
+/** Run one chat turn over the app-server with interactive approvals. */
+export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
+  const write = Boolean(turn.writeEnabled)
+  const prompt = write
+    ? turn.message
+    : turn.engineSessionId
+      ? buildChatPrompt(turn.message, turn.anchor)
+      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
+  return runAppServerTurn({
+    repo: turn.repo,
+    prompt,
+    engineSessionId: turn.engineSessionId,
+    model: turn.model,
+    reasoningEffort: turn.reasoningEffort,
+    tools: turn.tools,
+    writeEnabled: turn.writeEnabled,
+    opId: turn.opId,
+    executionMode: turn.executionMode
+  })
 }

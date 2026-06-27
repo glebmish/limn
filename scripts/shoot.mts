@@ -65,7 +65,7 @@ updateSessionMeta(db, session.id, {
   annotations, title: annotations.title, summary: annotations.summary,
   reviewedAtSha: compare.sha, approvedSha: compare.sha
 })
-addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now' })
+addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now', title: annotations.title, summary: annotations.summary, annotations })
 setArtifacts(db, session.id, [{ role: 'spec', path: SPEC }, { role: 'plan', path: PLAN }])
 
 // default chats: review (claude/opus, bound to the gen session) + a companion user

@@ -30,6 +30,6 @@ updateSessionMeta(db, session.id, {
   engine: 'claude', annotations, title: annotations.title, summary: annotations.summary,
   reviewedAtSha: fx.shas.head, approvedSha: fx.shas.head // approved at current head — no drift yet
 })
-addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: fx.shas.head, at: 'now' })
+addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: fx.shas.head, at: 'now', title: annotations.title, summary: annotations.summary, annotations })
 
 console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id }))

@@ -7,7 +7,7 @@ client in `src/main/engines/codexAppServer.ts` is pinned to.
 > **Audience:** developers working on the Codex engine. The shapes here are not in
 > any published spec; treat this doc and the pure helpers in `codexAppServer.ts`
 > (which are unit-tested in `tests/codex-app-server.test.ts`) as the source of
-> truth, and re-verify against the binary when bumping the Codex SDK.
+> truth, and re-verify against the binary when bumping the Codex CLI protocol.
 
 ## Provenance
 
@@ -18,24 +18,21 @@ bundled binary, not inferred from traffic:
 codex app-server generate-ts --out <dir>   # emits the full TS protocol surface
 ```
 
-- **Verified:** 2026-06-25, against `@openai/codex-darwin-arm64` **0.139.0** (the
-  version pinned by `@openai/codex-sdk` in `package.json`).
+- **Verified:** 2026-06-25, against Codex app-server **0.139.0**.
 - The client was originally conformed to **0.135.0** and supported that release's
   *legacy* approval methods alongside the v2 ones. As of the 0.139 pass it is
   **v2-only** — the legacy methods and their `approved|denied` decision vocabulary
   were removed (see [Approvals](#approvals)).
 
-## Why a hand-written client (not the SDK)
+## Why a hand-written client
 
-Generation (`generateReview`) uses the `@openai/codex-sdk` `Thread` API directly.
-Chat and batch do **not**: the SDK's high-level API does not surface the
-server→client *approval* requests, and routing those through Limn's reviewer UI is
-the entire point of the interactive flows. So chat/batch open `codex app-server`
-over stdio and speak the raw protocol, which exposes the approval handshake.
+All Codex flows use `codex app-server`. Its protocol exposes the server→client
+approval requests that Limn must route through the reviewer UI, and it also
+supports `outputSchema` for structured review generation. Keeping generation,
+chat, and batch on the same path avoids maintaining two event/protocol mappers.
 
 ```text
-generate  ──► @openai/codex-sdk Thread API ──► codex (subprocess)
-chat/batch ──► AppServerConn (this client)  ──► codex app-server (subprocess)
+generate/chat/batch ──► runAppServerTurn ──► AppServerConn ──► codex app-server
 ```
 
 ## Framing
@@ -99,7 +96,8 @@ to the pending promise by that id. Server→client requests carry the server's o
     approvalPolicy: <on-request | never | …>,   // executionPolicy(mode).codexApprovalPolicy
     approvalsReviewer: "user",                   // route approvals to US
     sandboxPolicy: { type: "readOnly" | "workspaceWrite" | "dangerFullAccess", … },
-    model?: <id>, effort?: <low … xhigh>         // omitted ⇒ CLI default; effort dropped for "max"
+    model?: <id>, effort?: <low … xhigh>,        // omitted ⇒ CLI default; effort dropped for "max"
+    outputSchema?: <json schema>                 // review generation only
   }
 ```
 
@@ -110,7 +108,13 @@ wedges. Pointing approvals at `"user"` makes the server send us the requests bel
 `sandboxPolicy` is derived from the reviewer's execution tier and the write guard
 (`sandboxPolicyFor`): `readOnly` for ordinary chat, `workspaceWrite`
 (`writableRoots: [repo]`, no network) for a write-enabled batch, `dangerFullAccess`
-for Full access.
+for Full access. Review generation deliberately uses the `edits` tier with
+`writeEnabled: true`, matching the old `workspace-write` / `on-request` behavior.
+
+`runAppServerTurn` is the reusable lifecycle wrapper around this request. It
+handles optional MCP registration, thread start/resume, approval requests,
+notification mapping, final assistant text accumulation, cancellation, and cleanup.
+`chatViaAppServer` and Codex review generation are thin wrappers around it.
 
 ## Approvals
 
@@ -185,7 +189,7 @@ from Claude:
 
 | Notification | EngineEvent |
 |--------------|-------------|
-| `item/agentMessage/delta` `{ delta }` | `text` (also accumulated into the turn's final result) |
+| `item/agentMessage/delta` `{ delta }` | `text` for chat turns (also accumulated into the turn's final result) |
 | `item/reasoning/textDelta`, `item/reasoning/summaryTextDelta` `{ delta }` | `status` (first 160 chars) |
 | `item/started`, `item/completed` `{ item }` | `tool` chip via `appServerItemToEvent` |
 | `turn/completed`, `turn/aborted` | resolves the turn |
@@ -210,11 +214,11 @@ turn end / cancel / error the connection is disposed (`child.kill()`) and the
 per-turn localhost MCP server (see [agent-layer.md](agent-layer.md), *Tool layer*)
 is released. A child exit rejects every pending request so no promise leaks.
 
-## Bumping the Codex SDK
+## Bumping the Codex app-server protocol
 
-When `@openai/codex-sdk` (and its bundled binary) changes:
+When the Codex CLI/app-server version changes:
 
-1. Re-run `codex app-server generate-ts --out <dir>` against the new bundled binary.
+1. Re-run `codex app-server generate-ts --out <dir>` against the new binary.
 2. Diff `ServerRequest`, the `*ApprovalParams` / `*ApprovalDecision` types, and the
    `initialize`/`thread/*`/`turn/*` shapes against this doc.
 3. Update `APPROVAL_METHODS`, `mapApprovalDecision`, `approvalRequestFromParams`, and

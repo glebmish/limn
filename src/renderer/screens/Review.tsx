@@ -20,6 +20,7 @@ import { Tooltip } from '../components/Tooltip'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 import { clickable } from '../lib/clickable'
+import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
 
 let devFlowRan = false
 let devFocusRan = false
@@ -200,6 +201,7 @@ export default function Review() {
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
   const annotations = state.annotations
+  const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
   // the files actually rendered: merged (base→working-tree) while dirty, else the spine
@@ -223,19 +225,11 @@ export default function Review() {
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
   const approvedHashes = state.approvedHashes ?? approvedShas
   const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
-  const lastIteration = state.iterations[state.iterations.length - 1]
+  const lastIteration = state.latestIteration
   const commitApproved = approvalFresh(approvedShas, skeleton.headSha)
   const approved = approvalFresh(approvedHashes, loaded.branchHash)
   const dirtyNeedsApproval = loaded.dirty && commitApproved && !approved
-  const generatedSha = state.reviewedAtSha ?? lastIteration?.endSha
-  const commitIndex = (sha: string): number => {
-    if (sha === skeleton.headSha) return 0
-    return commits.findIndex((c) => c.sha === sha)
-  }
-  const timelinePosition = (sha: string): number => {
-    const i = commitIndex(sha)
-    return i >= 0 ? i : commits.length
-  }
+  const generatedSha = lastIteration?.endSha ?? state.reviewedAtSha
   const timelineTitle = (sha: string, labels: string[]): string => {
     const c = commits.find((item) => item.sha === sha)
     return [
@@ -262,19 +256,16 @@ export default function Review() {
       </>
     )
   }
-  const timelineGroups = (() => {
-    const grouped = new Map<string, { sha: string; roles: ('generated' | 'approved' | 'head')[]; pos: number }>()
-    const add = (sha: string | undefined, role: 'generated' | 'approved' | 'head'): void => {
-      if (!sha) return
-      const group = grouped.get(sha) ?? { sha, roles: [], pos: timelinePosition(sha) }
-      if (!group.roles.includes(role)) group.roles.push(role)
-      grouped.set(sha, group)
-    }
-    add(generatedSha, 'generated')
-    add(commitApproved ? skeleton.headSha : state.approvedSha !== skeleton.headSha ? state.approvedSha : undefined, 'approved')
-    add(skeleton.headSha, 'head')
-    return [...grouped.values()].sort((a, b) => b.pos - a.pos)
-  })()
+  const timelineGroups = reviewTimelineGroups({
+    headSha: skeleton.headSha,
+    commits,
+    generatedSha,
+    approvedSha: state.approvedSha,
+    approvedShas,
+    commitApproved
+  })
+  const generatedShaInTimeline = timelineShaInRange(skeleton.headSha, commits, generatedSha)
+  const generatedOffTimeline = Boolean(generatedSha && !generatedShaInTimeline)
 
   const renderTimelineStop = (group: (typeof timelineGroups)[number]) => {
     const hasHead = group.roles.includes('head')
@@ -481,6 +472,14 @@ export default function Review() {
         </span>
         <span className="grow"></span>
         <span className="ctmark">
+          {generatedSha && generatedOffTimeline && (
+            <Tooltip className="cm-off" tipClassName="cm-tip" tabIndex={0} role="button"
+              aria-label={`Review is off history · ${shortSha(generatedSha)}`}
+              content={timelineTipContent(generatedSha, ['Review is off history'])}>
+              <I.changed />
+              <span className="cm-off-text">off history</span>
+            </Tooltip>
+          )}
           <Tooltip className="cm-pin" tipClassName="cm-tip" tabIndex={0} role="button" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}
             content={timelineTipContent(skeleton.mergeBase, [base || 'Branch start'])}>
             <I.branch />
@@ -488,7 +487,7 @@ export default function Review() {
           {timelineGroups.map((group, i) => {
             const prevPos = i === 0 ? commits.length : timelineGroups[i - 1].pos
             const n = Math.max(0, prevPos - group.pos)
-            const drift = group.roles.includes('head') && Boolean(generatedSha && generatedSha !== skeleton.headSha)
+            const drift = group.roles.includes('head') && generatedShaInTimeline && generatedSha !== skeleton.headSha
             return (
               <Fragment key={group.sha}>
                 <span className={'cm-arr' + (drift ? ' drift' : '')}>{n > 0 ? n : ''}</span>
@@ -662,7 +661,7 @@ export default function Review() {
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
                     {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
-                    {annotations?.title ?? `Changes on ${branch}`}
+                    {annotations?.title ?? fallbackTitle}
                   </h1>
                   {approveButton}
                 </div>

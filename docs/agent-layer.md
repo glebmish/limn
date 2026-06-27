@@ -1,6 +1,6 @@
 # Agent (Engine) Layer
 
-How Limn drives an AI agent — Claude (Agent SDK) or Codex (Codex SDK) — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
+How Limn drives an AI agent — Claude through the Agent SDK or Codex through app-server — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
 > **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/main/engines/` (with anchoring in `src/main/anchor.ts` and artifact detection in `src/main/artifacts.ts`) and is orchestrated by `src/main/ipc.ts`.
 
@@ -32,7 +32,7 @@ interface EngineRun<T> {
 
 The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC channel `op:event`) for live progress while awaiting `result` for the terminal payload (the validated `ReviewAnnotations` for generate; the final assistant text for chat/batch).
 
-- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, comment_resolved…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its SDK's native event stream into this union via a local `toEvents()`/`toEvent()` mapper.
+- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, comment_resolved…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its native event stream into this union.
 - **`EventQueue`** bridges push-style SDK callbacks to a pull-style `AsyncIterable`. It is **single-consumer** (one FIFO waiter queue) and **drops events pushed after `close()`**. It does not surface errors as rejections — errors travel as an `{type:'error'}` event plus a rejected `result` promise.
 
 **`ChatTurn`** (`engines/types.ts`) is the carrier for both chat and batch. Beyond `repo`/`message`/`anchor`/`model`/`reasoningEffort` it threads the context that distinguishes the two: `engineSessionId` (resume this session, else start fresh + seed from `context`), `tools` (the per-turn `AgentToolHost`), `writeEnabled` (code-editing tools allowed this turn), `opId` (keys the approval registry), and `executionMode` (the autonomy tier).
@@ -70,13 +70,13 @@ A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides ev
 > [codex-app-server.md](codex-app-server.md). It is not publicly documented; that doc
 > is pinned to a `generate-ts` capture of the bundled binary.
 
-- **SDK:** generation uses `@openai/codex-sdk` — `new Codex(...)`, `startThread`, `thread.runStreamed(prompt, { outputSchema, signal })` yielding `ThreadEvent`s. Chat/batch use `codex app-server` over JSON-RPC stdio so Limn can answer approval requests.
+- **App-server:** generation, chat, and batch all use `codex app-server` over JSON-RPC stdio via `runAppServerTurn`. This keeps approval handling, MCP setup, cancellation, and event mapping on one Codex path.
 - **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
-- **Sandbox (the permission analogue):** generation uses `sandboxMode: 'workspace-write'` with `approvalPolicy: 'on-request'`, matching Claude's command-capable review exploration. Chat/batch map the reviewer's execution tier through `codexAppServer.ts`: read-only for ordinary chat, workspace-write for write-enabled batch, and danger-full-access for Full access.
+- **Sandbox (the permission analogue):** generation uses the app-server equivalent of workspace-write with `approvalPolicy: 'on-request'`, matching Claude's command-capable review exploration. Chat/batch map the reviewer's execution tier through `codexAppServer.ts`: read-only for ordinary chat, workspace-write for write-enabled batch, and danger-full-access for Full access.
 - **Tools:** the engine-agnostic Limn tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and `codex app-server` is pointed at it via config args.
-- **Interactive approvals:** chat/batch always route through the bidirectional **app-server** path (`codexAppServer.ts`), which maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events.
-- **Sessions:** the thread id is the session id (`startThread` for generate / a fresh chat, `resumeThread` for a continued chat/batch).
-- **Model & effort:** `modelOpts(model, reasoningEffort)` sets `model` and `modelReasoningEffort` on `ThreadOptions` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
+- **Interactive approvals:** app-server maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events.
+- **Sessions:** the app-server thread id is the session id (`thread/start` for generate / a fresh chat, `thread/resume` for a continued chat/batch).
+- **Model & effort:** app-server turn params set `model` and `effort` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
 - **Key difference from Claude:** Codex returns its review result as the final `agent_message` **text**, not a structured field. The engine runs it through `parseJson()`, which tries `JSON.parse` and, on failure, strips a ```` ```json ```` fence and retries before throwing. This fence-stripping is the only robustness net for schema-constrained output occasionally arriving fenced.
 
 ## Model & reasoning effort
@@ -196,7 +196,7 @@ After a batch, the next `loadSession` re-diffs against git and tags the new comm
 ## Invariants & sharp edges
 
 - **Concurrency:** one agent op per repo (`repoLocks`, a `Set<string>`). The watch-mode poller skips a locked repo so the app's own commits don't trigger a spurious reload. `EventQueue` is single-consumer.
-- **Cancellation:** `EngineRun.cancel` → `AbortController.abort()` (Claude `abortController`, Codex `signal`). **There is no timeout** anywhere — a wedged run, or a parked approval, hangs until the user cancels.
+- **Cancellation:** `EngineRun.cancel` → Claude `AbortController.abort()` or Codex app-server process-group disposal. **There is no timeout** anywhere — a wedged run, or a parked approval, hangs until the user cancels.
 - **Errors:** propagate as both an `{type:'error'}` event and a rejected `result`. No retry/backoff, including on invalid structured output — one bad parse fails the whole op.
 - **Session resumption assumption:** a chat/batch turn whose thread *has* an `engineSessionId` resumes it (the review's session, from the last iteration). If that session is gone (CLI store pruned) the resume targets a missing session with **no fallback to a fresh session**. A thread that never produced the review has no id and is seeded fresh by design.
 - **Write degradation, not failure:** an un-met batch precondition (dirty tree, wrong branch, fixed-commit compare) silently withholds the write tools rather than erroring — the agent answers/comments instead of editing.

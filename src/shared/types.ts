@@ -196,7 +196,19 @@ export interface ChatThread {
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
 }
-export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string }
+export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations }
+export interface ReviewCopyCandidate {
+  sessionId: number
+  iteration: number
+  title?: string
+  baseSha: string
+  endSha: string
+  commitsOld: number
+  at: string
+  agent?: AgentRef
+  baseSymbol: string
+  compareSymbol: string
+}
 export interface ReviewState {
   repo: string; branch: string; base: string;
   engine?: EngineId; agent?: AgentRef; annotations?: ReviewAnnotations;
@@ -215,6 +227,7 @@ export interface ReviewState {
   approvedHashes?: string[];
   /** per-artifact plan/spec approval: path → SHA at approval time */
   artifactApprovals: Record<string, string>;
+  latestIteration?: Iteration;
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }

@@ -154,6 +154,8 @@
   background:var(--panel);color:var(--ink-2);cursor:pointer;white-space:nowrap;line-height:1}
 .btn svg{width:13px;height:13px}
 .btn:hover{background:var(--panel-2);border-color:var(--line-3)}
+.btn:disabled{background:var(--panel-2);border-color:var(--line-2);color:var(--muted);cursor:not-allowed;opacity:.62}
+.btn:disabled:hover{background:var(--panel-2);border-color:var(--line-2);color:var(--muted)}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
 .btn-amber{background:var(--amber);border-color:var(--amber);color:#fff}

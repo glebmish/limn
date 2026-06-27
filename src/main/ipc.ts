@@ -148,7 +148,7 @@ function ignoreLocally(repo: string, pattern: string): void {
 
 /** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
  *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
- *  call a dao helper that opens its own transaction (e.g. resetIterations/setArtifacts). */
+ *  call a dao helper that opens its own transaction (e.g. setArtifacts). */
 function inTx(db: DatabaseSync, fn: () => void): void {
   db.exec('BEGIN')
   try {
@@ -398,15 +398,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         }
         dao.setArtifacts(db, sessionId, refs)
       }
-      // resetIterations opens its own transaction, so it can't nest inside inTx
-      // below; run it FIRST so the iterations row already reflects the new engine
-      // session before meta/reconcile read it. This eliminates the dangerous window
-      // where a crash left annotations bound to stale n>1 iterations and reconcileChats
-      // then resynced the review chat to the wrong engine session.
-      dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
+      const iterationN = dao.nextIterationNumber(db, sessionId)
       // the meta + review-thread finalization are one atomic group: a crash mid-way
       // must not leave annotations saved without the review thread bound to them.
       inTx(db, () => {
+        dao.addIteration(db, sessionId, {
+          n: iterationN,
+          engine: agent.engine,
+          sessionId: engineSession,
+          endSha: skeleton.headSha,
+          at: new Date().toISOString(),
+          title: annotations.title,
+          summary: annotations.summary,
+          annotations
+        })
         dao.updateSessionMeta(db, sessionId, {
           engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
           annotations, title: annotations.title, summary: annotations.summary,
@@ -460,6 +465,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       activeReviewThreads.delete(reviewThreadId)
       clearPending(opId)   // settle any approvals still parked when the turn ends
     }
+  })
+
+  handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
+    const target = mustGetSession(db, targetSessionId)
+    const targetEndSha = await headSha(target.repo, effectiveRef(target.pair.compare))
+    dao.copyGeneratedReview(db, sourceSessionId, sourceIteration, targetSessionId, targetEndSha)
+    return dao.loadReviewState(db, targetSessionId)
   })
 
   handle('cancel', async (opId: string) => {
@@ -750,6 +762,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('retargetSession', async (sessionId: number, side: 'base' | 'compare', refInput: string) => {
+    if (side === 'base') throw new Error('Session base cannot be changed; open a new review for a different base')
     const session = mustGetSession(db, sessionId)
     const resolved = await resolveRefInput(session.repo, refInput)
     const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }

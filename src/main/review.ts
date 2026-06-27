@@ -110,6 +110,12 @@ export async function assembleReview(
   }
   const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path), persist)
   const commits = await log(repo, baseEff, compareEff)
+  const candidatePositions = new Map<string, number>()
+  candidatePositions.set(skeleton.headSha, 0)
+  for (let i = 0; i < commits.length; i++) {
+    if (!candidatePositions.has(commits[i].sha)) candidatePositions.set(commits[i].sha, i)
+  }
+  const copyCandidates = dao.reviewCopyCandidates(db, repo, session.id, pair.base.anchorSha, candidatePositions).slice(0, 3)
   let sinceTagged = false
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
   const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
@@ -187,6 +193,7 @@ export async function assembleReview(
     baseLoc: await locateSide(repo, pair.base),
     compareLoc: await locateSide(repo, pair.compare),
     skeleton, branchHash, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
+    copyCandidates,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
     compareCheckedOut: wt != null

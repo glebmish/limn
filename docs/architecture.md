@@ -94,6 +94,6 @@ directly by Electron main and is desktop-only.
 
 - **`git`** (subprocess) — the source of truth for all diff, ref, and worktree
   state. Invoked via `execFile` (never a shell) with `core.quotePath=false`.
-- **Claude Agent SDK / OpenAI Codex SDK** — drive the `claude` / `codex` CLIs.
+- **Claude Agent SDK / Codex app-server** — drive the `claude` / `codex` CLIs.
   Authentication and billing inherit from the CLI logins; Limn never stores keys.
 - **`node:sqlite`** — the bundled SQLite binding; no third-party driver.

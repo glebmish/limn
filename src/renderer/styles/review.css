@@ -271,6 +271,8 @@
 .ctmark .cm-pin svg{width:13px;height:13px}
 .ctmark .cm-pin.gen{border-color:var(--accent-line);color:var(--accent)}
 .ctmark .cm-pin.appr{border-color:var(--accent-line);color:var(--accent-ink)}
+.ctmark .cm-off{position:relative;display:inline-flex;align-items:center;gap:5px;height:25px;margin-right:10px;padding:0 8px;border-radius:999px;border:1px dashed var(--amber-line);background:var(--amber-soft);color:var(--amber);font-family:var(--sans);font-size:10px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;flex:0 0 auto}
+.ctmark .cm-off svg{width:12px;height:12px;flex:0 0 auto}
 .ctmark .cm-head{position:relative;display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--amber-line);background:transparent;color:var(--amber);font-family:var(--mono);font-size:11px;font-weight:600;flex:0 0 auto}
 .ctmark .cm-merge{position:relative;display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--accent-line);background:transparent;color:var(--accent-ink);flex:0 0 auto}
 .ctmark .cm-merge svg{width:13px;height:13px;flex:0 0 auto}

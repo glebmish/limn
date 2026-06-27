@@ -32,9 +32,11 @@ export async function startGenerate(sessionId: number, agent: AgentRef, opId: st
  *  drift commits into the existing review instead of re-narrating from scratch. */
 export async function startGenerateNow(steer?: string, update?: boolean): Promise<void> {
   if (useStore.getState().gen.running) return // an op is already in flight
+  if (checkoutGate(useStore.getState().loaded).blocked) return
   const sessionId = await useStore.getState().materialize()
   if (sessionId == null) return
   const { loaded, agent } = useStore.getState()
+  if (checkoutGate(loaded).blocked) return
   await startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
 }
 
@@ -103,6 +105,10 @@ function DriftCommits({ commits }: { commits: CommitInfo[] }) {
       )}
     </>
   )
+}
+
+function candidateAge(commitsOld: number): string {
+  return commitsOld === 0 ? 'same endpoint' : `${commitsOld} commit${commitsOld === 1 ? '' : 's'} old`
 }
 
 export function GenPanel() {
@@ -211,12 +217,26 @@ export function GenPanel() {
   }
 
   if (!loaded?.state.annotations) {
+    const candidate = loaded?.copyCandidates?.[0]
     return (
       <div className="gen-cta">
         <span className="gc-tx">
           <b>Generate a guided review.</b> The agent explores the repo — callers, tests, history, specs —
           then groups this diff into narrated sections with risk flags.
         </span>
+        {candidate && (
+          <span className="gc-copy">
+            <I.changed style={{ width: 13, height: 13 }} />
+            <span>Review available from <b>{candidate.compareSymbol}</b> · {candidateAge(candidate.commitsOld)}</span>
+            <button
+              className="btn btn-sm"
+              disabled={gen.running}
+              onClick={() => void useStore.getState().copyReviewFrom(candidate.sessionId, candidate.iteration)}
+            >
+              Copy review
+            </button>
+          </span>
+        )}
         <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
         <button className="btn btn-primary" disabled={gate.blocked || gen.running} onClick={() => startGenerateNow(steer)}>
@@ -230,17 +250,18 @@ export function GenPanel() {
 
   // review exists — freshness stamp + follow-up/regenerate controls. Follow-up
   // keeps the existing review chat; regenerate starts a fresh narration pass.
-  const generatedSha = loaded?.state.reviewedAtSha ?? loaded?.state.iterations.at(-1)?.endSha
+  const generatedSha = loaded?.state.latestIteration?.endSha ?? loaded?.state.reviewedAtSha
   // drift = commits between the generated SHA and HEAD. When that SHA is no longer
-  // in history (rebase/squash/force-push) findIndex returns -1 — treat it as
-  // drifted (basis gone), NOT "up to date", mirroring Review.tsx's timeline fallback.
+  // in this branch history, the existing review cannot be updated against a valid
+  // in-tree basis; steer the user to regenerate instead.
   const genIdx = generatedSha && generatedSha !== loaded?.skeleton.headSha
     ? loaded?.commits.findIndex((c) => c.sha === generatedSha) ?? -1
     : 0
-  const driftCount = genIdx < 0 ? (loaded?.commits.length ?? 0) : genIdx
-  const behind = driftCount > 0
+  const generatedOutOfHistory = Boolean(generatedSha && genIdx < 0)
+  const driftCount = generatedOutOfHistory ? 0 : genIdx
+  const behind = !generatedOutOfHistory && driftCount > 0
   const dirtyBehind = !behind && Boolean(loaded?.dirty)
-  const needsUpdate = behind || dirtyBehind
+  const needsUpdate = generatedOutOfHistory || behind || dirtyBehind
   const submitFollowUp = (): void => {
     const t = steer.trim()
     if (t) {
@@ -251,7 +272,9 @@ export function GenPanel() {
     }
   }
   const submitExistingReviewPrimary = (): void => {
-    if (needsUpdate) void startGenerateNow(steer, true)
+    if (gate.blocked) return
+    if (generatedOutOfHistory) void startGenerateNow(steer)
+    else if (needsUpdate) void startGenerateNow(steer, true)
     else submitFollowUp()
   }
   // drift commits = the entries ahead of the generated SHA (loaded.commits is
@@ -262,7 +285,9 @@ export function GenPanel() {
       <span className={'gen-fresh' + (needsUpdate ? ' drift' : '')}>
         {needsUpdate ? <I.flag style={{ width: 13, height: 13 }} /> : <I.check style={{ width: 13, height: 13 }} />}
         {generatedSha ? <>generated at <span className="mono">{generatedSha.slice(0, 7)}</span> · </> : null}
-        {behind ? (
+        {generatedOutOfHistory ? (
+          <span className="beh">review is off history</span>
+        ) : behind ? (
           <>
             <span className="beh">{driftCount} commit{driftCount === 1 ? '' : 's'} behind</span>
             <DriftCommits commits={driftCommits} />
@@ -272,16 +297,29 @@ export function GenPanel() {
       <SteerInput value={steer} onChange={setSteer} onSubmit={submitExistingReviewPrimary} disabled={gate.blocked} />
       <div className="gen-acts">
         {needsUpdate ? (
-          <button
-            className="btn btn-sm btn-primary"
-            disabled={gate.blocked || gen.running}
-            ref={hintL.anchorRef}
-            {...hintL.hoverProps}
-            onClick={() => void startGenerateNow(steer, true)}
-          >
-            <I.changed style={{ width: 12, height: 12 }} />Update review
-            {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive.</span>}
-          </button>
+          generatedOutOfHistory ? (
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={gate.blocked || gen.running}
+              ref={hintL.anchorRef}
+              {...hintL.hoverProps}
+              onClick={() => void startGenerateNow(steer)}
+            >
+              <I.changed style={{ width: 12, height: 12 }} />Regenerate
+              {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Fresh pass for this branch history. Replaces the stale narration while keeping comments and viewed marks.</span>}
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm btn-primary"
+              disabled={gate.blocked || gen.running}
+              ref={hintL.anchorRef}
+              {...hintL.hoverProps}
+              onClick={() => void startGenerateNow(steer, true)}
+            >
+              <I.changed style={{ width: 12, height: 12 }} />Update review
+              {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive.</span>}
+            </button>
+          )
         ) : (
           <button
             className="btn btn-sm btn-primary"

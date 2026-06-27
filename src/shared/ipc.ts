@@ -1,6 +1,6 @@
 import type {
   AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewState, SessionListItem, SessionMeta, ViewMark
+  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -40,6 +40,8 @@ export interface LoadedReview {
   compareCheckedOut: boolean
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
+  /** Generated reviews from other sessions whose endpoint pair can seed this review. */
+  copyCandidates?: ReviewCopyCandidate[]
 }
 
 export interface DashboardData { repos: RepoIndexEntry[]; recents: string[]; recentSessions: RecentSession[]; notices: string[] }
@@ -92,6 +94,7 @@ export interface Api {
   beginReview(sessionId: number, agent: AgentRef): Promise<number>
   generate(sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void>
   cancel(opId: string): Promise<void>
+  copyReviewFrom(sourceSessionId: number, sourceIteration: number, targetSessionId: number): Promise<ReviewState>
   /** Answer a pending approval request (routes to the parked engine-side promise). */
   respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>
   saveUiState(sessionId: number, patch: UiStatePatch): Promise<void>
@@ -147,7 +150,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
   'checkoutInto', 'addWorktreeFor',
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
-  'beginReview', 'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
+  'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
   'sendBatch', 'approve', 'unapprove', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',

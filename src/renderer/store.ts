@@ -238,10 +238,12 @@ interface AppStore {
   /** Persist the transient review (create/reuse its session) and return the new id.
    *  Idempotent: returns the existing id when already persisted; null on failure. */
   materialize(): Promise<number | null>
+  copyReviewFrom(sourceSessionId: number, sourceIteration: number): Promise<void>
   resumeExisting(sessionId: number): Promise<void>
   backToDashboard(): void
   /** Change the loaded review's base ref (review-header base picker). Transient →
-   *  rebuild the preview; persisted → retarget the session in place. */
+   *  rebuild the preview; persisted → open another review for that pair. A session's
+   *  base anchor is immutable because generated-review reuse keys off it. */
   setSessionBase(ref: string): Promise<void>
   // review
   setAgent(a: AgentRef): void
@@ -597,6 +599,27 @@ export const useStore = create<AppStore>((set, get) => {
       return materializing
     },
 
+    async copyReviewFrom(sourceSessionId, sourceIteration) {
+      const sessionId = await get().materialize()
+      if (sessionId == null) return
+      try {
+        const state = await window.api.copyReviewFrom(sourceSessionId, sourceIteration, sessionId)
+        const loaded = await window.api.loadSession(sessionId)
+        set({
+          sessionId,
+          loaded,
+          branch: loaded.state.branch,
+          base: loaded.state.base,
+          viewedAt: state.viewedAt,
+          activeChatId: pickActiveChat(loaded.state.chats, null),
+          error: null,
+          transientFresh: false
+        })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
     async resumeExisting(sessionId) {
       try {
         const loaded = await window.api.loadSession(sessionId)
@@ -630,18 +653,13 @@ export const useStore = create<AppStore>((set, get) => {
       const r = ref.trim()
       if (!r) return
       const { sessionId, loaded, repo } = get()
+      const compare = loaded?.session.pair.compare.symbol
       if (sessionId == null) {
         // transient: rebuild the preview with the new base, keeping the compare side
-        const compare = loaded?.session.pair.compare.symbol
         if (repo) await get().openReview(repo, { base: r, compare })
         return
       }
-      try {
-        await window.api.retargetSession(sessionId, 'base', r)
-        await get().reload()
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
-      }
+      if (repo) await get().openReview(repo, { base: r, compare })
     },
 
     setAgent(a) {
@@ -877,7 +895,11 @@ export const useStore = create<AppStore>((set, get) => {
       const loaded = get().loaded
       if (!loaded) return
       void (async () => {
-        const review = [...(get().loaded?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
+        const current = get().loaded
+        const review = (current?.state.latestIteration?.sessionId
+          ? current.state.chats.find((c) => c.kind === 'review' && c.engineSessionId === current.state.latestIteration?.sessionId)
+          : undefined)
+          ?? [...(current?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
         let targetId = review?.id
         if (targetId == null) {
           // Older/generated sessions can predate persisted review threads. Create a
