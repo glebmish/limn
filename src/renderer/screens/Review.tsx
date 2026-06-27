@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
+import { DENSITY, effectiveSections, fileViewed, GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
@@ -620,20 +620,30 @@ export default function Review() {
                 className="gnav-tree-flat"
               />
             ) : sections.map((s, i) => {
-              const done = isSectionDone(s)
               const sFiles = filesFor(s)
-              const hasSince = sFiles.some((f) => f.hunks.some((h) => h.since))
+              const sectionNav = sectionDisclosureState(sFiles, viewedAt, {
+                id: s.id,
+                collapsed: store.collapsed,
+                expanded: store.expanded,
+                focused: store.focusTarget?.sectionId === s.id
+              })
               return (
                 <div
                   key={s.id}
-                  className={'gnav-sec' + (cur === s.id && !done ? ' cur' : '') + (hasSince ? ' amber' : '') + (done ? ' done' : '')}
-                  {...clickable(() => jumpTo(s.id))}
+                  className={
+                    'gnav-sec'
+                    + (cur === s.id && !sectionNav.done ? ' cur' : '')
+                    + (sectionNav.hasSince ? ' amber' : '')
+                    + (sectionNav.done ? ' done' : '')
+                    + (!sectionNav.open ? ' collapsed' : '')
+                  }
                 >
                   <div className="gnav-head">
-                    <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
-                    <span className="gnav-name" title={s.name}>{s.name}</span>
+                    <span className="gnav-caret" {...clickable(() => store.toggleSection(s.id, sectionNav.open), { expanded: sectionNav.open })} />
+                    <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
+                    <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
                   </div>
-                  {cur === s.id && !done && s.desc && <div className="gnav-intent">{s.desc}</div>}
+                  {sectionNav.open && !sectionNav.done && s.desc && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{s.desc}</div>}
                   <FileTree
                     files={sFiles}
                     viewedAt={viewedAt}

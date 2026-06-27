@@ -8,6 +8,8 @@ import { Commentable, SelectionThreads } from './Commentable'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { clickable } from '../lib/clickable'
+import { reviewStatusForFile } from '../lib/fileStatus'
+import { FileGlyph } from './FileGlyph'
 
 function splitPath(path: string): { dir: string; name: string } {
   const i = path.lastIndexOf('/')
@@ -74,7 +76,7 @@ export function DiffView({ f, plainNote }: {
   const isViewed = Boolean(viewMark) && !hasSinceViewed && !contentDrift
   // uncommitted-only drift: content changed since viewing with no commit-level marks
   const dirtyDrift = contentDrift && !hasSinceViewed
-  const fileStatus = f.status === 'deleted' ? 'st-risk' : (hasSince || hasSinceViewed || dirtyDrift) ? 'st-amber' : isViewed ? 'st-rev' : 'st-unrev'
+  const fileStatus = reviewStatusForFile(f, viewedAt)
   // open by default, collapsed once viewed — unless the header was clicked to
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
@@ -109,7 +111,7 @@ export function DiffView({ f, plainNote }: {
       >
         <span className="pth">
           <I.chevR className="gfile-caret" style={{ width: 11, height: 11, transform: showBody ? 'rotate(90deg)' : '', transition: 'transform .12s' }} />
-          <span className={'ficon ' + fileStatus}></span>
+          <FileGlyph status={fileStatus} />
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}

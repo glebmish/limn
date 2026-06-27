@@ -78,7 +78,7 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boo
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
  *  content hash (from the rendered diff — merged while dirty, else the spine). */
 export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark {
-  const files = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  const files = renderedFiles(loaded)
   return { sha: loaded?.skeleton.headSha ?? '', hash: files.find((f) => f.path === path)?.fileHash ?? '' }
 }
 
@@ -88,6 +88,45 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
   if (files.length === 0) return 'none'
   const n = files.filter((f) => fileViewed(f, viewedAt)).length
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
+}
+
+export interface SectionDisclosureState {
+  viewState: 'none' | 'some' | 'all'
+  done: boolean
+  hasSince: boolean
+  open: boolean
+}
+
+export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<string, ViewMark>, opts: {
+  id: string
+  collapsed: Set<string>
+  expanded: Set<string>
+  forceOpen?: boolean
+  focused?: boolean
+}): SectionDisclosureState {
+  const viewState = sectionViewState(files, viewedAt)
+  const done = viewState === 'all'
+  const hasSince = files.some((f) => f.hunks.some((h) => h.since))
+  const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
+  return { viewState, done, hasSince, open }
+}
+
+function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
+  return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+}
+
+function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
+  const byPath = new Map(renderedFiles(loaded).map((f) => [f.path, f]))
+  return section.files.map((p) => byPath.get(p)).filter((f): f is FileDiff => Boolean(f))
+}
+
+function collapseCompletedSections(loaded: LoadedReview | null, viewedAt: Record<string, ViewMark>, expanded: Set<string>): Set<string> {
+  if (!loaded || expanded.size === 0) return expanded
+  const next = new Set(expanded)
+  for (const section of effectiveSections(loaded)) {
+    if (sectionViewState(filesForSection(loaded, section), viewedAt) === 'all') next.delete(section.id)
+  }
+  return next
 }
 
 export interface GenState {
@@ -254,6 +293,7 @@ interface AppStore {
    *  Marking viewed also collapses the section (clears its force-open override). */
   setSectionViewed(sectionId: string, paths: string[], viewed: boolean): void
   openSection(id: string): void
+  toggleSection(id: string, currentlyOpen: boolean): void
   setCur(id: string): void
   setCurFile(file: string | null): void
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
@@ -710,7 +750,8 @@ export const useStore = create<AppStore>((set, get) => {
       // uncommitted edits both re-flag it.
       if (currentlyViewed) delete viewedAt[file]
       else viewedAt[file] = viewMarkFor(get().loaded, file)
-      set({ viewedAt })
+      const expanded = collapseCompletedSections(get().loaded, viewedAt, get().expanded)
+      set({ viewedAt, expanded })
       persistUi()
     },
 
@@ -732,8 +773,24 @@ export const useStore = create<AppStore>((set, get) => {
       // force-open a (possibly completed) section for re-viewing — without
       // touching viewed marks. This is UI-only, so it isn't persisted.
       const expanded = new Set(get().expanded)
+      const collapsed = new Set(get().collapsed)
+      collapsed.delete(id)
       expanded.add(id)
-      set({ expanded, cur: id })
+      set({ collapsed, expanded, cur: id })
+    },
+
+    toggleSection(id, currentlyOpen) {
+      const collapsed = new Set(get().collapsed)
+      const expanded = new Set(get().expanded)
+      if (currentlyOpen) {
+        collapsed.add(id)
+        expanded.delete(id)
+        set({ collapsed, expanded })
+      } else {
+        collapsed.delete(id)
+        expanded.add(id)
+        set({ collapsed, expanded, cur: id })
+      }
     },
 
     setCur(id) {

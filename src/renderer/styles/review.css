@@ -64,7 +64,7 @@
 .gnav-planlabel .pl-l{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);white-space:nowrap}
 .gnav-planlabel .pl-l svg{color:var(--accent)}
 .gnav-planlabel .pl-prog{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px}
+.gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px;cursor:pointer}
 .gsec-step{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
   color:var(--accent-ink);margin-bottom:4px}
 .gside-foot{flex:0 0 auto;border-top:1px solid var(--line);padding:13px;background:var(--panel-2)}
@@ -78,18 +78,22 @@
 .gmain::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:5px;border:3px solid var(--paper)}
 
 /* ---- left nav ---- */
-.gnav-sec{cursor:pointer;border-left:2px solid transparent}
+.gnav-sec{border-left:2px solid transparent}
 .gnav-sec + .gnav-sec{border-top:1px solid var(--line)}
 .gnav-sec:hover{background:var(--panel-2)}
-.gnav-sec.cur{background:var(--accent-soft);border-left-color:var(--accent)}
-.gnav-sec.cur.amber{background:var(--amber-soft);border-left-color:var(--amber)}
+.gnav-sec.cur{background:var(--panel-2);border-left-color:var(--line-3)}
+.gnav-sec.cur.amber{background:var(--panel-2);border-left-color:var(--line-3)}
+.gnav-sec.done{background:var(--accent-soft);border-left-color:var(--accent)}
+.gnav-sec.done:hover{background:var(--accent-soft)}
 .gnav-head{display:flex;align-items:center;gap:9px;padding:9px 13px 5px}
 .gnav-idx{width:19px;height:19px;border-radius:6px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;font-family:var(--mono);font-size:10.5px;font-weight:700;
   background:var(--panel-2);color:var(--muted);border:1px solid var(--line-2)}
-.gnav-sec.cur .gnav-idx{background:var(--accent);color:#fff;border-color:var(--accent)}
-.gnav-sec.cur.amber .gnav-idx{background:var(--amber);color:#fff;border-color:var(--amber)}
-.gnav-sec.done .gnav-idx{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent-line)}
+.gnav-sec.cur .gnav-idx{background:var(--ink-2);color:#fff;border-color:var(--ink-2)}
+.gnav-sec.cur.amber .gnav-idx{background:var(--ink-2);color:#fff;border-color:var(--ink-2)}
+.gnav-sec.cur .gnav-name{color:var(--ink)}
+.gnav-sec.done .gnav-idx{background:var(--accent);color:#fff;border-color:var(--accent)}
+.gnav-sec.done .gnav-name{color:var(--accent-ink)}
 .gnav-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:600;color:var(--ink);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gnav-files{padding:1px 0 8px}
@@ -105,16 +109,22 @@
 .gnav-file .dim{color:var(--muted)}
 
 /* ---- collapsible section + folder tree ---- */
-.gnav-caret{width:12px;height:12px;flex:0 0 auto;position:relative;color:var(--muted);align-self:center}
+.gnav-caret{width:12px;height:12px;flex:0 0 auto;position:relative;color:var(--muted);align-self:center;cursor:pointer;padding:4px;margin:-4px}
 .gnav-caret::before{content:"";position:absolute;left:2px;top:3px;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .12s ease}
 .gnav-head{cursor:pointer}
 .gnav-head .gnav-caret{color:var(--accent-ink)}
+.gnav-sec.cur .gnav-head .gnav-caret{color:var(--ink-2)}
+.gnav-sec.done .gnav-head .gnav-caret{color:var(--accent-ink)}
 .gnav-sec.collapsed .gnav-head .gnav-caret::before{transform:rotate(-45deg)}
 .gnav-sec.collapsed .gnav-intent,.gnav-sec.collapsed .gnav-tree{display:none}
 .gnav-tree{padding:1px 0 8px}
 .gnav-dir > .gnav-folder{display:flex;align-items:center;gap:6px;padding:3px 13px 3px 20px;cursor:pointer;user-select:none}
 .gnav-dir > .gnav-folder:hover{background:var(--panel-2)}
-.gnav-dir > .gnav-folder .ficon{width:13px;height:13px;flex:0 0 auto;color:var(--muted);background:transparent;mask:none;-webkit-mask:none}
+.gnav-dir > .gnav-folder .ficon{width:13px;height:13px;flex:0 0 auto}
+.gnav-dir > .gnav-folder .review-glyph.st-unrev{color:var(--muted)}
+.gnav-dir > .gnav-folder .review-glyph.st-rev{color:var(--accent)}
+.gnav-dir > .gnav-folder .review-glyph.st-amber{color:var(--amber)}
+.gnav-dir > .gnav-folder .review-glyph.st-risk{color:var(--red)}
 .gnav-dir > .gnav-folder .fname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;font-weight:600;color:var(--ink-2)}
 .gnav-dir > .gnav-folder .fcount{flex:0 0 auto;font-size:9.5px;font-weight:600;color:var(--muted-2);font-variant-numeric:tabular-nums}
 .gnav-dir.collapsed > .gnav-folder .gnav-caret::before{transform:rotate(-45deg)}
