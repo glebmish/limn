@@ -124,7 +124,17 @@ export function appServerNotifToEvent(method: string, params: unknown): EngineEv
   return null
 }
 
-function appServerAgentMessageText(method: string, params: unknown): string {
+function contentText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(contentText).join('')
+  if (!value || typeof value !== 'object') return ''
+  const v = value as Record<string, unknown>
+  if (typeof v.text === 'string') return v.text
+  if (v.content !== undefined) return contentText(v.content)
+  return ''
+}
+
+export function appServerAgentMessageText(method: string, params: unknown): string {
   if (method === 'item/agentMessage/delta') {
     const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
     return typeof p.delta === 'string' ? p.delta : ''
@@ -132,7 +142,10 @@ function appServerAgentMessageText(method: string, params: unknown): string {
   if (method === 'item/completed') {
     const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
     const item = (p.item && typeof p.item === 'object' ? p.item : {}) as Record<string, unknown>
-    return item.type === 'agentMessage' && typeof item.text === 'string' ? item.text : ''
+    if (item.type !== 'agentMessage' && item.type !== 'agent_message') return ''
+    const structured = item.structuredOutput ?? item.structured_output
+    if (structured && typeof structured === 'object') return JSON.stringify(structured)
+    return contentText(item.text) || contentText(item.content) || contentText(item.message)
   }
   return ''
 }

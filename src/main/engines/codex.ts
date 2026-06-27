@@ -4,13 +4,38 @@ import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildReviewPrompt } from './prompts.js'
 import { chatViaAppServer, runAppServerTurn } from './codexAppServer.js'
 
-function parseJson(text: string): unknown {
+function jsonSlice(text: string): string | null {
+  const start = text.search(/[\[{]/)
+  if (start < 0) return null
+  const open = text[start]
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let esc = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === open) depth++
+    else if (ch === close && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
+export function parseJson(text: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
     // schema-constrained output occasionally arrives fenced — strip and retry
     const m = text.match(/```(?:json)?\n?([\s\S]*?)```/)
     if (m) return JSON.parse(m[1])
+    const slice = jsonSlice(text)
+    if (slice) return JSON.parse(slice)
     throw new Error('Codex returned non-JSON output')
   }
 }

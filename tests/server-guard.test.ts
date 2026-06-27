@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isLoopbackName, sameSiteOk } from '../src/server/guard'
+import { isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
 
 describe('isLoopbackName', () => {
   it('recognizes loopback hosts (with bracket/case variants)', () => {
@@ -11,6 +11,15 @@ describe('isLoopbackName', () => {
     for (const n of ['0.0.0.0', '192.168.1.5', 'evil.com', 'my-box.tailnet.ts.net', '10.0.0.1']) {
       expect(isLoopbackName(n)).toBe(false)
     }
+  })
+})
+
+describe('isProtectedPath', () => {
+  it('protects repository APIs while allowing the static client to bootstrap', () => {
+    expect(isProtectedPath('/events')).toBe(true)
+    expect(isProtectedPath('/rpc/dashboard')).toBe(true)
+    expect(isProtectedPath('/')).toBe(false)
+    expect(isProtectedPath('/assets/index.js')).toBe(false)
   })
 })
 

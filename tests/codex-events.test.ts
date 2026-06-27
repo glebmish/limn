@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appServerItemToEvent, appServerNotifToEvent } from '../src/main/engines/codexAppServer'
+import { appServerAgentMessageText, appServerItemToEvent, appServerNotifToEvent } from '../src/main/engines/codexAppServer'
 
 // app-server notifications map Codex work into the engine-agnostic event stream.
 // Tool activity is represented as a structured ToolCall with run -> ok/err
@@ -44,5 +44,14 @@ describe('codex app-server events — tool-call lifecycle', () => {
 
   it('does not emit completed agent messages as text directly', () => {
     expect(appServerNotifToEvent('item/completed', { item: { id: 'm', type: 'agentMessage', text: 'done' } })).toBeNull()
+  })
+
+  it('extracts completed agent messages from camel-case and snake-case item shapes', () => {
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agentMessage', text: 'done' } })).toBe('done')
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agent_message', content: [{ type: 'text', text: 'done' }] } })).toBe('done')
+  })
+
+  it('extracts structured completed agent output when the app-server provides it out-of-band', () => {
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agent_message', structured_output: { title: 'T' } } })).toBe('{"title":"T"}')
   })
 })

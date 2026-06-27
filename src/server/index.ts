@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { registerIpc } from '../main/ipc.js'
 import { openDb } from '../main/db/db.js'
-import { isLoopbackName, sameSiteOk } from './guard.js'
+import { isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
 import type { Transport, BroadcastChannel, BroadcastMsg } from '../main/transport.js'
 
 // ── config ──
@@ -15,9 +15,10 @@ const PORT = Number(process.env.LIMN_WEB_PORT || process.env.PORT || 8787)
 // IP set LIMN_WEB_HOST explicitly (e.g. 0.0.0.0) AND set LIMN_WEB_TOKEN — a
 // non-loopback bind with no token is refused at startup (see main()).
 const HOST = process.env.LIMN_WEB_HOST || '127.0.0.1'
-// optional shared secret. When set, every request must carry it (?token= or a
-// Bearer header). Strongly recommended since this server exposes the host's repos,
-// git working trees, and the locally-installed agent credentials.
+// optional shared secret. When set, RPC and event requests must carry it (?token=
+// or a Bearer header). Static assets stay public so the token-aware client can boot.
+// Strongly recommended since active endpoints expose the host's repos, git working
+// trees, and locally-installed agent credentials.
 const TOKEN = process.env.LIMN_WEB_TOKEN || ''
 const STATIC_ROOT = process.env.LIMN_WEB_STATIC || path.join(import.meta.dirname, '../../out/renderer')
 
@@ -116,11 +117,12 @@ function main(): void {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
-    if (!authorized(req, url)) { res.writeHead(401).end('unauthorized'); return }
+    const protectedPath = isProtectedPath(url.pathname)
+    if (protectedPath && !authorized(req, url)) { res.writeHead(401).end('unauthorized'); return }
 
     // CSRF / DNS-rebinding guard on the active endpoints (RPC mutates repos / runs
     // the agent; SSE leaks the live op stream). Static assets stay open.
-    if ((url.pathname === '/events' || url.pathname.startsWith('/rpc/')) && !sameSiteOk(req.headers, Boolean(TOKEN))) {
+    if (protectedPath && !sameSiteOk(req.headers, Boolean(TOKEN))) {
       res.writeHead(403).end('forbidden origin'); return
     }
 

@@ -6,6 +6,12 @@ export function isLoopbackName(name: string): boolean {
   return n === 'localhost' || n === '127.0.0.1' || n === '::1'
 }
 
+/** Only endpoints that expose repository state or execute actions need auth.
+ * Static app assets must remain readable so the token-aware client can boot. */
+export function isProtectedPath(pathname: string): boolean {
+  return pathname === '/events' || pathname.startsWith('/rpc/')
+}
+
 /** Guard against cross-site drive-by (CSRF) and DNS-rebinding on the RPC/SSE
  *  surface. The `/rpc/*` endpoint runs the agent and mutates repos, so a same-site
  *  check is essential even on loopback: a malicious page the user visits can POST
