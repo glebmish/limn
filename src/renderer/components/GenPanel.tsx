@@ -180,7 +180,7 @@ export function GenPanel() {
   }
 
   // a user-initiated cancel must reopen the generate block, never the failure
-  // banner — classified by the explicit flag set on cancel (genCancelled).
+  // banner — classified by the typed terminal outcome.
   const wasCancelled = genCancelled(gen)
 
   if (gen.error && !wasCancelled) {

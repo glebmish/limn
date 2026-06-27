@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { I } from '../kit'
 import { clickable } from '../lib/clickable'
 import type { ToolCall, ToolVerb } from '../../shared/types'
+import { dev } from '../dev'
 
 /** Verb → kit icon. `read`/`other` reuse the doc glyph; the rest were ported
  *  from the wireframe A.* set. */
@@ -20,7 +21,7 @@ function rowLabel(c: ToolCall): string {
 /** Dev-only: LIMN_EXPAND_TOOL force-opens rows for a static screenshot
  *  ("all" or a comma list of indices like "1,4"). */
 function devExpanded(): Set<number> {
-  const raw = window.limnDev?.expandTool
+  const raw = dev.expandTool
   if (!raw) return new Set()
   if (raw === 'all') return new Set(Array.from({ length: 99 }, (_, i) => i))
   return new Set(String(raw).split(',').map((n) => Number(n.trim())).filter((n) => !Number.isNaN(n)))

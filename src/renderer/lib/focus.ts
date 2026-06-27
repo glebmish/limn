@@ -1,5 +1,6 @@
 import type { FocusTarget } from '../../shared/types'
 import { useStore } from '../store'
+import { dev } from '../dev'
 
 /** CSS attribute-value escape (quotes + backslashes); paths/ids are otherwise safe. */
 function attr(v: string): string {
@@ -34,7 +35,7 @@ function flash(el: HTMLElement): void {
   badge.style.top = `${Math.max(8, r.top + 4)}px`
   badge.style.left = `${Math.max(8, r.right - 52)}px`
 
-  if (window.limnDev?.holdFocus) {
+  if (dev.holdFocus) {
     // dev: a static highlight (the animation ends transparent) for a clean capture
     el.classList.add('limn-flash-hold')
     return

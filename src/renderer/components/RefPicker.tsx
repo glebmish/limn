@@ -4,6 +4,7 @@ import { usePopover } from '../lib/usePopover'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
+import { dev } from '../dev'
 
 export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false, loc }: {
   value: string
@@ -21,7 +22,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
 }) {
   // open state + on-screen positioning (flips up / clamps to the viewport) +
   // outside-click dismissal, all from the shared popover hook.
-  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4, defaultOpen: Boolean(prominent && window.limnDev?.openCmpRef) })
+  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4, defaultOpen: Boolean(prominent && dev.openCmpRef) })
   // worktree a branch is checked out in (if any) — shown muted next to the row so
   // you can see at a glance which branches are already checked out, and where.
   const worktrees = useStore((s) => s.repoState?.worktrees) ?? []

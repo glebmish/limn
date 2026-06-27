@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { checkoutMatrix } from '../lib/worktreeMatrix'
 import { wtName, branchLocation } from '../lib/workspace'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../../shared/worktrees'
+import { dev } from '../dev'
 
 /** Header-right worktree control: where the compare branch is checked out
  *  ("detached" when nowhere) and the action to check it out. Sessions are picked
@@ -51,7 +52,7 @@ export function WorkspacePicker({ branch }: { branch: string }) {
       align="right"
       width={320}
       popClass="ws-pop"
-      defaultOpen={Boolean(window.limnDev?.openWorkspace)}
+      defaultOpen={Boolean(dev.openWorkspace)}
       trigger={() => (
         <span className={'ws-trig' + (detachedBranch ? ' detached' : '')} title={`Worktree this branch is checked out in (${locLabel})`}>
           <I.folder style={{ width: 12, height: 12, color: detachedBranch ? 'var(--amber)' : 'var(--accent)', flex: '0 0 auto' }} />

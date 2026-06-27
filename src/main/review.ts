@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
-import type { AgentRef, Artifact, DiffSkeleton, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
@@ -35,6 +35,21 @@ export async function loadArtifactsFor(
 export async function resolveWorkdir(repo: string, pair: RefPair): Promise<string> {
   if (pair.compare.kind !== 'branch') return repo
   return (await branchCheckedOutAt(repo, pair.compare.symbol)) ?? repo
+}
+
+/** Compute edit capability from live git state. All agent write gates use this. */
+export async function writeCapabilityFor(repo: string, compare: RefSide): Promise<AgentWriteCapability> {
+  if (compare.kind !== 'branch') {
+    return { enabled: false, reason: 'not-branch', branch: null, workdir: null }
+  }
+  const workdir = await branchCheckedOutAt(repo, compare.symbol)
+  if (!workdir) {
+    return { enabled: false, reason: 'not-checked-out', branch: compare.symbol, workdir: null }
+  }
+  if (await isDirty(workdir)) {
+    return { enabled: false, reason: 'dirty', branch: compare.symbol, workdir }
+  }
+  return { enabled: true, reason: 'available', branch: compare.symbol, workdir }
 }
 
 /** Union two FileDiff lists by path, concatenating hunks for shared paths — used
@@ -88,7 +103,8 @@ export async function assembleReview(
         compareLoc: await locateSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
         branchHash: '',
-        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [], compareCheckedOut: false,
+        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
+        writeCapability: await writeCapabilityFor(repo, pair.compare),
         refMissing: { side, symbol }
       }
     }
@@ -186,6 +202,7 @@ export async function assembleReview(
     : skeleton
   reanchorComments(state.comments, forAnchor, artifacts)
   if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
+  const writeCapability = await writeCapabilityFor(repo, pair.compare)
   return {
     sessionId: session.id, session,
     baseContext: await describeSide(repo, pair.base),
@@ -196,7 +213,7 @@ export async function assembleReview(
     copyCandidates,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
-    compareCheckedOut: wt != null
+    writeCapability
   }
 }
 

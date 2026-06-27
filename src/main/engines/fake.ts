@@ -1,13 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ApprovalRequest, ReviewAnnotations } from '../../shared/types.js'
+import type { ApprovalRequest, EngineId, ReviewAnnotations } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
 import { awaitDecision } from './approvals.js'
 import { execGit } from '../exec.js'
 
 /** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
-  id = 'claude' as const
+  constructor(readonly id: EngineId = 'claude') {}
 
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations> {
     const q = new EventQueue()
@@ -121,7 +121,7 @@ export class FakeEngine implements ReviewEngine {
       // '[approve]' token): park on a command approval, reflect the decision.
       if (turn.opId && (process.env.LIMN_FAKE_APPROVAL === '1' || turn.message.includes('[approve]'))) {
         const request: ApprovalRequest = {
-          id: 'fake-1', engine: 'claude', kind: 'command',
+          id: 'fake-1', engine: this.id, kind: 'command',
           summary: 'Run `npm test`', detail: { command: 'npm test', cwd: turn.repo }, risk: 'low'
         }
         const decision = await awaitDecision(turn.opId, request, (e) => q.push(e))

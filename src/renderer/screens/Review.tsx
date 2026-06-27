@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
+import { DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
@@ -21,6 +21,7 @@ import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 import { clickable } from '../lib/clickable'
 import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
+import { dev } from '../dev'
 
 let devFlowRan = false
 let devFocusRan = false
@@ -43,7 +44,7 @@ function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, cancelled: false }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null }
 }
 
 /** Titlebar fetch pill (design: 04-drift-close). The branch moved past the loaded
@@ -96,7 +97,7 @@ export default function Review() {
   const reviewScrollRef = useRef(0)
   const docScrollRef = useRef<Record<string, number>>({})
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
-  const [peek, setPeek] = useState<string | null>(window.limnDev?.openPeek ?? null)
+  const [peek, setPeek] = useState<string | null>(dev.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [titleCommenting, setTitleCommenting] = useState(false)
@@ -120,42 +121,42 @@ export default function Review() {
 
   // dev-only scripted flow: LIMN_FLOW=generate auto-runs the engine once
   useEffect(() => {
-    if (window.limnDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
+    if (dev.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
       devFlowRan = true
       startGenerateNow()
     }
     // dev-only: LIMN_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
     // the diffs render (scrollHeight grows over a few frames) to show the volatile band
-    if (window.limnDev?.scrollBottom && loaded) {
+    if (dev.scrollBottom && loaded) {
       let n = 0
       const t = setInterval(() => { const b = scrollRef.current; if (b) b.scrollTo({ top: b.scrollHeight }); if (++n > 12) clearInterval(t) }, 350)
     }
     // dev-only: LIMN_FOCUS=<json FocusTarget> focuses once after the review mounts
-    if (window.limnDev?.focus && !devFocusRan && loaded) {
+    if (dev.focus && !devFocusRan && loaded) {
       devFocusRan = true
-      try { setTimeout(() => focusAnchor(JSON.parse(window.limnDev!.focus!)), 600) } catch { /* bad json */ }
+      try { setTimeout(() => focusAnchor(JSON.parse(dev.focus!)), 600) } catch { /* bad json */ }
     }
     // dev-only: LIMN_RUN_BATCH runs the unified batch over all queued comments once
-    if (window.limnDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
+    if (dev.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
       if (ids.length > 0) { devBatchRan = true; setTimeout(() => sendComments(ids), 400) }
     }
     // dev-only: LIMN_FAKE_GEN injects a synthetic running review op so the live
     // generation panel (activity log + phase header + counters) can be captured
-    if (window.limnDev?.fakeGen && !devGenRan && loaded) {
+    if (dev.fakeGen && !devGenRan && loaded) {
       devGenRan = true
       useStore.setState({ gen: fakeGenState() })
     }
     // dev-only: LIMN_FAKE_DRIFT seeds a synthetic "branch moved" so the titlebar
     // fetch pill can be captured without a real external commit (open it via is-open)
-    if (window.limnDev?.fakeDrift && !devDriftRan && loaded) {
+    if (dev.fakeDrift && !devDriftRan && loaded) {
       devDriftRan = true
       store.setPendingDrift({ headSha: loaded.skeleton.headSha, commits: 2, files: 1, add: 24, del: 7, dirty: true })
     }
     // dev-only: LIMN_OPEN_DOC opens a spec/plan artifact doc once after mount
-    if (window.limnDev?.openDoc && !devDocRan && loaded) {
+    if (dev.openDoc && !devDocRan && loaded) {
       devDocRan = true
-      openDoc(window.limnDev.openDoc)
+      openDoc(dev.openDoc)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
@@ -418,10 +419,6 @@ export default function Review() {
     else goToDoc(path)
   }
 
-  const rootStyle = {
-    '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
-  } as React.CSSProperties
-
   const approveButton = (
     <button
       className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost rv-approved' : 'btn-primary')}
@@ -461,7 +458,7 @@ export default function Review() {
   )
 
   return (
-    <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
+    <div className={`wf dz-${DENSITY} stage-code`}>
       <div className="wf-titlebar">
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={base || branch || 'HEAD'} label="base ref"
@@ -496,7 +493,7 @@ export default function Review() {
             )
           })}
           {store.pendingDrift && (
-            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(window.limnDev?.fakeDriftOpen)} />
+            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(dev.fakeDriftOpen)} />
           )}
         </span>
         <WorkspacePicker branch={branch} />

@@ -12,6 +12,14 @@ export interface CommitInfo { sha: string; subject: string; author: string; date
  *  "since you reviewed" fetch pill (commit chip + working-tree-edit chip). */
 export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number; dirty: boolean }
 
+/** Main-process verdict on whether an agent may edit the compare branch. */
+export interface AgentWriteCapability {
+  enabled: boolean
+  reason: 'available' | 'not-branch' | 'not-checked-out' | 'dirty'
+  branch: string | null
+  workdir: string | null
+}
+
 export function driftHasChanges(drift: DriftSummary | null | undefined): drift is DriftSummary {
   return Boolean(drift && (drift.commits > 0 || drift.files > 0 || drift.dirty))
 }

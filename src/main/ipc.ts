@@ -6,39 +6,31 @@ import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Transport } from './transport.js'
 import type {
-  Api, DashboardData, OpEventMsg, OpResultMsg, RefOptions,
+  Api, DashboardData, OpEventMsg, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
 import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
-  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha, isDirty,
+  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha,
   listBranches, recentCommits, repoState, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
-import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
+import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
-import { clearPending, resolveDecision } from './engines/approvals.js'
+import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
+import { OperationCoordinator } from './operations.js'
 
-const activeOps = new Map<string, () => void>()
-const repoLocks = new Set<string>()
-// opIds the user explicitly cancelled, so a turn's catch can tell a user cancel
-// (stay quiet) apart from a genuine failure — regardless of how the engine words
-// the abort (Codex wraps it as "Codex run failed: cancelled", Claude throws an
-// AbortError), which a bare string match on 'cancelled' would miss.
-const cancelledOps = new Set<string>()
-// review threads whose generation op is in flight (created at op start, finalized
-// or noted at op end). Exempts them from the orphan self-heal on mid-op reloads.
-const activeReviewThreads = new Set<number>()
+const operations = new OperationCoordinator()
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.
@@ -78,7 +70,7 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
   const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 500) }
   watcher = w
   async function poll(): Promise<void> {
-    if (repoLocks.has(repo)) return // our own agent op — reload arrives via op:result
+    if (operations.repoBusy(repo)) return // our own agent op — reload arrives via op:result
     try {
       const { head, sig } = await watchState(repo, branch, w.workdir)
       if (sig === w.lastSig) return
@@ -87,7 +79,8 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
       // to it; dirty-only changes still broadcast so worktree indicators stay live.
       const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
       const drift = driftHasChanges(d) ? d : null
-      send('repo:changed', { repo, branch, headSha: head, drift })
+      const writeCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: head })
+      send('repo:changed', { repo, branch, headSha: head, drift, writeCapability })
     } catch {
       // branch deleted / repo gone — stop quietly
       clearInterval(w.timer)
@@ -102,6 +95,14 @@ function stopWatch(): void {
 
 function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMsg | OpResultMsg | RepoChangedMsg): void {
   transport.broadcast(channel, msg)
+}
+
+function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean): void {
+  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}) })
+}
+
+function errorMessage(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
 }
 
 /** Notify that a long-running agent op finished. Whether this surfaces (and the
@@ -282,7 +283,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const session = mustGetSession(db, sessionId)
     // clean up review threads orphaned by a hard crash mid-generation (a lone user
     // turn, no engine session); the in-flight op's thread is exempt.
-    dao.pruneOrphanReviewThreads(db, sessionId, activeReviewThreads)
+    dao.pruneOrphanReviewThreads(db, sessionId, operations.activeReviewThreadIds())
     // drop empty user chats (no messages, no engine session) — legacy persisted
     // "New chat" companions and any orphaned draft. Never touches a chat with a
     // message or a bound engine session.
@@ -320,7 +321,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('beginReview', async (sessionId: number, agent: AgentRef) => {
     const session = mustGetSession(db, sessionId)
     const thread = dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
-    activeReviewThreads.add(thread.id)
+    operations.markReviewThread(thread.id)
     dao.addChatMessage(db, thread.id, {
       role: 'user', at: new Date().toISOString(),
       text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.`
@@ -331,19 +332,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('generate', async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
-    if (repoLocks.has(repo)) {
-      // another op already holds this repo — note the pre-created thread and bail
-      // WITHOUT entering the try (whose finally would release the other op's lock).
-      const busy = 'Another agent operation is running for this repository'
-      if (dao.getChatThread(db, reviewThreadId)) {
-        dao.addChatMessage(db, reviewThreadId, { role: 'agent', at: new Date().toISOString(), text: `Generation failed: ${busy}.` })
-      }
-      activeReviewThreads.delete(reviewThreadId)
-      send('op:result', { opId, kind: 'review', ok: false, error: busy, reload: true })
-      return
-    }
-    repoLocks.add(repo)
-    try {
+    const outcome = await operations.run(opId, repo, async () => {
       const baseEff = effectiveRef(session.pair.base)
       const compareEff = effectiveRef(session.pair.compare)
       const workdir = await resolveWorkdir(repo, session.pair)
@@ -364,14 +353,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // registered, so it would otherwise be a no-op and the engine would launch
       // anyway. Check here (no await before activeOps.set, so the window is closed)
       // and bail via the catch, which writes the cancelled note + op:result.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
         repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
         model: agent.model, reasoningEffort: agent.reasoningEffort,
         steer: steer?.trim() || undefined, prior
       })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const genEvents = await pump
@@ -433,18 +422,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           })
         }
       })
-      send('op:result', { opId, kind: 'review', ok: true, reload: true })
-      notifyIfUnfocused('Guided review ready',
-        `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
-    } catch (err) {
+      return annotations.sections.length
+    })
+
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'review', 'succeeded', undefined, true)
+      notifyIfUnfocused('Guided review ready', `${outcome.value} sections — ${session.pair.compare.symbol}`)
+    } else {
+      const err = outcome.error
       // off-schema/empty engine output surfaces as a raw ZodError from
       // parseReviewOutput — keep the dump in the log, show the user plain English.
       const msg = err instanceof Error && err.name === 'ZodError'
         ? 'The agent returned an unexpected or empty review format — try regenerating.'
-        : String(err instanceof Error ? err.message : err)
-      // a user cancel (flagged) or an engine-level abort both count as a quiet stop,
-      // not a failure — some engines surface cancellation only as an abort error.
-      const cancelled = cancelledOps.has(opId) || /\babort(ed)?\b/i.test(msg)
+        : errorMessage(err)
+      const cancelled = outcome.status === 'cancelled'
       console.error('[generate] failed:', err)
       // keep the review thread, noting the outcome, so a cancelled/failed run stays
       // visible in chat history (the user turn is already persisted). reload:true so
@@ -455,16 +446,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
         })
       }
-      // 'cancelled' is a sentinel the renderer treats as a quiet stop (no error strip).
-      send('op:result', { opId, kind: 'review', ok: false, error: cancelled ? 'cancelled' : msg, reload: true })
+      sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true)
       if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)
-      activeReviewThreads.delete(reviewThreadId)
-      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
+    operations.unmarkReviewThread(reviewThreadId)
   })
 
   handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
@@ -475,10 +460,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('cancel', async (opId: string) => {
-    cancelledOps.add(opId)   // distinguishes a user cancel from a genuine failure
-    activeOps.get(opId)?.()
-    activeOps.delete(opId)
-    clearPending(opId)   // auto-deny any parked approvals so no promise leaks
+    operations.cancel(opId)
   })
 
   handle('respondApproval', async (opId: string, requestId: string, decision: ApprovalDecision) => {
@@ -505,9 +487,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
-    repoLocks.add(repo)
-    try {
+    const outcome = await operations.run(opId, repo, async () => {
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
@@ -519,7 +499,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume).
@@ -540,7 +520,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // persist the user turn up front so a failed/cancelled run doesn't silently
       // drop what the reviewer typed (mirrors the generate path).
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const events = await pump
@@ -558,20 +538,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       }
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-      send('op:result', { opId, kind: 'chat', ok: true })
-    } catch (err) {
-      const cancelled = cancelledOps.has(opId)
-      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+    })
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'chat', 'succeeded')
+    } else {
+      const cancelled = outcome.status === 'cancelled'
+      const msg = errorMessage(outcome.error)
       // the user turn is already persisted; on a genuine failure record an agent note
       // so the thread shows what happened (a user cancel stays quiet), and reload so the
       // user message (and any note) surface in the drawer.
       if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
-      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
-      clearPending(opId)   // settle any approvals still parked when the turn ends
+      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
     }
   })
 
@@ -618,22 +595,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
-    repoLocks.add(repo)
-    try {
-      // write guards: the compare side is a branch checked out (in primary OR a
-      // linked worktree) and that worktree is clean. Edits + commits run in that
-      // worktree. When unmet, the
-      // agent runs write-disabled (review/comment-only) rather than failing.
-      // A refine turn (answering an intent question) is always read-only.
-      const workdir = await resolveWorkdir(repo, session.pair)
-      let writeEnabled = false
-      if (!refine && session.pair.compare.kind === 'branch') {
-        const branch = session.pair.compare.symbol
-        writeEnabled = workdir !== repo
-          ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
-          : !(await isDirty(repo)) && (await currentBranch(repo)) === branch
+    const outcome = await operations.run(opId, repo, async () => {
+      // Write guards are computed from the same capability object the renderer
+      // consumes. A refine turn (answering an intent question) stays read-only.
+      const capability = await writeCapabilityFor(repo, session.pair.compare)
+      const workdir = capability.workdir ?? repo
+      if (!refine && !capability.enabled) {
+        const reason = capability.reason === 'dirty'
+          ? 'the working tree has uncommitted changes'
+          : capability.reason === 'not-checked-out'
+            ? 'the compare branch is not checked out'
+            : 'the compare side is not a writable branch'
+        throw new Error(`Agent edits are unavailable because ${reason}`)
       }
+      const writeEnabled = !refine
       const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
@@ -648,7 +623,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       })
       // cancel during setup → bail before the (write-enabled) engine launches, so a
       // stopped batch can't still edit/commit the worktree.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: refine
@@ -656,7 +631,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
         tools, writeEnabled, opId, executionMode: thread.executionMode
       })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const events = await pump
@@ -673,27 +648,25 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const segments = reduceSegments(events)
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-      send('op:result', { opId, kind: 'chat', ok: true, reload: true })
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
-      notifyIfUnfocused('Agent handled your comments', `${resolved}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
-    } catch (err) {
+      return resolved
+    })
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'chat', 'succeeded', undefined, true)
+      notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
+    } else {
       // roll back "sent" so comments aren't stuck
       const st = dao.loadReviewState(db, sid)
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      const cancelled = cancelledOps.has(opId)
-      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+      const cancelled = outcome.status === 'cancelled'
+      const msg = errorMessage(outcome.error)
       // on a genuine failure record an agent note so the thread shows what happened (a
       // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
       if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
-      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
+      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
       if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
-      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 

@@ -1,5 +1,5 @@
 import type {
-  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
+  AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
   ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
@@ -33,11 +33,8 @@ export interface LoadedReview {
    *  uncommitted changes interleave per file; `skeleton`/`volatile` stay canonical
    *  for anchoring, viewed, and approval (all of which pin to commits). */
   merged?: FileDiff[]
-  /** the compare branch is checked out in some worktree (primary or linked), so
-   *  agent edits have a safe place to land. False when checked out nowhere — the
-   *  renderer blocks submissions and offers the checkout flow. Always false for a
-   *  non-branch compare (a SHA/tag range is inherently review-only). */
-  compareCheckedOut: boolean
+  /** Authoritative main-process verdict for agent edits on this review surface. */
+  writeCapability: AgentWriteCapability
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
   /** Generated reviews from other sessions whose endpoint pair can seed this review. */
@@ -129,15 +126,22 @@ export interface Api {
 }
 
 export interface OpEventMsg { opId: string; event: EngineEvent }
+export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
 export interface OpResultMsg {
   opId: string
   kind: 'review' | 'chat'
-  ok: boolean
+  status: OperationStatus
   error?: string
   reload?: boolean
 }
 
-export interface RepoChangedMsg { repo: string; branch: string; headSha: string; drift: DriftSummary | null }
+export interface RepoChangedMsg {
+  repo: string
+  branch: string
+  headSha: string
+  drift: DriftSummary | null
+  writeCapability: AgentWriteCapability
+}
 
 export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void

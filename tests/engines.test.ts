@@ -45,6 +45,11 @@ describe('mergeAnnotations', () => {
 })
 
 describe('FakeEngine contract', () => {
+  it('preserves the requested engine identity', () => {
+    expect(new FakeEngine('codex').id).toBe('codex')
+    expect(new FakeEngine('claude').id).toBe('claude')
+  })
+
   it('full cycle: review → comment → batch turn → since-tagging', async () => {
     const engine = new FakeEngine()
     const sk = await getDiff(fx.dir, 'main', 'feature')
