@@ -5,6 +5,6 @@ import { ClaudeEngine } from './claude.js'
 import { CodexEngine } from './codex.js'
 
 export function makeEngine(id: EngineId): ReviewEngine {
-  if (process.env.LIMN_DEMO === '1') return new FakeEngine()
+  if (process.env.LIMN_DEMO === '1') return new FakeEngine(id)
   return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
 }

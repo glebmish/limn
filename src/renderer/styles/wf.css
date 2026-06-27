@@ -118,15 +118,12 @@
 .frow.sel{background:var(--accent-soft);border-left-color:var(--accent)}
 .frow.sel.amber-sel{background:var(--amber-soft);border-left-color:var(--amber)}
 .ficon{width:14px;height:14px;flex:0 0 auto}
-/* file-glyph spans always carry a st-* status class — mask scoped here so the
-   shared .ficon (also used by inline SVG icons) stays un-masked */
-.ficon.st-unrev,.ficon.st-rev,.ficon.st-amber,.ficon.st-risk{
-  -webkit-mask:var(--file-glyph) center/contain no-repeat;
-  mask:var(--file-glyph) center/contain no-repeat}
-.ficon.st-unrev{background:var(--line-3)}
-.ficon.st-rev{background:var(--accent)}
-.ficon.st-amber{background:var(--amber)}
-.ficon.st-risk{background:var(--red)}
+.review-glyph{display:inline-block;background:transparent;color:var(--line-3);mask:none;-webkit-mask:none}
+span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mask:var(--file-glyph) center/contain no-repeat;mask:var(--file-glyph) center/contain no-repeat}
+.review-glyph.st-unrev{color:var(--line-3)}
+.review-glyph.st-rev{color:var(--accent)}
+.review-glyph.st-amber{color:var(--amber)}
+.review-glyph.st-risk{color:var(--red)}
 .fpath{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fpath .dir{color:var(--muted)}
 .fpath .name{color:var(--ink);font-weight:500}
@@ -154,6 +151,8 @@
   background:var(--panel);color:var(--ink-2);cursor:pointer;white-space:nowrap;line-height:1}
 .btn svg{width:13px;height:13px}
 .btn:hover{background:var(--panel-2);border-color:var(--line-3)}
+.btn:disabled{background:var(--panel-2);border-color:var(--line-2);color:var(--muted);cursor:not-allowed;opacity:.62}
+.btn:disabled:hover{background:var(--panel-2);border-color:var(--line-2);color:var(--muted)}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
 .btn-amber{background:var(--amber);border-color:var(--amber);color:#fff}

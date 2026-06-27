@@ -1,12 +1,14 @@
 import { useEffect } from 'react'
-import { ACCENT, DENSITY, useStore } from './store'
+import { DENSITY, useStore } from './store'
 import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
 import RepoHub from './screens/RepoHub'
 import Review from './screens/Review'
+import { SettingsDialog } from './components/SettingsDialog'
+import { dev } from './dev'
 
 export default function App() {
-  const { screen } = useStore()
+  const { screen, settingsOpen, closeSettings } = useStore()
 
   useEffect(() => {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
@@ -21,17 +23,24 @@ export default function App() {
         }
       }
     })
-    const offResult = window.api.onOpResult(({ opId, ok, error, reload }) => {
+    const offResult = window.api.onOpResult(({ opId, status, error, reload }) => {
       const st = useStore.getState()
       if (st.gen.opId !== opId) return
-      st.finishOp(ok ? undefined : error ?? 'unknown error')
-      if (ok || reload) void st.reload()
+      st.finishOp(status, error)
+      if (status === 'succeeded' || reload) void st.reload()
     })
-    const offChanged = window.api.onRepoChanged(({ repo, branch }) => {
+    const offChanged = window.api.onRepoChanged(({ repo, branch, drift, writeCapability }) => {
       const st = useStore.getState()
       if (st.screen !== 'review' || st.gen.running) return
-      if (st.repo === repo && st.branch === branch) void st.reload()
+      // the branch moved while reading — notify via the titlebar fetch pill instead
+      // of yanking the surface out from under the reviewer. They click to fold it in.
+      if (st.repo === repo && st.branch === branch) {
+        st.setPendingDrift(drift, writeCapability)
+        void st.refreshRepoContext()
+      }
     })
+    const offSettings = window.api.onSettingsOpen(() => useStore.getState().openSettings())
+    if (dev.openSettings) useStore.getState().openSettings()
     // CLI: open a repo on Compare (or surface an error on the dashboard).
     // The initial pending open is consumed by store.boot() AFTER the dashboard
     // loads (so its error toast survives loadDashboard's reset) — boot's
@@ -42,19 +51,19 @@ export default function App() {
       offEvent()
       offResult()
       offChanged()
+      offSettings()
       offCli()
     }
   }, [])
 
-  if (screen === 'review') return <Review />
+  const settings = settingsOpen ? <SettingsDialog onClose={closeSettings} /> : null
 
-  const rootStyle = {
-    '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
-  } as React.CSSProperties
+  if (screen === 'review') return <><Review />{settings}</>
 
   return (
-    <div className={`wf dz-${DENSITY}`} style={rootStyle}>
+    <div className={`wf dz-${DENSITY}`}>
       {screen === 'hub' ? <RepoHub /> : <Dashboard />}
+      {settings}
     </div>
   )
 }

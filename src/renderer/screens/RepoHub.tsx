@@ -111,7 +111,7 @@ function NewReviewSplit({ repo, repoState, onStart }: {
 export default function RepoHub() {
   const {
     repo, repoState, repoSessions, showArchived, dashboard, error,
-    backToDashboard, enterHub, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview, openRepository
+    backToDashboard, enterHub, resumeExisting, deleteSession, restoreSession, toggleArchived, openReview, openRepository, openSettings
   } = useStore()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -161,6 +161,10 @@ export default function RepoHub() {
     <div className="limn-dash">
       <div className="wf-titlebar">
         <span className="wf-title"><span className="wf-mark"><I.mark style={{ width: 15, height: 15 }} /></span><b>Limn</b></span>
+        <span className="grow" />
+        <button className="wf-iconbtn" onClick={openSettings} title="Settings" aria-label="Settings">
+          <I.gear style={{ width: 13, height: 13 }} />
+        </button>
       </div>
 
       <div className="limn-dash-head">

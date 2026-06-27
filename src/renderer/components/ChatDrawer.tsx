@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, checkoutGate, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, MessageSegment, ToolCall } from '../../shared/types'
@@ -13,17 +13,18 @@ import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
 import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
+import { dev } from '../dev'
 
 /** Right-sidebar multi-chat panel: a list of chats tied to the review, each with
  *  its own agent. Chat 1 resumes the review agent's session; new chats can target
  *  any agent and are seeded with review context. */
 export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const store = useStore()
-  const { loaded, gen, activeChatId } = store
-  const chats = useMemo(() => loaded?.state.chats ?? [], [loaded?.state.chats])
+  const { loaded, gen, activeChatId, draftChat } = store
+  const chats = useMemo(() => chatsWithDraft(loaded, draftChat), [loaded, draftChat])
   // resolve the active chat, falling back to the running op's thread so a review
   // streams into a fully-chromed chat even if selection hasn't caught up yet.
-  const active = activeChat(loaded, activeChatId)
+  const active = activeChat(loaded, activeChatId, draftChat)
     ?? chats.find((c) => c.id === gen.threadId)
     ?? chats[chats.length - 1] ?? null
   const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
@@ -83,7 +84,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // dev-only: activate a specific seeded chat for screenshots
   const pinnedDev = useRef(false)
   useEffect(() => {
-    const want = window.limnDev?.activeChat
+    const want = dev.activeChat
     if (pinnedDev.current || want == null || !chats.some((c) => c.id === want)) return
     pinnedDev.current = true
     store.switchChat(want)
@@ -92,7 +93,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // dev-only: LIMN_RUN_CHAT=<text> auto-sends one chat turn (screenshot the tool-call log)
   const ranChat = useRef(false)
   useEffect(() => {
-    const text = window.limnDev?.runChat
+    const text = dev.runChat
     if (ranChat.current || !text || !active || gen.running) return
     ranChat.current = true
     setTimeout(() => store.sendChat(text), 400)
@@ -216,8 +217,8 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <div className="chat-batch">
               <button
                 className="btn btn-primary btn-sm chat-batch-go"
-                disabled={gate.blocked}
-                onClick={() => { if (gate.blocked) return; store.sendBatch(active.id, queued.map((c) => c.id), steer); setSteer('') }}
+                disabled={!gate.writeEnabled}
+                onClick={() => { if (!gate.writeEnabled) return; store.sendBatch(active.id, queued.map((c) => c.id), steer); setSteer('') }}
               >
                 <I.send style={{ width: 12, height: 12 }} />
                 Send {queued.length} pending comment{queued.length === 1 ? '' : 's'} → {agentLabel(active.agent)}

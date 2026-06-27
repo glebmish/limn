@@ -221,7 +221,7 @@ const TOOL_IMPLS: ToolImpl[] = [
     run: (ctx, raw) => {
       const { anchor: rawAnchor, text } = raw as z.infer<z.ZodObject<typeof ADD_COMMENT_INPUT>>
       const anchor = normalizeAnchor(rawAnchor)
-      const iteration = loadReviewState(ctx.db, ctx.sessionId).iterations.length
+      const iteration = loadReviewState(ctx.db, ctx.sessionId).latestIteration?.n ?? 0
       const comment: Comment = {
         id: `ac-${Date.now()}-${commentSeq++}`,
         anchor, author: 'agent', agentRef: ctx.agent, threadId: ctx.threadId,

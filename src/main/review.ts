@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
-import type { AgentRef, Artifact, DiffSkeleton, FileDiff, RefPair, ReviewState, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef } from '../shared/types.js'
 import {
   branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
@@ -36,6 +37,21 @@ export async function resolveWorkdir(repo: string, pair: RefPair): Promise<strin
   return (await branchCheckedOutAt(repo, pair.compare.symbol)) ?? repo
 }
 
+/** Compute edit capability from live git state. All agent write gates use this. */
+export async function writeCapabilityFor(repo: string, compare: RefSide): Promise<AgentWriteCapability> {
+  if (compare.kind !== 'branch') {
+    return { enabled: false, reason: 'not-branch', branch: null, workdir: null }
+  }
+  const workdir = await branchCheckedOutAt(repo, compare.symbol)
+  if (!workdir) {
+    return { enabled: false, reason: 'not-checked-out', branch: compare.symbol, workdir: null }
+  }
+  if (await isDirty(workdir)) {
+    return { enabled: false, reason: 'dirty', branch: compare.symbol, workdir }
+  }
+  return { enabled: true, reason: 'available', branch: compare.symbol, workdir }
+}
+
 /** Union two FileDiff lists by path, concatenating hunks for shared paths — used
  *  to re-anchor comments across the spine + volatile band in one pass. */
 function mergeFilesByPath(a: FileDiff[], b: FileDiff[]): FileDiff[] {
@@ -46,6 +62,19 @@ function mergeFilesByPath(a: FileDiff[], b: FileDiff[]): FileDiff[] {
     else out.set(f.path, { ...f, hunks: [...f.hunks] })
   }
   return [...out.values()]
+}
+
+function branchSurfaceHash(head: string, volatile: FileDiff[]): string {
+  if (volatile.length === 0) return head
+  const h = createHash('sha256')
+  h.update(`head\0${head}\0`)
+  for (const f of [...volatile].sort((a, b) => a.path.localeCompare(b.path))) {
+    h.update(`file\0${f.path}\0${f.status}\0${f.fileHash ?? ''}\0${f.add}\0${f.del}\0`)
+    if (!f.fileHash) {
+      for (const line of f.hunks.flatMap((x) => x.lines)) h.update(`${line.kind}\0${line.text}\0`)
+    }
+  }
+  return `dirty:${h.digest('hex')}`
 }
 
 /** Assemble the renderer-facing review (git diff, worktree band, artifacts, commits,
@@ -73,7 +102,9 @@ export async function assembleReview(
         baseLoc: await locateSide(repo, pair.base),
         compareLoc: await locateSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
-        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [], compareCheckedOut: false,
+        branchHash: '',
+        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
+        writeCapability: await writeCapabilityFor(repo, pair.compare),
         refMissing: { side, symbol }
       }
     }
@@ -95,8 +126,15 @@ export async function assembleReview(
   }
   const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path), persist)
   const commits = await log(repo, baseEff, compareEff)
+  const candidatePositions = new Map<string, number>()
+  candidatePositions.set(skeleton.headSha, 0)
+  for (let i = 0; i < commits.length; i++) {
+    if (!candidatePositions.has(commits[i].sha)) candidatePositions.set(commits[i].sha, i)
+  }
+  const copyCandidates = dao.reviewCopyCandidates(db, repo, session.id, pair.base.anchorSha, candidatePositions).slice(0, 3)
   let sinceTagged = false
-  const baseline = state.approvedSha ?? state.reviewedAtSha
+  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
   if (baseline && baseline !== skeleton.headSha) {
     try {
       const since = await diffSince(repo, baseline, compareEff)
@@ -128,7 +166,7 @@ export async function assembleReview(
     try {
       merged = await mergedWorkingDiff(wt, baseEff, compareEff)
       const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
-      if (baseline && baseline !== skeleton.headSha) {
+      if (baseline) {
         try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, baseline)), 'since') } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
@@ -149,6 +187,7 @@ export async function assembleReview(
       }
     } catch { /* hashing failed — viewed falls back to commit-only detection */ }
   }
+  const branchHash = branchSurfaceHash(skeleton.headSha, dirty ? volatile : [])
   // Re-anchor against the surface that is actually rendered. When dirty that's the
   // merged base→working-tree diff (committed + uncommitted lines in worktree-space
   // line numbers), so comments on committed lines line up even when dirty edits above
@@ -163,16 +202,18 @@ export async function assembleReview(
     : skeleton
   reanchorComments(state.comments, forAnchor, artifacts)
   if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
+  const writeCapability = await writeCapabilityFor(repo, pair.compare)
   return {
     sessionId: session.id, session,
     baseContext: await describeSide(repo, pair.base),
     compareContext: await describeSide(repo, pair.compare),
     baseLoc: await locateSide(repo, pair.base),
     compareLoc: await locateSide(repo, pair.compare),
-    skeleton, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
+    skeleton, branchHash, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
+    copyCandidates,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
-    compareCheckedOut: wt != null
+    writeCapability
   }
 }
 

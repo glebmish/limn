@@ -31,7 +31,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     try {
       const id = await materialize()
       if (id == null) return
-      await window.api.approveArtifact(id, path)
+      if (approvedAt) await window.api.unapproveArtifact(id, path)
+      else await window.api.approveArtifact(id, path)
       void reload()
     } finally {
       setApproving(false)
@@ -99,9 +100,9 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
               : <><b>Spec — the intent this change is judged against.</b> Comment on any line, then approve it as the bar for this branch.</>}
         </span>
         {approvedAt ? (
-          <span className="psb-stamp" style={{ marginLeft: 'auto' }}>
-            <I.check style={{ width: 12, height: 12 }} />Approved at {approvedAt.slice(0, 7)}
-          </span>
+          <button className="btn btn-sm psb-stamp" style={{ marginLeft: 'auto' }} disabled={approving} onClick={approve} title="Clear this approval">
+            <I.x style={{ width: 12, height: 12 }} />Unapprove {art.role}
+          </button>
         ) : (
           <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} disabled={approving} onClick={approve}>
             <I.check style={{ width: 12, height: 12 }} />Approve {art.role}

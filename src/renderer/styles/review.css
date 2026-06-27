@@ -64,7 +64,7 @@
 .gnav-planlabel .pl-l{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);white-space:nowrap}
 .gnav-planlabel .pl-l svg{color:var(--accent)}
 .gnav-planlabel .pl-prog{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-.gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px}
+.gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px;cursor:pointer}
 .gsec-step{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
   color:var(--accent-ink);margin-bottom:4px}
 .gside-foot{flex:0 0 auto;border-top:1px solid var(--line);padding:13px;background:var(--panel-2)}
@@ -78,18 +78,22 @@
 .gmain::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:5px;border:3px solid var(--paper)}
 
 /* ---- left nav ---- */
-.gnav-sec{cursor:pointer;border-left:2px solid transparent}
+.gnav-sec{border-left:2px solid transparent}
 .gnav-sec + .gnav-sec{border-top:1px solid var(--line)}
 .gnav-sec:hover{background:var(--panel-2)}
-.gnav-sec.cur{background:var(--accent-soft);border-left-color:var(--accent)}
-.gnav-sec.cur.amber{background:var(--amber-soft);border-left-color:var(--amber)}
+.gnav-sec.cur{background:var(--panel-2);border-left-color:var(--line-3)}
+.gnav-sec.cur.amber{background:var(--panel-2);border-left-color:var(--line-3)}
+.gnav-sec.done{background:var(--accent-soft);border-left-color:var(--accent)}
+.gnav-sec.done:hover{background:var(--accent-soft)}
 .gnav-head{display:flex;align-items:center;gap:9px;padding:9px 13px 5px}
 .gnav-idx{width:19px;height:19px;border-radius:6px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;font-family:var(--mono);font-size:10.5px;font-weight:700;
   background:var(--panel-2);color:var(--muted);border:1px solid var(--line-2)}
-.gnav-sec.cur .gnav-idx{background:var(--accent);color:#fff;border-color:var(--accent)}
-.gnav-sec.cur.amber .gnav-idx{background:var(--amber);color:#fff;border-color:var(--amber)}
-.gnav-sec.done .gnav-idx{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent-line)}
+.gnav-sec.cur .gnav-idx{background:var(--ink-2);color:#fff;border-color:var(--ink-2)}
+.gnav-sec.cur.amber .gnav-idx{background:var(--ink-2);color:#fff;border-color:var(--ink-2)}
+.gnav-sec.cur .gnav-name{color:var(--ink)}
+.gnav-sec.done .gnav-idx{background:var(--accent);color:#fff;border-color:var(--accent)}
+.gnav-sec.done .gnav-name{color:var(--accent-ink)}
 .gnav-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:600;color:var(--ink);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gnav-files{padding:1px 0 8px}
@@ -105,16 +109,22 @@
 .gnav-file .dim{color:var(--muted)}
 
 /* ---- collapsible section + folder tree ---- */
-.gnav-caret{width:12px;height:12px;flex:0 0 auto;position:relative;color:var(--muted);align-self:center}
+.gnav-caret{width:12px;height:12px;flex:0 0 auto;position:relative;color:var(--muted);align-self:center;cursor:pointer;padding:4px;margin:-4px}
 .gnav-caret::before{content:"";position:absolute;left:2px;top:3px;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .12s ease}
 .gnav-head{cursor:pointer}
 .gnav-head .gnav-caret{color:var(--accent-ink)}
+.gnav-sec.cur .gnav-head .gnav-caret{color:var(--ink-2)}
+.gnav-sec.done .gnav-head .gnav-caret{color:var(--accent-ink)}
 .gnav-sec.collapsed .gnav-head .gnav-caret::before{transform:rotate(-45deg)}
 .gnav-sec.collapsed .gnav-intent,.gnav-sec.collapsed .gnav-tree{display:none}
 .gnav-tree{padding:1px 0 8px}
 .gnav-dir > .gnav-folder{display:flex;align-items:center;gap:6px;padding:3px 13px 3px 20px;cursor:pointer;user-select:none}
 .gnav-dir > .gnav-folder:hover{background:var(--panel-2)}
-.gnav-dir > .gnav-folder .ficon{width:13px;height:13px;flex:0 0 auto;color:var(--muted);background:transparent;mask:none;-webkit-mask:none}
+.gnav-dir > .gnav-folder .ficon{width:13px;height:13px;flex:0 0 auto}
+.gnav-dir > .gnav-folder .review-glyph.st-unrev{color:var(--muted)}
+.gnav-dir > .gnav-folder .review-glyph.st-rev{color:var(--accent)}
+.gnav-dir > .gnav-folder .review-glyph.st-amber{color:var(--amber)}
+.gnav-dir > .gnav-folder .review-glyph.st-risk{color:var(--red)}
 .gnav-dir > .gnav-folder .fname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;font-weight:600;color:var(--ink-2)}
 .gnav-dir > .gnav-folder .fcount{flex:0 0 auto;font-size:9.5px;font-weight:600;color:var(--muted-2);font-variant-numeric:tabular-nums}
 .gnav-dir.collapsed > .gnav-folder .gnav-caret::before{transform:rotate(-45deg)}
@@ -217,18 +227,18 @@
 .gsec-what{border-radius:var(--r-md);border:1px solid var(--accent-line);align-items:flex-start}
 
 /* file diff block */
-/* content-visibility lets the browser skip layout/paint of off-screen file diffs.
-   A large review (100+ files, 10k+ diff lines) otherwise lays out ~190k nodes on
-   every reflow (~900ms); this confines that work to the files near the viewport.
-   `auto` intrinsic-size has the browser remember each file's real height after it
-   first renders, so the scrollbar stays stable. */
-.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel);
-  content-visibility:auto;contain-intrinsic-size:auto 400px}
-.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel-2);border-bottom:1px solid var(--line)}
+/* Keep the header outside content-visibility so it can stick while the diff body
+   remains cheap for large reviews. */
+.gfile{border:1px solid var(--line);border-radius:var(--r-lg);overflow:visible;background:var(--panel)}
+.gfile-head{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel-2);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:7;border-radius:calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0}
 .gfile-head .pth{font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px}
 .gfile-caret{color:var(--muted-2);flex:0 0 auto}
 .gfile-head:hover .gfile-caret{color:var(--ink-2)}
-.gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65}
+.gfile.collapsed .gfile-head{border-bottom:none;border-radius:calc(var(--r-lg) - 1px)}
+.gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65;overflow:hidden;
+  border-radius:0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+  content-visibility:auto;contain-intrinsic-size:auto 360px}
 .nodiff{padding:14px;color:var(--muted);font-family:var(--sans);font-size:12px}
 
 /* ---- inline comment thread (GitHub-style) ---- */
@@ -271,9 +281,13 @@
 .ctmark .cm-pin svg{width:13px;height:13px}
 .ctmark .cm-pin.gen{border-color:var(--accent-line);color:var(--accent)}
 .ctmark .cm-pin.appr{border-color:var(--accent-line);color:var(--accent-ink)}
+.ctmark .cm-off{position:relative;display:inline-flex;align-items:center;gap:5px;height:25px;margin-right:10px;padding:0 8px;border-radius:999px;border:1px dashed var(--amber-line);background:var(--amber-soft);color:var(--amber);font-family:var(--sans);font-size:10px;font-weight:650;text-transform:uppercase;letter-spacing:.05em;flex:0 0 auto}
+.ctmark .cm-off svg{width:12px;height:12px;flex:0 0 auto}
 .ctmark .cm-head{position:relative;display:inline-flex;align-items:center;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--amber-line);background:transparent;color:var(--amber);font-family:var(--mono);font-size:11px;font-weight:600;flex:0 0 auto}
 .ctmark .cm-merge{position:relative;display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 10px;border-radius:999px;border:1px solid var(--accent-line);background:transparent;color:var(--accent-ink);flex:0 0 auto}
 .ctmark .cm-merge svg{width:13px;height:13px;flex:0 0 auto}
+.ctmark .cm-merge svg.cm-dirty-ico{color:var(--amber)}
+.ctmark .cm-merge svg.cm-commit-approved{padding:1px;border-radius:3px;background:repeating-linear-gradient(135deg,var(--accent-soft),var(--accent-soft) 4px,rgba(169,121,27,.18) 4px,rgba(169,121,27,.18) 7px)}
 .ctmark .cm-merge .cm-div{width:1px;height:13px;background:var(--accent-line);flex:0 0 auto}
 .ctmark .cm-merge .cm-sha{font-family:var(--mono);font-size:11px;font-weight:600;background:none;border:0;border-radius:0;padding:0;color:inherit}
 /* position (fixed top/left) is set inline by <Tooltip>/useFloating, which flips the
@@ -294,6 +308,49 @@
 .ctmark .cm-arr::after{content:"\2192";margin-left:3px;color:var(--line-3)}
 .ctmark .cm-arr.drift{color:var(--amber)}
 .ctmark .cm-arr.drift::before,.ctmark .cm-arr.drift::after{color:var(--amber)}
+
+/* ---- live watcher: "branch moved while you read" — passive signal + manual pull ---- */
+/* Limn never re-renders under you. When the watched branch advances past the loaded
+   snapshot, a single pulsing dot appears at HEAD. Hover to reveal what's waiting —
+   commits + the line delta (committed + uncommitted). Click = pull (reload).
+   NOTE: no overflow:hidden on the button — that would clip the pulse ring. The counts
+   collapse via cmf-rest's own max-width instead, leaving the dot free to pulse. */
+.ctmark .cm-fetch{display:inline-flex;align-items:center;height:25px;margin-left:6px;padding:0 7px;
+  border-radius:999px;border:1px solid var(--amber-line);background:var(--amber-soft);color:var(--amber);
+  font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;flex:0 0 auto;
+  transition:background .14s,border-color .14s,color .14s}
+.ctmark .cm-fetch:hover{background:var(--amber-soft);color:var(--amber);border-color:var(--amber)}
+.ctmark .cm-fetch .cmf-dot{position:relative;width:7px;height:7px;border-radius:50%;
+  background:currentColor;flex:0 0 auto}
+.ctmark .cm-fetch .cmf-dot::after{content:"";position:absolute;inset:-3px;border-radius:50%;
+  border:1.5px solid currentColor;animation:cmfPulse 1.9s ease-out infinite}
+@keyframes cmfPulse{0%{transform:scale(.55);opacity:.75}100%{transform:scale(1.8);opacity:0}}
+@media (prefers-reduced-motion:reduce){.ctmark .cm-fetch .cmf-dot::after{animation:none;opacity:.35}}
+/* the counts collapse on their own width so the dot stays free to pulse */
+.ctmark .cm-fetch .cmf-rest{display:inline-flex;align-items:center;gap:6px;max-width:0;opacity:0;
+  overflow:hidden;white-space:nowrap;transition:max-width .2s ease,opacity .16s ease,margin-left .2s ease}
+.ctmark .cm-fetch:hover .cmf-rest,.ctmark .cm-fetch:focus-visible .cmf-rest{max-width:138px;opacity:1;margin-left:6px}
+.ctmark .cm-fetch .cmf-chip{display:inline-flex;align-items:center;gap:3px}
+.ctmark .cm-fetch .cmf-chip svg{width:13px;height:13px}
+/* overall line delta from the loaded HEAD (commits + working tree combined) */
+.ctmark .cm-fetch .cmf-delta{display:inline-flex;align-items:center;gap:4px;
+  font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amber)}
+.ctmark .cm-fetch .cmf-del{color:var(--red)}
+/* the pull animation: badge collapses on click */
+.ctmark .cm-fetch.pulling{pointer-events:none}
+.ctmark .cm-fetch.gone{opacity:0;transform:scale(.9);transition:opacity .25s,transform .25s}
+/* forced-open (dev static capture): reveal the counts without a hover */
+.ctmark .cm-fetch.is-open .cmf-rest{max-width:138px;opacity:1;margin-left:6px}
+
+.wf .rv-approve{position:relative;overflow:hidden}
+.wf .rv-approve .rv-approve-main{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0}
+.wf .rv-approve .rv-approve-dirty{display:flex;align-items:center;justify-content:center;width:calc(100% + 2px);margin:5px -1px -1px;padding:3px 8px;
+  background:repeating-linear-gradient(135deg,#fffaf0,#fffaf0 7px,rgba(169,121,27,.16) 7px,rgba(169,121,27,.16) 11px);
+  border-top:1px solid var(--amber-line);color:#805a12;font-family:var(--mono);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.wf .rv-approve:has(.rv-approve-dirty){height:auto;min-height:34px;flex-direction:column;align-items:stretch;gap:0;padding:7px 0 0}
+.wf .rv-approve:has(.rv-approve-dirty) .rv-approve-main{padding:0 13px}
+.wf .rv-approve.btn-primary:has(.rv-approve-dirty){background:#fffdf7;border-color:var(--amber-line);color:var(--accent-ink)}
+.wf .rv-approve.btn-primary:has(.rv-approve-dirty):hover{background:var(--amber-soft);color:var(--accent-ink)}
 
 /* ---- top "changes since last review" callout ---- */
 .rr-summary{display:flex;align-items:center;gap:12px;margin:14px 30px 2px;padding:11px 14px;

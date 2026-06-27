@@ -78,10 +78,13 @@ implement it:
   `ipcRenderer.invoke` and relays `op:event` / `op:result` / `repo:changed`.
 - **Headless web server** (`src/server/index.ts`) — the same channels over HTTP
   **POST** (request/response) and **Server-Sent Events** (the three broadcast
-  streams). It serves the built renderer from `out/renderer`, shares the desktop
-  app's SQLite database (same userData path), and gates on an optional
-  `LIMN_WEB_TOKEN`. The renderer reaches it through `src/renderer/web-api.ts`, which
-  presents the identical `Api` over `fetch` + `EventSource`.
+  streams). It serves the built renderer from `out/renderer` and shares the desktop
+  app's SQLite database (same userData path). Secure by default: it binds loopback
+  (`LIMN_WEB_HOST` defaults to `127.0.0.1`) and **refuses to start** a non-loopback
+  bind unless `LIMN_WEB_TOKEN` is set; `/rpc` and `/events` are additionally behind
+  a same-origin / DNS-rebinding guard. The renderer reaches it through
+  `src/renderer/web-api.ts`, which presents the identical `Api` over `fetch` +
+  `EventSource`.
 
 So the renderer is transport-agnostic: `renderer → (preload bridge | web-api) →
 Transport → {git, db, engines}`. `cli:open` is the one exception — it's pushed
@@ -91,6 +94,6 @@ directly by Electron main and is desktop-only.
 
 - **`git`** (subprocess) — the source of truth for all diff, ref, and worktree
   state. Invoked via `execFile` (never a shell) with `core.quotePath=false`.
-- **Claude Agent SDK / OpenAI Codex SDK** — drive the `claude` / `codex` CLIs.
+- **Claude Agent SDK / Codex app-server** — drive the `claude` / `codex` CLIs.
   Authentication and billing inherit from the CLI logins; Limn never stores keys.
 - **`node:sqlite`** — the bundled SQLite binding; no third-party driver.

@@ -9,8 +9,8 @@ import {
   createSession, findSession, getSession, archiveSession, retargetSession,
   listRepoSessions, latestSessionForBranch, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
-  upsertComment, deleteComment, addIteration, resetIterations, setArtifacts,
-  approveArtifact, unresolvedCount,
+  upsertComment, deleteComment, addIteration, nextIterationNumber, latestIteration, reviewCopyCandidates, copyGeneratedReview, setArtifacts,
+  approveArtifact, unapproveArtifact, approveSessionSha, approveSessionSurface, unapproveSessionSha, unapproveSessionSurface, unresolvedCount,
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, setThreadMode, setThreadTitle, deriveChatTitle,
   pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads, setActionResolution
@@ -39,6 +39,12 @@ function mkComment(id: string): Comment {
   }
 }
 
+const ann = (title = 'Review') => ({ title, summary: `${title} summary`, sections: [], questions: [] })
+const iter = (n: number, engine: 'claude' | 'codex', sessionId: string, endSha: string, at: string, title = `Review ${n}`) => {
+  const annotations = ann(title)
+  return { n, engine, sessionId, endSha, at, title: annotations.title, summary: annotations.summary, annotations }
+}
+
 describe('sessions DAO', () => {
   it('creates and finds a session by pair identity', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
@@ -47,10 +53,13 @@ describe('sessions DAO', () => {
     expect(getSession(db, s.id)?.pair.compare.symbol).toBe('feature')
   })
 
-  it('branch identity ignores anchor drift; commit identity keys on sha', () => {
+  it('session lookup pins base by sha while branch compare follows the branch name', () => {
     const s = createSession(db, '/repo', pair)
-    const drifted: RefPair = { ...pair, compare: { ...pair.compare, anchorSha: 'e'.repeat(40) } }
-    expect(findSession(db, '/repo', drifted)?.id).toBe(s.id) // same branch names → same session
+    const compareDrifted: RefPair = { ...pair, compare: { ...pair.compare, anchorSha: 'e'.repeat(40) } }
+    expect(findSession(db, '/repo', compareDrifted)?.id).toBe(s.id) // compare branch follows the branch
+
+    const baseDrifted: RefPair = { ...pair, base: { ...pair.base, anchorSha: 'f'.repeat(40) } }
+    expect(findSession(db, '/repo', baseDrifted)).toBeNull() // base anchor is immutable
 
     const c1 = createSession(db, '/repo', commitPair)
     const otherSha: RefPair = { ...commitPair, base: { ...commitPair.base, anchorSha: 'f'.repeat(40) } }
@@ -76,7 +85,7 @@ describe('sessions DAO', () => {
     upsertComment(db, s.id, mkComment('c1'))
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     addChatMessage(db, t.id, { role: 'user', text: 'q', at: 'T1' })
-    addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'd'.repeat(40), at: 'T2' })
+    addIteration(db, s.id, iter(1, 'claude', 'es-1', 'd'.repeat(40), 'T2'))
     setArtifacts(db, s.id, [{ role: 'spec', path: 'docs/spec.md' }])
     approveArtifact(db, s.id, 'docs/spec.md', 'd'.repeat(40))
     replaceUiState(db, s.id, { viewedAt: { 'a.ts': { sha: 'd'.repeat(40), hash: 'blob1' } }, reviewedSections: ['s1'] })
@@ -89,7 +98,7 @@ describe('sessions DAO', () => {
     expect(st.comments[0].id).toBe('c1')
     expect(st.chats).toHaveLength(1)
     expect(st.chats[0].messages).toEqual([{ role: 'user', text: 'q', at: 'T1' }])
-    expect(st.iterations).toEqual([{ n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'd'.repeat(40), at: 'T2' }])
+    expect(st.iterations).toEqual([iter(1, 'claude', 'es-1', 'd'.repeat(40), 'T2')])
     expect(st.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
     expect(st.artifactApprovals).toEqual({ 'docs/spec.md': 'd'.repeat(40) })
     expect(st.viewedAt).toEqual({ 'a.ts': { sha: 'd'.repeat(40), hash: 'blob1' } })
@@ -123,6 +132,54 @@ describe('sessions DAO', () => {
     expect(st.approvedSha).toBe('b'.repeat(40))
   })
 
+  it('can clear session and artifact approvals', () => {
+    const s = createSession(db, '/repo', pair)
+    approveSessionSha(db, s.id, 'b'.repeat(40))
+    approveArtifact(db, s.id, 'docs/spec.md', 'b'.repeat(40))
+
+    unapproveSessionSha(db, s.id, 'b'.repeat(40))
+    unapproveArtifact(db, s.id, 'docs/spec.md')
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBeUndefined()
+    expect(st.approvedShas).toEqual([])
+    expect(st.artifactApprovals).toEqual({})
+  })
+
+  it('keeps approval history so returning to an older approved state is approved', () => {
+    const s = createSession(db, '/repo', pair)
+    const a = 'a'.repeat(40)
+    const b = 'b'.repeat(40)
+    approveSessionSha(db, s.id, a)
+    approveSessionSha(db, s.id, b)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBe(b)
+    expect(st.approvedShas?.sort()).toEqual([a, b].sort())
+
+    unapproveSessionSha(db, s.id, b)
+    const after = loadReviewState(db, s.id)
+    expect(after.approvedSha).toBe(a)
+    expect(after.approvedShas).toEqual([a])
+  })
+
+  it('tracks multiple approved dirty surfaces on the same commit by hash', () => {
+    const s = createSession(db, '/repo', pair)
+    const sha = 'c'.repeat(40)
+    const h1 = 'dirty:h1'
+    const h2 = 'dirty:h2'
+    approveSessionSurface(db, s.id, sha, h1)
+    approveSessionSurface(db, s.id, sha, h2)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.approvedSha).toBe(sha)
+    expect(st.approvedShas).toEqual([sha])
+    expect(st.approvedHashes?.sort()).toEqual([h1, h2].sort())
+
+    unapproveSessionSurface(db, s.id, h2)
+    expect(loadReviewState(db, s.id).approvedHashes).toEqual([h1])
+  })
+
   it('repos: ensure + touch drives recents ordering', () => {
     ensureRepo(db, '/r1'); ensureRepo(db, '/r2')
     touchRepo(db, '/r1', '2026-06-12T10:00:00Z')
@@ -130,13 +187,40 @@ describe('sessions DAO', () => {
     expect(recentRepoPaths(db, 8)).toEqual(['/r2', '/r1'])
   })
 
-  it('resetIterations wipes history down to the fresh first iteration', () => {
+  it('nextIterationNumber appends generated review history', () => {
     const s = createSession(db, '/repo', pair)
-    addIteration(db, s.id, { n: 1, engine: 'claude', sessionId: 'es-1', endSha: 'a'.repeat(40), at: 'T1' })
-    addIteration(db, s.id, { n: 2, engine: 'claude', sessionId: 'es-2', endSha: 'b'.repeat(40), at: 'T2' })
-    resetIterations(db, s.id, { n: 1, engine: 'codex', sessionId: 'es-3', endSha: 'c'.repeat(40), at: 'T3' })
+    addIteration(db, s.id, iter(1, 'claude', 'es-1', 'a'.repeat(40), 'T1'))
+    addIteration(db, s.id, iter(2, 'claude', 'es-2', 'b'.repeat(40), 'T2'))
+    expect(() => addIteration(db, s.id, iter(2, 'codex', 'dupe', 'x'.repeat(40), 'TD'))).toThrow()
+    expect(nextIterationNumber(db, s.id)).toBe(3)
+    addIteration(db, s.id, iter(nextIterationNumber(db, s.id), 'codex', 'es-3', 'c'.repeat(40), 'T3'))
     const st = loadReviewState(db, s.id)
-    expect(st.iterations).toEqual([{ n: 1, engine: 'codex', sessionId: 'es-3', endSha: 'c'.repeat(40), at: 'T3' }])
+    expect(st.iterations.map((i) => i.endSha)).toEqual(['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)])
+    expect(latestIteration(db, s.id)?.endSha).toBe('c'.repeat(40))
+  })
+
+  it('finds and copies the nearest generated review candidate by base and end sha', () => {
+    const source = createSession(db, '/repo', pair, { engine: 'claude' })
+    const target = createSession(db, '/repo', { ...pair, compare: { ...pair.compare, symbol: 'other', anchorSha: 'd'.repeat(40) } }, { engine: 'codex' })
+    const annotations = { title: 'Copied title', summary: 'Copied summary', sections: [], questions: [] }
+    addIteration(db, source.id, { n: 1, engine: 'claude', sessionId: 'es-old', endSha: 'b'.repeat(40), at: 'T1', title: annotations.title, summary: annotations.summary, annotations })
+    updateSessionMeta(db, source.id, { annotations, title: annotations.title, summary: annotations.summary, reviewedAtSha: 'b'.repeat(40) })
+    const reviewThread = createChatThread(db, source.id, { kind: 'review', agent: { engine: 'claude' }, engineSessionId: 'es-old' })
+    addChatMessage(db, reviewThread.id, { role: 'agent', text: 'review text', at: 'T1' })
+
+    const candidates = reviewCopyCandidates(db, '/repo', target.id, pair.base.anchorSha, new Map([
+      ['d'.repeat(40), 0],
+      ['c'.repeat(40), 1],
+      ['b'.repeat(40), 2]
+    ]))
+    expect(candidates.map((c) => [c.sessionId, c.iteration, c.commitsOld])).toEqual([[source.id, 1, 2]])
+
+    copyGeneratedReview(db, source.id, 1, target.id, 'd'.repeat(40))
+    const copied = loadReviewState(db, target.id)
+    expect(copied.annotations?.title).toBe('Copied title')
+    expect(copied.reviewedAtSha).toBe('d'.repeat(40))
+    expect(copied.latestIteration?.endSha).toBe('d'.repeat(40))
+    expect(copied.chats.find((c) => c.kind === 'review')?.messages[0]?.text).toBe('review text')
   })
 
   it('retargetSession moves identity to the new side', () => {
@@ -145,7 +229,7 @@ describe('sessions DAO', () => {
     expect(findSession(db, '/repo', pair)).toBeNull() // old identity gone
     const moved: RefPair = { ...pair, compare: { kind: 'commit', symbol: 'HEAD~2', anchorSha: 'e'.repeat(40) } }
     expect(findSession(db, '/repo', moved)?.id).toBe(s.id) // generated ident recomputed
-    expect(() => retargetSession(db, s.id, 'base', { kind: 'commit', symbol: 'x', anchorSha: '' })).toThrow(/no resolved sha/)
+    expect(() => retargetSession(db, s.id, 'base', { kind: 'commit', symbol: 'x', anchorSha: 'f'.repeat(40) })).toThrow(/base cannot be changed/)
   })
 })
 

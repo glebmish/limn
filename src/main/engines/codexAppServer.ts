@@ -12,7 +12,7 @@ import { deriveVerb, clampOut, bashArg } from '../../shared/toolcalls.js'
 
 /**
  * Hand-written `codex app-server` JSON-RPC-over-stdio client. This is the single
- * Codex chat path because it can answer approval server-requests and route them
+ * Codex path because it can answer approval server-requests and route them
  * through Limn's reviewer approval UI.
  *
  * The exact method/param names are pinned from `codex app-server generate-ts`
@@ -124,6 +124,44 @@ export function appServerNotifToEvent(method: string, params: unknown): EngineEv
   return null
 }
 
+function contentText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(contentText).join('')
+  if (!value || typeof value !== 'object') return ''
+  const v = value as Record<string, unknown>
+  if (typeof v.text === 'string') return v.text
+  if (v.content !== undefined) return contentText(v.content)
+  return ''
+}
+
+export function appServerAgentMessageText(method: string, params: unknown): string {
+  if (method === 'item/agentMessage/delta') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    return typeof p.delta === 'string' ? p.delta : ''
+  }
+  if (method === 'item/completed') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    const item = (p.item && typeof p.item === 'object' ? p.item : {}) as Record<string, unknown>
+    if (item.type !== 'agentMessage' && item.type !== 'agent_message') return ''
+    const structured = item.structuredOutput ?? item.structured_output
+    if (structured && typeof structured === 'object') return JSON.stringify(structured)
+    return contentText(item.text) || contentText(item.content) || contentText(item.message)
+  }
+  if (method === 'rawResponseItem/completed') {
+    const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+    const item = (p.item && typeof p.item === 'object' ? p.item : {}) as Record<string, unknown>
+    return item.type === 'message' && item.role === 'assistant' ? contentText(item.content) : ''
+  }
+  return ''
+}
+
+export function collectAppServerFinalText(current: string, method: string, params: unknown, structured: boolean): string {
+  const msgText = appServerAgentMessageText(method, params)
+  if (!msgText) return current
+  if (structured) return method === 'item/completed' || method === 'rawResponseItem/completed' ? msgText : current
+  return method === 'item/completed' && current ? current : current + msgText
+}
+
 /** Codex tool arguments → kv pairs for the expanded tool-call row. */
 function kvOf(args: unknown): [string, string][] {
   if (!args || typeof args !== 'object') return []
@@ -185,6 +223,8 @@ export class AppServerConn {
   private pending = new Map<number, Pending>()
   private stdoutBuf = ''
   private stderrBuf = ''   // tail of the child's stderr — surfaced when a turn errors
+  private alive = true     // false once the child has errored/exited; gates writes
+  private gone = false     // ensures onExit fires at most once
   private onNotify: ((method: string, params: unknown) => void) | null = null
   private onServerRequest: ((id: number | string, method: string, params: unknown) => void) | null = null
   /** Called once when the child exits — lets an in-flight turn settle even though
@@ -194,14 +234,43 @@ export class AppServerConn {
 
   constructor(mcpConfigArgs: string[] = []) {
     const bin = codexBinaryPath() ?? 'codex'
+    // `detached` puts the child in its own process group so cancel/dispose can kill
+    // the whole tree (codex spawns sandboxed exec/tool subprocesses), not just the
+    // app-server itself — otherwise descendants linger across cancelled turns.
     this.child = spawn(bin, ['app-server', ...mcpConfigArgs], {
+      detached: true,
       env: { ...process.env, ...(expandHome(process.env.CODEX_HOME) ? { CODEX_HOME: expandHome(process.env.CODEX_HOME) } : {}) }
     }) as ChildProcessWithoutNullStreams
     this.child.stdout.setEncoding('utf8')
     this.child.stdout.on('data', (chunk: string) => this.ingest(chunk))
     this.child.stderr.setEncoding('utf8')
     this.child.stderr.on('data', (chunk: string) => { this.stderrBuf = (this.stderrBuf + chunk).slice(-4000) })
-    this.child.on('exit', () => { for (const p of this.pending.values()) p.reject(new Error('app-server exited')); this.pending.clear(); this.onExit?.() })
+    // A spawn failure (ENOENT when `codex` isn't on PATH, EACCES) emits 'error'
+    // asynchronously — with no listener Node throws an uncaught exception that
+    // crashes the whole Electron main process. Route both 'error' and 'exit'
+    // through one idempotent settler so a missing/broken codex binary surfaces as
+    // a normal turn error instead.
+    this.child.on('error', (err: Error) => this.handleGone(err))
+    this.child.on('exit', () => this.handleGone(new Error('app-server exited')))
+  }
+
+  /** Mark the child dead, reject everything in flight, and fire onExit once.
+   *  Safe to call multiple times (error→exit, or repeated exits). */
+  private handleGone(err: Error): void {
+    this.alive = false
+    for (const p of this.pending.values()) p.reject(err)
+    this.pending.clear()
+    if (this.gone) return
+    this.gone = true
+    this.onExit?.()
+  }
+
+  /** Best-effort framed write to the child's stdin. Returns false (never throws)
+   *  when the child is gone or the pipe has ended (EPIPE / write-after-end). */
+  private writeFrame(frame: string): boolean {
+    if (!this.alive || !this.child.stdin.writable) return false
+    try { this.child.stdin.write(frame); return true }
+    catch { return false }
   }
 
   /** Last ~4KB of the app-server's stderr, trimmed — the real diagnostic when a
@@ -238,20 +307,25 @@ export class AppServerConn {
 
   request(method: string, params?: unknown): Promise<unknown> {
     const id = this.nextId++
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, method, params }))
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }))
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      if (!this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, method, params }))) {
+        this.pending.delete(id)
+        reject(new Error('app-server not running'))
+      }
+    })
   }
 
   notify(method: string, params?: unknown): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', method, params }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', method, params }))
   }
 
   respond(id: number | string, result: unknown): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, result }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, result }))
   }
 
   respondError(id: number | string, code: number, message: string): void {
-    this.child.stdin.write(encodeFrame({ jsonrpc: '2.0', id, error: { code, message } }))
+    this.writeFrame(encodeFrame({ jsonrpc: '2.0', id, error: { code, message } }))
   }
 
   setHandlers(onNotify: (m: string, p: unknown) => void, onServerRequest: (id: number | string, m: string, p: unknown) => void): void {
@@ -272,7 +346,17 @@ export class AppServerConn {
   }
 
   dispose(): void {
-    try { this.child.kill() } catch { /* already gone */ }
+    this.alive = false
+    const pid = this.child.pid
+    // Kill the whole process group (negative pid) so codex's own exec/tool
+    // descendants die too, not just the app-server. Falls back to a direct kill
+    // if the group signal fails (already-reaped, or no group).
+    try {
+      if (pid) process.kill(-pid, 'SIGTERM')
+      else this.child.kill()
+    } catch {
+      try { this.child.kill() } catch { /* already gone */ }
+    }
   }
 }
 
@@ -280,16 +364,30 @@ function modelEffort(model?: string, effort?: ReasoningEffort): Record<string, u
   return { ...(model ? { model } : {}), ...(effort && effort !== 'max' ? { effort } : {}) }
 }
 
-/** Run one chat turn over the app-server with interactive approvals. */
-export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
+interface AppServerTurnOptions {
+  repo: string
+  prompt: string
+  engineSessionId?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  tools?: ChatTurn['tools']
+  writeEnabled?: boolean
+  opId?: string
+  executionMode?: ExecutionMode
+  outputSchema?: unknown
+  streamText?: boolean
+  status?: string
+}
+
+/** Run one Codex turn over app-server. Chat, batch, and review generation share
+ *  this lifecycle so approval routing, MCP setup, cancellation, and event mapping
+ *  stay in one place. */
+export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> {
   const q = new EventQueue()
-  const write = Boolean(turn.writeEnabled)
-  const mode = turn.executionMode ?? DEFAULT_EXECUTION_MODE
-  const prompt = write
-    ? turn.message
-    : turn.engineSessionId
-      ? buildChatPrompt(turn.message, turn.anchor)
-      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
+  if (opts.status) q.push({ type: 'status', text: opts.status })
+  const write = Boolean(opts.writeEnabled)
+  const mode = opts.executionMode ?? DEFAULT_EXECUTION_MODE
+  const streamText = opts.streamText ?? !opts.outputSchema
 
   let conn: AppServerConn | null = null
   let aborted = false   // set by cancel() before dispose, so the child's exit settles as 'cancelled'
@@ -298,8 +396,8 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
     let finalText = ''
     try {
       let mcpArgs: string[] = []
-      if (turn.tools) {
-        const mcp = await registerCodexTurn(turn.tools)
+      if (opts.tools) {
+        const mcp = await registerCodexTurn(opts.tools)
         release = mcp.release
         mcpArgs = ['-c', `mcp_servers.limn.url=${mcp.url}`]
       }
@@ -325,8 +423,9 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
             // version skew) — fall back to the full params so the reason isn't lost
             settle(pm || (params ? JSON.stringify(params) : '') || 'error'); return
           }
+          finalText = collectAppServerFinalText(finalText, method, params, Boolean(opts.outputSchema))
           const ev = appServerNotifToEvent(method, params)
-          if (ev) { if (ev.type === 'text') finalText += ev.text; q.push(ev) }
+          if (ev && (streamText || ev.type !== 'text')) q.push(ev)
         },
         (id, method, params) => {
           // MCP tool-call approvals arrive as an RMCP elicitation (verified against
@@ -345,27 +444,31 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
             conn?.respond(id, { action: kind && kind !== 'mcp_tool_call' ? 'decline' : 'accept', content: null, _meta: null })
             return
           }
-          if (isApprovalMethod(method) && turn.opId) {
+          if (isApprovalMethod(method) && opts.opId) {
             const req = approvalRequestFromParams(String(id), params)
-            void awaitDecision(turn.opId, req, (e) => q.push(e))
+            // respond() is now write-guarded, but the decision promise itself can
+            // reject (op cancelled); swallow so it never becomes an unhandled rejection.
+            void awaitDecision(opts.opId, req, (e) => q.push(e))
               .then((d) => conn?.respond(id, { decision: mapApprovalDecision(d) }))
+              .catch(() => { /* connection gone or op cancelled — nothing to answer */ })
           } else {
             conn?.respondError(id, -32601, 'methodNotFound') // unsupported surface → back off
           }
         }
       )
 
-      await conn.handshake(turn.engineSessionId)
+      await conn.handshake(opts.engineSessionId)
       await conn.request('turn/start', {
         threadId: conn.threadId,
-        input: [{ type: 'text', text: prompt, text_elements: [] }],
-        cwd: turn.repo,
+        input: [{ type: 'text', text: opts.prompt, text_elements: [] }],
+        cwd: opts.repo,
         approvalPolicy: approvalPolicyFor(mode),
         // route approvals to US (the reviewer), not the guardian subagent that
         // auto-denies untrusted MCP/exec in headless mode — the core unblock.
         approvalsReviewer: 'user',
-        sandboxPolicy: sandboxPolicyFor(mode, turn.repo, write),
-        ...modelEffort(turn.model, turn.reasoningEffort)
+        sandboxPolicy: sandboxPolicyFor(mode, opts.repo, write),
+        ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {}),
+        ...modelEffort(opts.model, opts.reasoningEffort)
       })
       await turnDone
       if (turnErr) {
@@ -373,9 +476,9 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
         throw new Error(`Codex run failed: ${turnErr}${tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : ''}`)
       }
       q.push({ type: 'done' })
-      return { value: finalText, sessionId: conn.threadId || turn.engineSessionId || '' }
+      return { value: finalText, sessionId: conn.threadId || opts.engineSessionId || '' }
     } catch (err) {
-      console.error('[codex app-server] chat turn failed:', err instanceof Error ? err.message : err)
+      console.error('[codex app-server] turn failed:', err instanceof Error ? err.message : err)
       q.push({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       throw err
     } finally {
@@ -386,4 +489,25 @@ export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
   })()
 
   return { events: q.iterable(), result, cancel: () => { aborted = true; conn?.dispose() } }
+}
+
+/** Run one chat turn over the app-server with interactive approvals. */
+export function chatViaAppServer(turn: ChatTurn): EngineRun<string> {
+  const write = Boolean(turn.writeEnabled)
+  const prompt = write
+    ? turn.message
+    : turn.engineSessionId
+      ? buildChatPrompt(turn.message, turn.anchor)
+      : buildSeededChatPrompt(turn.context ?? { base: '', branch: '' }, turn.message, turn.anchor)
+  return runAppServerTurn({
+    repo: turn.repo,
+    prompt,
+    engineSessionId: turn.engineSessionId,
+    model: turn.model,
+    reasoningEffort: turn.reasoningEffort,
+    tools: turn.tools,
+    writeEnabled: turn.writeEnabled,
+    opId: turn.opId,
+    executionMode: turn.executionMode
+  })
 }

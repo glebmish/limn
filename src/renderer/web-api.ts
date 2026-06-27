@@ -73,6 +73,7 @@ export function installWebApi(): void {
   // cli:open is desktop-only (it's driven by the `limn` CLI / second-instance
   // forwarding), so it never fires on the web — a no-op subscription keeps App.tsx happy.
   api.onCliOpen = (_cb: (msg: CliOpenMsg) => void) => () => {}
+  api.onSettingsOpen = (_cb: () => void) => () => {}
 
   ;(window as unknown as { api: RendererApi }).api = api as unknown as RendererApi
 }

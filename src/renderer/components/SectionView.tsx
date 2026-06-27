@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
 import { I, DiagramNodeBox, Flow, EngineGlyph, CmtPlus } from '../kit'
-import { GUIDANCE, sectionViewState, useStore } from '../store'
+import { GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import { addComment } from '../lib/comments'
+import { clickable } from '../lib/clickable'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 import { DiffView } from './DiffView'
@@ -20,12 +21,13 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const comments = loaded?.state.comments ?? []
 
   const focused = focusTarget?.sectionId === s.id
-  // section completion is derived: a section is "viewed" when all its files are.
-  const viewState = sectionViewState(files, viewedAt)
-  const done = viewState === 'all'
-  // focus / explicit re-open force-shows a completed section without un-viewing it
-  const open = forceOpen || focused || expanded.has(s.id) || (!done && !collapsed.has(s.id))
-  const hasSince = files.some((f) => f.hunks.some((h) => h.since))
+  const { viewState, done, hasSince, open } = sectionDisclosureState(files, viewedAt, {
+    id: s.id,
+    collapsed,
+    expanded,
+    forceOpen,
+    focused
+  })
   const reReview = hasSince
   const showCtx = GUIDANCE !== 'minimal'
   const sectionComments = comments.filter((c) => c.anchor.kind === 'section' && c.anchor.sectionId === s.id)
@@ -38,9 +40,9 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
 
   return (
     <div className={cls} ref={secRef} data-limn-section={s.id}>
-      <div className="gsec-head" onClick={() => { if (!open) openSection(s.id) }} style={{ cursor: open ? 'default' : 'pointer' }}>
+      <div className="gsec-head" {...(open ? {} : clickable(() => openSection(s.id)))} style={open ? undefined : { cursor: 'pointer' }}>
         {open && <CmtPlus extra="section-plus" stop onClick={() => setCommenting('header')} />}
-        <span className="gsec-no">{done ? <I.check style={{ width: 13, height: 13 }} /> : n}</span>
+        <span className="gsec-no">{n}</span>
         <div className="gsec-h">
           {open && <div className="gsec-step">Section {n} of {total}</div>}
           <div className="t">

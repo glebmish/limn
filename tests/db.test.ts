@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openDb } from '../src/main/db/db'
+import { openDb, isCorruptionError } from '../src/main/db/db'
 
 function tmpFile(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-db-')), 'limn.db')
@@ -19,6 +19,7 @@ describe('openDb', () => {
       .map((r) => r.name)
     for (const t of ['repos', 'sessions', 'comments', 'chat_messages', 'iterations',
       'viewed_files', 'reviewed_sections', 'artifacts', 'artifact_approvals',
+      'session_approvals',
       'prefs', 'meta']) {
       expect(tables).toContain(t)
     }
@@ -58,5 +59,32 @@ describe('openDb', () => {
     const row = again.prepare(`SELECT value FROM prefs WHERE key = 'keep'`).get() as { value: string }
     expect(row.value).toBe('me')
     again.close()
+  })
+})
+
+describe('isCorruptionError', () => {
+  it('classifies genuine corruption as corruption (→ move aside)', () => {
+    for (const m of [
+      'integrity: page 3 missing',
+      'file is not a database',
+      'SQLITE_NOTADB: file is not a database',
+      'database disk image is malformed',
+      'file is encrypted or is not a database',
+      'SQLITE_CORRUPT: database corruption detected'
+    ]) {
+      expect(isCorruptionError(new Error(m))).toBe(true)
+    }
+  })
+
+  it('classifies transient/permission failures as NOT corruption (→ rethrow, never drop data)', () => {
+    for (const m of [
+      'SQLITE_BUSY: database is locked',
+      'database is locked',
+      'EACCES: permission denied, open',
+      'EBUSY: resource busy or locked',
+      'unable to open database file'
+    ]) {
+      expect(isCorruptionError(new Error(m))).toBe(false)
+    }
   })
 })

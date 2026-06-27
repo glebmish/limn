@@ -4,10 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/main/db/db'
-import { createSession, upsertComment, replaceUiState } from '../src/main/db/sessions'
+import { createSession, upsertComment, replaceUiState, updateSessionMeta } from '../src/main/db/sessions'
 import { fileViewed } from '../src/renderer/store'
 import { buildLoadedReview, previewReview } from '../src/main/review'
-import { resolveRefInput } from '../src/main/git'
+import { headSha, resolveRefInput } from '../src/main/git'
 import { fixtureGit as git, fixtureWrite as write } from './helpers/fixtureRepo'
 import type { Comment, RefPair } from '../src/shared/types'
 
@@ -131,6 +131,34 @@ describe('comments line up with the merged (rendered) surface while dirty', () =
     expect(rendered?.text).toBe('TARGET')
     expect(rendered?.origin).toBe('committed')
   })
+
+  it('marks uncommitted edits as changed since approval at the same HEAD', async () => {
+    const dir = makeRepoWithArtifact()
+    const session = await sessionFor(dir)
+    const approved = await headSha(dir, 'feature')
+    updateSessionMeta(db, session.id, { approvedSha: approved })
+
+    write(dir, 'src/b.ts', 'export const b = 3\nexport const dirty = true\n')
+    const loaded = await buildLoadedReview(db, session)
+    const b = loaded.merged?.find((f) => f.path === 'src/b.ts')
+    expect(b?.hunks.some((h) => h.lines.some((l) => l.origin === 'uncommitted' && l.since))).toBe(true)
+  })
+
+  it('uses a branch surface hash that distinguishes dirty states from clean HEAD', async () => {
+    const dir = makeRepoWithArtifact()
+    const session = await sessionFor(dir)
+    const clean = await buildLoadedReview(db, session)
+    expect(clean.branchHash).toBe(clean.skeleton.headSha)
+
+    write(dir, 'src/b.ts', 'export const b = 3\nexport const dirty = true\n')
+    const dirty = await buildLoadedReview(db, session)
+    expect(dirty.branchHash).toMatch(/^dirty:/)
+    expect(dirty.branchHash).not.toBe(clean.branchHash)
+
+    write(dir, 'src/b.ts', 'export const b = 3\n')
+    const cleanAgain = await buildLoadedReview(db, session)
+    expect(cleanAgain.branchHash).toBe(clean.branchHash)
+  })
 })
 
 describe('viewed content-hash drift', () => {
@@ -154,6 +182,20 @@ describe('viewed content-hash drift', () => {
 })
 
 describe('buildLoadedReview (persisted path) still writes', () => {
+  it('resolves branch sessions to the latest branch head on each load', async () => {
+    const dir = makeRepoWithArtifact()
+    const session = await sessionFor(dir)
+    const first = await buildLoadedReview(db, session)
+
+    write(dir, 'src/latest.ts', 'export const latest = true\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'latest work')
+
+    const second = await buildLoadedReview(db, session)
+    expect(second.skeleton.headSha).toBe(await headSha(dir, 'feature'))
+    expect(second.skeleton.headSha).not.toBe(first.skeleton.headSha)
+    expect(second.skeleton.files.some((f) => f.path === 'src/latest.ts')).toBe(true)
+  })
+
   it('caches detected artifacts to the DB for a real session', async () => {
     const dir = makeRepoWithArtifact()
     const base = await resolveRefInput(dir, 'main')

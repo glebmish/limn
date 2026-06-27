@@ -1,8 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { FileDiff, ViewMark } from '../../shared/types'
-import { I } from '../kit'
-import { fileViewed } from '../store'
 import { clickable } from '../lib/clickable'
+import { combineReviewStatuses, reviewStatusForFile, reviewStatusLabel, type ReviewGlyphStatus } from '../lib/fileStatus'
+import { FileGlyph, FolderGlyph } from './FileGlyph'
 
 interface TreeDir {
   name: string
@@ -40,27 +40,28 @@ function countFiles(dir: TreeDir): number {
   return n
 }
 
-function fileStatusClass(f: FileDiff, viewedAt: Record<string, ViewMark>): string {
-  if (f.status === 'deleted') return 'st-risk'
-  const mark = viewedAt[f.path]
-  // amber on commit-level marks OR uncommitted hash-drift since viewing (mirrors DiffView)
-  const drift = f.hunks.some((h) => h.since || h.sinceViewed) || (Boolean(mark) && mark.hash !== f.fileHash)
-  if (drift) return 'st-amber'
-  return fileViewed(f, viewedAt) ? 'st-rev' : 'st-unrev'
+function dirStatus(dir: TreeDir, viewedAt: Record<string, ViewMark>): ReviewGlyphStatus {
+  const statuses = [
+    ...dir.files.map((f) => reviewStatusForFile(f, viewedAt)),
+    ...[...dir.dirs.values()].map((child) => dirStatus(child, viewedAt))
+  ]
+  return combineReviewStatuses(statuses)
 }
 
-function DirNode({ dir, collapsed, toggle, children }: {
+function DirNode({ dir, collapsed, toggle, status, children }: {
   dir: TreeDir
   collapsed: Set<string>
   toggle: (path: string) => void
+  status: ReviewGlyphStatus
   children: ReactNode
 }) {
   const isCollapsed = collapsed.has(dir.path)
+  const label = reviewStatusLabel(status)
   return (
     <div className={'gnav-dir' + (isCollapsed ? ' collapsed' : '')}>
-      <div className="gnav-folder" {...clickable(() => toggle(dir.path), { expanded: !isCollapsed })} title={dir.path}>
+      <div className="gnav-folder" {...clickable(() => toggle(dir.path), { expanded: !isCollapsed })} title={`${dir.path} · ${label}`}>
         <span className="gnav-caret"></span>
-        <I.folder className="ficon" />
+        <FolderGlyph status={status} />
         <span className="fname">{dir.name}</span>
         <span className="fcount">{countFiles(dir)}</span>
       </div>
@@ -91,16 +92,16 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className 
   const renderDir = (dir: TreeDir): ReactNode => (
     <>
       {[...dir.dirs.values()].map((child) => (
-        <DirNode key={child.path} dir={child} collapsed={collapsed} toggle={toggle}>
+        <DirNode key={child.path} dir={child} collapsed={collapsed} toggle={toggle} status={dirStatus(child, viewedAt)}>
           {renderDir(child)}
         </DirNode>
       ))}
       {dir.files.map((f) => {
         const name = f.path.split('/').pop() ?? f.path
-        const stat = fileStatusClass(f, viewedAt)
+        const stat = reviewStatusForFile(f, viewedAt)
         // status as text too — the glyph is otherwise color-only (invisible to AT
         // and to colorblind users); this enriches the row's accessible name + tooltip.
-        const label = stat === 'st-risk' ? 'deleted' : stat === 'st-amber' ? 'changed' : stat === 'st-rev' ? 'viewed' : 'unreviewed'
+        const label = reviewStatusLabel(stat)
         return (
           <div
             key={f.path}
@@ -108,7 +109,7 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className 
             title={`${f.path} · ${label}`}
             {...clickable(() => onFileClick(f.path, f))}
           >
-            <span className={'ficon ' + stat}></span>
+            <FileGlyph status={stat} />
             <span className="nm">{name}</span>
           </div>
         )

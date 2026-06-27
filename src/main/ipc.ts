@@ -1,63 +1,87 @@
 import { installCli, takeCliOpen } from './cli.js'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Transport } from './transport.js'
 import type {
-  Api, DashboardData, OpEventMsg, OpResultMsg, RefOptions,
+  Api, DashboardData, OpEventMsg, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
 import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
-import { effectiveRef } from '../shared/types.js'
+import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
-  addWorktree, checkoutBranch, currentBranch, defaultBase, getDiff, headSha, isDirty,
+  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha,
   listBranches, recentCommits, repoState, resolveRefInput
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
-import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir } from './review.js'
+import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
-import { clearPending, resolveDecision } from './engines/approvals.js'
+import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
-import { claudeBinaryPath, codexBinaryPath } from './engines/binaries.js'
+import { engineBinaryStatus, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
+import { OperationCoordinator } from './operations.js'
+import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 
-const activeOps = new Map<string, () => void>()
-const repoLocks = new Set<string>()
-// opIds the user explicitly cancelled, so a turn's catch can tell a user cancel
-// (stay quiet) apart from a genuine failure — regardless of how the engine words
-// the abort (Codex wraps it as "Codex run failed: cancelled", Claude throws an
-// AbortError), which a bare string match on 'cancelled' would miss.
-const cancelledOps = new Set<string>()
-// review threads whose generation op is in flight (created at op start, finalized
-// or noted at op end). Exempts them from the orphan self-heal on mid-op reloads.
-const activeReviewThreads = new Set<number>()
+const operations = new OperationCoordinator()
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.
 let transport: Transport
 
-// ── watch mode: poll the open review's branch head; push when it moves ──
-let watcher: { timer: NodeJS.Timeout; repo: string; branch: string; lastSha: string } | null = null
+// ── watch mode: poll the open review's branch; notify (don't auto-reload) when the
+// branch head moves OR its working tree changes, carrying a drift summary "since the
+// loaded snapshot" so the titlebar can show the fetch pill. The reviewer clicks to
+// fold it in (reload); we never yank the surface out from under them.
+let watcher: {
+  timer: NodeJS.Timeout; repo: string; branch: string; workdir: string | null
+  loadedSha: string; loadSig: string; lastSig: string
+} | null = null
 
-function startWatch(repo: string, branch: string, sha: string): void {
-  if (watcher) clearInterval(watcher.timer)
-  const w = { repo, branch, lastSha: sha, timer: setInterval(() => void poll(), 2000) }
+/** Change detector + current head. For dirty worktrees this hashes actual diff
+ *  content, not just porcelain shape, so editing an already-dirty file emits a new
+ *  pending update. */
+async function watchState(repo: string, branch: string, workdir: string | null): Promise<{ head: string; sig: string }> {
+  const head = await headSha(repo, branch)
+  if (!workdir) return { head, sig: `${head}\n` }
+  const porcelain = (await execGit(workdir, ['status', '--porcelain'])).trim()
+  if (!porcelain) return { head, sig: `${head}\n` }
+  const h = createHash('sha256')
+  h.update(`head\0${head}\0status\0${porcelain}\0`)
+  h.update(await execGit(workdir, ['diff', '--binary', 'HEAD']))
+  const untracked = (await execGit(workdir, ['ls-files', '--others', '--exclude-standard', '-z']))
+    .split('\0').filter(Boolean)
+  const hashes = await hashObjects(workdir, untracked)
+  for (const p of untracked.sort()) h.update(`untracked\0${p}\0${hashes.get(p) ?? ''}\0`)
+  return { head, sig: `${head}\n${h.digest('hex')}` }
+}
+
+async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
+  stopWatch()
+  const workdir = await branchCheckedOutAt(repo, branch)
+  const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
+  const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 500) }
   watcher = w
   async function poll(): Promise<void> {
-    if (repoLocks.has(repo)) return // our own agent op — reload arrives via op:result
+    if (operations.repoBusy(repo)) return // our own agent op — reload arrives via op:result
     try {
-      const head = await headSha(repo, branch)
-      if (head !== w.lastSha) {
-        w.lastSha = head
-        send('repo:changed', { repo, branch, headSha: head })
-      }
+      const { head, sig } = await watchState(repo, branch, w.workdir)
+      if (sig === w.lastSig) return
+      w.lastSig = sig
+      // drift is measured against the LOAD-time state: null when the tree returns
+      // to it; dirty-only changes still broadcast so worktree indicators stay live.
+      const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
+      const drift = driftHasChanges(d) ? d : null
+      const writeCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: head })
+      send('repo:changed', { repo, branch, headSha: head, drift, writeCapability })
     } catch {
       // branch deleted / repo gone — stop quietly
       clearInterval(w.timer)
@@ -74,11 +98,33 @@ function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMs
   transport.broadcast(channel, msg)
 }
 
+function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean): void {
+  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}) })
+}
+
+function errorMessage(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
+}
+
 /** Notify that a long-running agent op finished. Whether this surfaces (and the
  *  "only when unfocused" gate) is the transport's call — desktop shows a native
  *  notification when the window is in the background; the web server no-ops. */
 function notifyIfUnfocused(title: string, body: string): void {
   transport.notify(title, body)
+}
+
+function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.loadReviewState>, refine?: boolean, steer?: string): string {
+  if (refine) {
+    const byId = new Map((state.annotations?.questions ?? []).map((q) => [q.id, q]))
+    const lines = comments.map((c) => {
+      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
+      const q = byId.get(qid)
+      const label = q?.text ?? q?.context ?? (qid || 'Open question')
+      return `- ${label}\n  Answer: ${c.text}`
+    })
+    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
+  }
+  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
 
 /** Forward engine events to the renderer and collect them, so the caller can fold
@@ -104,7 +150,7 @@ function ignoreLocally(repo: string, pattern: string): void {
 
 /** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
  *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
- *  call a dao helper that opens its own transaction (e.g. resetIterations/setArtifacts). */
+ *  call a dao helper that opens its own transaction (e.g. setArtifacts). */
 function inTx(db: DatabaseSync, fn: () => void): void {
   db.exec('BEGIN')
   try {
@@ -153,6 +199,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   const handle = <K extends keyof Api>(name: K, fn: Api[K]): void => {
     transport.handle(name, (...args) => (fn as (...a: unknown[]) => unknown)(...args))
   }
+  const readPrefs = (): Record<string, string> => {
+    const out: Record<string, string> = {}
+    for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
+      out[r.key] = r.value
+    }
+    return out
+  }
+  setEngineBinaryPrefs(readPrefs())
 
   handle('pickRepo', async () => transport.pickDirectory())
 
@@ -238,14 +292,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const session = mustGetSession(db, sessionId)
     // clean up review threads orphaned by a hard crash mid-generation (a lone user
     // turn, no engine session); the in-flight op's thread is exempt.
-    dao.pruneOrphanReviewThreads(db, sessionId, activeReviewThreads)
+    dao.pruneOrphanReviewThreads(db, sessionId, operations.activeReviewThreadIds())
     // drop empty user chats (no messages, no engine session) — legacy persisted
     // "New chat" companions and any orphaned draft. Never touches a chat with a
     // message or a bound engine session.
     dao.pruneEmptyUserChats(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
     if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
-      startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
+      void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
       stopWatch()
     }
@@ -255,8 +309,15 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // The default entry: build a review for a ref pair WITHOUT minting a session row.
   // The renderer holds it as a transient (sessionId null) and materializes via
   // startSession on the first write. Read-only — never touches the DB.
-  handle('previewReview', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) =>
-    previewReview(db, repo, baseInput, compareInput, agent))
+  handle('previewReview', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef) => {
+    const loaded = await previewReview(db, repo, baseInput, compareInput, agent)
+    if (!loaded.refMissing && loaded.session.pair.compare.kind === 'branch') {
+      void startWatch(repo, loaded.session.pair.compare.symbol, loaded.skeleton.headSha)
+    } else {
+      stopWatch()
+    }
+    return loaded
+  })
 
   handle('archiveSession', async (sessionId: number) => {
     dao.archiveSession(db, sessionId)
@@ -266,13 +327,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // Create the review thread up front so the review agent is a real, persisted
   // chat from the moment generation starts (the live stream renders through the
   // normal chat path). The matching `generate(...threadId...)` call finalizes it.
-  handle('beginReview', async (sessionId: number, agent: AgentRef) => {
+  handle('beginReview', async (sessionId: number, agent: AgentRef, update?: boolean, steer?: string) => {
     const session = mustGetSession(db, sessionId)
-    const thread = dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
-    activeReviewThreads.add(thread.id)
+    const existing = update
+      ? dao.listChatThreads(db, sessionId).filter((t) => t.kind === 'review').at(-1)
+      : undefined
+    const thread = existing ?? dao.createChatThread(db, sessionId, { kind: 'review', agent, title: 'Review agent' })
+    operations.markReviewThread(thread.id)
+    const action = existing ? 'Update' : 'Generate'
+    const note = steer?.trim()
     dao.addChatMessage(db, thread.id, {
       role: 'user', at: new Date().toISOString(),
-      text: `Generate a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.`
+      text: `${action} a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.${note ? `\n\nReviewer steer: ${note}` : ''}`
     })
     return thread.id
   })
@@ -280,19 +346,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('generate', async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean) => {
     const session = mustGetSession(db, sessionId)
     const repo = session.repo
-    if (repoLocks.has(repo)) {
-      // another op already holds this repo — note the pre-created thread and bail
-      // WITHOUT entering the try (whose finally would release the other op's lock).
-      const busy = 'Another agent operation is running for this repository'
-      if (dao.getChatThread(db, reviewThreadId)) {
-        dao.addChatMessage(db, reviewThreadId, { role: 'agent', at: new Date().toISOString(), text: `Generation failed: ${busy}.` })
-      }
-      activeReviewThreads.delete(reviewThreadId)
-      send('op:result', { opId, kind: 'review', ok: false, error: busy, reload: true })
-      return
-    }
-    repoLocks.add(repo)
-    try {
+    const outcome = await operations.run(opId, repo, async () => {
       const baseEff = effectiveRef(session.pair.base)
       const compareEff = effectiveRef(session.pair.compare)
       const workdir = await resolveWorkdir(repo, session.pair)
@@ -313,14 +367,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // registered, so it would otherwise be a no-op and the engine would launch
       // anyway. Check here (no await before activeOps.set, so the window is closed)
       // and bail via the catch, which writes the cancelled note + op:result.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
         repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
         model: agent.model, reasoningEffort: agent.reasoningEffort,
         steer: steer?.trim() || undefined, prior
       })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const genEvents = await pump
@@ -347,15 +401,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         }
         dao.setArtifacts(db, sessionId, refs)
       }
-      // resetIterations opens its own transaction, so it can't nest inside inTx
-      // below; run it FIRST so the iterations row already reflects the new engine
-      // session before meta/reconcile read it. This eliminates the dangerous window
-      // where a crash left annotations bound to stale n>1 iterations and reconcileChats
-      // then resynced the review chat to the wrong engine session.
-      dao.resetIterations(db, sessionId, { n: 1, engine: agent.engine, sessionId: engineSession, endSha: skeleton.headSha, at: new Date().toISOString() })
+      const iterationN = dao.nextIterationNumber(db, sessionId)
       // the meta + review-thread finalization are one atomic group: a crash mid-way
       // must not leave annotations saved without the review thread bound to them.
       inTx(db, () => {
+        dao.addIteration(db, sessionId, {
+          n: iterationN,
+          engine: agent.engine,
+          sessionId: engineSession,
+          endSha: skeleton.headSha,
+          at: new Date().toISOString(),
+          title: annotations.title,
+          summary: annotations.summary,
+          annotations
+        })
         dao.updateSessionMeta(db, sessionId, {
           engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
           annotations, title: annotations.title, summary: annotations.summary,
@@ -377,18 +436,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           })
         }
       })
-      send('op:result', { opId, kind: 'review', ok: true, reload: true })
-      notifyIfUnfocused('Guided review ready',
-        `${annotations.sections.length} sections — ${session.pair.compare.symbol}`)
-    } catch (err) {
+      return annotations.sections.length
+    })
+
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'review', 'succeeded', undefined, true)
+      notifyIfUnfocused('Guided review ready', `${outcome.value} sections — ${session.pair.compare.symbol}`)
+    } else {
+      const err = outcome.error
       // off-schema/empty engine output surfaces as a raw ZodError from
       // parseReviewOutput — keep the dump in the log, show the user plain English.
       const msg = err instanceof Error && err.name === 'ZodError'
         ? 'The agent returned an unexpected or empty review format — try regenerating.'
-        : String(err instanceof Error ? err.message : err)
-      // a user cancel (flagged) or an engine-level abort both count as a quiet stop,
-      // not a failure — some engines surface cancellation only as an abort error.
-      const cancelled = cancelledOps.has(opId) || /\babort(ed)?\b/i.test(msg)
+        : errorMessage(err)
+      const cancelled = outcome.status === 'cancelled'
       console.error('[generate] failed:', err)
       // keep the review thread, noting the outcome, so a cancelled/failed run stays
       // visible in chat history (the user turn is already persisted). reload:true so
@@ -399,23 +460,21 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
         })
       }
-      // 'cancelled' is a sentinel the renderer treats as a quiet stop (no error strip).
-      send('op:result', { opId, kind: 'review', ok: false, error: cancelled ? 'cancelled' : msg, reload: true })
+      sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true)
       if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)
-      activeReviewThreads.delete(reviewThreadId)
-      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
+    operations.unmarkReviewThread(reviewThreadId)
+  })
+
+  handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
+    const target = mustGetSession(db, targetSessionId)
+    const targetEndSha = await headSha(target.repo, effectiveRef(target.pair.compare))
+    dao.copyGeneratedReview(db, sourceSessionId, sourceIteration, targetSessionId, targetEndSha)
+    return dao.loadReviewState(db, targetSessionId)
   })
 
   handle('cancel', async (opId: string) => {
-    cancelledOps.add(opId)   // distinguishes a user cancel from a genuine failure
-    activeOps.get(opId)?.()
-    activeOps.delete(opId)
-    clearPending(opId)   // auto-deny any parked approvals so no promise leaks
+    operations.cancel(opId)
   })
 
   handle('respondApproval', async (opId: string, requestId: string, decision: ApprovalDecision) => {
@@ -442,9 +501,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
-    repoLocks.add(repo)
-    try {
+    const outcome = await operations.run(opId, repo, async () => {
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
@@ -456,7 +513,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume).
@@ -477,7 +534,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // persist the user turn up front so a failed/cancelled run doesn't silently
       // drop what the reviewer typed (mirrors the generate path).
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const events = await pump
@@ -495,20 +552,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       }
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-      send('op:result', { opId, kind: 'chat', ok: true })
-    } catch (err) {
-      const cancelled = cancelledOps.has(opId)
-      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+    })
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'chat', 'succeeded')
+    } else {
+      const cancelled = outcome.status === 'cancelled'
+      const msg = errorMessage(outcome.error)
       // the user turn is already persisted; on a genuine failure record an agent note
       // so the thread shows what happened (a user cancel stays quiet), and reload so the
       // user message (and any note) surface in the drawer.
       if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
-      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
-      clearPending(opId)   // settle any approvals still parked when the turn ends
+      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
     }
   })
 
@@ -555,26 +609,26 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    if (repoLocks.has(repo)) throw new Error('Another agent operation is running for this repository')
-    repoLocks.add(repo)
-    try {
-      // write guards: the compare side is a branch checked out (in primary OR a
-      // linked worktree) and that worktree is clean. Edits + commits run in that
-      // worktree. When unmet, the
-      // agent runs write-disabled (review/comment-only) rather than failing.
-      // A refine turn (answering an intent question) is always read-only.
-      const workdir = await resolveWorkdir(repo, session.pair)
-      let writeEnabled = false
-      if (!refine && session.pair.compare.kind === 'branch') {
-        const branch = session.pair.compare.symbol
-        writeEnabled = workdir !== repo
-          ? !(await isDirty(workdir))                                   // linked worktree holds the branch by construction
-          : !(await isDirty(repo)) && (await currentBranch(repo)) === branch
+    const outcome = await operations.run(opId, repo, async () => {
+      // Write guards are computed from the same capability object the renderer
+      // consumes. A refine turn (answering an intent question) stays read-only.
+      const capability = await writeCapabilityFor(repo, session.pair.compare)
+      const workdir = capability.workdir ?? repo
+      if (!refine && !capability.enabled) {
+        const reason = capability.reason === 'dirty'
+          ? 'the working tree has uncommitted changes'
+          : capability.reason === 'not-checked-out'
+            ? 'the compare branch is not checked out'
+            : 'the compare side is not a writable branch'
+        throw new Error(`Agent edits are unavailable because ${reason}`)
       }
+      const writeEnabled = !refine
       const state = dao.loadReviewState(db, sid)
       const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
       for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
+      const userAt = new Date().toISOString()
+      dao.addChatMessage(db, threadId, { role: 'user', at: userAt, text: batchUserMessage(comments, state, refine, steer) })
 
       const engine = makeEngine(thread.agent.engine)
       const tools = createToolHost({
@@ -583,7 +637,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       })
       // cancel during setup → bail before the (write-enabled) engine launches, so a
       // stopped batch can't still edit/commit the worktree.
-      if (cancelledOps.has(opId)) throw new Error('cancelled')
+      operations.throwIfCancelled(opId)
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: refine
@@ -591,7 +645,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
         tools, writeEnabled, opId, executionMode: thread.executionMode
       })
-      activeOps.set(opId, run.cancel)
+      operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(opId, run.events)
       const { value, sessionId: engineSession } = await run.result
       const events = await pump
@@ -606,41 +660,41 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const actions = tools.collected()
       const toolCalls = reduceToolCalls(events)
       const segments = reduceSegments(events)
-      dao.addChatMessage(db, threadId, {
-        role: 'user', at,
-        text: refine ? `Answered ${comments.length} open question(s).`
-          : steer?.trim() ? `Handle ${comments.length} comment(s) — ${steer.trim()}` : `Handle ${comments.length} comment(s).`
-      })
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-      send('op:result', { opId, kind: 'chat', ok: true, reload: true })
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
-      notifyIfUnfocused('Agent handled your comments', `${resolved}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
-    } catch (err) {
+      return resolved
+    })
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'chat', 'succeeded', undefined, true)
+      notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
+    } else {
       // roll back "sent" so comments aren't stuck
       const st = dao.loadReviewState(db, sid)
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      const cancelled = cancelledOps.has(opId)
-      const msg = cancelled ? 'cancelled' : String(err instanceof Error ? err.message : err)
+      const cancelled = outcome.status === 'cancelled'
+      const msg = errorMessage(outcome.error)
       // on a genuine failure record an agent note so the thread shows what happened (a
       // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
       if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
-      send('op:result', { opId, kind: 'chat', ok: false, error: msg, reload: true })
+      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
       if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
-    } finally {
-      repoLocks.delete(repo)
-      activeOps.delete(opId)
-      cancelledOps.delete(opId)   // chat handlers now read this set; don't leak opIds
-      clearPending(opId)   // settle any approvals still parked when the turn ends
     }
   })
 
   handle('approve', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
-    const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
-    dao.updateSessionMeta(db, sessionId, { approvedSha: sha, reviewedAtSha: sha })
+    const loaded = await buildLoadedReview(db, session)
+    dao.approveSessionSurface(db, sessionId, loaded.skeleton.headSha, loaded.branchHash)
+    return dao.loadReviewState(db, sessionId)
+  })
+
+  handle('unapprove', async (sessionId: number) => {
+    const session = mustGetSession(db, sessionId)
+    const loaded = await buildLoadedReview(db, session)
+    dao.unapproveSessionSurface(db, sessionId, loaded.branchHash)
     return dao.loadReviewState(db, sessionId)
   })
 
@@ -651,25 +705,27 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     return dao.loadReviewState(db, sessionId)
   })
 
+  handle('unapproveArtifact', async (sessionId: number, artifactPath: string) => {
+    dao.unapproveArtifact(db, sessionId, artifactPath)
+    return dao.loadReviewState(db, sessionId)
+  })
+
   handle('authStatus', async (engine: EngineId) => {
     const home = os.homedir()
     if (engine === 'claude') {
-      const bin = claudeBinaryPath()
-      if (!bin) return { ok: false, hint: 'Install Claude Code (`claude` not found on PATH)' }
+      const bin = engineBinaryStatus('claude')
+      if (!bin.ok) return { ok: false, hint: bin.configured ? `Claude path is invalid: ${bin.hint}` : 'Install Claude Code (`claude` not found on PATH)' }
       const ok = Boolean(process.env.ANTHROPIC_API_KEY) || fs.existsSync(path.join(home, '.claude'))
-      return { ok, hint: ok ? 'Using Claude Code login or API key' : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
+      return { ok, hint: ok ? `${bin.configured ? 'Configured Claude path' : 'Claude Code from PATH'} · login or API key found` : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
     }
-    const bin = codexBinaryPath()
-    if (!bin) return { ok: false, hint: 'Install Codex CLI (`codex` not found on PATH)' }
+    const bin = engineBinaryStatus('codex')
+    if (!bin.ok) return { ok: false, hint: bin.configured ? `Codex path is invalid: ${bin.hint}` : 'Install Codex CLI (`codex` not found on PATH)' }
     const ok = Boolean(process.env.OPENAI_API_KEY) || fs.existsSync(path.join(home, '.codex', 'auth.json'))
-    return { ok, hint: ok ? 'Using codex login or API key' : 'Run `codex login`, or set OPENAI_API_KEY' }
+    return { ok, hint: ok ? `${bin.configured ? 'Configured Codex path' : 'Codex from PATH'} · login or API key found` : 'Run `codex login`, or set OPENAI_API_KEY' }
   })
 
   handle('getPrefs', async () => {
-    const out: Record<string, string> = {}
-    for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
-      out[r.key] = r.value
-    }
+    const out = readPrefs()
     if (bootNotices.length > 0) out['boot-notices'] = JSON.stringify(bootNotices)
     return out
   })
@@ -677,6 +733,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('setPref', async (key: string, value: string) => {
     db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
+    if (key === ENGINE_PATH_PREF_KEYS.claude || key === ENGINE_PATH_PREF_KEYS.codex) {
+      setEngineBinaryPrefs(readPrefs())
+    }
   })
 
   handle('dashboard', async () => await buildDashboard(db, bootNotices))
@@ -690,6 +749,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('retargetSession', async (sessionId: number, side: 'base' | 'compare', refInput: string) => {
+    if (side === 'base') throw new Error('Session base cannot be changed; open a new review for a different base')
     const session = mustGetSession(db, sessionId)
     const resolved = await resolveRefInput(session.repo, refInput)
     const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }

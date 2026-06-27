@@ -10,14 +10,10 @@ files:
   - package.json
   - "!node_modules/electron/**"
   # engine CLIs come from the user's PATH (claude / codex installs);
-  # exclude the SDKs' bundled platform binaries to keep the app small
+  # exclude Claude SDK bundled platform binaries to keep the app small
   - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
-  - "!node_modules/@openai/codex-darwin-*/**"
-  - "!node_modules/@openai/codex-linux-*/**"
-  - "!node_modules/@openai/codex-win32-*/**"
 asarUnpack:
   - "**/node_modules/@anthropic-ai/**"
-  - "**/node_modules/@openai/**"
 mac:
   target:
     - target: dir
@@ -26,6 +22,7 @@ mac:
       arch: arm64
     - target: dmg
       arch: arm64
-  identity: null
+  identity: "-"
+  hardenedRuntime: false
   category: public.app-category.developer-tools
 npmRebuild: false

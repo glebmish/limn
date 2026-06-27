@@ -13,7 +13,7 @@ export async function addComment(anchor: CommentAnchor, text: string): Promise<s
     status: 'queued',
     replies: [],
     createdAt: new Date().toISOString(),
-    iteration: loaded?.state.iterations.length ?? 0
+    iteration: loaded?.state.latestIteration?.n ?? 0
   }
   const state = await window.api.upsertComment(sessionId, comment)
   useStore.getState().setComments(state.comments)
@@ -36,8 +36,10 @@ export async function deleteComment(id: string): Promise<void> {
 
 /** The current review session = the LATEST review thread (each generation makes a
  *  new one; older review threads stay as history). */
-export function currentReviewChat(chats: { kind: string; id: number }[]): { id: number } | undefined {
-  return [...chats].reverse().find((c) => c.kind === 'review') ?? chats[0]
+export function currentReviewChat(chats: { kind: string; id: number; engineSessionId?: string }[], engineSessionId?: string): { id: number } | undefined {
+  return (engineSessionId ? chats.find((c) => c.kind === 'review' && c.engineSessionId === engineSessionId) : undefined)
+    ?? [...chats].reverse().find((c) => c.kind === 'review')
+    ?? chats[0]
 }
 
 /** Send queued comments to the review agent's chat as one unified batch turn. The
@@ -45,7 +47,7 @@ export function currentReviewChat(chats: { kind: string; id: number }[]): { id: 
  *  opens to show the rollup + commit chip (wf-H). */
 export function sendComments(ids: string[], steer?: string): void {
   const { loaded } = useStore.getState()
-  const target = currentReviewChat(loaded?.state.chats ?? [])
+  const target = currentReviewChat(loaded?.state.chats ?? [], loaded?.state.latestIteration?.sessionId)
   if (!target) return
   useStore.getState().sendBatch(target.id, ids, steer)
 }
@@ -54,7 +56,7 @@ export function sendComments(ids: string[], steer?: string): void {
  *  review agent that folds the decision into the narration — no code edits, no gate. */
 export function sendAnswers(ids: string[]): void {
   const { loaded } = useStore.getState()
-  const target = currentReviewChat(loaded?.state.chats ?? [])
+  const target = currentReviewChat(loaded?.state.chats ?? [], loaded?.state.latestIteration?.sessionId)
   if (!target) return
   useStore.getState().sendBatch(target.id, ids, undefined, true)
 }

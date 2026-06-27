@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { ACCENT, DENSITY, effectiveSections, fileViewed, GUIDANCE, useStore } from '../store'
+import { DENSITY, effectiveSections, fileViewed, GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
-import type { EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
+import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
+import { approvalFresh } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
@@ -19,12 +20,15 @@ import { Tooltip } from '../components/Tooltip'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 import { clickable } from '../lib/clickable'
+import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
+import { dev } from '../dev'
 
 let devFlowRan = false
 let devFocusRan = false
 let devBatchRan = false
 let devGenRan = false
 let devDocRan = false
+let devDriftRan = false
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
 function fakeGenState(): GenState {
@@ -40,7 +44,47 @@ function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, cancelled: false }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null }
+}
+
+/** Titlebar fetch pill (design: 04-drift-close). The branch moved past the loaded
+ *  snapshot — a single pulsing dot sits at HEAD; the counts stay collapsed until
+ *  hover (Limn never re-renders under you). On hover: a commit chip and, separately,
+ *  a working-tree-edit (pencil) chip — committed vs uncommitted told apart by ICON —
+ *  plus the combined +X −Y delta. Click folds it in (reload). */
+function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummary; loadedSha: string; onPull: () => void; open?: boolean }) {
+  const [pulling, setPulling] = useState(false)
+  const tip =
+    `The agent moved the branch while you were reading — `
+    + [
+      drift.commits ? `${drift.commits} new commit${drift.commits === 1 ? '' : 's'}` : null,
+      drift.dirty ? 'uncommitted edits' : null
+    ].filter(Boolean).join(' and ')
+    + ` (+${drift.add} −${drift.del} since ${shortSha(loadedSha)}), not yet loaded. Click to refresh.`
+  return (
+    <button
+      className={'cm-fetch' + (pulling ? ' pulling gone' : '') + (open ? ' is-open' : '')}
+      title={tip}
+      aria-label={tip}
+      onClick={() => { if (pulling) return; setPulling(true); window.setTimeout(onPull, 240) }}
+    >
+      <span className="cmf-dot"></span>
+      <span className="cmf-rest">
+        {drift.commits > 0 && (
+          <span className="cmf-chip">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="7" cy="7" r="2.6" /><path d="M.6 7h3.8M9.6 7h3.8" strokeLinecap="round" /></svg>
+            {drift.commits}
+          </span>
+        )}
+        {drift.dirty && (
+          <span className="cmf-chip" title="uncommitted working-tree edits">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round"><path d="M8.4 2.7l2.9 2.9M2.4 11.6l.7-2.7 5.3-5.3 2 2-5.3 5.3-2.7.7z" /></svg>
+          </span>
+        )}
+        <span className="cmf-delta">+{drift.add} <span className="cmf-del">−{drift.del}</span></span>
+      </span>
+    </button>
+  )
 }
 
 export default function Review() {
@@ -53,7 +97,7 @@ export default function Review() {
   const reviewScrollRef = useRef(0)
   const docScrollRef = useRef<Record<string, number>>({})
   const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
-  const [peek, setPeek] = useState<string | null>(window.limnDev?.openPeek ?? null)
+  const [peek, setPeek] = useState<string | null>(dev.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [titleCommenting, setTitleCommenting] = useState(false)
@@ -77,36 +121,42 @@ export default function Review() {
 
   // dev-only scripted flow: LIMN_FLOW=generate auto-runs the engine once
   useEffect(() => {
-    if (window.limnDev?.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
+    if (dev.flow === 'generate' && !devFlowRan && loaded && !loaded.state.annotations && !gen.running && !gen.error) {
       devFlowRan = true
       startGenerateNow()
     }
     // dev-only: LIMN_SCROLL_BOTTOM keeps scrolling the review body to the bottom as
     // the diffs render (scrollHeight grows over a few frames) to show the volatile band
-    if (window.limnDev?.scrollBottom && loaded) {
+    if (dev.scrollBottom && loaded) {
       let n = 0
       const t = setInterval(() => { const b = scrollRef.current; if (b) b.scrollTo({ top: b.scrollHeight }); if (++n > 12) clearInterval(t) }, 350)
     }
     // dev-only: LIMN_FOCUS=<json FocusTarget> focuses once after the review mounts
-    if (window.limnDev?.focus && !devFocusRan && loaded) {
+    if (dev.focus && !devFocusRan && loaded) {
       devFocusRan = true
-      try { setTimeout(() => focusAnchor(JSON.parse(window.limnDev!.focus!)), 600) } catch { /* bad json */ }
+      try { setTimeout(() => focusAnchor(JSON.parse(dev.focus!)), 600) } catch { /* bad json */ }
     }
     // dev-only: LIMN_RUN_BATCH runs the unified batch over all queued comments once
-    if (window.limnDev?.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
+    if (dev.runBatch && !devBatchRan && loaded && !gen.running && !gen.error) {
       const ids = loaded.state.comments.filter((c) => c.status === 'queued').map((c) => c.id)
       if (ids.length > 0) { devBatchRan = true; setTimeout(() => sendComments(ids), 400) }
     }
     // dev-only: LIMN_FAKE_GEN injects a synthetic running review op so the live
     // generation panel (activity log + phase header + counters) can be captured
-    if (window.limnDev?.fakeGen && !devGenRan && loaded) {
+    if (dev.fakeGen && !devGenRan && loaded) {
       devGenRan = true
       useStore.setState({ gen: fakeGenState() })
     }
+    // dev-only: LIMN_FAKE_DRIFT seeds a synthetic "branch moved" so the titlebar
+    // fetch pill can be captured without a real external commit (open it via is-open)
+    if (dev.fakeDrift && !devDriftRan && loaded) {
+      devDriftRan = true
+      store.setPendingDrift({ headSha: loaded.skeleton.headSha, commits: 2, files: 1, add: 24, del: 7, dirty: true })
+    }
     // dev-only: LIMN_OPEN_DOC opens a spec/plan artifact doc once after mount
-    if (window.limnDev?.openDoc && !devDocRan && loaded) {
+    if (dev.openDoc && !devDocRan && loaded) {
       devDocRan = true
-      openDoc(window.limnDev.openDoc)
+      openDoc(dev.openDoc)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
@@ -152,6 +202,7 @@ export default function Review() {
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
   const annotations = state.annotations
+  const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
   // the files actually rendered: merged (base→working-tree) while dirty, else the spine
@@ -163,6 +214,8 @@ export default function Review() {
   const looseFiles = sections.length > 0 ? displayFiles.filter((f) => !sectionedPaths.has(f.path)) : []
   const totalAdd = displayFiles.reduce((n, f) => n + f.add, 0)
   const totalDel = displayFiles.reduce((n, f) => n + f.del, 0)
+  const dirtyAdd = loaded.volatile.reduce((n, f) => n + f.add, 0)
+  const dirtyDel = loaded.volatile.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter(isSectionDone).length
   const fileCount = displayFiles.length
   const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt)).length
@@ -170,18 +223,14 @@ export default function Review() {
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
   const criterionComments = (i: number) => state.comments.filter((c) => c.anchor.kind === 'acceptance' && c.anchor.index === i)
-  const baseline = state.approvedSha ?? state.reviewedAtSha
-  const lastIteration = state.iterations[state.iterations.length - 1]
-  const approved = state.approvedSha === skeleton.headSha
-  const generatedSha = state.reviewedAtSha ?? lastIteration?.endSha
-  const commitIndex = (sha: string): number => {
-    if (sha === skeleton.headSha) return 0
-    return commits.findIndex((c) => c.sha === sha)
-  }
-  const timelinePosition = (sha: string): number => {
-    const i = commitIndex(sha)
-    return i >= 0 ? i : commits.length
-  }
+  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const approvedHashes = state.approvedHashes ?? approvedShas
+  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
+  const lastIteration = state.latestIteration
+  const commitApproved = approvalFresh(approvedShas, skeleton.headSha)
+  const approved = approvalFresh(approvedHashes, loaded.branchHash)
+  const dirtyNeedsApproval = loaded.dirty && commitApproved && !approved
+  const generatedSha = lastIteration?.endSha ?? state.reviewedAtSha
   const timelineTitle = (sha: string, labels: string[]): string => {
     const c = commits.find((item) => item.sha === sha)
     return [
@@ -208,41 +257,46 @@ export default function Review() {
       </>
     )
   }
-  const timelineGroups = (() => {
-    const grouped = new Map<string, { sha: string; roles: ('generated' | 'approved' | 'head')[]; pos: number }>()
-    const add = (sha: string | undefined, role: 'generated' | 'approved' | 'head'): void => {
-      if (!sha) return
-      const group = grouped.get(sha) ?? { sha, roles: [], pos: timelinePosition(sha) }
-      if (!group.roles.includes(role)) group.roles.push(role)
-      grouped.set(sha, group)
-    }
-    add(generatedSha, 'generated')
-    add(state.approvedSha, 'approved')
-    add(skeleton.headSha, 'head')
-    return [...grouped.values()].sort((a, b) => b.pos - a.pos)
-  })()
+  const timelineGroups = reviewTimelineGroups({
+    headSha: skeleton.headSha,
+    commits,
+    generatedSha,
+    approvedSha: state.approvedSha,
+    approvedShas,
+    commitApproved
+  })
+  const generatedShaInTimeline = timelineShaInRange(skeleton.headSha, commits, generatedSha)
+  const generatedOffTimeline = Boolean(generatedSha && !generatedShaInTimeline)
 
   const renderTimelineStop = (group: (typeof timelineGroups)[number]) => {
     const hasHead = group.roles.includes('head')
     const hasGenerated = group.roles.includes('generated')
     const hasApproved = group.roles.includes('approved')
+    const hasLoadedDirty = hasHead && loaded.dirty && !store.pendingDrift
+    const commitOnlyApproved = hasApproved && hasLoadedDirty && !approved
     const labels = group.roles.map((role) => role === 'generated' ? 'Review generated' : role === 'approved' ? 'Approved by you' : 'HEAD')
     const title = timelineTitle(group.sha, labels)
     const roleIcons = (
       <>
         {hasGenerated && <I.changed />}
         {hasGenerated && hasApproved && <span className="cm-div"></span>}
-        {hasApproved && <I.check />}
+        {hasApproved && <I.check className={commitOnlyApproved ? 'cm-commit-approved' : undefined} />}
       </>
     )
 
-    const tip = timelineTipContent(group.sha, labels)
-    if (hasHead && (hasGenerated || hasApproved)) {
+    const tip = (
+      <>
+        {timelineTipContent(group.sha, labels)}
+        {hasLoadedDirty && <span className="l2">Working tree: +{dirtyAdd} -{dirtyDel} uncommitted</span>}
+      </>
+    )
+    if (hasHead && (hasGenerated || hasApproved || hasLoadedDirty)) {
       return (
         <Tooltip key={group.sha} className="cm-merge" tipClassName="cm-tip" tabIndex={0} role="button" content={tip} aria-label={title}>
           {roleIcons}
           {(hasGenerated || hasApproved) && <span className="cm-div"></span>}
           <span className="cm-sha">{shortSha(group.sha)}</span>
+          {hasLoadedDirty && <I.edit className="cm-dirty-ico" />}
         </Tooltip>
       )
     }
@@ -365,23 +419,28 @@ export default function Review() {
     else goToDoc(path)
   }
 
-  const rootStyle = {
-    '--accent': ACCENT[0], '--accent-ink': ACCENT[1], '--accent-soft': ACCENT[2], '--accent-line': ACCENT[3]
-  } as React.CSSProperties
-
   const approveButton = (
     <button
       className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost rv-approved' : 'btn-primary')}
-      disabled={gen.running || approved}
-      title={loaded.dirty
-        ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
-        : 'Record the current commit as reviewed & approved'}
+      disabled={gen.running}
+      title={approved
+        ? 'Clear your approval for this commit'
+        : dirtyNeedsApproval
+          ? 'Approve this commit together with its current uncommitted working-tree changes'
+        : loaded.dirty
+          ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
+          : 'Record the current commit as approved'}
       onClick={async () => {
         const id = await store.materialize()
-        if (id != null) void window.api.approve(id).then(() => store.reload())
+        if (id != null) void (approved ? window.api.unapprove(id) : window.api.approve(id)).then(() => store.reload())
       }}
     >
-      <I.check style={{ width: 13, height: 13 }} />{approved ? 'Approved' : 'Approve'}
+      <span className="rv-approve-main">
+        {approved
+          ? <><I.x style={{ width: 13, height: 13 }} />Unapprove</>
+          : <><I.check style={{ width: 13, height: 13 }} />{dirtyNeedsApproval ? 'Committed changes approved' : 'Approve'}</>}
+      </span>
+      {dirtyNeedsApproval && <span className="rv-approve-dirty">new uncommitted changes</span>}
     </button>
   )
 
@@ -399,7 +458,7 @@ export default function Review() {
   )
 
   return (
-    <div className={`wf dz-${DENSITY} stage-code`} style={rootStyle}>
+    <div className={`wf dz-${DENSITY} stage-code`}>
       <div className="wf-titlebar">
         <span className="rv-refs">
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={base || branch || 'HEAD'} label="base ref"
@@ -410,6 +469,14 @@ export default function Review() {
         </span>
         <span className="grow"></span>
         <span className="ctmark">
+          {generatedSha && generatedOffTimeline && (
+            <Tooltip className="cm-off" tipClassName="cm-tip" tabIndex={0} role="button"
+              aria-label={`Review is off history · ${shortSha(generatedSha)}`}
+              content={timelineTipContent(generatedSha, ['Review is off history'])}>
+              <I.changed />
+              <span className="cm-off-text">off history</span>
+            </Tooltip>
+          )}
           <Tooltip className="cm-pin" tipClassName="cm-tip" tabIndex={0} role="button" aria-label={`Branch start · ${shortSha(skeleton.mergeBase)}`}
             content={timelineTipContent(skeleton.mergeBase, [base || 'Branch start'])}>
             <I.branch />
@@ -417,7 +484,7 @@ export default function Review() {
           {timelineGroups.map((group, i) => {
             const prevPos = i === 0 ? commits.length : timelineGroups[i - 1].pos
             const n = Math.max(0, prevPos - group.pos)
-            const drift = group.roles.includes('head') && Boolean(generatedSha && generatedSha !== skeleton.headSha)
+            const drift = group.roles.includes('head') && generatedShaInTimeline && generatedSha !== skeleton.headSha
             return (
               <Fragment key={group.sha}>
                 <span className={'cm-arr' + (drift ? ' drift' : '')}>{n > 0 ? n : ''}</span>
@@ -425,6 +492,9 @@ export default function Review() {
               </Fragment>
             )
           })}
+          {store.pendingDrift && (
+            <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(dev.fakeDriftOpen)} />
+          )}
         </span>
         <WorkspacePicker branch={branch} />
         <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
@@ -432,6 +502,9 @@ export default function Review() {
         </button>
         <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
           <I.bubble style={{ width: 13, height: 13 }} />Chat
+        </button>
+        <button className="wf-iconbtn" onClick={store.openSettings} title="Settings" aria-label="Settings">
+          <I.gear style={{ width: 13, height: 13 }} />
         </button>
       </div>
 
@@ -550,20 +623,30 @@ export default function Review() {
                 className="gnav-tree-flat"
               />
             ) : sections.map((s, i) => {
-              const done = isSectionDone(s)
               const sFiles = filesFor(s)
-              const hasSince = sFiles.some((f) => f.hunks.some((h) => h.since))
+              const sectionNav = sectionDisclosureState(sFiles, viewedAt, {
+                id: s.id,
+                collapsed: store.collapsed,
+                expanded: store.expanded,
+                focused: store.focusTarget?.sectionId === s.id
+              })
               return (
                 <div
                   key={s.id}
-                  className={'gnav-sec' + (cur === s.id && !done ? ' cur' : '') + (hasSince ? ' amber' : '') + (done ? ' done' : '')}
-                  {...clickable(() => jumpTo(s.id))}
+                  className={
+                    'gnav-sec'
+                    + (cur === s.id && !sectionNav.done ? ' cur' : '')
+                    + (sectionNav.hasSince ? ' amber' : '')
+                    + (sectionNav.done ? ' done' : '')
+                    + (!sectionNav.open ? ' collapsed' : '')
+                  }
                 >
                   <div className="gnav-head">
-                    <span className="gnav-idx">{done ? <I.check style={{ width: 11, height: 11 }} /> : i + 1}</span>
-                    <span className="gnav-name" title={s.name}>{s.name}</span>
+                    <span className="gnav-caret" {...clickable(() => store.toggleSection(s.id, sectionNav.open), { expanded: sectionNav.open })} />
+                    <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
+                    <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
                   </div>
-                  {cur === s.id && !done && s.desc && <div className="gnav-intent">{s.desc}</div>}
+                  {sectionNav.open && !sectionNav.done && s.desc && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{s.desc}</div>}
                   <FileTree
                     files={sFiles}
                     viewedAt={viewedAt}
@@ -588,7 +671,7 @@ export default function Review() {
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
                     {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
-                    {annotations?.title ?? `Changes on ${branch}`}
+                    {annotations?.title ?? fallbackTitle}
                   </h1>
                   {approveButton}
                 </div>

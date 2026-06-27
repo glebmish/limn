@@ -2,6 +2,7 @@ import { I, EngineGlyph } from '../kit'
 import { usePopover } from '../lib/usePopover'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
+import { dev } from '../dev'
 
 /** Chat selector as a dropdown listing every chat (replaces the tab strip so it
  *  doesn't crowd as chats pile up). Trigger shows the active chat; the menu lists
@@ -14,7 +15,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   onDelete?: (id: number) => void
 }) {
   // full-width dropdown that scrolls (not overflows) once chats pile up
-  const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 5, matchWidth: true, defaultOpen: Boolean(window.limnDev?.openChatList) })
+  const { open, toggle, close, anchorRef, floatingRef, popStyle: menuStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 5, matchWidth: true, defaultOpen: Boolean(dev.openChatList) })
   const active = chats.find((c) => c.id === activeId) ?? null
 
   const pick = (id: number): void => { onSwitch(id); close() }

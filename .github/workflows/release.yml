@@ -40,10 +40,10 @@ jobs:
 
       - name: Build & package (.app → zip + dmg, arm64)
         run: npm run package
-        # The app ships UNSIGNED (electron-builder.yml has identity: null → ad-hoc
-        # signed only). Users clear Gatekeeper with `xattr -dr com.apple.quarantine`
-        # (documented in the README). To sign + notarize instead, set the secrets
-        # below as repo secrets and remove `identity: null` from electron-builder.yml.
+        # The app ships ad-hoc signed but not notarized. Users clear Gatekeeper with
+        # `xattr -dr com.apple.quarantine` (documented in the README). To Developer
+        # ID sign + notarize instead, set the secrets below as repo secrets and replace
+        # `identity: "-"` / `hardenedRuntime: false` in electron-builder.yml.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # --- wired but UNUSED until signing is enabled ---

@@ -77,7 +77,7 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
 }
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, enterHub, openReview } = useStore()
+  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, enterHub, openReview, openSettings } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void boot() }, [boot])
@@ -137,6 +137,10 @@ export default function Dashboard() {
     <div className="limn-dash">
       <div className="wf-titlebar">
         <span className="wf-title"><span className="wf-mark"><I.mark style={{ width: 15, height: 15 }} /></span><b>Limn</b></span>
+        <span className="grow" />
+        <button className="wf-iconbtn" onClick={openSettings} title="Settings" aria-label="Settings">
+          <I.gear style={{ width: 13, height: 13 }} />
+        </button>
       </div>
 
       <div className="limn-dash-head">

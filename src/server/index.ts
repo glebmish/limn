@@ -6,16 +6,19 @@ import crypto from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { registerIpc } from '../main/ipc.js'
 import { openDb } from '../main/db/db.js'
+import { isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
 import type { Transport, BroadcastChannel, BroadcastMsg } from '../main/transport.js'
 
 // ── config ──
 const PORT = Number(process.env.LIMN_WEB_PORT || process.env.PORT || 8787)
-// bind all interfaces so the Tailscale IP is reachable; Tailscale's network ACLs
-// are the perimeter. Set LIMN_WEB_HOST=127.0.0.1 to keep it local-only.
-const HOST = process.env.LIMN_WEB_HOST || '0.0.0.0'
-// optional shared secret. When set, every request must carry it (?token= or a
-// Bearer header). Strongly recommended since this server exposes the host's repos,
-// git working trees, and the locally-installed agent credentials.
+// Secure by default: bind loopback only. To expose the server on a LAN/Tailscale
+// IP set LIMN_WEB_HOST explicitly (e.g. 0.0.0.0) AND set LIMN_WEB_TOKEN — a
+// non-loopback bind with no token is refused at startup (see main()).
+const HOST = process.env.LIMN_WEB_HOST || '127.0.0.1'
+// optional shared secret. When set, RPC and event requests must carry it (?token=
+// or a Bearer header). Static assets stay public so the token-aware client can boot.
+// Strongly recommended since active endpoints expose the host's repos, git working
+// trees, and locally-installed agent credentials.
 const TOKEN = process.env.LIMN_WEB_TOKEN || ''
 const STATIC_ROOT = process.env.LIMN_WEB_STATIC || path.join(import.meta.dirname, '../../out/renderer')
 
@@ -64,6 +67,7 @@ function authorized(req: http.IncomingMessage, url: URL): boolean {
   return q != null && safeEqual(q, TOKEN)
 }
 
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
@@ -74,6 +78,13 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 }
 
 function main(): void {
+  // Fail closed: a non-loopback bind with no token is unauthenticated network
+  // access to this host's repos, working trees, and agent credentials. Refuse to
+  // start rather than expose it on a warning the user may never see.
+  if (!isLoopbackName(HOST) && !TOKEN) {
+    console.error(`[limn] refusing to bind ${HOST} with no LIMN_WEB_TOKEN — that would let anyone who can reach :${PORT} read this host's repos and use its agent credentials. Set LIMN_WEB_TOKEN to require auth, or use the loopback default (LIMN_WEB_HOST unset / 127.0.0.1).`)
+    process.exit(1)
+  }
   bootstrapPath()
   const dbPath = process.env.LIMN_DB || defaultDbPath()
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
@@ -106,7 +117,14 @@ function main(): void {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
-    if (!authorized(req, url)) { res.writeHead(401).end('unauthorized'); return }
+    const protectedPath = isProtectedPath(url.pathname)
+    if (protectedPath && !authorized(req, url)) { res.writeHead(401).end('unauthorized'); return }
+
+    // CSRF / DNS-rebinding guard on the active endpoints (RPC mutates repos / runs
+    // the agent; SSE leaks the live op stream). Static assets stay open.
+    if (protectedPath && !sameSiteOk(req.headers, Boolean(TOKEN))) {
+      res.writeHead(403).end('forbidden origin'); return
+    }
 
     // ── push stream: op:event / op:result / repo:changed ──
     if (req.method === 'GET' && url.pathname === '/events') {
@@ -157,14 +175,11 @@ function main(): void {
       console.warn(`[limn] WARNING: ${STATIC_ROOT}/index.html missing — run "npm run build" first.`)
     }
     if (!TOKEN) {
-      // No token is fine on loopback (local-only); on a non-loopback bind it means
-      // anyone who can reach the port gets full access — surface that loudly.
-      const loopback = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1'
-      if (loopback) {
-        console.log('[limn] no LIMN_WEB_TOKEN set — fine on loopback (local-only).')
-      } else {
-        console.warn(`[limn] ⚠ SECURITY: bound to ${HOST} with NO token — anyone who can reach :${PORT} can read this host's repos, working trees, and use its agent credentials. Set LIMN_WEB_TOKEN to require auth, or LIMN_WEB_HOST=127.0.0.1 for local-only (relying only on network ACLs, e.g. Tailscale, otherwise).`)
-      }
+      // Reachable only on a loopback bind (a non-loopback bind with no token is
+      // refused before listen). Local-only is fine without a token.
+      console.log('[limn] no LIMN_WEB_TOKEN set — fine on loopback (local-only).')
+    } else if (!isLoopbackName(HOST)) {
+      console.log(`[limn] bound to ${HOST} with token auth required.`)
     }
   })
 }

@@ -15,7 +15,12 @@ export function openDb(file: string): OpenResult {
   let recoveredFrom: string | undefined
   try {
     db = open(file)
-  } catch {
+  } catch (err) {
+    // Only move the live db aside when the file is genuinely corrupt. Transient
+    // failures (lock contention from a concurrent desktop+web open, a permissions
+    // error) must NOT rename the user's real database away and create an empty one
+    // — that would be surprising data loss. Rethrow those instead.
+    if (!isCorruptionError(err)) throw err
     recoveredFrom = `${file}.corrupt-${Date.now()}`
     fs.renameSync(file, recoveredFrom)
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
@@ -28,6 +33,14 @@ export function openDb(file: string): OpenResult {
     throw err
   }
   return { db, recoveredFrom }
+}
+
+/** True when an open/integrity error indicates an actually corrupt database file
+ *  (as opposed to a lock, permission, or other transient failure). Matches the
+ *  integrity_check sentinel raised by open() and SQLite's corruption messages. */
+export function isCorruptionError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return /\bintegrity\b|malformed|not a database|file is encrypted|database disk image|sqlite_corrupt|sqlite_notadb/.test(msg)
 }
 
 function open(file: string): DatabaseSync {

@@ -3,6 +3,7 @@ import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
 import { I, EngineGlyph } from '../kit'
 import { usePopover } from '../lib/usePopover'
+import { dev } from '../dev'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
@@ -20,7 +21,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
   // open state + on-screen positioning + outside-click dismissal in one. `align`
   // is just the *preferred* edge now — the core flips/clamps to the viewport.
-  const { open, toggle, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: align === 'left' ? 'start' : 'end', defaultOpen: Boolean(window.limnDev?.openPicker) })
+  const { open, toggle, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: align === 'left' ? 'start' : 'end', defaultOpen: Boolean(dev.openPicker) })
 
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
@@ -32,7 +33,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
   // dev-only: drive the real onChange once so a static capture can show selection
   const devPicked = useRef(false)
   useEffect(() => {
-    const e = window.limnDev?.pickEngine
+    const e = dev.pickEngine
     if (e && !devPicked.current) { devPicked.current = true; onChange({ engine: e as EngineId }) }
   }, [onChange])
 

@@ -6,6 +6,23 @@ export interface FileDiff { path: string; oldPath?: string; status: 'modified' |
 export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
 export interface CommitInfo { sha: string; subject: string; author: string; date: string }
+/** What landed on the compare branch since the loaded review snapshot: new commits
+ *  plus the file/line delta (committed + uncommitted) since the loaded SHA, and
+ *  whether the worktree currently carries uncommitted edits. Backs the titlebar
+ *  "since you reviewed" fetch pill (commit chip + working-tree-edit chip). */
+export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number; dirty: boolean }
+
+/** Main-process verdict on whether an agent may edit the compare branch. */
+export interface AgentWriteCapability {
+  enabled: boolean
+  reason: 'available' | 'not-branch' | 'not-checked-out' | 'dirty'
+  branch: string | null
+  workdir: string | null
+}
+
+export function driftHasChanges(drift: DriftSummary | null | undefined): drift is DriftSummary {
+  return Boolean(drift && (drift.commits > 0 || drift.files > 0 || drift.dirty))
+}
 
 // ── annotations (engine output, validated) ───────────────────
 export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]
@@ -187,7 +204,19 @@ export interface ChatThread {
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
 }
-export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string }
+export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations }
+export interface ReviewCopyCandidate {
+  sessionId: number
+  iteration: number
+  title?: string
+  baseSha: string
+  endSha: string
+  commitsOld: number
+  at: string
+  agent?: AgentRef
+  baseSymbol: string
+  compareSymbol: string
+}
 export interface ReviewState {
   repo: string; branch: string; base: string;
   engine?: EngineId; agent?: AgentRef; annotations?: ReviewAnnotations;
@@ -200,8 +229,13 @@ export interface ReviewState {
   reviewedSections: string[];
   /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;
+  /** every committed state explicitly approved in this session */
+  approvedShas?: string[];
+  /** every loaded branch surface explicitly approved; clean surfaces use hash=headSha */
+  approvedHashes?: string[];
   /** per-artifact plan/spec approval: path → SHA at approval time */
   artifactApprovals: Record<string, string>;
+  latestIteration?: Iteration;
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
@@ -259,6 +293,14 @@ export function effectiveRef(side: RefSide): string {
   return side.kind === 'branch' ? side.symbol : side.anchorSha
 }
 
+/** A review approval covers a committed tree, not uncommitted working-tree edits.
+ *  It is fresh only when the approved SHA is the loaded HEAD and the loaded
+ *  working tree is clean. */
+export function approvalFresh(approvedHashes: readonly string[] | string | undefined, branchHash: string | undefined): boolean {
+  const hashes = Array.isArray(approvedHashes) ? approvedHashes : approvedHashes ? [approvedHashes] : []
+  return Boolean(branchHash && hashes.includes(branchHash))
+}
+
 export interface SessionMeta {
   id: number
   repo: string
@@ -278,7 +320,7 @@ export interface SessionListItem {
   compareKind: RefKind
   title?: string
   hasReview: boolean       // an annotation/review has been generated
-  approved: boolean        // approvedSha === reviewedAtSha (latest state approved)
+  approved: boolean        // committed review state is approved; live dirty state is evaluated on load
   archived: boolean        // soft-deleted (archived_at set) — shown only on demand
   unresolved: number       // queued + sent comments
   updatedAt: string

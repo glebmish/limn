@@ -1,57 +1,81 @@
 import { describe, it, expect } from 'vitest'
-import type { ThreadEvent } from '@openai/codex-sdk'
-import { toEvent } from '../src/main/engines/codex'
+import { appServerAgentMessageText, appServerItemToEvent, appServerNotifToEvent, collectAppServerFinalText } from '../src/main/engines/codexAppServer'
 
-// toEvent maps Codex ThreadEvents to our EngineEvents. wf-D makes tool activity a
-// structured ToolCall with a run -> ok/err lifecycle keyed by item.id.
+// app-server notifications map Codex work into the engine-agnostic event stream.
+// Tool activity is represented as a structured ToolCall with run -> ok/err
+// lifecycle keyed by item.id.
 
-describe('codex toEvent — tool-call lifecycle', () => {
+describe('codex app-server events — tool-call lifecycle', () => {
   it('surfaces a started MCP tool call as a running ToolCall', () => {
-    const ev = { type: 'item.started', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'add_comment', arguments: { file: 'src/a.ts' }, status: 'in_progress' } } as unknown as ThreadEvent
-    expect(toEvent(ev)).toEqual({ type: 'tool', call: { id: 'i1', verb: 'edit', name: 'add_comment', kv: [['file', 'src/a.ts']], state: 'run' } })
+    const item = { id: 'i1', type: 'mcpToolCall', server: 'limn', tool: 'add_comment', arguments: { file: 'src/a.ts' }, status: 'inProgress' }
+    expect(appServerItemToEvent(item, false)).toEqual({ type: 'tool', call: { id: 'i1', verb: 'edit', name: 'add_comment', kv: [['file', 'src/a.ts']], state: 'run' } })
   })
 
   it('settles a completed MCP tool call as ok', () => {
-    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'add_comment', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: 'ok' }] } } } as unknown as ThreadEvent
-    expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'ok', out: 'ok' } })
+    const item = { id: 'i1', type: 'mcpToolCall', server: 'limn', tool: 'add_comment', arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: 'ok' }] } }
+    expect(appServerItemToEvent(item, true)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'ok', out: 'ok' } })
   })
 
-  it('reports a failed MCP tool call as err (agent keeps going)', () => {
-    const ev = { type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'resolve_comment', arguments: {}, status: 'failed', error: { message: 'No comment with id x' } } } as unknown as ThreadEvent
-    expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'err', out: 'No comment with id x' } })
-  })
-
-  it('does not double-report an in-progress update', () => {
-    const ev = { type: 'item.updated', item: { id: 'i1', type: 'mcp_tool_call', server: 'limn', tool: 'focus', arguments: {}, status: 'in_progress' } } as unknown as ThreadEvent
-    expect(toEvent(ev)).toBeNull()
+  it('reports a failed MCP tool call as err', () => {
+    const item = { id: 'i1', type: 'mcpToolCall', server: 'limn', tool: 'resolve_comment', arguments: {}, status: 'failed', error: { message: 'No comment with id x' } }
+    expect(appServerItemToEvent(item, true)).toMatchObject({ type: 'tool', call: { id: 'i1', state: 'err', out: 'No comment with id x' } })
   })
 
   it('maps command execution start -> run and completion -> ok with output', () => {
-    const start = { type: 'item.started', item: { id: 'c', type: 'command_execution', command: 'git status', aggregated_output: '', status: 'in_progress' } } as unknown as ThreadEvent
-    expect(toEvent(start)).toMatchObject({ type: 'tool', call: { id: 'c', verb: 'bash', arg: 'git status', state: 'run' } })
-    const done = { type: 'item.completed', item: { id: 'c', type: 'command_execution', command: 'git status', aggregated_output: 'clean', exit_code: 0, status: 'completed' } } as unknown as ThreadEvent
-    expect(toEvent(done)).toMatchObject({ type: 'tool', call: { id: 'c', state: 'ok', out: 'clean' } })
+    const start = { id: 'c', type: 'commandExecution', command: 'git status', aggregatedOutput: '', status: 'inProgress' }
+    expect(appServerItemToEvent(start, false)).toMatchObject({ type: 'tool', call: { id: 'c', verb: 'bash', arg: 'git status', state: 'run' } })
+    const done = { id: 'c', type: 'commandExecution', command: 'git status', aggregatedOutput: 'clean', exitCode: 0, status: 'completed' }
+    expect(appServerItemToEvent(done, true)).toMatchObject({ type: 'tool', call: { id: 'c', state: 'ok', out: 'clean' } })
   })
 
   it('maps a non-zero command exit to err', () => {
-    const done = { type: 'item.completed', item: { id: 'c', type: 'command_execution', command: 'rg foo', aggregated_output: 'boom', exit_code: 2, status: 'completed' } } as unknown as ThreadEvent
-    expect(toEvent(done)).toMatchObject({ type: 'tool', call: { id: 'c', state: 'err', out: 'boom' } })
+    const done = { id: 'c', type: 'commandExecution', command: 'rg foo', aggregatedOutput: 'boom', exitCode: 2, status: 'completed' }
+    expect(appServerItemToEvent(done, true)).toMatchObject({ type: 'tool', call: { id: 'c', state: 'err', out: 'boom' } })
   })
 
-  it('maps file_change completion -> edit ok', () => {
-    const ev = { type: 'item.completed', item: { id: 'f', type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'update' }], status: 'completed' } } as unknown as ThreadEvent
-    expect(toEvent(ev)).toMatchObject({ type: 'tool', call: { id: 'f', verb: 'edit', arg: 'src/a.ts', state: 'ok' } })
+  it('maps fileChange completion -> edit ok', () => {
+    const item = { id: 'f', type: 'fileChange', changes: [{ path: 'src/a.ts', kind: 'update' }], status: 'completed' }
+    expect(appServerItemToEvent(item, true)).toMatchObject({ type: 'tool', call: { id: 'f', verb: 'edit', arg: 'src/a.ts', state: 'ok' } })
   })
 
-  it('maps agent messages to text in a free-form (chat-style) turn', () => {
-    const msg = { type: 'item.completed', item: { id: 'm', type: 'agent_message', text: 'done' } } as unknown as ThreadEvent
-    expect(toEvent(msg)).toEqual({ type: 'text', text: 'done' })
+  it('maps agent message deltas to text', () => {
+    expect(appServerNotifToEvent('item/agentMessage/delta', { delta: 'done' })).toEqual({ type: 'text', text: 'done' })
   })
 
-  it('drops the agent message in a structured turn — it is the JSON result payload, not chat prose', () => {
-    // review generation runs with an output schema, so the agent message body is the
-    // raw annotations JSON. Streaming it as text dumped JSON into the review thread.
-    const msg = { type: 'item.completed', item: { id: 'm', type: 'agent_message', text: '{"title":"x","sections":[]}' } } as unknown as ThreadEvent
-    expect(toEvent(msg, true)).toBeNull()
+  it('does not emit completed agent messages as text directly', () => {
+    expect(appServerNotifToEvent('item/completed', { item: { id: 'm', type: 'agentMessage', text: 'done' } })).toBeNull()
+  })
+
+  it('extracts completed agent messages from camel-case and snake-case item shapes', () => {
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agentMessage', text: 'done' } })).toBe('done')
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agent_message', content: [{ type: 'text', text: 'done' }] } })).toBe('done')
+  })
+
+  it('extracts structured completed agent output when the app-server provides it out-of-band', () => {
+    expect(appServerAgentMessageText('item/completed', { item: { id: 'm', type: 'agent_message', structured_output: { title: 'T' } } })).toBe('{"title":"T"}')
+  })
+
+  it('extracts completed raw response assistant messages', () => {
+    expect(appServerAgentMessageText('rawResponseItem/completed', {
+      item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"T"}' }] }
+    })).toBe('{"title":"T"}')
+  })
+
+  it('uses the latest completed message, not planning deltas, for structured turns', () => {
+    let text = ''
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: '{"title":"Planning"}' }, true)
+    text = collectAppServerFinalText(text, 'item/completed', { item: { id: 'm1', type: 'agentMessage', text: '{"title":"Early"}' } }, true)
+    text = collectAppServerFinalText(text, 'rawResponseItem/completed', {
+      item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"Final"}' }] }
+    }, true)
+    expect(text).toBe('{"title":"Final"}')
+  })
+
+  it('keeps delta behavior for chat turns', () => {
+    let text = ''
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: 'hel' }, false)
+    text = collectAppServerFinalText(text, 'item/agentMessage/delta', { delta: 'lo' }, false)
+    text = collectAppServerFinalText(text, 'item/completed', { item: { id: 'm', type: 'agentMessage', text: 'hello' } }, false)
+    expect(text).toBe('hello')
   })
 })

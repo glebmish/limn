@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentAction, AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
-  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewState, SessionListItem, SessionMeta, ViewMark
+  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from '../../shared/types.js'
-import { effectiveRef, refIdentity } from '../../shared/types.js'
+import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
@@ -72,6 +72,19 @@ interface SessionDbRow {
 
 const SESSION_SELECT = `SELECT s.*, r.path AS repo_path FROM sessions s JOIN repos r ON r.id = s.repo_id`
 
+function sessionApprovals(db: DatabaseSync, sessionId: number, legacyApprovedSha?: string | null): { shas: string[]; hashes: string[] } {
+  const shas = new Set<string>()
+  const hashes = new Set<string>()
+  const rows = db.prepare('SELECT sha, hash FROM session_approvals WHERE session_id = ?').all(sessionId) as { sha: string; hash: string }[]
+  if (legacyApprovedSha) shas.add(legacyApprovedSha)
+  if (rows.length === 0 && legacyApprovedSha) hashes.add(legacyApprovedSha)
+  for (const r of rows) {
+    shas.add(r.sha)
+    hashes.add(r.hash)
+  }
+  return { shas: [...shas], hashes: [...hashes] }
+}
+
 function rowToMeta(row: SessionDbRow): SessionMeta {
   return {
     id: row.id,
@@ -109,11 +122,12 @@ export function getSession(db: DatabaseSync, id: number): SessionMeta | null {
 
 export function findSession(db: DatabaseSync, repoPath: string, pair: RefPair): SessionMeta | null {
   // Multiple sessions may now share a (base, compare) identity — return the most
-  // recently touched live one (the "resume hint" for that exact pair).
+  // recently touched live one. Base identity is the resolved anchor SHA, even for
+  // branch refs, because a session's base is immutable once generated.
   const row = db.prepare(`${SESSION_SELECT}
-    WHERE r.path = ? AND s.base_ident = ? AND s.compare_ident = ? AND s.archived_at IS NULL
+    WHERE r.path = ? AND s.base_anchor_sha = ? AND s.compare_ident = ? AND s.archived_at IS NULL
     ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`)
-    .get(repoPath, refIdentity(pair.base), refIdentity(pair.compare)) as SessionDbRow | undefined
+    .get(repoPath, pair.base.anchorSha, refIdentity(pair.compare)) as SessionDbRow | undefined
   return row ? rowToMeta(row) : null
 }
 
@@ -156,6 +170,7 @@ export function recentSessions(db: DatabaseSync, repoPaths: string[], limit: num
 
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
   const meta = rowToMeta(row)
+  const approvals = sessionApprovals(db, row.id, row.approved_sha)
   return {
     id: row.id,
     baseSymbol: row.base_symbol,
@@ -163,7 +178,7 @@ function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
     compareKind: row.compare_kind,
     title: row.title ?? undefined,
     hasReview: Boolean(row.annotations_json),
-    approved: Boolean(row.approved_sha) && row.approved_sha === row.reviewed_at_sha,
+    approved: approvalFresh(approvals.hashes, row.reviewed_at_sha ?? undefined),
     archived: Boolean(row.archived_at),
     unresolved: unresolvedCount(db, row.id),
     updatedAt: meta.updatedAt,
@@ -177,6 +192,7 @@ export function archiveSession(db: DatabaseSync, id: number): void {
 }
 
 export function retargetSession(db: DatabaseSync, id: number, which: 'base' | 'compare', side: RefSide): void {
+  if (which === 'base') throw new Error('Session base cannot be changed')
   assertResolved(side)
   db.prepare(`UPDATE sessions SET ${which}_kind = ?, ${which}_symbol = ?, ${which}_anchor_sha = ?, updated_at = ?
     WHERE id = ?`).run(side.kind, side.symbol, side.anchorSha, now(), id)
@@ -189,8 +205,8 @@ export interface SessionMetaPatch {
   title?: string
   summary?: string
   annotations?: ReviewAnnotations
-  approvedSha?: string
-  reviewedAtSha?: string
+  approvedSha?: string | null
+  reviewedAtSha?: string | null
 }
 
 export function updateSessionMeta(db: DatabaseSync, id: number, patch: SessionMetaPatch): void {
@@ -383,27 +399,128 @@ export function pruneOrphanReviewThreads(db: DatabaseSync, sessionId: number, ex
 }
 
 export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration): void {
-  db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(session_id, n) DO UPDATE SET engine = excluded.engine,
-      engine_session_id = excluded.engine_session_id, end_sha = excluded.end_sha,
-      summary = excluded.summary, at = excluded.at`)
-    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at)
+  if (!it.title || !it.annotations) throw new Error('iteration requires title and annotations')
+  db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at, title, annotations_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at, it.title, JSON.stringify(it.annotations))
 }
 
-/** Reset iteration history to a single first iteration (regenerate semantics:
- *  a fresh review starts a fresh agent thread; stale n>1 rows must not survive
- *  or chat/fix would resume the wrong engine session). */
-export function resetIterations(db: DatabaseSync, sessionId: number, it: Iteration): void {
+export function nextIterationNumber(db: DatabaseSync, sessionId: number): number {
+  const row = db.prepare('SELECT COALESCE(MAX(n), 0) + 1 AS n FROM iterations WHERE session_id = ?').get(sessionId) as { n: number }
+  return row.n
+}
+
+type IterationRow = { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string; title: string; annotations_json: string }
+
+function rowToIteration(r: IterationRow): Iteration {
+  return {
+    n: r.n,
+    engine: r.engine,
+    sessionId: r.engine_session_id,
+    endSha: r.end_sha,
+    at: r.at,
+    ...(r.summary ? { summary: r.summary } : {}),
+    title: r.title,
+    annotations: JSON.parse(r.annotations_json) as ReviewAnnotations
+  }
+}
+
+export function latestIteration(db: DatabaseSync, sessionId: number): Iteration | null {
+  const row = db.prepare(
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1'
+  ).get(sessionId) as IterationRow | undefined
+  return row ? rowToIteration(row) : null
+}
+
+export function reviewCopyCandidates(
+  db: DatabaseSync, repoPath: string, currentSessionId: number, baseSha: string, positions: Map<string, number>
+): ReviewCopyCandidate[] {
+  const rows = db.prepare(`SELECT s.*, r.path AS repo_path,
+      i.n, i.engine AS iteration_engine, i.engine_session_id, i.end_sha,
+      i.summary AS iteration_summary, i.at AS iteration_at,
+      i.title AS iteration_title, i.annotations_json
+    FROM sessions s JOIN repos r ON r.id = s.repo_id
+    JOIN iterations i ON i.session_id = s.id
+    WHERE r.path = ? AND s.id != ? AND s.base_anchor_sha = ?
+      AND s.archived_at IS NULL
+    ORDER BY i.at DESC, s.updated_at DESC, s.id DESC`)
+    .all(repoPath, currentSessionId, baseSha) as unknown as (SessionDbRow & {
+      n: number; iteration_engine: EngineId; engine_session_id: string; end_sha: string
+      iteration_summary: string | null; iteration_at: string; iteration_title: string; annotations_json: string
+    })[]
+  const out: ReviewCopyCandidate[] = []
+  for (const row of rows) {
+    const pos = positions.get(row.end_sha)
+    if (pos == null) continue
+    out.push({
+      sessionId: row.id,
+      iteration: row.n,
+      title: row.iteration_title,
+      baseSha,
+      endSha: row.end_sha,
+      commitsOld: pos,
+      at: row.iteration_at,
+      agent: rowToAgent(row.iteration_engine, row.model, row.reasoning_effort),
+      baseSymbol: row.base_symbol,
+      compareSymbol: row.compare_symbol
+    })
+  }
+  return out.sort((a, b) => a.commitsOld - b.commitsOld || b.at.localeCompare(a.at))
+}
+
+export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, sourceIteration: number, targetSessionId: number, targetEndSha: string): void {
+  const source = getSession(db, sourceSessionId)
+  const target = getSession(db, targetSessionId)
+  if (!source || !target) throw new Error('review session not found')
+  const itRow = db.prepare(
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? AND n = ?'
+  ).get(sourceSessionId, sourceIteration) as IterationRow | undefined
+  if (!itRow) throw new Error('source review has no generated content to copy')
+  const it = rowToIteration(itRow)
+  const annotations = it.annotations!
+  const agent = annotations.generatedBy ?? source.agent ?? { engine: it.engine }
+
   db.exec('BEGIN')
   try {
-    db.prepare('DELETE FROM iterations WHERE session_id = ?').run(sessionId)
-    db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at)
+    updateSessionMeta(db, targetSessionId, {
+      engine: agent.engine,
+      model: agent.model ?? null,
+      reasoningEffort: agent.reasoningEffort ?? null,
+      annotations,
+      title: annotations.title,
+      summary: annotations.summary,
+      reviewedAtSha: targetEndSha
+    })
+    addIteration(db, targetSessionId, {
+      n: nextIterationNumber(db, targetSessionId),
+      engine: it.engine,
+      sessionId: `copy:${sourceSessionId}:${sourceIteration}`,
+      endSha: targetEndSha,
+      at: now(),
+      title: annotations.title,
+      summary: annotations.summary,
+      annotations
+    })
+    const sourceState = loadReviewState(db, sourceSessionId)
+    db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(targetSessionId)
+    for (const artifact of sourceState.artifacts) {
+      db.prepare('INSERT INTO artifacts (session_id, role, path) VALUES (?, ?, ?)').run(targetSessionId, artifact.role, artifact.path)
+    }
+    db.prepare('DELETE FROM reviewed_sections WHERE session_id = ?').run(targetSessionId)
+    for (const section of sourceState.reviewedSections) {
+      db.prepare('INSERT INTO reviewed_sections (session_id, section_id) VALUES (?, ?)').run(targetSessionId, section)
+    }
+
+    const sourceThread = listChatThreads(db, sourceSessionId)
+      .find((t) => t.kind === 'review' && t.engineSessionId === it.sessionId)
+      ?? listChatThreads(db, sourceSessionId).filter((t) => t.kind === 'review').at(-1)
+    if (sourceThread) {
+      const targetThread = createChatThread(db, targetSessionId, { kind: 'review', agent, title: `Copied review from ${source.pair.compare.symbol}` })
+      for (const message of sourceThread.messages) addChatMessage(db, targetThread.id, message)
+    }
     db.exec('COMMIT')
   } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    try { db.exec('ROLLBACK') } catch { /* no active txn */ }
     throw err
   }
 }
@@ -425,6 +542,45 @@ export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 
 export function approveArtifact(db: DatabaseSync, sessionId: number, path: string, sha: string): void {
   db.prepare(`INSERT INTO artifact_approvals (session_id, path, sha) VALUES (?, ?, ?)
     ON CONFLICT(session_id, path) DO UPDATE SET sha = excluded.sha`).run(sessionId, path, sha)
+}
+
+export function unapproveArtifact(db: DatabaseSync, sessionId: number, path: string): void {
+  db.prepare('DELETE FROM artifact_approvals WHERE session_id = ? AND path = ?').run(sessionId, path)
+}
+
+export function approveSessionSurface(db: DatabaseSync, sessionId: number, sha: string, hash: string): void {
+  db.exec('BEGIN')
+  try {
+    db.prepare(`INSERT INTO session_approvals (session_id, sha, hash, approved_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(session_id, hash) DO UPDATE SET sha = excluded.sha, approved_at = excluded.approved_at`).run(sessionId, sha, hash, now())
+    updateSessionMeta(db, sessionId, { approvedSha: sha })
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
+export function approveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
+  approveSessionSurface(db, sessionId, sha, sha)
+}
+
+export function unapproveSessionSurface(db: DatabaseSync, sessionId: number, hash: string): void {
+  db.exec('BEGIN')
+  try {
+    db.prepare('DELETE FROM session_approvals WHERE session_id = ? AND hash = ?').run(sessionId, hash)
+    const latest = db.prepare(`SELECT sha FROM session_approvals WHERE session_id = ?
+      ORDER BY approved_at DESC LIMIT 1`).get(sessionId) as { sha: string } | undefined
+    updateSessionMeta(db, sessionId, { approvedSha: latest?.sha ?? null })
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
+export function unapproveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
+  unapproveSessionSurface(db, sessionId, sha)
 }
 
 export interface UiStatePatch {
@@ -472,9 +628,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   const chats = listChatThreads(db, sessionId)
 
   const iterations = (db.prepare(
-    'SELECT n, engine, engine_session_id, end_sha, summary, at FROM iterations WHERE session_id = ? ORDER BY n'
-  ).all(sessionId) as { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string }[])
-    .map((r) => ({ n: r.n, engine: r.engine, sessionId: r.engine_session_id, endSha: r.end_sha, at: r.at, ...(r.summary ? { summary: r.summary } : {}) }))
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n'
+  ).all(sessionId) as IterationRow[]).map(rowToIteration)
+  const latest = latestIteration(db, sessionId)
 
   const viewedAt: Record<string, ViewMark> = {}
   for (const r of db.prepare('SELECT file, sha, hash FROM viewed_files WHERE session_id = ?').all(sessionId) as { file: string; sha: string; hash: string }[]) {
@@ -491,6 +647,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   for (const r of db.prepare('SELECT path, sha FROM artifact_approvals WHERE session_id = ?').all(sessionId) as { path: string; sha: string }[]) {
     artifactApprovals[r.path] = r.sha
   }
+  const approvals = sessionApprovals(db, sessionId, row.approved_sha)
 
   return {
     repo: meta.repo,
@@ -501,7 +658,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     annotations: row.annotations_json ? (JSON.parse(row.annotations_json) as ReviewAnnotations) : undefined,
     comments, chats, viewedAt, reviewedSections,
     approvedSha: row.approved_sha ?? undefined,
+    approvedShas: approvals.shas,
+    approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
-    artifactApprovals, iterations, artifacts
+    artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts
   }
 }

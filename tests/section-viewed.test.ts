@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fileViewed, sectionViewState } from '../src/renderer/store'
+import { fileViewed, sectionDisclosureState, sectionViewState } from '../src/renderer/store'
 import type { FileDiff, ViewMark } from '../src/shared/types'
 
 // minimal FileDiff: the derivation reads `path`, `fileHash`, and `hunks[].sinceViewed`.
@@ -45,5 +45,38 @@ describe('sectionViewState (derives section completion from its files)', () => {
   })
   it('is "none" for an empty section', () => {
     expect(sectionViewState([], {})).toBe('none')
+  })
+})
+
+describe('sectionDisclosureState', () => {
+  const files = [file('a.ts'), file('b.ts')]
+  const viewed = { 'a.ts': vm(), 'b.ts': vm() }
+
+  it('opens unviewed sections by default', () => {
+    expect(sectionDisclosureState(files, {}, { id: 's1', collapsed: new Set(), expanded: new Set() }).open).toBe(true)
+  })
+
+  it('collapses viewed sections by default', () => {
+    const state = sectionDisclosureState(files, viewed, { id: 's1', collapsed: new Set(), expanded: new Set() })
+    expect(state.done).toBe(true)
+    expect(state.open).toBe(false)
+  })
+
+  it('force-opens a viewed section without changing completion', () => {
+    const state = sectionDisclosureState(files, viewed, { id: 's1', collapsed: new Set(), expanded: new Set(['s1']) })
+    expect(state.done).toBe(true)
+    expect(state.open).toBe(true)
+  })
+
+  it('honors manual collapse for unviewed sections', () => {
+    expect(sectionDisclosureState(files, {}, { id: 's1', collapsed: new Set(['s1']), expanded: new Set() }).open).toBe(false)
+  })
+
+  it('resets a completed section when one viewed file changes', () => {
+    const changed = [file('a.ts'), file('b.ts', true)]
+    const state = sectionDisclosureState(changed, viewed, { id: 's1', collapsed: new Set(), expanded: new Set() })
+    expect(state.done).toBe(false)
+    expect(state.viewState).toBe('some')
+    expect(state.open).toBe(true)
   })
 })

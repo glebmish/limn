@@ -1,6 +1,6 @@
 import type {
-  AgentRef, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewState, SessionListItem, SessionMeta, ViewMark
+  AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
+  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -13,6 +13,9 @@ export interface LoadedReview {
   baseLoc: RefLoc
   compareLoc: RefLoc
   skeleton: DiffSkeleton
+  /** Hash of the loaded branch surface. Clean tree: head SHA. Dirty tree: head SHA
+   *  plus uncommitted working-tree content/status. Used for branch approval freshness. */
+  branchHash: string
   state: ReviewState
   artifacts: Artifact[]
   commits: CommitInfo[]
@@ -30,13 +33,12 @@ export interface LoadedReview {
    *  uncommitted changes interleave per file; `skeleton`/`volatile` stay canonical
    *  for anchoring, viewed, and approval (all of which pin to commits). */
   merged?: FileDiff[]
-  /** the compare branch is checked out in some worktree (primary or linked), so
-   *  agent edits have a safe place to land. False when checked out nowhere — the
-   *  renderer blocks submissions and offers the checkout flow. Always false for a
-   *  non-branch compare (a SHA/tag range is inherently review-only). */
-  compareCheckedOut: boolean
+  /** Authoritative main-process verdict for agent edits on this review surface. */
+  writeCapability: AgentWriteCapability
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
+  /** Generated reviews from other sessions whose endpoint pair can seed this review. */
+  copyCandidates?: ReviewCopyCandidate[]
 }
 
 export interface DashboardData { repos: RepoIndexEntry[]; recents: string[]; recentSessions: RecentSession[]; notices: string[] }
@@ -83,12 +85,13 @@ export interface Api {
   /** Generate (or, with `update`, fold new drift commits into) the review on this
    *  session in place. `update` passes the existing narration to the agent so it
    *  revises rather than re-narrates from scratch. */
-  /** Create the review thread (with its opening user turn) before generation runs,
-   *  so the review agent is a persisted chat from the first moment. Returns the new
-   *  thread id, which is then passed to `generate` to finalize on completion. */
-  beginReview(sessionId: number, agent: AgentRef): Promise<number>
+  /** Create or reuse the review thread before generation runs, so the review agent
+   *  is a persisted chat from the first moment. `update` appends to the latest
+   *  review thread; fresh generation starts a new review thread. */
+  beginReview(sessionId: number, agent: AgentRef, update?: boolean, steer?: string): Promise<number>
   generate(sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void>
   cancel(opId: string): Promise<void>
+  copyReviewFrom(sourceSessionId: number, sourceIteration: number, targetSessionId: number): Promise<ReviewState>
   /** Answer a pending approval request (routes to the parked engine-side promise). */
   respondApproval(opId: string, requestId: string, decision: ApprovalDecision): Promise<void>
   saveUiState(sessionId: number, patch: UiStatePatch): Promise<void>
@@ -109,7 +112,9 @@ export interface Api {
    *  handles them with its tools (edit+commit code, resolve, or reply). */
   sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
+  unapprove(sessionId: number): Promise<ReviewState>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
+  unapproveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
   getPrefs(): Promise<Record<string, string>>
   setPref(key: string, value: string): Promise<void>
@@ -121,30 +126,38 @@ export interface Api {
 }
 
 export interface OpEventMsg { opId: string; event: EngineEvent }
+export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
 export interface OpResultMsg {
   opId: string
   kind: 'review' | 'chat'
-  ok: boolean
+  status: OperationStatus
   error?: string
   reload?: boolean
 }
 
-export interface RepoChangedMsg { repo: string; branch: string; headSha: string }
+export interface RepoChangedMsg {
+  repo: string
+  branch: string
+  headSha: string
+  drift: DriftSummary | null
+  writeCapability: AgentWriteCapability
+}
 
 export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void
   onOpResult(cb: (msg: OpResultMsg) => void): () => void
   onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
   onCliOpen(cb: (msg: CliOpenMsg) => void): () => void
+  onSettingsOpen(cb: () => void): () => void
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
   'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
   'checkoutInto', 'addWorktreeFor',
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
-  'beginReview', 'generate', 'cancel', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
+  'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'approveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'unapprove', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

@@ -4,6 +4,7 @@ import { usePopover } from '../lib/usePopover'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
+import { dev } from '../dev'
 
 export function RefPicker({ value, onChange, repo, relativeTo, label, prominent = false, loc }: {
   value: string
@@ -21,7 +22,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
 }) {
   // open state + on-screen positioning (flips up / clamps to the viewport) +
   // outside-click dismissal, all from the shared popover hook.
-  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4, defaultOpen: Boolean(prominent && window.limnDev?.openCmpRef) })
+  const { open, toggle, close, anchorRef, floatingRef, popStyle } = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'start', gap: 4, defaultOpen: Boolean(prominent && dev.openCmpRef) })
   // worktree a branch is checked out in (if any) — shown muted next to the row so
   // you can see at a glance which branches are already checked out, and where.
   const worktrees = useStore((s) => s.repoState?.worktrees) ?? []
@@ -96,10 +97,18 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
   // HEAD~N stay verbatim. (Hovering the trigger still shows the full value.)
   const valueShaLike = /^[0-9a-f]{7,40}$/i.test(value)
   const display = valueShaLike ? shortSha(value) : value
+  const triggerTitle = loc
+    ? [
+        `${label}: ${loc.onBranch ?? value}`,
+        `resolved: ${loc.sha}`,
+        loc.onBranch ? (loc.behind > 0 ? `${loc.behind} commit${loc.behind === 1 ? '' : 's'} behind ${loc.onBranch}` : `at ${loc.onBranch} tip`) : null,
+        loc.kind === 'commit' ? 'pinned commit - does not follow branch movement' : 'branch ref - follows the tip'
+      ].filter(Boolean).join('\n')
+    : value ? `${label}: ${value}` : label
 
   return (
     <div className="limn-refpick">
-      <button ref={anchorRef} className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={value ? `${label}: ${value}` : label} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); toggle() }}>
+      <button ref={anchorRef} className={'limn-refpick-btn' + (prominent ? ' limn-refpick-cmp' : '')} title={triggerTitle} onClick={() => { setDraft(''); setShowAllBranches(true); setShowCommits(false); toggle() }}>
         {prominent && loc?.kind !== 'commit' && <I.branch style={{ width: 12, height: 12, color: 'var(--accent)' }} />}
         {loc ? (
           <>

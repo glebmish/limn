@@ -1,12 +1,14 @@
 import { create } from 'zustand'
-import type { CliOpenMsg, DashboardData, LoadedReview } from '../shared/ipc'
-import type { AgentRef, ApprovalDecision, ChatThread, Comment, CommentAnchor, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
+import type { CliOpenMsg, DashboardData, LoadedReview, OperationStatus } from '../shared/ipc'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
+import { dev } from './dev'
 
 /** Sentinel id for a local-only "New chat" draft: an empty composer that isn't
  *  persisted (and so doesn't appear in the picker) until its first message lands. */
-const DRAFT_CHAT_ID = -1
+export const DRAFT_CHAT_ID = -1
+type ChatDraft = Omit<ChatThread, 'id'>
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type Guidance = 'minimal' | 'guided' | 'narrated'
@@ -16,11 +18,6 @@ export type Guidance = 'minimal' | 'guided' | 'narrated'
  *  `GUIDANCE === 'narrated'` stay valid. */
 export const DENSITY: Density = 'comfortable'
 export const GUIDANCE: Guidance = 'guided'
-/** Brand accent palette: [base, ink, soft, line] → CSS --accent* vars.
- *  Source of truth is wf.css :root (--accent/--accent-ink/--accent-soft/--accent-line);
- *  keep these four in sync with it (re-injected onto the root in App.tsx). */
-export const ACCENT: string[] = ['#3a7d54', '#2c6342', '#e7efe9', '#bcd6c5']
-
 let opCounter = 0
 export function newOpId(): string {
   return `op-${Date.now()}-${++opCounter}`
@@ -30,13 +27,14 @@ export function newOpId(): string {
  *  land. `blocked` → branch checked out nowhere (submissions disabled, offer
  *  checkout). `dirtyWarn` → branch active but its worktree is dirty (allowed, warn).
  *  Non-branch compares are inherently review-only and never blocked. */
-export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; dirtyWarn: boolean; branch: string | null } {
-  const compare = loaded?.session.pair.compare
-  if (!loaded || compare?.kind !== 'branch') return { blocked: false, dirtyWarn: false, branch: null }
+export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; dirtyWarn: boolean; writeEnabled: boolean; branch: string | null } {
+  const capability = loaded?.writeCapability
+  if (!loaded || !capability) return { blocked: false, dirtyWarn: false, writeEnabled: false, branch: null }
   return {
-    blocked: !loaded.compareCheckedOut,
-    dirtyWarn: loaded.compareCheckedOut && loaded.dirty,
-    branch: compare.symbol
+    blocked: capability.reason === 'not-checked-out',
+    dirtyWarn: capability.reason === 'dirty',
+    writeEnabled: capability.enabled,
+    branch: capability.branch
   }
 }
 
@@ -80,7 +78,7 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boo
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
  *  content hash (from the rendered diff — merged while dirty, else the spine). */
 export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark {
-  const files = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  const files = renderedFiles(loaded)
   return { sha: loaded?.skeleton.headSha ?? '', hash: files.find((f) => f.path === path)?.fileHash ?? '' }
 }
 
@@ -90,6 +88,45 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
   if (files.length === 0) return 'none'
   const n = files.filter((f) => fileViewed(f, viewedAt)).length
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
+}
+
+export interface SectionDisclosureState {
+  viewState: 'none' | 'some' | 'all'
+  done: boolean
+  hasSince: boolean
+  open: boolean
+}
+
+export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<string, ViewMark>, opts: {
+  id: string
+  collapsed: Set<string>
+  expanded: Set<string>
+  forceOpen?: boolean
+  focused?: boolean
+}): SectionDisclosureState {
+  const viewState = sectionViewState(files, viewedAt)
+  const done = viewState === 'all'
+  const hasSince = files.some((f) => f.hunks.some((h) => h.since))
+  const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
+  return { viewState, done, hasSince, open }
+}
+
+function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
+  return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+}
+
+function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
+  const byPath = new Map(renderedFiles(loaded).map((f) => [f.path, f]))
+  return section.files.map((p) => byPath.get(p)).filter((f): f is FileDiff => Boolean(f))
+}
+
+function collapseCompletedSections(loaded: LoadedReview | null, viewedAt: Record<string, ViewMark>, expanded: Set<string>): Set<string> {
+  if (!loaded || expanded.size === 0) return expanded
+  const next = new Set(expanded)
+  for (const section of effectiveSections(loaded)) {
+    if (sectionViewState(filesForSection(loaded, section), viewedAt) === 'all') next.delete(section.id)
+  }
+  return next
 }
 
 export interface GenState {
@@ -102,22 +139,17 @@ export interface GenState {
   error: string | null
   /** epoch ms the op started — drives the live "elapsed" counter. */
   startedAt: number | null
-  /** set the instant the user cancels, so the terminal result routes back to the
-   *  generate block regardless of what error text the aborted engine reports. */
-  cancelled: boolean
+  /** Typed terminal result; null while idle/running. */
+  outcome: OperationStatus | null
 }
 
-/** Whether a finished op ended by user cancellation rather than a real failure.
- *  The explicit `cancelled` flag is authoritative (set the moment the user clicks
- *  Cancel); the error-string heuristic is belt-and-suspenders for cancels that are
- *  only classified downstream (e.g. surfaced by the engine as an abort message). */
+/** Whether a finished operation has the typed cancelled outcome. */
 export function genCancelled(gen: GenState): boolean {
-  if (gen.cancelled) return true
-  return gen.error != null && (gen.error === 'cancelled' || /\babort(ed)?\b/i.test(gen.error))
+  return gen.outcome === 'cancelled'
 }
 
 /** A neutral gen state — the effective op for a review that owns no in-flight op. */
-const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false }
+const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null }
 
 /** `gen` is global to the renderer, but an op belongs to the review whose thread it
  *  streams into. Scope it to the loaded review so an op started on a *different*
@@ -129,9 +161,15 @@ export function genForLoaded(gen: GenState, loaded: LoadedReview | null): GenSta
 }
 
 /** The active chat thread (or a sensible default) within the loaded review. */
-export function activeChat(loaded: LoadedReview | null, activeChatId: number | null): ChatThread | null {
+export function activeChat(loaded: LoadedReview | null, activeChatId: number | null, draft?: ChatDraft | null): ChatThread | null {
+  if (activeChatId === DRAFT_CHAT_ID && draft) return { id: DRAFT_CHAT_ID, ...draft }
   const chats = loaded?.state.chats ?? []
   return chats.find((c) => c.id === activeChatId) ?? null
+}
+
+export function chatsWithDraft(loaded: LoadedReview | null, draft: ChatDraft | null): ChatThread[] {
+  const chats = loaded?.state.chats ?? []
+  return draft ? [...chats, { id: DRAFT_CHAT_ID, ...draft }] : chats
 }
 
 /** Keep the current chat if still present; else default to the empty user chat
@@ -140,6 +178,20 @@ function pickActiveChat(chats: ChatThread[], current: number | null): number | n
   if (current != null && chats.some((c) => c.id === current)) return current
   const emptyUser = [...chats].reverse().find((c) => c.kind === 'user' && c.messages.length === 0 && !c.engineSessionId)
   return (emptyUser ?? chats[chats.length - 1])?.id ?? null
+}
+
+function batchUserPreview(comments: Comment[], loaded: LoadedReview | null, refine?: boolean, steer?: string): string {
+  if (refine) {
+    const byId = new Map((loaded?.state.annotations?.questions ?? []).map((q) => [q.id, q]))
+    const lines = comments.map((c) => {
+      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
+      const q = byId.get(qid)
+      const label = q?.text ?? q?.context ?? (qid || 'Open question')
+      return `- ${label}\n  Answer: ${c.text}`
+    })
+    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
+  }
+  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
 
 interface AppStore {
@@ -164,9 +216,12 @@ interface AppStore {
   /** when the hub was opened from a review, the session to jump back to */
   hubReturn: number | null
   activeChatId: number | null
+  /** Local-only composer state; never inserted into persisted ChatThread[]. */
+  draftChat: ChatDraft | null
   /** whether the chat drawer is open (lifted here so an agent-identity click in
    *  the review can open a specific chat). */
   chatOpen: boolean
+  settingsOpen: boolean
   error: string | null
 
   // dashboard
@@ -191,6 +246,10 @@ interface AppStore {
   /** transient: force-render a focus target (a viewed file / done section)
    *  without mutating viewedAt. Set by focusAnchor. */
   focusTarget: { file?: string; sectionId?: string } | null
+  /** the branch moved (commits and/or working-tree edits) since this review was
+   *  loaded — drives the titlebar fetch pill. Set by the watcher via onRepoChanged;
+   *  cleared on reload (the click folds it in). null = up to date with the load. */
+  pendingDrift: DriftSummary | null
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
@@ -203,6 +262,8 @@ interface AppStore {
   loadDashboard(): Promise<void>
   setFilter(s: string): void
   openRepository(): Promise<void>
+  /** Refresh live branch/worktree state for the current repo without reloading the review. */
+  refreshRepoContext(): Promise<void>
   // repo (source of truth)
   /** Open a repo: jump into the latest session for the active branch, else the
    *  new-review setup. The entry point from the dashboard. */
@@ -232,10 +293,12 @@ interface AppStore {
   /** Persist the transient review (create/reuse its session) and return the new id.
    *  Idempotent: returns the existing id when already persisted; null on failure. */
   materialize(): Promise<number | null>
+  copyReviewFrom(sourceSessionId: number, sourceIteration: number): Promise<void>
   resumeExisting(sessionId: number): Promise<void>
   backToDashboard(): void
   /** Change the loaded review's base ref (review-header base picker). Transient →
-   *  rebuild the preview; persisted → retarget the session in place. */
+   *  rebuild the preview; persisted → open another review for that pair. A session's
+   *  base anchor is immutable because generated-review reuse keys off it. */
   setSessionBase(ref: string): Promise<void>
   // review
   setAgent(a: AgentRef): void
@@ -245,19 +308,24 @@ interface AppStore {
    *  Marking viewed also collapses the section (clears its force-open override). */
   setSectionViewed(sectionId: string, paths: string[], viewed: boolean): void
   openSection(id: string): void
+  toggleSection(id: string, currentlyOpen: boolean): void
   setCur(id: string): void
   setCurFile(file: string | null): void
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
+  /** stash (or clear) the drift the watcher reported for the loaded review. */
+  setPendingDrift(d: DriftSummary | null, capability?: AgentWriteCapability): void
   openDoc(path: string): void
   closeDoc(): void
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
-  finishOp(error?: string): void
+  finishOp(status: OperationStatus, error?: string): void
   setComments(comments: Comment[]): void
   // chat
   switchChat(id: number): void
   openChat(threadId?: number): void
   closeChat(): void
+  openSettings(): void
+  closeSettings(): void
   newChat(): Promise<void>
   setActiveChatAgent(a: AgentRef): Promise<void>
   setChatMode(threadId: number, mode: ExecutionMode): Promise<void>
@@ -355,7 +423,9 @@ export const useStore = create<AppStore>((set, get) => {
     sessionId: null,
     hubReturn: null,
     activeChatId: null,
-    chatOpen: typeof window !== 'undefined' && window.limnDev?.flow === 'chat',
+    draftChat: null,
+    chatOpen: dev.flow === 'chat',
+    settingsOpen: false,
     error: null,
 
     dashboard: null,
@@ -370,9 +440,10 @@ export const useStore = create<AppStore>((set, get) => {
     cur: null,
     curFile: null,
     focusTarget: null,
+    pendingDrift: null,
     docPath: null,
 
-    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
 
     async boot() {
       try {
@@ -395,12 +466,12 @@ export const useStore = create<AppStore>((set, get) => {
         if (cli) get().applyCliOpen(cli)
       } catch { /* no pending cli open */ }
       // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
-      const openSession = window.limnDev?.openSession
+      const openSession = dev.openSession
       if (openSession) await get().resumeExisting(Number(openSession))
       // dev/screenshot: LIMN_OPEN_HUB lands on the repo hub for a given repo path
-      const openHub = window.limnDev?.openHub
+      const openHub = dev.openHub
       if (openHub) {
-        if (window.limnDev?.showArchived) set({ showArchived: true })
+        if (dev.showArchived) set({ showArchived: true })
         await get().enterHub(openHub)
       }
     },
@@ -438,6 +509,11 @@ export const useStore = create<AppStore>((set, get) => {
       if (dir) await get().openRepo(dir)
     },
 
+    async refreshRepoContext() {
+      const repo = get().repo
+      if (repo) await loadRepoContext(repo)
+    },
+
     async openRepo(repoPath) {
       set({ error: null })
       try {
@@ -466,7 +542,7 @@ export const useStore = create<AppStore>((set, get) => {
       const repo = repoPath ?? get().repo
       if (!repo) { get().backToDashboard(); return }
       // remember the review we came from so the hub can offer a jump-back
-      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null })
+      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null })
       await loadRepoContext(repo)
     },
 
@@ -546,7 +622,7 @@ export const useStore = create<AppStore>((set, get) => {
           screen: 'review', sessionId: null, loaded, repo: repoPath,
           branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-          activeChatId: null, transientFresh: opts?.fresh ?? false, error: null
+          activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: null, pendingDrift: null
         })
         void loadRepoContext(repoPath)
       } catch (err) {
@@ -583,6 +659,27 @@ export const useStore = create<AppStore>((set, get) => {
       return materializing
     },
 
+    async copyReviewFrom(sourceSessionId, sourceIteration) {
+      const sessionId = await get().materialize()
+      if (sessionId == null) return
+      try {
+        const state = await window.api.copyReviewFrom(sourceSessionId, sourceIteration, sessionId)
+        const loaded = await window.api.loadSession(sessionId)
+        set({
+          sessionId,
+          loaded,
+          branch: loaded.state.branch,
+          base: loaded.state.base,
+          viewedAt: state.viewedAt,
+          activeChatId: pickActiveChat(loaded.state.chats, null),
+          error: null,
+          transientFresh: false
+        })
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) })
+      }
+    },
+
     async resumeExisting(sessionId) {
       try {
         const loaded = await window.api.loadSession(sessionId)
@@ -590,12 +687,14 @@ export const useStore = create<AppStore>((set, get) => {
           sessionId, loaded, error: null, screen: 'review',
           // reset the (global) gen state so a previous session's running/errored op
           // doesn't bleed its strip or error banner onto the one being opened.
-          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, cancelled: false },
+          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
           agent: loaded.state.agent ?? get().agent,
-          activeChatId: pickActiveChat(loaded.state.chats, null)
+          activeChatId: pickActiveChat(loaded.state.chats, null),
+          draftChat: null,
+          pendingDrift: null
         })
         void loadRepoContext(loaded.state.repo)
       } catch (err) {
@@ -606,7 +705,7 @@ export const useStore = create<AppStore>((set, get) => {
     backToDashboard() {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
-        repoState: null, repoSessions: []
+        repoState: null, repoSessions: [], pendingDrift: null
       })
       void get().loadDashboard()
     },
@@ -615,18 +714,13 @@ export const useStore = create<AppStore>((set, get) => {
       const r = ref.trim()
       if (!r) return
       const { sessionId, loaded, repo } = get()
+      const compare = loaded?.session.pair.compare.symbol
       if (sessionId == null) {
         // transient: rebuild the preview with the new base, keeping the compare side
-        const compare = loaded?.session.pair.compare.symbol
         if (repo) await get().openReview(repo, { base: r, compare })
         return
       }
-      try {
-        await window.api.retargetSession(sessionId, 'base', r)
-        await get().reload()
-      } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
-      }
+      if (repo) await get().openReview(repo, { base: r, compare })
     },
 
     setAgent(a) {
@@ -661,7 +755,8 @@ export const useStore = create<AppStore>((set, get) => {
       set({
         loaded,
         viewedAt: loaded.state.viewedAt,
-        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId)
+        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
+        pendingDrift: null // the reload folded any drift in; the watcher re-baselines
       })
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     },
@@ -673,7 +768,8 @@ export const useStore = create<AppStore>((set, get) => {
       // uncommitted edits both re-flag it.
       if (currentlyViewed) delete viewedAt[file]
       else viewedAt[file] = viewMarkFor(get().loaded, file)
-      set({ viewedAt })
+      const expanded = collapseCompletedSections(get().loaded, viewedAt, get().expanded)
+      set({ viewedAt, expanded })
       persistUi()
     },
 
@@ -695,8 +791,24 @@ export const useStore = create<AppStore>((set, get) => {
       // force-open a (possibly completed) section for re-viewing — without
       // touching viewed marks. This is UI-only, so it isn't persisted.
       const expanded = new Set(get().expanded)
+      const collapsed = new Set(get().collapsed)
+      collapsed.delete(id)
       expanded.add(id)
-      set({ expanded, cur: id })
+      set({ collapsed, expanded, cur: id })
+    },
+
+    toggleSection(id, currentlyOpen) {
+      const collapsed = new Set(get().collapsed)
+      const expanded = new Set(get().expanded)
+      if (currentlyOpen) {
+        collapsed.add(id)
+        expanded.delete(id)
+        set({ collapsed, expanded })
+      } else {
+        collapsed.delete(id)
+        expanded.add(id)
+        set({ collapsed, expanded, cur: id })
+      }
     },
 
     setCur(id) {
@@ -716,9 +828,16 @@ export const useStore = create<AppStore>((set, get) => {
     setFocusTarget(t) {
       set({ focusTarget: t })
     },
+    setPendingDrift(d, capability) {
+      const loaded = get().loaded
+      set({
+        pendingDrift: d,
+        ...(loaded && capability ? { loaded: { ...loaded, writeCapability: capability } } : {})
+      })
+    },
 
     startOp(kind, opId, threadId) {
-      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), cancelled: false } })
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null } })
     },
 
     pushOpEvent(ev) {
@@ -727,9 +846,9 @@ export const useStore = create<AppStore>((set, get) => {
       set({ gen: { ...gen, log: [...gen.log.slice(-200), ev] } })
     },
 
-    finishOp(error) {
+    finishOp(status, error) {
       const gen = get().gen
-      set({ gen: { ...gen, running: false, error: error ?? null } })
+      set({ gen: { ...gen, running: false, outcome: status, error: status === 'failed' ? error ?? 'unknown error' : null } })
     },
 
     setComments(comments) {
@@ -751,31 +870,37 @@ export const useStore = create<AppStore>((set, get) => {
       set({ chatOpen: false })
     },
 
+    openSettings() {
+      set({ settingsOpen: true })
+    },
+
+    closeSettings() {
+      set({ settingsOpen: false })
+    },
+
     async newChat() {
       const { sessionId, loaded, agent } = get()
       if (sessionId == null || !loaded) return
-      const active = activeChat(loaded, get().activeChatId)
+      const active = activeChat(loaded, get().activeChatId, get().draftChat)
       const a = active?.agent ?? loaded.state.agent ?? agent
       // A new chat is a renderer-only draft (id DRAFT_CHAT_ID) — no DB write, so empty
       // chats never persist or pile up. It materializes on its first message (sendChat).
-      const chats = loaded.state.chats
-      if (chats.some((c) => c.id === DRAFT_CHAT_ID)) { set({ activeChatId: DRAFT_CHAT_ID }); return } // reuse the existing draft
-      const draft: ChatThread = {
-        id: DRAFT_CHAT_ID, kind: 'user', agent: a, messages: [],
+      if (get().draftChat) { set({ activeChatId: DRAFT_CHAT_ID }); return }
+      const draft: ChatDraft = {
+        kind: 'user', agent: a, messages: [],
         createdAt: new Date().toISOString(), executionMode: DEFAULT_EXECUTION_MODE
       }
-      setChats([...chats, draft])
-      set({ activeChatId: DRAFT_CHAT_ID })
+      set({ draftChat: draft, activeChatId: DRAFT_CHAT_ID })
     },
 
     /** Change the active chat's agent. Draft/empty chat → retarget in place (draft
      *  stays local); a chat with messages or a bound session → fork a new chat. */
     async setActiveChatAgent(a) {
       const { sessionId, loaded } = get()
-      const active = activeChat(loaded, get().activeChatId)
+      const active = activeChat(loaded, get().activeChatId, get().draftChat)
       if (sessionId == null || !active) return
       if (active.id === DRAFT_CHAT_ID) {
-        if (loaded) setChats(loaded.state.chats.map((c) => c.id === DRAFT_CHAT_ID ? { ...c, agent: a } : c))
+        set((s) => ({ draftChat: s.draftChat ? { ...s.draftChat, agent: a } : null }))
         return
       }
       const isEmpty = active.messages.length === 0 && !active.engineSessionId
@@ -817,16 +942,15 @@ export const useStore = create<AppStore>((set, get) => {
       const gen = get().gen
       if (!gen.opId) return
       void window.api.cancel(gen.opId)
-      // record the cancel up front and leave the running strip immediately, so the UI
-      // returns to the generate block; the late op:result (whatever its error text)
-      // is then classified as a cancel, never a failure.
-      set({ gen: { ...gen, running: false, cancelled: true } })
+      // Record the typed cancel outcome up front and leave the running strip
+      // immediately; the main-process terminal result will confirm it later.
+      set({ gen: { ...gen, running: false, outcome: 'cancelled', error: null } })
     },
 
     sendChat(text, anchor) {
       const body = text.trim()
       if (!body || get().gen.running) return
-      const active = activeChat(get().loaded, get().activeChatId)
+      const active = activeChat(get().loaded, get().activeChatId, get().draftChat)
       if (!active) return
       void (async () => {
         let targetId = active.id
@@ -840,7 +964,7 @@ export const useStore = create<AppStore>((set, get) => {
             setChats(chats)
             targetId = chats[chats.length - 1]?.id ?? DRAFT_CHAT_ID
             if (targetId === DRAFT_CHAT_ID) return
-            set({ activeChatId: targetId })
+            set({ activeChatId: targetId, draftChat: null })
           } catch (err) {
             set({ error: err instanceof Error ? err.message : String(err) })
             return
@@ -858,7 +982,11 @@ export const useStore = create<AppStore>((set, get) => {
       const loaded = get().loaded
       if (!loaded) return
       void (async () => {
-        const review = [...(get().loaded?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
+        const current = get().loaded
+        const review = (current?.state.latestIteration?.sessionId
+          ? current.state.chats.find((c) => c.kind === 'review' && c.engineSessionId === current.state.latestIteration?.sessionId)
+          : undefined)
+          ?? [...(current?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
         let targetId = review?.id
         if (targetId == null) {
           // Older/generated sessions can predate persisted review threads. Create a
@@ -885,6 +1013,13 @@ export const useStore = create<AppStore>((set, get) => {
       if (get().gen.running) return
       const trimmed = steer?.trim() || undefined
       if (commentIds.length === 0 && !trimmed) return
+      const loaded = get().loaded
+      if (loaded && commentIds.length > 0) {
+        const comments = loaded.state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
+        setChats(loaded.state.chats.map((c) => c.id === threadId
+          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: batchUserPreview(comments, loaded, refine, trimmed), at: new Date().toISOString() }] }
+          : c))
+      }
       const opId = newOpId()
       // sending to the agent (queued comments OR a decision answer) opens the chat
       // so the turn + its tool calls are visible as they run
@@ -897,10 +1032,8 @@ export const useStore = create<AppStore>((set, get) => {
       const { sessionId } = get()
       if (sessionId == null) return
       if (id === DRAFT_CHAT_ID) {
-        // the draft was never persisted — just drop it locally.
-        const chats = (get().loaded?.state.chats ?? []).filter((c) => c.id !== DRAFT_CHAT_ID)
-        setChats(chats)
-        if (get().activeChatId === id) set({ activeChatId: pickActiveChat(chats, null) })
+        const chats = get().loaded?.state.chats ?? []
+        set({ draftChat: null, activeChatId: get().activeChatId === id ? pickActiveChat(chats, null) : get().activeChatId })
         return
       }
       try {
