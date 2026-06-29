@@ -259,16 +259,15 @@ export interface RepoState {
 }
 
 /** One row in the dashboard's repository index (Level 1). A repo enters the index
- *  the first time it's opened and stays while it has ≥1 live session. Carries the
- *  light git state the row renders (current branch, dirtiness, linked worktrees)
- *  plus session activity for sorting. */
+ *  when it is opened or has at least one live session. Carries the light git state
+ *  the row renders plus the latest repo-open/session activity for sorting. */
 export interface RepoIndexEntry {
   path: string
   current: string            // branch checked out in the primary worktree ('HEAD' if detached)
   defaultBase: string        // the base the branch chip opens against
   worktrees: WorktreeInfo[]
   sessionCount: number       // live (non-archived) sessions
-  lastActivity: string       // ISO of the most recent session update — rows sort by this, desc
+  lastActivity: string       // ISO of the most recent repo open or session update
 }
 
 // ── ref pairs (sessions) ──────────────────────────────────────

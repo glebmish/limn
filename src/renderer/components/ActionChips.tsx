@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
@@ -68,13 +68,17 @@ function FocusCard({ action }: { action: Extract<AgentAction, { kind: 'focus' }>
   )
 }
 
+export function nextTourIndex(current: number, delta: number, count: number): number {
+  if (count <= 0) return 0
+  return ((current + delta) % count + count) % count
+}
+
 function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }) {
   const [cur, setCur] = useState(0)
+  const [openNote, setOpenNote] = useState<number | null>(null)
   const stopCount = action.stops.length
   const go = (next: number): void => {
-    const bounded = action.loop
-      ? (next + stopCount) % stopCount
-      : Math.min(stopCount - 1, Math.max(0, next))
+    const bounded = nextTourIndex(cur, next - cur, stopCount)
     setCur(bounded)
     const stop = action.stops[bounded]
     if (stop) focusAnchor(stop.target)
@@ -91,27 +95,43 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
       <div className="limn-tour-stops">
         {action.stops.map((stop, i) => {
           const label = focusTarget(stop.target)
+          const noteId = `tour-stop-note-${i}`
+          const noteOpen = openNote === i
           return (
-            <button
-              key={i}
-              type="button"
-              className={'lt-stop' + (i === cur ? ' on' : '')}
-              onClick={() => go(i)}
-              title={stop.note}
-            >
-              <span className="lt-n">{i + 1}</span>
-              <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
-              {stop.note && <span className="lt-help" title={stop.note}>?</span>}
-            </button>
+            <Fragment key={i}>
+              <button
+                type="button"
+                className={'lt-stop' + (i === cur ? ' on' : '')}
+                onClick={() => go(i)}
+              >
+                <span className="lt-n">{i + 1}</span>
+                <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
+                {stop.note && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="lt-help"
+                    aria-label="Why this stop"
+                    aria-expanded={noteOpen}
+                    aria-describedby={noteId}
+                    onClick={(e) => { e.stopPropagation(); setOpenNote(noteOpen ? null : i) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setOpenNote(noteOpen ? null : i) } }}
+                  >?</span>
+                )}
+              </button>
+              {stop.note && (
+                <div id={noteId} role="note" className={'lt-note' + (noteOpen ? ' open' : '')}>{stop.note}</div>
+              )}
+            </Fragment>
           )
         })}
       </div>
       <div className="limn-tour-bar">
-        <button className="lt-ctl" disabled={!action.loop && cur === 0} onClick={() => go(cur - 1)}>
+        <button className="lt-ctl" onClick={() => go(cur - 1)}>
           <I.chevR style={{ width: 10, height: 10, transform: 'rotate(180deg)' }} />Prev
         </button>
         <span className="lt-pos">Stop {cur + 1} of {stopCount}</span>
-        <button className="lt-ctl" disabled={!action.loop && cur === stopCount - 1} onClick={() => go(cur + 1)}>
+        <button className="lt-ctl" onClick={() => go(cur + 1)}>
           Next<I.chevR style={{ width: 10, height: 10 }} />
         </button>
       </div>

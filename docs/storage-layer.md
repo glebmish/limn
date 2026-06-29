@@ -126,7 +126,7 @@ for an exact identity, which is the resume hint used by the default open path.
 Every function takes `db` first. Highlights and contracts:
 
 **`sessions.ts`**
-- `ensureRepo` / `touchRepo` / `recentRepoPaths` — repo upserts keyed on path; `first_commit_sha` only fills if currently null.
+- `ensureRepo` / `touchRepo` / `recentRepoPaths` / `repoIndexRows` — repo upserts keyed on path; `first_commit_sha` only fills if currently null. The dashboard index includes repos that were opened even if no review session has been generated yet.
 - `createSession`, `getSession`, `findSession` (keyed on identity + `archived_at IS NULL`), `archiveSession`, `retargetSession`.
 - `updateSessionMeta(db, id, patch)` — dynamic partial UPDATE; **no-ops on an empty patch and does not bump `updated_at`**. Each field is gated on `!== undefined`, so you **cannot clear a column to NULL** through this API.
 - `upsertComment` / `deleteComment` / `unresolvedCount` (counts `status IN ('queued','sent')`).

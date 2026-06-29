@@ -5,6 +5,10 @@
 .plan-stage-banner .psb-tx{font-size:12px;color:var(--accent-ink);line-height:1.45}
 .plan-stage-banner .psb-stamp{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;
   font-weight:700;color:#fff;background:var(--accent);border-radius:20px;padding:3px 10px;flex:0 0 auto}
+/* once approved, the doc banner reads solid green — same green "approved" signal as
+   the diff/review header (.rv-approved); the default banner is only a soft-green CTA. */
+.plan-stage-banner.is-approved{background:var(--add-bg);border-bottom-color:var(--accent);
+  box-shadow:inset 3px 0 0 0 var(--accent)}
 
 .pdoc{max-width:720px;margin:0 auto;padding:26px 32px 0}
 .pdoc-eyebrow{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted-2);font-weight:600}

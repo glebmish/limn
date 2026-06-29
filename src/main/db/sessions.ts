@@ -46,9 +46,33 @@ export function recentRepoPaths(db: DatabaseSync, limit: number): string[] {
   ).all(limit) as { path: string }[]).map((r) => r.path)
 }
 
-/** Repos that have ≥1 live (non-archived) session — the membership rule for the
- *  dashboard's Level-1 index. Each row carries its live-session count and the most
- *  recent session activity; ordered most-recent first (the index's default sort). */
+/** Repos shown in the dashboard's Level-1 index. A repo enters the index either
+ *  by being opened (last_opened_at) or by having at least one live session. The
+ *  activity timestamp is whichever is newer: latest live-session update or latest
+ *  repo open. */
+export function repoIndexRows(db: DatabaseSync): { path: string; sessionCount: number; lastActivity: string }[] {
+  return db.prepare(`WITH live AS (
+      SELECT repo_id, COUNT(*) AS session_count, MAX(updated_at) AS session_activity
+      FROM sessions
+      WHERE archived_at IS NULL
+      GROUP BY repo_id
+    )
+    SELECT r.path AS path,
+      COALESCE(live.session_count, 0) AS sessionCount,
+      CASE
+        WHEN live.session_activity IS NULL THEN r.last_opened_at
+        WHEN r.last_opened_at IS NULL THEN live.session_activity
+        WHEN r.last_opened_at > live.session_activity THEN r.last_opened_at
+        ELSE live.session_activity
+      END AS lastActivity
+    FROM repos r LEFT JOIN live ON live.repo_id = r.id
+    WHERE r.last_opened_at IS NOT NULL OR COALESCE(live.session_count, 0) > 0
+    ORDER BY lastActivity DESC`).all() as { path: string; sessionCount: number; lastActivity: string }[]
+}
+
+/** Repos that have ≥1 live (non-archived) session, ordered by session activity.
+ *  Kept for callers that need session-backed repos only; the dashboard uses
+ *  repoIndexRows so transient-only opened repos are included too. */
 export function reposWithSessions(db: DatabaseSync): { path: string; sessionCount: number; lastActivity: string }[] {
   return db.prepare(`SELECT r.path AS path, COUNT(*) AS sessionCount, MAX(s.updated_at) AS lastActivity
     FROM repos r JOIN sessions s ON s.repo_id = r.id

@@ -90,7 +90,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
 
   return (
     <>
-      <div className="plan-stage-banner">
+      <div className={'plan-stage-banner' + (approvedAt ? ' is-approved' : '')}>
         <span className="psb-ic">{art.role === 'plan' ? <I.plan style={{ width: 14, height: 14 }} /> : <I.doc style={{ width: 14, height: 14 }} />}</span>
         <span className="psb-tx">
           {approvedAt

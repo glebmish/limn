@@ -25,7 +25,7 @@
     "lint": "eslint .",
     "package": "electron-vite build && electron-builder --mac"
   },
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.173",

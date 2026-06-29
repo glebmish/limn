@@ -175,10 +175,10 @@ async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<
   // session-level "Recent": the most recent sessions across these repos, each a
   // row you can resume directly (a repo with several sessions lists each one)
   const recentSessions = dao.recentSessions(db, recents, 25)
-  // Level-1 index: every repo with ≥1 live session, newest-activity first, each
-  // carrying the light git state its row shows. Repos whose path has vanished or
-  // no longer reads as a git repo are skipped rather than shown broken.
-  const repoRows = dao.reposWithSessions(db)
+  // Level-1 index: every opened repo plus every repo with ≥1 live session,
+  // newest-activity first, each carrying the light git state its row shows. Repos
+  // whose path has vanished or no longer reads as a git repo are skipped.
+  const repoRows = dao.repoIndexRows(db)
   const repos: RepoIndexEntry[] = []
   for (const row of repoRows) {
     if (!fs.existsSync(row.path)) continue

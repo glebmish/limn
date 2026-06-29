@@ -6,6 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/main/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
+  repoIndexRows,
   createSession, findSession, getSession, archiveSession, retargetSession,
   listRepoSessions, latestSessionForBranch, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
@@ -185,6 +186,16 @@ describe('sessions DAO', () => {
     touchRepo(db, '/r1', '2026-06-12T10:00:00Z')
     touchRepo(db, '/r2', '2026-06-12T11:00:00Z')
     expect(recentRepoPaths(db, 8)).toEqual(['/r2', '/r1'])
+  })
+
+  it('repo index includes touched repos that have no sessions', () => {
+    touchRepo(db, '/repo-preview', '2026-06-12T10:00:00Z')
+    const sessionRepo = createSession(db, '/repo-session', pair)
+
+    expect(repoIndexRows(db)).toEqual([
+      { path: '/repo-session', sessionCount: 1, lastActivity: sessionRepo.updatedAt },
+      { path: '/repo-preview', sessionCount: 0, lastActivity: '2026-06-12T10:00:00Z' }
+    ])
   })
 
   it('nextIterationNumber appends generated review history', () => {

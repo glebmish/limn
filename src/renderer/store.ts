@@ -3,6 +3,7 @@ import type { CliOpenMsg, DashboardData, LoadedReview, OperationStatus } from '.
 import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
+import { orderFilesForReview } from './lib/fileOrder'
 import { dev } from './dev'
 
 /** Sentinel id for a local-only "New chat" draft: an empty composer that isn't
@@ -41,7 +42,7 @@ export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; d
 /** Fallback grouping before AI annotations exist: one section per top-level dir. */
 export function synthesizeSections(files: FileDiff[]): Section[] {
   const byDir = new Map<string, string[]>()
-  for (const f of files) {
+  for (const f of orderFilesForReview(files)) {
     const dir = f.path.includes('/') ? f.path.split('/')[0] : 'top-level'
     byDir.set(dir, [...(byDir.get(dir) ?? []), f.path])
   }

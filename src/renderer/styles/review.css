@@ -41,6 +41,13 @@
   border:1px solid var(--line-2);color:var(--muted);font-family:var(--mono);font-size:9.5px;font-weight:700;
   display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .plan-peek-step .pps-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-peek-step.unmapped{cursor:default}
+.plan-peek-step:not(.unmapped){cursor:pointer}
+.plan-peek-step:not(.unmapped):hover .pps-t{color:var(--ink)}
+.plan-peek-step .pps-dest{margin-left:auto;flex:0 0 auto;font-family:var(--mono);font-size:9.5px;font-weight:700;
+  color:var(--accent-ink);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:4px;padding:1px 5px;white-space:nowrap}
+.plan-peek-step .pps-dest.none{color:var(--muted-2);background:var(--panel-2);border-color:var(--line-2);font-weight:600}
+.plan-peek-step:not(.unmapped):hover .pps-dest{border-color:var(--accent)}
 .plan-eyebrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .plan-eyebrow .pe-l{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.09em;
   text-transform:uppercase;font-weight:700;color:var(--accent-ink);white-space:nowrap}

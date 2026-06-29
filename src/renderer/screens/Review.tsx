@@ -20,6 +20,7 @@ import { Tooltip } from '../components/Tooltip'
 import { agentLabel } from '../../shared/agents'
 import { focusAnchor } from '../lib/focus'
 import { clickable } from '../lib/clickable'
+import { orderFilesForReview } from '../lib/fileOrder'
 import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
 import { dev } from '../dev'
 
@@ -108,11 +109,8 @@ export default function Review() {
   // When the tree is dirty, the merged base→working-tree diff (committed + uncommitted
   // lines interleaved per file, origin-tagged) drives every file surface; otherwise the
   // plain committed spine does. skeleton/volatile stay canonical for anchoring & approval.
-  const fileMap = useMemo(() => {
-    const files = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
-    return new Map(files.map((f) => [f.path, f]))
-  }, [loaded])
-  const filesFor = (s: Section): FileDiff[] => s.files.map((p) => fileMap.get(p)).filter((f): f is FileDiff => Boolean(f))
+  const renderedFiles = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  const filesFor = (s: Section): FileDiff[] => orderFilesForReview(renderedFiles, s.files)
   // a section is done when all its files are viewed (derived — no separate flag)
   const isSectionDone = (s: Section): boolean => {
     const fs = filesFor(s)
@@ -176,9 +174,10 @@ export default function Review() {
         const fs = filesFor(s)
         return fs.length > 0 && fs.every((f) => fileViewed(f, va))
       }
+      let active: string | undefined
       if (sections.length > 0) {
         const firstOpen = sections.find((s) => !sectionDone(s))
-        let active = firstOpen ? firstOpen.id : sections[0]?.id
+        active = firstOpen ? firstOpen.id : sections[0]?.id
         for (const s of sections) {
           if (sectionDone(s)) continue
           const el = secRefs.current[s.id]
@@ -186,13 +185,26 @@ export default function Review() {
         }
         if (active) useStore.getState().setCur(active)
       }
-      // current file: the last file header at or above the fold line
+      // current file: within the active section, the last file header at or above
+      // the fold line; if none is above it yet (we're still in the section's
+      // narration/diagram band), the section's FIRST file. Tying this to the active
+      // section is what stops a section jump from leaving the *previous* section's
+      // last file highlighted, and keeps the highlight in step while scrolling.
+      const activeSecEl = active ? secRefs.current[active] : null
+      const secTop = activeSecEl ? activeSecEl.getBoundingClientRect().top : -Infinity
       let activeFile: string | null = null
+      let firstInSec: string | null = null
       for (const el of box.querySelectorAll<HTMLElement>('[data-limn-file]')) {
-        if (el.getBoundingClientRect().top <= baseTop) activeFile = el.dataset.limnFile ?? null
+        const top = el.getBoundingClientRect().top
+        if (top < secTop - 1) continue // file belongs to an earlier section
+        const path = el.dataset.limnFile ?? null
+        if (firstInSec === null) firstInSec = path
+        if (top <= baseTop) activeFile = path
         else break
       }
-      useStore.getState().setCurFile(activeFile)
+      // fall back to the section's first file only once its header has reached the
+      // fold (so reading the top summary doesn't pre-light section 1's first file)
+      useStore.getState().setCurFile(activeFile ?? (secTop <= baseTop ? firstInSec : null))
     }
     box.addEventListener('scroll', onScroll, { passive: true })
     return () => box.removeEventListener('scroll', onScroll)
@@ -206,12 +218,13 @@ export default function Review() {
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
   // the files actually rendered: merged (base→working-tree) while dirty, else the spine
-  const displayFiles = loaded.dirty && loaded.merged ? loaded.merged : skeleton.files
+  const displayFiles = renderedFiles
+  const flatDisplayFiles = orderFilesForReview(displayFiles)
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine
   // entry — surfaced in a trailing band so they aren't dropped.
   const sectionedPaths = new Set(sections.flatMap((s) => s.files))
   // only meaningful in sectioned (annotated) mode; flat mode renders displayFiles whole
-  const looseFiles = sections.length > 0 ? displayFiles.filter((f) => !sectionedPaths.has(f.path)) : []
+  const looseFiles = sections.length > 0 ? orderFilesForReview(displayFiles.filter((f) => !sectionedPaths.has(f.path))) : []
   const totalAdd = displayFiles.reduce((n, f) => n + f.add, 0)
   const totalDel = displayFiles.reduce((n, f) => n + f.del, 0)
   const dirtyAdd = loaded.volatile.reduce((n, f) => n + f.add, 0)
@@ -573,12 +586,18 @@ export default function Review() {
                           </Fragment>
                         ))
                       ) : a.role === 'plan' && annotations?.planMap ? (
-                        annotations.planMap.steps.map((st) => (
+                        annotations.planMap.steps.map((st) => {
+                          const destSec = st.sectionId ? sections.find((s) => s.id === st.sectionId) : undefined
+                          const destN = destSec ? sections.indexOf(destSec) + 1 : 0
+                          return (
                           <Fragment key={st.n}>
-                            <div className="plan-peek-step" style={{ cursor: st.sectionId ? 'pointer' : 'default' }} {...clickable(() => { if (st.sectionId) jumpTo(st.sectionId) })}>
+                            <div className={'plan-peek-step' + (destSec ? '' : ' unmapped')} {...clickable(() => { if (st.sectionId) jumpTo(st.sectionId) })}>
                               <CmtPlus extra="peek-plus" stop onClick={() => setCommentStep(st.n)} />
                               <span className="pps-n">{st.n}</span>
                               <span className="pps-t" title={st.text}>{st.text}</span>
+                              {destSec
+                                ? <span className="pps-dest" title={`Jumps to section ${destN}: ${destSec.name}`}>§{destN}</span>
+                                : <span className="pps-dest none" title="No matching review section — this step has nowhere to jump">no section</span>}
                               {st.status === 'done' && <I.check style={{ width: 10, height: 10, color: 'var(--accent)' }} />}
                               {st.status === 'changed' && <I.changed style={{ width: 10, height: 10, color: 'var(--amber)' }} />}
                               {st.status === 'missing' && <I.flag style={{ width: 10, height: 10, color: 'var(--red)' }} />}
@@ -592,13 +611,11 @@ export default function Review() {
                               />
                             )}
                           </Fragment>
-                        ))
+                          )
+                        })
                       ) : (
                         <div className="art-goal">{a.lines.find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 140)}</div>
                       )}
-                      <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => goToDoc(a.path)}>
-                        <I.doc style={{ width: 11, height: 11 }} />Open &amp; comment
-                      </button>
                     </div>
                   )}
                 </div>
@@ -616,7 +633,7 @@ export default function Review() {
             </div>
             {!annotations ? (
               <FileTree
-                files={displayFiles}
+                files={flatDisplayFiles}
                 viewedAt={viewedAt}
                 currentFile={curFile}
                 onFileClick={(path) => jumpToRawFile(path)}
@@ -652,6 +669,7 @@ export default function Review() {
                     viewedAt={viewedAt}
                     currentFile={curFile}
                     onFileClick={(path) => jumpToFile(s.id, path)}
+                    order="explicit"
                   />
                 </div>
               )
@@ -699,7 +717,7 @@ export default function Review() {
                     <span className="ft-count">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · {viewedCount}/{fileCount} viewed</span>
                   </div>
                   <div className="flat-files">
-                    {displayFiles.map((f) => <DiffView key={f.path} f={f} />)}
+                    {flatDisplayFiles.map((f) => <DiffView key={f.path} f={f} />)}
                   </div>
                   {displayFiles.length === 0 && !loaded.dirty && (
                     <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>

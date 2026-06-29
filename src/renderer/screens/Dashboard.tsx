@@ -59,8 +59,9 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
   const detached = entry.current === 'HEAD'
   const sameAsBase = entry.current === entry.defaultBase
   const tip = detached ? 'detached HEAD' : sameAsBase ? `review · ${entry.current}` : `${entry.defaultBase} ← ${entry.current}`
+  const title = entry.sessionCount > 0 ? `${repoName(entry.path)} — open sessions` : `${repoName(entry.path)} — open current diff`
   return (
-    <div className={'limn-repo-row' + (selected ? ' sel' : '')} onClick={onEnter} title={`${repoName(entry.path)} — open sessions`}>
+    <div className={'limn-repo-row' + (selected ? ' sel' : '')} onClick={onEnter} title={title}>
       <RepoGlyph />
       <span className="rr-name">{repoName(entry.path)}</span>
       <span className="rr-path">{tilde(entry.path)}</span>
@@ -77,7 +78,7 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
 }
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, enterHub, openReview, openSettings } = useStore()
+  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, openRepo, enterHub, openReview, openSettings } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void boot() }, [boot])
@@ -104,7 +105,9 @@ export default function Dashboard() {
   const reposRef = useRef(repos)
   reposRef.current = repos
 
-  const openRepoSessions = (path: string): void => { void enterHub(path) }
+  const openRepoSessions = (entry: RepoIndexEntry): void => {
+    void (entry.sessionCount > 0 ? enterHub(entry.path) : openRepo(entry.path))
+  }
   const openBranch = (path: string, branch: string): void => { void openReview(path, { compare: branch }) }
 
   // keyboard: ↑↓ select, ⏎ open the repo's sessions, ⌘O open a repository,
@@ -120,7 +123,7 @@ export default function Dashboard() {
       if (e.key === 'Enter') {
         e.preventDefault()
         const r = reposRef.current[useStore.getState().sel]
-        if (r) void useStore.getState().enterHub(r.path)
+        if (r) void (r.sessionCount > 0 ? useStore.getState().enterHub(r.path) : useStore.getState().openRepo(r.path))
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void useStore.getState().openRepository(); return }
@@ -196,7 +199,7 @@ export default function Dashboard() {
             key={r.path}
             entry={r}
             selected={sel === i}
-            onEnter={() => openRepoSessions(r.path)}
+            onEnter={() => openRepoSessions(r)}
             onOpenBranch={(branch) => openBranch(r.path, branch)}
           />
         ))}
