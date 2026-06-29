@@ -22,20 +22,15 @@ describe('tour action controls', () => {
     expect(out).not.toContain('disabled=""')
   })
 
-  it('renders tour stop notes as visible hover descriptions', () => {
+  it('shows each stop note inline, always visible (no help toggle)', () => {
     const out = renderToStaticMarkup(<ActionChips actions={[tour]} />)
-    expect(out).toContain('aria-describedby="tour-stop-note-0"')
-    expect(out).toContain('class="lt-note"')
-    expect(out).toContain('first')
-  })
-
-  it('exposes the note help as an interactive toggle, not a bare label', () => {
-    const out = renderToStaticMarkup(<ActionChips actions={[tour]} />)
-    // a real (keyboard-reachable) toggle that opens the note on click, collapsed by default
-    expect(out).toContain('role="button"')
-    expect(out).toContain('aria-expanded="false"')
-    // the note is an in-flow block (not an absolute popover the card would clip)
+    // the note is an always-on in-flow block under the stop…
     expect(out).toContain('role="note"')
     expect(out).toContain('class="lt-note"')
+    expect(out).toContain('first')
+    expect(out).toContain('second')
+    // …and the old "?" help control is gone entirely
+    expect(out).not.toContain('lt-help')
+    expect(out).not.toContain('aria-expanded')
   })
 })

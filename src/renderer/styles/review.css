@@ -19,6 +19,8 @@
 .art-open{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;cursor:pointer}
 .art-ic{width:20px;height:20px;border-radius:6px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;background:var(--accent-soft);color:var(--accent-ink);border:1px solid var(--accent-line)}
+/* approved Spec/Plan rail icon reads solid green — same signal as the banner .psb-ic */
+.art-ic.is-approved{background:var(--accent);color:#fff;border-color:var(--accent)}
 .art-name{font-size:12.5px;font-weight:700;color:var(--ink);flex:0 0 auto}
 .art-open:hover .art-name{color:var(--accent-ink)}
 .art-meta{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;min-width:0}
@@ -78,8 +80,8 @@
 .gside-note{font-size:11px;color:var(--muted);text-align:center;margin-top:7px;line-height:1.4}
 
 /* no scroll-behavior:smooth — it makes section jumps and doc open/close animate
-   (it even applies to direct scrollTop assignments in Chromium). focusAnchor passes
-   behavior:'smooth' explicitly where a smooth scroll IS wanted. */
+   (it even applies to direct scrollTop assignments in Chromium). All jumps —
+   section, file and focusAnchor — scroll instantly so the target lands in one frame. */
 .gmain{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper)}
 .gmain::-webkit-scrollbar{width:10px}
 .gmain::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:5px;border:3px solid var(--paper)}

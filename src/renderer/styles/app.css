@@ -415,12 +415,8 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .lt-stop.on .lt-n { background: var(--accent); border-color: var(--accent); color: #fff; }
 .lt-stop .lt-name { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lt-stop:not(.on) .lt-name { color: var(--ink-2); }
-.lt-stop .lt-help { margin-left: auto; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--line-2); color: var(--muted); font: 700 9px/1 var(--sans); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; cursor: pointer; padding: 0; background: none; }
-.lt-stop .lt-help:hover, .lt-stop .lt-help[aria-expanded="true"] { border-color: var(--accent-line); color: var(--accent-ink); background: var(--accent-soft); }
-/* in-flow expander (not an absolute popover — the tour card is overflow:hidden,
-   which would clip a popover); click the ? to toggle it open. */
-.lt-note { display: none; padding: 6px 11px 9px 35px; font: 400 11px/1.5 var(--sans); color: var(--ink-2); background: var(--panel-2); border-top: 1px dashed var(--line-2); }
-.lt-note.open { display: block; }
+/* each stop's note, always shown in-flow beneath its row */
+.lt-note { padding: 5px 11px 8px 35px; font: 400 11px/1.5 var(--sans); color: var(--ink-2); background: var(--panel-2); }
 .lt-note + .lt-stop { border-top: 1px solid var(--line); }
 .limn-tour-bar { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 5px 8px; background: var(--panel-2); }
 .lt-ctl { display: inline-flex; align-items: center; justify-content: center; gap: 3px; flex: 0 0 76px; min-width: 0; white-space: nowrap; border: 1px solid var(--line-2); background: var(--panel); border-radius: var(--r-sm); cursor: pointer; font: 600 10.5px var(--sans); color: var(--ink-2); padding: 3px 9px; }

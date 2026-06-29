@@ -211,6 +211,19 @@ export default function Review() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections])
 
+  // always keep the active file's section expanded, so its diff (and the
+  // highlighted row in the tree) stay visible. A finished section that the user
+  // collapsed on purpose is left alone.
+  useEffect(() => {
+    if (!curFile) return
+    const sec = sections.find((s) => s.files.includes(curFile))
+    if (!sec) return
+    const st = useStore.getState()
+    const nav = sectionDisclosureState(filesFor(sec), st.viewedAt, { id: sec.id, collapsed: st.collapsed, expanded: st.expanded })
+    if (!nav.open && !nav.done) st.openSection(sec.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curFile, sections])
+
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
   const annotations = state.annotations
@@ -545,7 +558,7 @@ export default function Review() {
                 <div key={a.path}>
                   <div className={'art-row' + (peek === a.path ? ' open' : '')}>
                     <span className="art-open" onClick={() => toggleDoc(a.path)} title="Open the rendered document (click again to close)">
-                      <span className="art-ic">{a.role === 'plan' ? <I.plan style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
+                      <span className={'art-ic' + (state.artifactApprovals[a.path] ? ' is-approved' : '')}>{a.role === 'plan' ? <I.plan style={{ width: 12, height: 12 }} /> : <I.doc style={{ width: 12, height: 12 }} />}</span>
                       <span className="art-name">{a.role === 'plan' ? 'Plan' : 'Spec'}</span>
                       <span className="art-meta" title={a.title}>{a.title}</span>
                     </span>

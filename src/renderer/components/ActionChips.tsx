@@ -75,7 +75,6 @@ export function nextTourIndex(current: number, delta: number, count: number): nu
 
 function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }) {
   const [cur, setCur] = useState(0)
-  const [openNote, setOpenNote] = useState<number | null>(null)
   const stopCount = action.stops.length
   const go = (next: number): void => {
     const bounded = nextTourIndex(cur, next - cur, stopCount)
@@ -95,8 +94,6 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
       <div className="limn-tour-stops">
         {action.stops.map((stop, i) => {
           const label = focusTarget(stop.target)
-          const noteId = `tour-stop-note-${i}`
-          const noteOpen = openNote === i
           return (
             <Fragment key={i}>
               <button
@@ -106,21 +103,9 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
               >
                 <span className="lt-n">{i + 1}</span>
                 <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
-                {stop.note && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="lt-help"
-                    aria-label="Why this stop"
-                    aria-expanded={noteOpen}
-                    aria-describedby={noteId}
-                    onClick={(e) => { e.stopPropagation(); setOpenNote(noteOpen ? null : i) }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setOpenNote(noteOpen ? null : i) } }}
-                  >?</span>
-                )}
               </button>
               {stop.note && (
-                <div id={noteId} role="note" className={'lt-note' + (noteOpen ? ' open' : '')}>{stop.note}</div>
+                <div role="note" className="lt-note">{stop.note}</div>
               )}
             </Fragment>
           )
