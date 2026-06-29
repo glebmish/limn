@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
@@ -89,6 +89,8 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
     if (stop) focusAnchor(stop.target)
   }
   if (stopCount === 0) return null
+  const rawNote = action.stops[cur]?.note
+  const activeNote = rawNote ? stripLeadingMarker(rawNote) : ''
 
   return (
     <div className="limn-act tour">
@@ -101,22 +103,24 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
         {action.stops.map((stop, i) => {
           const label = focusTarget(stop.target)
           return (
-            <Fragment key={i}>
-              <button
-                type="button"
-                className={'lt-stop' + (i === cur ? ' on' : '')}
-                onClick={() => go(i)}
-              >
-                <span className="lt-n">{i + 1}</span>
-                <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
-              </button>
-              {stop.note && (
-                <div role="note" className="lt-note">{stripLeadingMarker(stop.note)}</div>
-              )}
-            </Fragment>
+            <button
+              key={i}
+              type="button"
+              className={'lt-stop' + (i === cur ? ' on' : '')}
+              onClick={() => go(i)}
+            >
+              <span className="lt-n">{i + 1}</span>
+              <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
+            </button>
           )
         })}
       </div>
+      {/* one live note that follows the active stop (06-tour.html) */}
+      {activeNote && (
+        <div role="note" className="lt-note">
+          <span className="ltn-lead">Stop {cur + 1}.</span> {activeNote}
+        </div>
+      )}
       <div className="limn-tour-bar">
         <button className="lt-ctl" onClick={() => go(cur - 1)}>
           <I.chevR style={{ width: 10, height: 10, transform: 'rotate(180deg)' }} />Prev

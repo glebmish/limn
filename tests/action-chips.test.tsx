@@ -22,13 +22,16 @@ describe('tour action controls', () => {
     expect(out).not.toContain('disabled=""')
   })
 
-  it('shows each stop note inline, always visible (no help toggle)', () => {
+  it('shows a single live note that follows the active stop, with a "Stop N." lead', () => {
     const out = renderToStaticMarkup(<ActionChips actions={[tour]} />)
-    // the note is an always-on in-flow block under the stop…
+    // one note block for the active stop (the first, on initial render)…
     expect(out).toContain('role="note"')
     expect(out).toContain('class="lt-note"')
+    expect(out).toContain('ltn-lead')
+    expect(out).toContain('Stop 1.')
     expect(out).toContain('first')
-    expect(out).toContain('second')
+    // …and only the active stop's note — not every stop's
+    expect(out).not.toContain('second')
     // …and the old "?" help control is gone entirely
     expect(out).not.toContain('lt-help')
     expect(out).not.toContain('aria-expanded')
