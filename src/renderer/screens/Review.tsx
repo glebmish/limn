@@ -97,7 +97,6 @@ export default function Review() {
   // doc's own scroll position (per file — a different doc opens from its own top)
   const reviewScrollRef = useRef(0)
   const docScrollRef = useRef<Record<string, number>>({})
-  const [topFilter, setTopFilter] = useState<'changed' | 'all'>('changed')
   const [peek, setPeek] = useState<string | null>(dev.openPeek ?? null)
   const [summaryCommenting, setSummaryCommenting] = useState(false)
   const [commentStep, setCommentStep] = useState<number | null>(null)
@@ -210,19 +209,6 @@ export default function Review() {
     return () => box.removeEventListener('scroll', onScroll)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections])
-
-  // always keep the active file's section expanded, so its diff (and the
-  // highlighted row in the tree) stay visible. A finished section that the user
-  // collapsed on purpose is left alone.
-  useEffect(() => {
-    if (!curFile) return
-    const sec = sections.find((s) => s.files.includes(curFile))
-    if (!sec) return
-    const st = useStore.getState()
-    const nav = sectionDisclosureState(filesFor(sec), st.viewedAt, { id: sec.id, collapsed: st.collapsed, expanded: st.expanded })
-    if (!nav.open && !nav.done) st.openSection(sec.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curFile, sections])
 
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
@@ -658,7 +644,8 @@ export default function Review() {
                 id: s.id,
                 collapsed: store.collapsed,
                 expanded: store.expanded,
-                focused: store.focusTarget?.sectionId === s.id
+                focused: store.focusTarget?.sectionId === s.id,
+                cur
               })
               return (
                 <div
@@ -748,11 +735,6 @@ export default function Review() {
                         <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
                         {lastIteration.summary}
                       </Commentable>
-                      <span className="grow"></span>
-                      <span className="seg seg-sm">
-                        <button className={topFilter === 'changed' ? 'on' : ''} aria-pressed={topFilter === 'changed'} onClick={() => setTopFilter('changed')}>Just the changes</button>
-                        <button className={topFilter === 'all' ? 'on' : ''} aria-pressed={topFilter === 'all'} onClick={() => setTopFilter('all')}>Everything</button>
-                      </span>
                     </div>
                   ) : (
                     <div className="rr-summary rr-summary-cmt" data-limn-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
@@ -787,7 +769,6 @@ export default function Review() {
                   n={i + 1}
                   total={sections.length}
                   files={filesFor(s)}
-                  forceOpen={topFilter === 'all'}
                   secRef={(el) => { secRefs.current[s.id] = el }}
                 />
               ))}

@@ -104,11 +104,13 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
   expanded: Set<string>
   forceOpen?: boolean
   focused?: boolean
+  /** the active section — always kept open, regardless of viewed/collapsed state */
+  cur?: string | null
 }): SectionDisclosureState {
   const viewState = sectionViewState(files, viewedAt)
   const done = viewState === 'all'
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
-  const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
+  const open = Boolean(opts.forceOpen || opts.focused || opts.id === opts.cur || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
   return { viewState, done, hasSince, open }
 }
 
@@ -814,7 +816,7 @@ export const useStore = create<AppStore>((set, get) => {
 
     openSection(id) {
       // force-open a (possibly completed) section for re-viewing — without
-      // touching viewed marks. This is UI-only, so it isn't persisted.
+      // touching viewed marks or other sections. UI-only, not persisted.
       const expanded = new Set(get().expanded)
       const collapsed = new Set(get().collapsed)
       collapsed.delete(id)

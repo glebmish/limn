@@ -38,6 +38,12 @@
 .art-peek{padding:2px 13px 10px 34px;display:flex;flex-direction:column;gap:2px}
 .art-peek .art-goal{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-bottom:6px}
 .art-peek .spec-req{padding:3px 0}
+/* Inline comments in the narrow left rail must not inherit the diff's 62px gutter
+   indent — in a 286px sidebar that crushes the bubble to a sliver. Drop the indent,
+   let the box fill the rail, and let the header wrap instead of clipping. */
+.art-peek .dthread{padding:4px 0 6px;border:none;background:none}
+.art-peek .dthread .box{max-width:none}
+.art-peek .dthread .bh{flex-wrap:wrap;white-space:normal;row-gap:2px}
 .plan-peek-step{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-2);padding:3px 0}
 .plan-peek-step .pps-n{width:16px;height:16px;border-radius:5px;background:var(--panel-2);
   border:1px solid var(--line-2);color:var(--muted);font-family:var(--mono);font-size:9.5px;font-weight:700;
@@ -245,7 +251,7 @@
 .gfile-caret{color:var(--muted-2);flex:0 0 auto}
 .gfile-head:hover .gfile-caret{color:var(--ink-2)}
 .gfile.collapsed .gfile-head{border-bottom:none;border-radius:calc(var(--r-lg) - 1px)}
-.gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65;overflow:hidden;
+.gfile-diff{font-family:var(--mono);font-size:12px;line-height:1.65;overflow-x:auto;overflow-y:hidden;
   border-radius:0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
   content-visibility:auto;contain-intrinsic-size:auto 360px}
 .nodiff{padding:14px;color:var(--muted);font-family:var(--sans);font-size:12px}

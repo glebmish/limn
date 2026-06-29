@@ -12,6 +12,12 @@ function base(path: string): string {
   return i < 0 ? path : path.slice(i + 1)
 }
 
+/** Tour notes sometimes begin with a circled index (①②③…) that just duplicates the
+ *  stop's number badge — strip a leading circled number and any separator/space. */
+function stripLeadingMarker(note: string): string {
+  return note.replace(/^[①-⑳⓪❶-❿⓵-⓾]\s*[.):·–—-]?\s*/u, '')
+}
+
 function focusKind(a: FocusTarget): string {
   switch (a.kind) {
     case 'summary': return 'Summary'
@@ -105,7 +111,7 @@ function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }
                 <span className={'lt-name' + (label.mono ? ' mono' : '')}>{label.text}</span>
               </button>
               {stop.note && (
-                <div role="note" className="lt-note">{stop.note}</div>
+                <div role="note" className="lt-note">{stripLeadingMarker(stop.note)}</div>
               )}
             </Fragment>
           )

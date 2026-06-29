@@ -16,7 +16,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   forceOpen?: boolean
   secRef: (el: HTMLDivElement | null) => void
 }) {
-  const { viewedAt, collapsed, expanded, setSectionViewed, openSection, loaded, focusTarget } = useStore()
+  const { viewedAt, collapsed, expanded, cur, setSectionViewed, openSection, loaded, focusTarget } = useStore()
   const [commenting, setCommenting] = useState<null | 'header' | 'narration' | 'diagram'>(null)
   const comments = loaded?.state.comments ?? []
 
@@ -26,7 +26,8 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
     collapsed,
     expanded,
     forceOpen,
-    focused
+    focused,
+    cur
   })
   const reReview = hasSince
   const showCtx = GUIDANCE !== 'minimal'
@@ -109,7 +110,10 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
                   )}
                   <div className={s.insight ? 'df-lane' : undefined} style={s.insight ? { justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' } : { display: 'contents' }}>
                     {s.diagram.map((nd, i) => (
-                      <span key={i} style={{ display: 'contents' }}>
+                      // keep each connector glued to the node it points to, so when the
+                      // lane wraps it breaks *between* node+arrow units rather than
+                      // stranding a dangling arrow at the end of a line.
+                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
                         {i > 0 && <Flow />}
                         <DiagramNodeBox kind={nd[1]} title={nd[0]} sub={nd[2]} />
                       </span>

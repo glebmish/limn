@@ -109,11 +109,12 @@ export function focusAnchor(anchor: FocusTarget): void {
   if (st.docPath) st.closeDoc()
   // A file/line jump must also force-OPEN the section that holds the file: a
   // collapsed section renders none of its diffs, so the target node would never
-  // exist. Set both sectionId and file on the transient focus target.
+  // exist. This goes through the TRANSIENT focus target (sectionId) — not
+  // openSection — so only the jumped section opens, and it returns to its natural
+  // state once the next jump moves focus on (no accumulation of opened sections).
   let secId: string | undefined
   if (anchor.kind === 'file' || anchor.kind === 'diff') {
     secId = effectiveSections(st.loaded).find((s) => s.files.includes(anchor.file))?.id
-    if (secId) st.openSection(secId)
   }
   st.setFocusTarget(
     anchor.kind === 'section' ? { sectionId: anchor.sectionId }
