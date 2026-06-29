@@ -279,14 +279,15 @@ type ChatThreadRow = {
 const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode'
 
 function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
-  const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json, segments_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
-    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null; tools_json: string | null; segments_json: string | null }[])
+  const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
+    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null; tools_json: string | null; segments_json: string | null; comment_refs_json: string | null }[])
     .map((r) => ({
       role: r.role, text: r.text, at: r.at,
       ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}),
       ...(r.actions_json ? { actions: JSON.parse(r.actions_json) } : {}),
       ...(r.tools_json ? { tools: JSON.parse(r.tools_json) } : {}),
-      ...(r.segments_json ? { segments: JSON.parse(r.segments_json) } : {})
+      ...(r.segments_json ? { segments: JSON.parse(r.segments_json) } : {}),
+      ...(r.comment_refs_json ? { commentRefs: JSON.parse(r.comment_refs_json) } : {})
     }))
   return {
     id: row.id,
@@ -328,11 +329,12 @@ export function listChatThreads(db: DatabaseSync, sessionId: number): ChatThread
 }
 
 export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessage): void {
-  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json, actions_json, tools_json, segments_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(threadId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null,
       m.actions && m.actions.length ? JSON.stringify(m.actions) : null,
       m.tools && m.tools.length ? JSON.stringify(m.tools) : null,
-      m.segments && m.segments.length ? JSON.stringify(m.segments) : null)
+      m.segments && m.segments.length ? JSON.stringify(m.segments) : null,
+      m.commentRefs && m.commentRefs.length ? JSON.stringify(m.commentRefs) : null)
 }
 
 /** Persist a resolution onto a suggest_viewed action in a thread's message history.

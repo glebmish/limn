@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, chatsWithDraft, checkoutGate, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
-import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
+import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
@@ -14,6 +14,8 @@ import { queuedComments } from '../lib/comments'
 import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 import { dev } from '../dev'
+import { focusAnchor } from '../lib/focus'
+import type { Comment } from '../../shared/types'
 
 /** Right-sidebar multi-chat panel: a list of chats tied to the review, each with
  *  its own agent. Chat 1 resumes the review agent's session; new chats can target
@@ -167,7 +169,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 grouped a section that way, or what a change affects.
               </div>
             )}
-            {active?.messages.map((m, i) => (
+            {active?.messages.map((m, i) => {
+              const submittedRefs = m.role === 'user' ? (m.commentRefs ?? inferSubmittedCommentRefs(active.messages, i)) : undefined
+              return (
               <div key={i} className={'chat-msg ' + m.role}>
                 <Ava ai={m.role === 'agent'}>
                   {m.role === 'agent' ? <EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /> : 'me'}
@@ -183,11 +187,19 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                           <Markdown text={m.text} />
                         </>
                       )
-                  ) : m.text}
+                  ) : (
+                    <>
+                      <div>{m.text}</div>
+                      {submittedRefs && submittedRefs.length > 0 && (
+                        <SubmittedCommentRefs commentRefs={submittedRefs} comments={loaded?.state.comments ?? []} />
+                      )}
+                    </>
+                  )}
                   {(!m.segments || m.segments.length === 0) && m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} threadId={active?.id} />}
                 </div>
               </div>
-            ))}
+              )
+            })}
             {streaming && (
               <div className="chat-msg agent" aria-live="polite">
                 <Ava ai><EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /></Ava>
@@ -282,7 +294,22 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 /** Render an agent message's ordered segments inline: prose as markdown, each tool
  *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;
  *  skipped if absent). Keeps tool rows at their true call site instead of grouping. */
-function SegmentBody({ segments, calls, actions, engine, threadId }: {
+const ACTION_TOOL_KIND: Record<string, AgentAction['kind']> = {
+  focus: 'focus',
+  tour: 'tour',
+  suggest_mark_viewed: 'suggest_viewed',
+  add_comment: 'comment_added',
+  reply_to_comment: 'comment_replied',
+  resolve_comment: 'comment_resolved',
+  edit_review: 'review_edited'
+}
+
+function actionToolKind(call: ToolCall): AgentAction['kind'] | null {
+  const bare = call.name.replace(/^mcp__limn__/, '')
+  return ACTION_TOOL_KIND[bare] ?? null
+}
+
+export function SegmentBody({ segments, calls, actions, engine, threadId }: {
   segments: MessageSegment[]
   calls: ToolCall[]
   actions: AgentAction[]
@@ -290,12 +317,27 @@ function SegmentBody({ segments, calls, actions, engine, threadId }: {
   threadId?: number
 }) {
   const byId = new Map(calls.map((c) => [c.id, c]))
+  const usedActionIndexes = new Set<number>()
+  for (const seg of segments) {
+    if (seg.kind === 'action') usedActionIndexes.add(seg.index)
+  }
+  const takeAction = (kind: AgentAction['kind']): AgentAction | null => {
+    const idx = actions.findIndex((a, i) => !usedActionIndexes.has(i) && a.kind === kind)
+    if (idx < 0) return null
+    usedActionIndexes.add(idx)
+    return actions[idx]
+  }
   return (
     <>
       {segments.map((seg, i) => {
         if (seg.kind === 'text') return <Markdown key={i} text={seg.text} />
         if (seg.kind === 'tool') {
           const call = byId.get(seg.id)
+          const kind = call?.state === 'ok' ? actionToolKind(call) : null
+          if (kind) {
+            const action = takeAction(kind)
+            return action ? <ActionChips key={i} actions={[action]} engine={engine} threadId={threadId} /> : null
+          }
           return call ? <ToolCallLog key={i} calls={[call]} /> : null
         }
         const action = actions[seg.index]
@@ -303,6 +345,73 @@ function SegmentBody({ segments, calls, actions, engine, threadId }: {
       })}
     </>
   )
+}
+
+function base(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? path : path.slice(i + 1)
+}
+
+function commentRefLabel(c: Comment): string {
+  const a = c.anchor
+  switch (a.kind) {
+    case 'diff': return `${base(a.file)}:${a.line}`
+    case 'file': return base(a.file)
+    case 'section': return 'section'
+    case 'summary': return 'summary'
+    case 'artifact': return `${base(a.path)}:${a.line}`
+    case 'plan-step': return `plan ${a.stepN}`
+    case 'question': return 'question'
+    case 'title': return 'title'
+    case 'acceptance': return `criterion ${a.index + 1}`
+    case 'deviation': return `deviation ${a.index + 1}`
+    case 'selection': return a.quote.length > 24 ? a.quote.slice(0, 23) + '...' : a.quote
+  }
+}
+
+function focusableAnchor(anchor: CommentAnchor): FocusTarget | null {
+  return anchor.kind === 'summary' || anchor.kind === 'section' || anchor.kind === 'file' || anchor.kind === 'diff' ? anchor : null
+}
+
+export function SubmittedCommentRefs({ commentRefs, comments }: { commentRefs: string[]; comments: Comment[] }) {
+  const byId = new Map(comments.map((c) => [c.id, c]))
+  const refs = commentRefs.map((id) => byId.get(id)).filter((c): c is Comment => Boolean(c))
+  if (refs.length === 0) return null
+  return (
+    <div className="limn-act submit">
+      <div className="limn-act-head">
+        <I.arrow className="ah-ic" />
+        <span className="ah-verb">Submitted</span>
+        <span className="ah-anchor">{refs.length} comment{refs.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="limn-submit-list">
+        {refs.map((c, i) => (
+          <button key={c.id} className="limn-submit-ref" onClick={() => {
+            const anchor = focusableAnchor(c.anchor)
+            if (anchor) focusAnchor(anchor)
+          }}>
+            <span className="sr-n">{i + 1}</span>
+            <span className="sr-body">
+              <span className="sr-loc">{commentRefLabel(c)}</span>
+              <span className="sr-text">{c.text}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function inferSubmittedCommentRefs(messages: { role: 'user' | 'agent'; text: string; actions?: AgentAction[] }[], index: number): string[] {
+  const msg = messages[index]
+  if (!msg || msg.role !== 'user' || !/^Handle \d+ comment\(s\)/.test(msg.text)) return []
+  const next = messages.slice(index + 1).find((m) => m.role === 'agent')
+  const ids = new Set<string>()
+  for (const action of next?.actions ?? []) {
+    if (action.kind === 'comment_replied' || action.kind === 'comment_resolved') ids.add(action.commentId)
+    if (action.kind === 'comment_added') ids.add(action.comment.id)
+  }
+  return [...ids]
 }
 
 function describeShort(anchor: CommentAnchor): string {

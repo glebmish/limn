@@ -36,4 +36,19 @@ describe('tour action controls', () => {
     expect(out).not.toContain('lt-help')
     expect(out).not.toContain('aria-expanded')
   })
+
+  it('renders comment action cards as clickable focus targets when their anchor is focusable', () => {
+    const action: AgentAction = {
+      kind: 'comment_replied',
+      commentId: 'c1',
+      anchor: { kind: 'section', sectionId: 'contracts' },
+      reply: { author: 'agent', text: 'Answered in place.', at: 'T1' }
+    }
+
+    const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+
+    expect(out).toContain('<button')
+    expect(out).toContain('class="limn-act cmt"')
+    expect(out).toContain('Show in the review')
+  })
 })

@@ -1036,7 +1036,15 @@ export const useStore = create<AppStore>((set, get) => {
       if (loaded && commentIds.length > 0) {
         const comments = loaded.state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
         setChats(loaded.state.chats.map((c) => c.id === threadId
-          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: batchUserPreview(comments, loaded, refine, trimmed), at: new Date().toISOString() }] }
+          ? {
+              ...c,
+              messages: [...c.messages, {
+                role: 'user' as const,
+                text: batchUserPreview(comments, loaded, refine, trimmed),
+                at: new Date().toISOString(),
+                ...(comments.length ? { commentRefs: comments.map((comment) => comment.id) } : {})
+              }]
+            }
           : c))
       }
       const opId = newOpId()

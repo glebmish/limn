@@ -188,7 +188,7 @@ export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactForma
  *  interleaving the agent emitted so rows/cards render inline at their call site,
  *  not grouped. Built by `reduceSegments`; `text`/`tools` stay for back-compat. */
 export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string } | { kind: 'action'; index: number }
-export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[] }
+export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[]; commentRefs?: string[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are
  *  started by the reviewer and may target any agent. */

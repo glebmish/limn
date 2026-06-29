@@ -55,6 +55,10 @@ function anchorShort(a: CommentAnchor): string {
   }
 }
 
+function focusableAnchor(anchor: CommentAnchor): FocusTarget | null {
+  return anchor.kind === 'summary' || anchor.kind === 'section' || anchor.kind === 'file' || anchor.kind === 'diff' ? anchor : null
+}
+
 function FocusCard({ action }: { action: Extract<AgentAction, { kind: 'focus' }> }) {
   const target = focusTarget(action.anchor)
   return (
@@ -155,8 +159,9 @@ function CommentActionCard({ action, engine }: {
   const body = added ? action.comment.text : action.kind === 'comment_replied' ? action.reply.text : action.note
   const title = added ? 'Commented' : action.kind === 'comment_replied' ? 'Replied' : 'Resolved'
   const Icon = added ? I.bubble : resolved ? I.check : I.arrow
-  return (
-    <div className="limn-act cmt">
+  const target = focusableAnchor(anchor)
+  const content = (
+    <>
       <div className="limn-act-head">
         <Icon className="ah-ic" />
         <span className="ah-verb">{title}</span>
@@ -169,7 +174,14 @@ function CommentActionCard({ action, engine }: {
         <div className="cb-who"><Ava ai>AI</Ava>{engine ? agentLabel({ engine }) : 'Agent'}</div>
         <div className="cb-text">{body}</div>
       </div>
-    </div>
+    </>
+  )
+  return target ? (
+    <button className="limn-act cmt" title="Show in the review" onClick={() => focusAnchor(target)}>
+      {content}
+    </button>
+  ) : (
+    <div className="limn-act cmt">{content}</div>
   )
 }
 

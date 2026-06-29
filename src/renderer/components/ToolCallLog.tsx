@@ -14,6 +14,8 @@ const VERB_ICON: Record<ToolVerb, keyof typeof I> = {
  *  the tool's real name (minus any `mcp__server__` prefix) instead of the opaque
  *  "other" bucket. */
 function rowLabel(c: ToolCall): string {
+  const mcp = c.name.match(/^mcp__[^_]+__(.+)$/)
+  if (mcp) return mcp[1] || c.name
   if (c.verb !== 'other') return c.verb
   return c.name.replace(/^mcp__[^_]+__/, '') || 'other'
 }

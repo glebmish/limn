@@ -421,6 +421,18 @@ describe('chat threads DAO', () => {
     expect(msgs[0].tools).toEqual(tools)
     expect(msgs[1].tools).toBeUndefined() // no tools → no key, not []
   })
+
+  it('round-trips submitted comment references on user messages', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+
+    addChatMessage(db, t.id, { role: 'user', text: 'Handle 2 comment(s).', at: 'T1', commentRefs: ['c1', 'c2'] })
+    addChatMessage(db, t.id, { role: 'user', text: 'plain', at: 'T2' })
+
+    const msgs = getChatThread(db, t.id)!.messages
+    expect(msgs[0].commentRefs).toEqual(['c1', 'c2'])
+    expect(msgs[1].commentRefs).toBeUndefined()
+  })
 })
 
 describe('repo-scoped session queries (hub + branch jump)', () => {

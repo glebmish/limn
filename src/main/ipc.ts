@@ -127,12 +127,20 @@ function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.load
   return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
 
-/** Forward engine events to the renderer and collect them, so the caller can fold
- *  the tool-call lifecycle into the persisted ChatMessage (wf-D). */
-async function pumpEvents(opId: string, events: AsyncIterable<EngineEvent>): Promise<EngineEvent[]> {
-  const collected: EngineEvent[] = []
-  for await (const event of events) { collected.push(event); send('op:event', { opId, event }) }
-  return collected
+/** Forward operation events to the renderer and collect them, so the caller can fold
+ *  the tool-call/action lifecycle into the persisted ChatMessage. Tool-host actions
+ *  use the same recorder as engine events so segments preserve true stream order. */
+function opRecorder(opId: string): { events: EngineEvent[]; emit: (event: EngineEvent) => void } {
+  const events: EngineEvent[] = []
+  const emit = (event: EngineEvent): void => {
+    events.push(event)
+    send('op:event', { opId, event })
+  }
+  return { events, emit }
+}
+
+async function pumpEvents(events: AsyncIterable<EngineEvent>, emit: (event: EngineEvent) => void): Promise<void> {
+  for await (const event of events) emit(event)
 }
 
 /** Add `pattern` to the repo's local `.git/info/exclude` (idempotent). Local-only —
@@ -375,9 +383,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         steer: steer?.trim() || undefined, prior
       })
       operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(opId, run.events)
+      const recorder = opRecorder(opId)
+      const pump = pumpEvents(run.events, recorder.emit)
       const { value, sessionId: engineSession } = await run.result
-      const genEvents = await pump
+      await pump
       const { annotations, warnings } = mergeAnnotations(skeleton, value)
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
 
@@ -426,7 +435,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // history — generation first, later comment/decision turns after.
         if (dao.getChatThread(db, reviewThreadId)) {
           const at = new Date().toISOString()
-          const genTools = reduceToolCalls(genEvents)
+          const genTools = reduceToolCalls(recorder.events)
           dao.setThreadEngineSession(db, reviewThreadId, engineSession)
           dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
           dao.addChatMessage(db, reviewThreadId, {
@@ -507,9 +516,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
+      const recorder = opRecorder(opId)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        emit: (event) => send('op:event', { opId, event })
+        emit: recorder.emit
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
@@ -535,13 +545,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // drop what the reviewer typed (mirrors the generate path).
       dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
       operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(opId, run.events)
+      const pump = pumpEvents(run.events, recorder.emit)
       const { value, sessionId: engineSession } = await run.result
-      const events = await pump
+      await pump
       const at = new Date().toISOString()
       const actions = tools.collected()
-      const toolCalls = reduceToolCalls(events)
-      const segments = reduceSegments(events)
+      const toolCalls = reduceToolCalls(recorder.events)
+      const segments = reduceSegments(recorder.events)
       // auto-title a user chat from its first message (re-checked at persist time so
       // a concurrent turn can't double-title). The review thread keeps its own title.
       // The user turn is now persisted up front, so "first message" means exactly that
@@ -628,12 +638,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       if (comments.length === 0 && !steer) throw new Error('Nothing to send')
       for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
       const userAt = new Date().toISOString()
-      dao.addChatMessage(db, threadId, { role: 'user', at: userAt, text: batchUserMessage(comments, state, refine, steer) })
+      dao.addChatMessage(db, threadId, {
+        role: 'user',
+        at: userAt,
+        text: batchUserMessage(comments, state, refine, steer),
+        ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
+      })
 
       const engine = makeEngine(thread.agent.engine)
+      const recorder = opRecorder(opId)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        engineSessionId: thread.engineSessionId, emit: (event) => send('op:event', { opId, event })
+        engineSessionId: thread.engineSessionId, emit: recorder.emit
       })
       // cancel during setup → bail before the (write-enabled) engine launches, so a
       // stopped batch can't still edit/commit the worktree.
@@ -646,9 +662,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         tools, writeEnabled, opId, executionMode: thread.executionMode
       })
       operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(opId, run.events)
+      const pump = pumpEvents(run.events, recorder.emit)
       const { value, sessionId: engineSession } = await run.result
-      const events = await pump
+      await pump
 
       // statuses now reflect the agent's resolve/commit tool calls; anything left
       // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
@@ -658,8 +674,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       }
       const at = new Date().toISOString()
       const actions = tools.collected()
-      const toolCalls = reduceToolCalls(events)
-      const segments = reduceSegments(events)
+      const toolCalls = reduceToolCalls(recorder.events)
+      const segments = reduceSegments(recorder.events)
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length

@@ -428,6 +428,7 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .lt-ctl:disabled { opacity: .4; cursor: default; }
 .lt-pos { flex: 1 1 auto; min-width: 0; text-align: center; font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .limn-act.cmt .ah-ic, .limn-act.cmt .ah-verb { color: var(--accent-ink); }
+button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-act.cmt .ah-verdict { margin-left: auto; font-weight: 700; font-size: 9.5px; border-radius: 999px; padding: 1px 7px; }
 .ah-verdict.addressed { color: var(--accent-ink); background: var(--accent-soft); }
 .ah-verdict.reworked { color: var(--amber); background: var(--amber-soft); }
@@ -442,6 +443,16 @@ button.limn-act { width: 100%; text-align: left; cursor: pointer; font: inherit;
 .limn-cmtbody .cb-who .ava { width: 15px; height: 15px; font-size: 8px; }
 .limn-cmtbody .cb-text { font-size: 12px; line-height: 1.5; color: var(--ink); }
 .limn-cmtbody .cb-text .mono { font-family: var(--mono); font-size: 11px; }
+.limn-act.submit { margin-top: 8px; }
+.limn-act.submit .ah-ic, .limn-act.submit .ah-verb { color: var(--accent-ink); }
+.limn-submit-list { border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+.limn-submit-ref { display: flex; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-left: 3px solid transparent; border-top: 1px solid var(--line); background: var(--panel); cursor: pointer; text-align: left; font: inherit; }
+.limn-submit-ref:first-child { border-top: none; }
+.limn-submit-ref:hover { background: var(--accent-soft); border-left-color: var(--accent); }
+.limn-submit-ref .sr-n { width: 17px; height: 17px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line); font: 700 9px/1 var(--mono); }
+.limn-submit-ref .sr-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.limn-submit-ref .sr-loc { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.limn-submit-ref .sr-text { font-size: 11.5px; line-height: 1.35; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* ---- unified batch CTA (chat footer) ---- */
 .chat-batch { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 9px 13px; border-top: 1px solid var(--line); background: var(--accent-soft); }

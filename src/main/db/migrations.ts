@@ -173,5 +173,15 @@ export const MIGRATIONS: Migration[] = [
         ALTER TABLE session_approvals_new RENAME TO session_approvals;
       `)
     }
+  },
+  {
+    // Optional comment ids attached to user batch-submission messages, so the chat
+    // can render clickable references instead of a bare "Handle N comment(s)" line.
+    version: 5,
+    up(db) {
+      const cols = db.prepare('PRAGMA table_info(chat_messages)').all() as { name: string }[]
+      if (cols.some((c) => c.name === 'comment_refs_json')) return
+      db.exec('ALTER TABLE chat_messages ADD COLUMN comment_refs_json TEXT')
+    }
   }
 ]
