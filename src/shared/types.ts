@@ -183,11 +183,11 @@ export type EngineEvent =
  *  or label in the UI (retired: "No artifact format flag" design decision). */
 export type ArtifactFormat = 'superpowers' | 'sdd'
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactFormat; path: string; title: string; lines: string[] }
-/** An ordered slice of an agent message: either a run of prose or a reference to a
- *  tool call (by id, resolved against `ChatMessage.tools`). Preserves the
- *  interleaving the agent emitted so tool rows render inline at their call site,
+/** An ordered slice of an agent message: prose, a tool call reference, or an
+ *  action reference by index into `ChatMessage.actions`. Preserves the
+ *  interleaving the agent emitted so rows/cards render inline at their call site,
  *  not grouped. Built by `reduceSegments`; `text`/`tools` stay for back-compat. */
-export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string }
+export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string } | { kind: 'action'; index: number }
 export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are

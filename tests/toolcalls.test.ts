@@ -92,6 +92,21 @@ describe('reduceSegments', () => {
     ]
     expect(reduceSegments(events)).toEqual([{ kind: 'tool', id: 'a' }])
   })
+
+  it('preserves action events at their streamed position', () => {
+    const events: EngineEvent[] = [
+      { type: 'text', text: 'Before.' },
+      { type: 'action', action: { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } } },
+      { type: 'text', text: 'After.' },
+      { type: 'action', action: { kind: 'comment_resolved', commentId: 'c1', anchor: { kind: 'file', file: 'src/a.ts' }, verdict: 'addressed', note: 'Done.' } },
+    ]
+    expect(reduceSegments(events)).toEqual([
+      { kind: 'text', text: 'Before.' },
+      { kind: 'action', index: 0 },
+      { kind: 'text', text: 'After.' },
+      { kind: 'action', index: 1 },
+    ])
+  })
 })
 
 describe('deriveVerb', () => {

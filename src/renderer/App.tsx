@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { DENSITY, useStore } from './store'
-import { focusAnchor } from './lib/focus'
 import Dashboard from './screens/Dashboard'
 import RepoHub from './screens/RepoHub'
 import Review from './screens/Review'
@@ -14,14 +13,6 @@ export default function App() {
     const offEvent = window.api.onOpEvent(({ opId, event }) => {
       if (useStore.getState().gen.opId !== opId) return
       useStore.getState().pushOpEvent(event)
-      // focus runs live — scroll + flash the review the moment the agent points at it
-      if (event.type === 'action') {
-        if (event.action.kind === 'focus') focusAnchor(event.action.anchor)
-        if (event.action.kind === 'tour') {
-          const first = event.action.stops[0]?.target
-          if (first) focusAnchor(first)
-        }
-      }
     })
     const offResult = window.api.onOpResult(({ opId, status, error, reload }) => {
       const st = useStore.getState()

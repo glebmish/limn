@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, chatsWithDraft, checkoutGate, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
-import type { CommentAnchor, MessageSegment, ToolCall } from '../../shared/types'
+import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
@@ -176,7 +176,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
                   {m.role === 'agent' ? (
                     m.segments && m.segments.length > 0
-                      ? <SegmentBody segments={m.segments} calls={m.tools ?? []} />
+                      ? <SegmentBody segments={m.segments} calls={m.tools ?? []} actions={m.actions ?? []} engine={active?.agent.engine} threadId={active?.id} />
                       : (
                         <>
                           {m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
@@ -184,7 +184,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                         </>
                       )
                   ) : m.text}
-                  {m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} threadId={active?.id} />}
+                  {(!m.segments || m.segments.length === 0) && m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} threadId={active?.id} />}
                 </div>
               </div>
             ))}
@@ -193,11 +193,11 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 <Ava ai><EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /></Ava>
                 <div className="chat-bubble">
                   {liveSegments.length > 0 ? (
-                    <SegmentBody segments={liveSegments} calls={liveCalls} />
+                    <SegmentBody segments={liveSegments} calls={liveCalls} actions={liveActions} engine={active?.agent.engine} threadId={active?.id} />
                   ) : (
                     <div className="tstatus"><span className="limn-spin" />{statusLine?.text ?? 'thinking…'}</div>
                   )}
-                  {liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} threadId={active?.id} />}
+                  {liveSegments.length === 0 && liveActions.length > 0 && <ActionChips actions={liveActions} engine={active?.agent.engine} threadId={active?.id} />}
                 </div>
               </div>
             )}
@@ -282,14 +282,24 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 /** Render an agent message's ordered segments inline: prose as markdown, each tool
  *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;
  *  skipped if absent). Keeps tool rows at their true call site instead of grouping. */
-function SegmentBody({ segments, calls }: { segments: MessageSegment[]; calls: ToolCall[] }) {
+function SegmentBody({ segments, calls, actions, engine, threadId }: {
+  segments: MessageSegment[]
+  calls: ToolCall[]
+  actions: AgentAction[]
+  engine?: EngineId
+  threadId?: number
+}) {
   const byId = new Map(calls.map((c) => [c.id, c]))
   return (
     <>
       {segments.map((seg, i) => {
         if (seg.kind === 'text') return <Markdown key={i} text={seg.text} />
-        const call = byId.get(seg.id)
-        return call ? <ToolCallLog key={i} calls={[call]} /> : null
+        if (seg.kind === 'tool') {
+          const call = byId.get(seg.id)
+          return call ? <ToolCallLog key={i} calls={[call]} /> : null
+        }
+        const action = actions[seg.index]
+        return action ? <ActionChips key={i} actions={[action]} engine={engine} threadId={threadId} /> : null
       })}
     </>
   )
