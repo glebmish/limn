@@ -218,7 +218,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <button
                 className="btn btn-primary btn-sm chat-batch-go"
                 disabled={!gate.writeEnabled}
-                onClick={() => { if (!gate.writeEnabled) return; store.sendBatch(active.id, queued.map((c) => c.id), steer); setSteer('') }}
+                onClick={() => { if (!gate.writeEnabled) return; store.sendQueuedComments(queued.map((c) => c.id), steer); setSteer('') }}
               >
                 <I.send style={{ width: 12, height: 12 }} />
                 Send {queued.length} pending comment{queued.length === 1 ? '' : 's'} → {agentLabel(active.agent)}

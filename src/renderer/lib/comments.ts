@@ -42,14 +42,12 @@ export function currentReviewChat(chats: { kind: string; id: number; engineSessi
     ?? chats[0]
 }
 
-/** Send queued comments to the review agent's chat as one unified batch turn. The
+/** Send queued comments to the *active* chat's agent as one unified batch turn. The
  *  agent edits & commits code, resolves, or replies via its tools; the chat drawer
- *  opens to show the rollup + commit chip (wf-H). */
+ *  opens to show the rollup + commit chip (wf-H). The destination follows whichever
+ *  chat is active (matching the drawer's "Send N → agent" CTA), not the review agent. */
 export function sendComments(ids: string[], steer?: string): void {
-  const { loaded } = useStore.getState()
-  const target = currentReviewChat(loaded?.state.chats ?? [], loaded?.state.latestIteration?.sessionId)
-  if (!target) return
-  useStore.getState().sendBatch(target.id, ids, steer)
+  useStore.getState().sendQueuedComments(ids, steer)
 }
 
 /** Answer(s) to the agent's open intent questions: a read-only refine turn on the

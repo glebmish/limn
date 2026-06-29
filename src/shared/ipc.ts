@@ -100,7 +100,7 @@ export interface Api {
   // ── multi-chat ──
   /** Send a message in a chat thread; the thread carries its own agent. */
   sendChat(threadId: number, message: string, opId: string, anchor?: CommentAnchor): Promise<void>
-  createChat(sessionId: number, agent: AgentRef): Promise<ChatThread[]>
+  createChat(sessionId: number, agent: AgentRef, executionMode?: ExecutionMode): Promise<ChatThread[]>
   setChatAgent(threadId: number, agent: AgentRef): Promise<ChatThread[]>
   /** Set the per-chat execution mode (approvals ladder tier). */
   setChatMode(threadId: number, mode: ExecutionMode): Promise<ChatThread[]>

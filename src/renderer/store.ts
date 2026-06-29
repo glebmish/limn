@@ -341,6 +341,9 @@ interface AppStore {
   followUp(text: string): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
   sendBatch(threadId: number, commentIds: string[], steer?: string, refine?: boolean): void
+  /** send queued comments to the *active* chat's agent (minting a draft chat if
+   *  the active one hasn't persisted yet) — the destination shown in the UI. */
+  sendQueuedComments(commentIds: string[], steer?: string): void
   deleteChat(id: number): Promise<void>
 }
 
@@ -356,6 +359,27 @@ export const useStore = create<AppStore>((set, get) => {
   const setChats = (chats: ChatThread[]): void => {
     const loaded = get().loaded
     if (loaded) set({ loaded: { ...loaded, state: { ...loaded.state, chats } } })
+  }
+
+  /** Resolve the active chat to a real, persisted thread id, minting the draft on
+   *  first use (createChat). Returns null when there's nothing to send to. Shared
+   *  by every "send to the active chat" path so they materialize drafts the same way. */
+  const materializeActiveChat = async (): Promise<number | null> => {
+    const active = activeChat(get().loaded, get().activeChatId, get().draftChat)
+    if (!active) return null
+    if (active.id !== DRAFT_CHAT_ID) return active.id
+    const { sessionId } = get()
+    if (sessionId == null) return null
+    try {
+      const chats = await window.api.createChat(sessionId, active.agent, active.executionMode)
+      setChats(chats)
+      const id = chats[chats.length - 1]?.id ?? null
+      if (id != null) set({ activeChatId: id, draftChat: null })
+      return id
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+      return null
+    }
   }
 
   /** Send a chat turn to an explicit thread id. This is the low-level path used by
@@ -919,6 +943,13 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     async setChatMode(threadId, mode) {
+      // A draft chat (DRAFT_CHAT_ID) has no DB row yet — keep the choice on the
+      // local draft so it survives until the chat materializes on its first turn
+      // (mirrors setActiveChatAgent). Calling IPC here would 'chat thread not found'.
+      if (threadId === DRAFT_CHAT_ID) {
+        set((s) => ({ draftChat: s.draftChat ? { ...s.draftChat, executionMode: mode } : null }))
+        return
+      }
       try {
         setChats(await window.api.setChatMode(threadId, mode))
       } catch (err) {
@@ -951,26 +982,11 @@ export const useStore = create<AppStore>((set, get) => {
     sendChat(text, anchor) {
       const body = text.trim()
       if (!body || get().gen.running) return
-      const active = activeChat(get().loaded, get().activeChatId, get().draftChat)
-      if (!active) return
+      // a draft chat persists lazily on its first turn — mint the real thread now,
+      // then send into THAT id.
       void (async () => {
-        let targetId = active.id
-        // a draft chat persists lazily on its first turn: mint the real thread now,
-        // swap the picker/active id to it, then send into THAT id.
-        if (active.id === DRAFT_CHAT_ID) {
-          const { sessionId } = get()
-          if (sessionId == null) return
-          try {
-            const chats = await window.api.createChat(sessionId, active.agent)
-            setChats(chats)
-            targetId = chats[chats.length - 1]?.id ?? DRAFT_CHAT_ID
-            if (targetId === DRAFT_CHAT_ID) return
-            set({ activeChatId: targetId, draftChat: null })
-          } catch (err) {
-            set({ error: err instanceof Error ? err.message : String(err) })
-            return
-          }
-        }
+        const targetId = await materializeActiveChat()
+        if (targetId == null) return
         sendChatToThread(targetId, body, anchor)
       })()
     },
@@ -1027,6 +1043,17 @@ export const useStore = create<AppStore>((set, get) => {
       get().openChat(threadId)
       get().startOp('chat', opId, threadId)
       void window.api.sendBatch(threadId, commentIds, trimmed, opId, refine)
+    },
+
+    sendQueuedComments(commentIds, steer) {
+      if (get().gen.running) return
+      // queued comments go to whatever chat is active (its agent is the destination
+      // shown in the UI), materializing a draft chat into a real thread first.
+      void (async () => {
+        const targetId = await materializeActiveChat()
+        if (targetId == null) return
+        get().sendBatch(targetId, commentIds, steer)
+      })()
     },
 
     async deleteChat(id) {

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { AgentRef, Comment } from '../../shared/types'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
-import { useStore } from '../store'
+import { activeChat, useStore } from '../store'
 import { currentReviewChat, deleteComment, editComment, sendComments } from '../lib/comments'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
@@ -23,8 +23,10 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const [confirmDel, setConfirmDel] = useState(false)
   const [draft, setDraft] = useState(c.text)
   const isAgent = c.author === 'agent'
-  // engine a queued comment will be sent to = the review agent
+  // engine a queued comment will be sent to = the *active* chat's agent (the
+  // destination the drawer's batch CTA also targets), falling back to the review agent.
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
+  const activeAgent = useStore((s) => activeChat(s.loaded, s.activeChatId, s.draftChat)?.agent)
   const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? []))
   const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
@@ -48,7 +50,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           <span className="dim">{locLabel}</span>
           {!isAgent && c.status === 'queued' && (
             <>
-              <span className="agentq"><EngineGlyph engine={reviewEngine} style={{ width: 11, height: 11 }} />queued for agent</span>
+              <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />queued for agent</span>
               <button className="send-now" onClick={() => sendComments([c.id])}>
                 <I.send style={{ width: 11, height: 11 }} />Send now
               </button>

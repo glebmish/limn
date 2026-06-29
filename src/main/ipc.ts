@@ -566,10 +566,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
   })
 
-  handle('createChat', async (sessionId: number, agent: AgentRef) => {
+  handle('createChat', async (sessionId: number, agent: AgentRef, executionMode?: ExecutionMode) => {
     // title stays null — the renderer shows "New chat" for an untitled chat and the
     // first message auto-derives a real title (see sendChat).
-    dao.createChatThread(db, sessionId, { kind: 'user', agent })
+    dao.createChatThread(db, sessionId, { kind: 'user', agent, executionMode })
     return dao.listChatThreads(db, sessionId)
   })
 
