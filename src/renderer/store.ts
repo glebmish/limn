@@ -99,7 +99,6 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
 export interface SectionDisclosureState {
   viewState: 'none' | 'some' | 'all'
   done: boolean
-  hasSince: boolean
   /** any file was viewed then drifted — the section's changed-since-viewed (amber)
    *  middle ground, rolled up from the same signal as the file glyphs so the badge
    *  colour agrees with the files beneath it. */
@@ -120,26 +119,14 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
 }, headSha?: string): SectionDisclosureState {
   const viewState = sectionViewState(files, viewedAt, headSha)
   const done = viewState === 'all'
-  const hasSince = files.some((f) => f.hunks.some((h) => h.since))
   // matches reviewStatusForFile's amber rule (mark present, no longer counts as
   // viewed) — so combineReviewStatuses over the files would return st-amber too.
   const amber = files.some((f) => Boolean(viewedAt[f.path]) && !fileViewed(f, viewedAt, headSha))
   const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
-  return { viewState, done, hasSince, amber, open }
+  return { viewState, done, amber, open }
 }
 
 export type DiffMode = 'branch' | 'approved' | 'viewed'
-
-/** A file's effective diff mode: its explicit per-file override, else the global default. */
-export function effectiveDiffMode(file: string, diffMode: DiffMode, fileDiffMode: Record<string, DiffMode>): DiffMode {
-  return fileDiffMode[file] ?? diffMode
-}
-
-/** What the global mode switch shows as active, or null ("mixed") once any file has
- *  overridden it to a different mode. Picking a global mode re-syncs every file. */
-export function globalDiffModeSelection(diffMode: DiffMode, fileDiffMode: Record<string, DiffMode>): DiffMode | null {
-  return Object.values(fileDiffMode).some((m) => m !== diffMode) ? null : diffMode
-}
 
 function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
   return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
@@ -294,10 +281,8 @@ interface AppStore {
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
-  /** global diff baseline (Full diff / Since approved / Since viewed) applied to every
-   *  file, and per-file overrides. The global switch deselects when any file diverges. */
+  /** global diff baseline (Full diff / Since approved / Since viewed) applied to every file */
   diffMode: DiffMode
-  fileDiffMode: Record<string, DiffMode>
 
   gen: GenState
 
@@ -364,10 +349,8 @@ interface AppStore {
   setPendingDrift(d: DriftSummary | null, capability?: AgentWriteCapability): void
   openDoc(path: string): void
   closeDoc(): void
-  /** Set the global diff baseline and re-sync every file to it (clears overrides). */
+  /** Set the global diff baseline applied to every file. */
   setGlobalDiffMode(mode: DiffMode): void
-  /** Override one file's diff baseline; deselects the global switch if it diverges. */
-  setFileDiffMode(file: string, mode: DiffMode): void
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
   finishOp(status: OperationStatus, error?: string): void
@@ -525,7 +508,6 @@ export const useStore = create<AppStore>((set, get) => {
     pendingDrift: null,
     docPath: null,
     diffMode: 'branch',
-    fileDiffMode: {},
 
     gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
 
@@ -706,7 +688,7 @@ export const useStore = create<AppStore>((set, get) => {
           screen: 'review', sessionId: null, loaded, repo: repoPath,
           branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-          diffMode: 'branch', fileDiffMode: {},
+          diffMode: 'branch',
           activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: null, pendingDrift: null
         })
         void loadRepoContext(repoPath)
@@ -782,7 +764,7 @@ export const useStore = create<AppStore>((set, get) => {
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-          diffMode: 'branch', fileDiffMode: {},
+          diffMode: 'branch',
           agent: loaded.state.agent ?? get().agent,
           activeChatId: pickActiveChat(loaded.state.chats, null),
           draftChat: null,
@@ -931,11 +913,7 @@ export const useStore = create<AppStore>((set, get) => {
       set({ docPath: null })
     },
     setGlobalDiffMode(mode) {
-      // re-sync every file to the global choice — clearing overrides re-selects the switch
-      set({ diffMode: mode, fileDiffMode: {} })
-    },
-    setFileDiffMode(file, mode) {
-      set({ fileDiffMode: { ...get().fileDiffMode, [file]: mode } })
+      set({ diffMode: mode })
     },
     setFocusTarget(t) {
       set({ focusTarget: t })

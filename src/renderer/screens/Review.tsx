@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, globalDiffModeSelection, GUIDANCE, sectionDisclosureState, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
@@ -111,7 +111,7 @@ function MarkersKey() {
  *  file has that baseline. Picking one re-syncs every file via `setGlobalDiffMode`.
  *  Shown in both the annotated (page-head) and flat (flat-toolbar) headers. */
 function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirty, setGlobalDiffMode }: {
-  globalMode: ReturnType<typeof globalDiffModeSelection>
+  globalMode: 'branch' | 'approved' | 'viewed'
   anySinceApproved: boolean
   anySinceViewed: boolean
   dirty: boolean
@@ -145,7 +145,7 @@ function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirt
           onBlur={(e) => { if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) setOpen(false) }}
         >
           <I.list style={{ width: 13, height: 13 }} />
-          <span className="fh-dd-label">{globalMode ? labelFor(globalMode) : 'Mixed'}</span>
+          <span className="fh-dd-label">{labelFor(globalMode)}</span>
           <span className="fh-chev">▾</span>
         </button>
         <span className="fh-dd-menu" role="listbox">
@@ -163,11 +163,6 @@ function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirt
           ))}
         </span>
       </span>
-      {globalMode === null && (
-        <span className="dm-mixed" title="Files are showing different diff bases — pick one above to re-sync them all">
-          <I.diff style={{ width: 10, height: 10 }} />mixed · per-file
-        </span>
-      )}
       {dirty && <MarkersKey />}
     </div>
   )
@@ -175,7 +170,7 @@ function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirt
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc, diffMode, fileDiffMode, setGlobalDiffMode } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -325,9 +320,9 @@ export default function Review() {
   const excludedFiles = orderFilesForReview(renderedAll.filter(isExcluded))
   const displayFiles = renderedAll.filter((f) => !isExcluded(f))
   const flatDisplayFiles = orderFilesForReview(displayFiles)
-  // global diff-baseline switch: which mode (if any) all files currently agree on, and
-  // which baselines exist to switch to across the changed files.
-  const globalMode = globalDiffModeSelection(diffMode, fileDiffMode)
+  // global diff-baseline switch: the active mode + which baselines exist to switch to
+  // across the changed files.
+  const globalMode = diffMode
   const anySinceApproved = displayFiles.some((f) => f.sinceHunks)
   const anySinceViewed = displayFiles.some((f) => f.sinceViewedHunks)
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine

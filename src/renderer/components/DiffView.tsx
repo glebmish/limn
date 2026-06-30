@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I, Delta, EngineGlyph, CmtPlus } from '../kit'
-import { effectiveDiffMode, fileViewed, fileIsExcluded, GUIDANCE, useStore, type DiffMode } from '../store'
+import { fileViewed, fileIsExcluded, GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -58,16 +58,16 @@ export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, openDoc, diffMode, fileDiffMode } = useStore()
+  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, openDoc, diffMode } = useStore()
   const excluded = fileIsExcluded(loaded, f)
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
   // recognized spec/plan: this same file is reviewable rendered at the top
   const artifact = loaded?.artifacts.find((a) => a.path === f.path)
   const focused = focusTarget?.file === f.path
-  // baseline this file is shown at: its own override, else the global switch (set
-  // from the list-header dropdown — there's no per-file mode control any more)
-  const mode = effectiveDiffMode(f.path, diffMode, fileDiffMode)
+  // baseline this file is shown at — the global switch, set from the list-header
+  // dropdown (there's no per-file mode control)
+  const mode = diffMode
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [fileCommenting, setFileCommenting] = useState(false)
   // manual open/collapse override for this file's diff. null = follow the default
@@ -93,7 +93,6 @@ export function DiffView({ f, plainNote }: {
   // show exactly the selected baseline — if the file has no diff at that baseline it
   // renders the empty state below, rather than silently falling back to the full diff
   // (which made the shown content contradict the selected "Since …" mode).
-  const effectiveMode: DiffMode = mode
   const hunks =
     mode === 'approved' ? (f.sinceHunks ?? [])
     : mode === 'viewed' ? (f.sinceViewedHunks ?? [])
@@ -128,9 +127,7 @@ export function DiffView({ f, plainNote }: {
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}
           {f.conflict && <span className="pill pill-risk" title="Unresolved merge conflict — conflict markers appear inline in the diff below">conflict</span>}
           {f.modeChange && (
-            <span className="pill pill-ghost" title={`File mode changed from ${f.modeChange.from} to ${f.modeChange.to}`}>
-              {describeModeChange(f.modeChange)}
-            </span>
+            <span className="pill pill-amber" title={`File mode changed from ${f.modeChange.from} to ${f.modeChange.to} — ${describeModeChange(f.modeChange)}`}>mode</span>
           )}
           {artifact && (
             <button
@@ -203,12 +200,14 @@ export function DiffView({ f, plainNote }: {
         <div className="gfile-diff">
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
           {!f.binary && hunks.length === 0 && (
-            <div className="nodiff">
-              {effectiveMode === 'approved' ? 'No changes since you approved.'
-                : effectiveMode === 'viewed' ? 'No changes since you viewed.'
-                : f.modeChange ? `Mode-only change (${describeModeChange(f.modeChange)}, ${f.modeChange.from} → ${f.modeChange.to}) — no content change.`
-                : 'No textual changes.'}
-            </div>
+            mode === 'approved' ? <div className="nodiff">No changes since you approved.</div>
+            : mode === 'viewed' ? <div className="nodiff">No changes since you viewed.</div>
+            : f.modeChange ? (
+              // mode-only change: surface the bit transition explicitly rather than an
+              // empty "no content" line (design 07, state 15)
+              <div className="modechip">mode <code>{f.modeChange.from}</code> <span className="ar">→</span> <code>{f.modeChange.to}</code> · {describeModeChange(f.modeChange)}</div>
+            )
+            : <div className="nodiff">No textual changes.</div>
           )}
           {hunks.map((h, i) => (
             <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>

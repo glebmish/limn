@@ -173,8 +173,6 @@
    (page-head) and flat (flat-toolbar) headers. Ported from design 07 (fh-dd/fh-rails). */
 .diffmode-bar{display:inline-flex;align-items:center;gap:9px}
 .wf .page-head .diffmode-bar{margin-top:10px}
-.diffmode-bar .dm-mixed{display:inline-flex;align-items:center;gap:4px;margin-left:1px;padding:2px 7px;font-size:10.5px;font-weight:600;color:var(--accent-ink);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:999px}
-.diffmode-bar .dm-mixed svg{color:var(--amber)}
 /* ── diff-mode dropdown (design fh-dd/fh-seg/fh-chev/fh-dd-menu/fh-dd-item) ── */
 .fh-dd{position:relative;display:inline-flex}
 .fh-seg{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--ink-2);border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:4px 9px;cursor:pointer}
@@ -310,6 +308,10 @@
   border-radius:0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
   content-visibility:auto;contain-intrinsic-size:auto 360px}
 .nodiff{padding:14px;color:var(--muted);font-family:var(--sans);font-size:12px}
+/* mode-only change: spell out the bit transition instead of an empty diff (design 07 s15) */
+.modechip{font-family:var(--mono);font-size:12px;color:var(--ink-2);padding:13px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.modechip code{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;color:var(--ink)}
+.modechip .ar{color:var(--muted-2)}
 
 /* ---- inline comment thread (GitHub-style) ---- */
 .dthread{padding:8px 16px 10px 62px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
@@ -430,7 +432,6 @@
 .rr-summary .rr-tx{font-size:12.5px;color:var(--ink-2);line-height:1.5}
 .rr-summary .rr-tx b{color:var(--amber)}
 .rr-summary .rr-lead{font-weight:700;color:var(--amber)}
-.seg-sm button{padding:3px 9px;font-size:10.5px}
 /* keep ≥30px left clearance so the gutter "+" (offset −26..−28px) clears
    .gmain{overflow-x:hidden} in compact density too */
 .wf.dz-compact .rr-summary{margin:10px 30px 2px}
