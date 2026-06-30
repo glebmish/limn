@@ -21,14 +21,14 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   const comments = loaded?.state.comments ?? []
 
   const focused = focusTarget?.sectionId === s.id
-  const { viewState, done, hasSince, open } = sectionDisclosureState(files, viewedAt, {
+  const { viewState, done, amber, open } = sectionDisclosureState(files, viewedAt, {
     id: s.id,
     collapsed,
     expanded,
     forceOpen,
     focused
   }, loaded?.skeleton.headSha)
-  const reReview = hasSince
+  const reReview = amber
   const showCtx = GUIDANCE !== 'minimal'
   const sectionComments = comments.filter((c) => c.anchor.kind === 'section' && c.anchor.sectionId === s.id)
   // diagram comments are explicitly part:'diagram'; everything else (incl. legacy

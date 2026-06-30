@@ -755,7 +755,7 @@ export default function Review() {
                   className={
                     'gnav-sec'
                     + (cur === s.id && !sectionNav.done ? ' cur' : '')
-                    + (sectionNav.hasSince ? ' amber' : '')
+                    + (sectionNav.amber ? ' amber' : '')
                     + (sectionNav.done ? ' done' : '')
                     + (!sectionNav.open ? ' collapsed' : '')
                   }

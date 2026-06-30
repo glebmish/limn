@@ -100,6 +100,10 @@
 .gnav-sec.cur.amber{background:var(--panel-2);border-left-color:var(--line-3)}
 .gnav-sec.done{background:var(--accent-soft);border-left-color:var(--accent)}
 .gnav-sec.done:hover{background:var(--accent-soft)}
+/* changed-since-viewed section: amber badge + rail, mirroring `.done` so the
+   sidebar matches the main view and the amber file glyphs beneath it */
+.gnav-sec.amber{background:var(--amber-soft);border-left-color:var(--amber)}
+.gnav-sec.amber:hover{background:var(--amber-soft)}
 .gnav-head{display:flex;align-items:center;gap:9px;padding:9px 13px 5px}
 .gnav-idx{width:19px;height:19px;border-radius:6px;flex:0 0 auto;display:flex;align-items:center;
   justify-content:center;font-family:var(--mono);font-size:10.5px;font-weight:700;
@@ -109,6 +113,8 @@
 .gnav-sec.cur .gnav-name{color:var(--ink)}
 .gnav-sec.done .gnav-idx{background:var(--accent);color:#fff;border-color:var(--accent)}
 .gnav-sec.done .gnav-name{color:var(--accent-ink)}
+.gnav-sec.amber .gnav-idx{background:var(--amber);color:#fff;border-color:var(--amber)}
+.gnav-sec.amber .gnav-name{color:var(--amber)}
 .gnav-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:600;color:var(--ink);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gnav-files{padding:1px 0 8px}
@@ -448,8 +454,12 @@
 .gsec-viewed.on{color:var(--accent-ink)}
 .gsec-viewed.on .fv-box{background:var(--accent);border-color:var(--accent)}
 .gsec-viewed .fv-box.some{background:var(--panel);border-color:var(--accent)}
+/* amber middle ground — same light treatment as the file-level ~ tick, so the
+   inner mark stays legible instead of a green dash on a solid-amber fill */
 .gsec-viewed.amber.on{color:var(--amber)}
-.gsec-viewed.amber.on .fv-box{background:var(--amber);border-color:var(--amber)}
+.gsec-viewed.amber.on .fv-box,
+.gsec-viewed.amber .fv-box.some{background:var(--amber-soft);border-color:var(--amber-line);color:var(--amber)}
+.gsec-viewed.amber .fv-dash{background:var(--amber)}
 .fv-dash{width:8px;height:2px;border-radius:1px;background:var(--accent)}
 
 /* ---- inline comment "send now" (in thread header, beside "queued") ---- */

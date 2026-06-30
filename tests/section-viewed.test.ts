@@ -60,6 +60,7 @@ describe('sectionDisclosureState', () => {
     const state = sectionDisclosureState(files, viewed, { id: 's1', collapsed: new Set(), expanded: new Set() })
     expect(state.done).toBe(true)
     expect(state.open).toBe(false)
+    expect(state.amber).toBe(false)
   })
 
   it('force-opens a viewed section without changing completion', () => {
@@ -78,5 +79,13 @@ describe('sectionDisclosureState', () => {
     expect(state.done).toBe(false)
     expect(state.viewState).toBe('some')
     expect(state.open).toBe(true)
+    // a viewed file that drifted is the amber middle ground — the section rolls up
+    // amber (changed-since-viewed), matching the file glyph, not plain unviewed.
+    expect(state.amber).toBe(true)
+  })
+
+  it('is not amber when unviewed files were never looked at (no drift)', () => {
+    const state = sectionDisclosureState(files, {}, { id: 's1', collapsed: new Set(), expanded: new Set() })
+    expect(state.amber).toBe(false)
   })
 })

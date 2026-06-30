@@ -100,6 +100,10 @@ export interface SectionDisclosureState {
   viewState: 'none' | 'some' | 'all'
   done: boolean
   hasSince: boolean
+  /** any file was viewed then drifted — the section's changed-since-viewed (amber)
+   *  middle ground, rolled up from the same signal as the file glyphs so the badge
+   *  colour agrees with the files beneath it. */
+  amber: boolean
   open: boolean
 }
 
@@ -117,8 +121,11 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
   const viewState = sectionViewState(files, viewedAt, headSha)
   const done = viewState === 'all'
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
+  // matches reviewStatusForFile's amber rule (mark present, no longer counts as
+  // viewed) — so combineReviewStatuses over the files would return st-amber too.
+  const amber = files.some((f) => Boolean(viewedAt[f.path]) && !fileViewed(f, viewedAt, headSha))
   const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
-  return { viewState, done, hasSince, open }
+  return { viewState, done, hasSince, amber, open }
 }
 
 export type DiffMode = 'branch' | 'approved' | 'viewed'
