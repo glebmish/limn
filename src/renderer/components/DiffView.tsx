@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I, Delta, EngineGlyph, CmtPlus } from '../kit'
-import { GUIDANCE, useStore } from '../store'
+import { effectiveDiffMode, fileViewed, fileIsExcluded, GUIDANCE, useStore, type DiffMode } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -14,6 +14,17 @@ import { FileGlyph } from './FileGlyph'
 function splitPath(path: string): { dir: string; name: string } {
   const i = path.lastIndexOf('/')
   return i < 0 ? { dir: '', name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) }
+}
+
+/** Human label for a mode-only change. The overwhelmingly common case is the
+ *  executable bit flipping; anything else (e.g. file ↔ symlink) falls back to the
+ *  raw octal modes. */
+function describeModeChange(m: { from: string; to: string }): string {
+  const isExec = (mode: string): boolean => (parseInt(mode.slice(-3), 8) & 0o111) !== 0
+  const fromX = isExec(m.from), toX = isExec(m.to)
+  if (!fromX && toX) return 'executable bit set'
+  if (fromX && !toX) return 'executable bit cleared'
+  return `mode ${m.from} → ${m.to}`
 }
 
 /** tabs → spaces so ch-offset word marks align with the monospace text */
@@ -43,19 +54,20 @@ function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; r
   )
 }
 
-export type DiffMode = 'branch' | 'approved' | 'viewed'
-
 export function DiffView({ f, plainNote }: {
   f: FileDiff
   plainNote?: string
 }) {
-  const { viewedAt, toggleViewed, loaded, focusTarget, openDoc } = useStore()
+  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, openDoc, diffMode, fileDiffMode } = useStore()
+  const excluded = fileIsExcluded(loaded, f)
   const comments = loaded?.state.comments ?? []
   const { dir, name } = splitPath(f.path)
   // recognized spec/plan: this same file is reviewable rendered at the top
   const artifact = loaded?.artifacts.find((a) => a.path === f.path)
   const focused = focusTarget?.file === f.path
-  const [mode, setMode] = useState<DiffMode>('branch')
+  // baseline this file is shown at: its own override, else the global switch (set
+  // from the list-header dropdown — there's no per-file mode control any more)
+  const mode = effectiveDiffMode(f.path, diffMode, fileDiffMode)
   const [composerAt, setComposerAt] = useState<{ line: number; side: 'new' | 'old'; hunkRange: string; content: string } | null>(null)
   const [fileCommenting, setFileCommenting] = useState(false)
   // manual open/collapse override for this file's diff. null = follow the default
@@ -65,27 +77,26 @@ export function DiffView({ f, plainNote }: {
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
-  const hasSince = f.hunks.some((h) => h.since)
-  const hasSinceViewed = f.hunks.some((h) => h.sinceViewed)
-  const hasUncommitted = f.hunks.some((h) => h.lines.some((l) => l.origin === 'uncommitted'))
   const viewMark = viewedAt[f.path]
-  // a viewed file that changed afterwards is no longer "viewed" — the tick clears itself,
-  // whether the change came from a commit (hasSinceViewed) or an uncommitted edit
-  // (content hash drifted from the snapshot).
-  const contentDrift = Boolean(viewMark) && viewMark.hash !== (f.fileHash ?? '')
-  const isViewed = Boolean(viewMark) && !hasSinceViewed && !contentDrift
-  // uncommitted-only drift: content changed since viewing with no commit-level marks
-  const dirtyDrift = contentDrift && !hasSinceViewed
-  const fileStatus = reviewStatusForFile(f, viewedAt)
+  // single source of truth (matches section counts); ignores stale `sinceViewed`
+  // once the mark sits at head, so re-viewing a drifted file sticks immediately.
+  const isViewed = fileViewed(f, viewedAt, loaded?.skeleton.headSha)
+  // a file you ticked viewed that has since changed sits in the amber `~` middle
+  // ground: not fully viewed, but distinct from one you never looked at. Clicking
+  // its tick re-views it (stamps a fresh mark at head → green).
+  const changedSinceViewed = !isViewed && Boolean(viewMark)
+  const fileStatus = reviewStatusForFile(f, viewedAt, loaded?.skeleton.headSha)
   // open by default, collapsed once viewed — unless the header was clicked to
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
   const showBody = focused || effectiveOpen
-  const effectiveMode: DiffMode =
-    (mode === 'approved' && !hasSince) || (mode === 'viewed' && !hasSinceViewed) ? 'branch' : mode
+  // show exactly the selected baseline — if the file has no diff at that baseline it
+  // renders the empty state below, rather than silently falling back to the full diff
+  // (which made the shown content contradict the selected "Since …" mode).
+  const effectiveMode: DiffMode = mode
   const hunks =
-    effectiveMode === 'approved' ? f.hunks.filter((h) => h.since)
-    : effectiveMode === 'viewed' ? f.hunks.filter((h) => h.sinceViewed)
+    mode === 'approved' ? (f.sinceHunks ?? [])
+    : mode === 'viewed' ? (f.sinceViewedHunks ?? [])
     : f.hunks
   const lang = langForPath(f.path)
   const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
@@ -115,6 +126,12 @@ export function DiffView({ f, plainNote }: {
           <span><span className="dim">{dir}</span>{name}</span>
           {f.status === 'renamed' && f.oldPath && <span className="dim" style={{ fontWeight: 400 }}>← {f.oldPath}</span>}
           {f.status === 'deleted' && <span className="pill pill-risk">deleted</span>}
+          {f.conflict && <span className="pill pill-risk" title="Unresolved merge conflict — conflict markers appear inline in the diff below">conflict</span>}
+          {f.modeChange && (
+            <span className="pill pill-ghost" title={`File mode changed from ${f.modeChange.from} to ${f.modeChange.to}`}>
+              {describeModeChange(f.modeChange)}
+            </span>
+          )}
           {artifact && (
             <button
               className="art-badge"
@@ -128,32 +145,30 @@ export function DiffView({ f, plainNote }: {
           )}
         </span>
         <Delta add={f.add} del={f.del} />
-        {!isViewed && hasSince && <span className="pill pill-amber"><I.changed />changed since approval</span>}
-        {!isViewed && !hasSince && hasSinceViewed && <span className="pill pill-amber"><I.eye />changed since viewed</span>}
-        {!isViewed && !hasSince && !hasSinceViewed && dirtyDrift && <span className="pill pill-amber"><I.eye />changed since viewed · uncommitted</span>}
         <span className="grow"></span>
-        {hasUncommitted && (
-          <span
-            className="diff-legend"
-            title="Lines on the dotted rail are uncommitted working-tree changes, shown for context. Approving and marking Viewed record the committed state only."
+        {/* excluded files carry no review state, so they show no Viewed checkbox */}
+        {!excluded && (
+          <label className={'file-viewed' + (changedSinceViewed ? ' amber' : '')} onClick={(e) => e.stopPropagation()}>
+            {/* viewed drives the default collapse, so clear any manual override and
+                let it follow the new viewed state (tick → collapse, untick → open).
+                The amber `~` middle ground reads as not-yet-viewed to the checkbox,
+                so clicking it re-views. */}
+            <input type="checkbox" checked={isViewed} onChange={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }} />
+            <span className="fv-box">{isViewed ? <I.check style={{ width: 10, height: 10 }} /> : changedSinceViewed ? '~' : null}</span>
+            Viewed
+          </label>
+        )}
+        {/* an included untracked file gets an icon-only × to send it back to Untracked */}
+        {f.untracked && (
+          <button
+            className="file-exclude"
+            onClick={(e) => { e.stopPropagation(); toggleExcluded(f) }}
+            title={excluded ? 'Include in the review' : 'Exclude — back to Untracked'}
+            aria-label={excluded ? `Include ${f.path}` : `Exclude ${f.path} — back to Untracked`}
           >
-            <span className="lg-rail" />uncommitted
-          </span>
+            {excluded ? <I.plus style={{ width: 13, height: 13 }} /> : <I.x style={{ width: 13, height: 13 }} />}
+          </button>
         )}
-        {!isViewed && (hasSince || hasSinceViewed) && (
-          <span className="seg seg-sm gfile-seg" onClick={(e) => e.stopPropagation()}>
-            <button className={effectiveMode === 'branch' ? 'on' : ''} aria-pressed={effectiveMode === 'branch'} onClick={() => setMode('branch')}>Full diff</button>
-            {hasSince && <button className={effectiveMode === 'approved' ? 'on' : ''} aria-pressed={effectiveMode === 'approved'} onClick={() => setMode('approved')}>Since approved</button>}
-            {hasSinceViewed && <button className={effectiveMode === 'viewed' ? 'on' : ''} aria-pressed={effectiveMode === 'viewed'} onClick={() => setMode('viewed')}>Since viewed</button>}
-          </span>
-        )}
-        <label className="file-viewed" onClick={(e) => e.stopPropagation()}>
-          {/* viewed drives the default collapse, so clear any manual override and
-              let it follow the new viewed state (tick → collapse, untick → open) */}
-          <input type="checkbox" checked={isViewed} onChange={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }} />
-          <span className="fv-box">{isViewed && <I.check style={{ width: 10, height: 10 }} />}</span>
-          Viewed
-        </label>
       </div>
 
       {(fileLevelComments.length > 0 || fileCommenting) && (
@@ -191,6 +206,7 @@ export function DiffView({ f, plainNote }: {
             <div className="nodiff">
               {effectiveMode === 'approved' ? 'No changes since you approved.'
                 : effectiveMode === 'viewed' ? 'No changes since you viewed.'
+                : f.modeChange ? `Mode-only change (${describeModeChange(f.modeChange)}, ${f.modeChange.from} → ${f.modeChange.to}) — no content change.`
                 : 'No textual changes.'}
             </div>
           )}
@@ -207,11 +223,13 @@ export function DiffView({ f, plainNote }: {
                 const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
                 const lineNo = l.new ?? l.old
                 const threads = threadsFor(lineNo, side)
-                const uncommitted = l.origin === 'uncommitted'
+                const originCls = l.origin === 'staged' ? ' staged'
+                  : l.origin === 'unstaged' ? ' unstaged'
+                  : (l.since || l.sinceViewed) ? ' since' : ''
                 return (
                   <Fragment key={j}>
                     <div
-                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + (uncommitted ? ' uncommitted' : (l.since || l.sinceViewed) ? ' since' : '')}
+                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls}
                       data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
                     >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>

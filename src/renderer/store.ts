@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview, OperationStatus } from '../shared/ipc'
 import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
+import { fileEffectivelyExcluded } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
 import { orderFilesForReview } from './lib/fileOrder'
@@ -66,10 +67,14 @@ export function effectiveSections(loaded: LoadedReview | null): Section[] {
  *  Two drift signals clear the tick: a commit touched it since viewing (the hunk
  *  carries `sinceViewed`, set per-file by diffSince), or its on-disk content hash
  *  no longer matches the snapshot (an uncommitted edit). */
-export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>): boolean {
+export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>, headSha?: string): boolean {
   const mark = viewedAt[f.path]
   if (!mark) return false
-  if (f.hunks.some((h) => h.sinceViewed)) return false
+  // `sinceViewed` is server-computed against the file's PRIOR mark sha (review.ts skips
+  // files already viewed at head). After the reviewer re-views a drifted file the mark
+  // jumps to head, but the hunk flags stay stale until the next reload — so ignore them
+  // once the mark sits at head and trust the content hash below instead.
+  if (mark.sha !== headSha && f.hunks.some((h) => h.sinceViewed)) return false
   // compare against the same `?? ''` convention viewMarkFor stamps with, so a file
   // with no content hash (non-branch compare / hashing skipped) doesn't read back
   // as drifted and clear its own tick.
@@ -85,9 +90,9 @@ export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark
 
 /** Section completion is derived from its files: a section is viewed when all of
  *  its files are viewed. Returns the tri-state for the section's checkbox. */
-export function sectionViewState(files: FileDiff[], viewedAt: Record<string, ViewMark>): 'none' | 'some' | 'all' {
+export function sectionViewState(files: FileDiff[], viewedAt: Record<string, ViewMark>, headSha?: string): 'none' | 'some' | 'all' {
   if (files.length === 0) return 'none'
-  const n = files.filter((f) => fileViewed(f, viewedAt)).length
+  const n = files.filter((f) => fileViewed(f, viewedAt, headSha)).length
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
 }
 
@@ -103,19 +108,45 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
   collapsed: Set<string>
   expanded: Set<string>
   forceOpen?: boolean
+  /** a transient file/diff jump force-renders its holding section so the target
+   *  node exists to scroll to; it returns to its natural state on the next jump.
+   *  A section JUMP, by contrast, opens imperatively via openSection (so it stays
+   *  collapsible) — it does NOT come through here. */
   focused?: boolean
-  /** the active section — always kept open, regardless of viewed/collapsed state */
-  cur?: string | null
-}): SectionDisclosureState {
-  const viewState = sectionViewState(files, viewedAt)
+}, headSha?: string): SectionDisclosureState {
+  const viewState = sectionViewState(files, viewedAt, headSha)
   const done = viewState === 'all'
   const hasSince = files.some((f) => f.hunks.some((h) => h.since))
-  const open = Boolean(opts.forceOpen || opts.focused || opts.id === opts.cur || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
+  const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
   return { viewState, done, hasSince, open }
+}
+
+export type DiffMode = 'branch' | 'approved' | 'viewed'
+
+/** A file's effective diff mode: its explicit per-file override, else the global default. */
+export function effectiveDiffMode(file: string, diffMode: DiffMode, fileDiffMode: Record<string, DiffMode>): DiffMode {
+  return fileDiffMode[file] ?? diffMode
+}
+
+/** What the global mode switch shows as active, or null ("mixed") once any file has
+ *  overridden it to a different mode. Picking a global mode re-syncs every file. */
+export function globalDiffModeSelection(diffMode: DiffMode, fileDiffMode: Record<string, DiffMode>): DiffMode | null {
+  return Object.values(fileDiffMode).some((m) => m !== diffMode) ? null : diffMode
 }
 
 function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
   return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+}
+
+/** Paths the agent placed in a section — used to decide which untracked files are
+ *  "orphan" (and so auto-excluded in a narrated review). */
+function sectionedPathSet(loaded: LoadedReview | null): Set<string> {
+  return new Set((loaded?.state.annotations?.sections ?? []).flatMap((s) => s.files))
+}
+
+/** Whether a file is currently excluded from the review (see `fileEffectivelyExcluded`). */
+export function fileIsExcluded(loaded: LoadedReview | null, f: FileDiff): boolean {
+  return fileEffectivelyExcluded(f, loaded?.state.fileExcluded, Boolean(loaded?.state.annotations), !sectionedPathSet(loaded).has(f.path))
 }
 
 function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
@@ -127,7 +158,7 @@ function collapseCompletedSections(loaded: LoadedReview | null, viewedAt: Record
   if (!loaded || expanded.size === 0) return expanded
   const next = new Set(expanded)
   for (const section of effectiveSections(loaded)) {
-    if (sectionViewState(filesForSection(loaded, section), viewedAt) === 'all') next.delete(section.id)
+    if (sectionViewState(filesForSection(loaded, section), viewedAt, loaded.skeleton.headSha) === 'all') next.delete(section.id)
   }
   return next
 }
@@ -256,6 +287,10 @@ interface AppStore {
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
+  /** global diff baseline (Full diff / Since approved / Since viewed) applied to every
+   *  file, and per-file overrides. The global switch deselects when any file diverges. */
+  diffMode: DiffMode
+  fileDiffMode: Record<string, DiffMode>
 
   gen: GenState
 
@@ -307,6 +342,9 @@ interface AppStore {
   setAgent(a: AgentRef): void
   reload(): Promise<void>
   toggleViewed(file: string, currentlyViewed: boolean): void
+  /** Flip an untracked file's exclude override (the per-row exclude / add-back button).
+   *  Excluded files carry no review state and move to the collapsed Excluded group. */
+  toggleExcluded(file: FileDiff): void
   /** Bulk-set the viewed mark for a section's files (the section-level checkbox).
    *  Marking viewed also collapses the section (clears its force-open override). */
   setSectionViewed(sectionId: string, paths: string[], viewed: boolean): void
@@ -319,6 +357,10 @@ interface AppStore {
   setPendingDrift(d: DriftSummary | null, capability?: AgentWriteCapability): void
   openDoc(path: string): void
   closeDoc(): void
+  /** Set the global diff baseline and re-sync every file to it (clears overrides). */
+  setGlobalDiffMode(mode: DiffMode): void
+  /** Override one file's diff baseline; deselects the global switch if it diverges. */
+  setFileDiffMode(file: string, mode: DiffMode): void
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
   finishOp(status: OperationStatus, error?: string): void
@@ -355,6 +397,12 @@ export const useStore = create<AppStore>((set, get) => {
     if (id == null) return
     const { viewedAt } = get()
     void window.api.saveUiState(id, { viewedAt })
+  }
+
+  const persistExcluded = async (): Promise<void> => {
+    const id = await get().materialize()        // first exclude toggle mints the session
+    if (id == null) return
+    void window.api.saveUiState(id, { fileExcluded: get().loaded?.state.fileExcluded ?? {} })
   }
 
   /** Splice an updated chat-thread list into the loaded review. */
@@ -469,6 +517,8 @@ export const useStore = create<AppStore>((set, get) => {
     focusTarget: null,
     pendingDrift: null,
     docPath: null,
+    diffMode: 'branch',
+    fileDiffMode: {},
 
     gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
 
@@ -649,6 +699,7 @@ export const useStore = create<AppStore>((set, get) => {
           screen: 'review', sessionId: null, loaded, repo: repoPath,
           branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
+          diffMode: 'branch', fileDiffMode: {},
           activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: null, pendingDrift: null
         })
         void loadRepoContext(repoPath)
@@ -673,6 +724,12 @@ export const useStore = create<AppStore>((set, get) => {
           const real = await window.api.loadSession(sessionId)
           // swap in the persisted shell but KEEP the store's in-memory viewed/reviewed
           // marks — the write that triggered materialize set them just before this.
+          // viewedAt lives at the top level (survives the swap); fileExcluded rides on
+          // loaded.state, so carry it over explicitly or a first-write exclude is lost.
+          const keepExcluded = get().loaded?.state.fileExcluded
+          if (keepExcluded && Object.keys(keepExcluded).length > 0) {
+            real.state.fileExcluded = { ...real.state.fileExcluded, ...keepExcluded }
+          }
           set({ sessionId, loaded: real, transientFresh: false })
           void loadRepoContext(repo)
           return sessionId
@@ -718,6 +775,7 @@ export const useStore = create<AppStore>((set, get) => {
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
+          diffMode: 'branch', fileDiffMode: {},
           agent: loaded.state.agent ?? get().agent,
           activeChatId: pickActiveChat(loaded.state.chats, null),
           draftChat: null,
@@ -800,6 +858,19 @@ export const useStore = create<AppStore>((set, get) => {
       persistUi()
     },
 
+    toggleExcluded(file) {
+      const loaded = get().loaded
+      if (!loaded || !file.untracked) return  // tracked files can never be excluded
+      const next = !fileIsExcluded(loaded, file)
+      const fileExcluded = { ...(loaded.state.fileExcluded ?? {}), [file.path]: next }
+      // excluding a file drops any viewed mark it carried — it leaves the review
+      const viewedAt = { ...get().viewedAt }
+      if (next && viewedAt[file.path]) delete viewedAt[file.path]
+      set({ loaded: { ...loaded, state: { ...loaded.state, fileExcluded } }, viewedAt })
+      persistExcluded()
+      if (next) persistUi()
+    },
+
     setSectionViewed(sectionId, paths, viewed) {
       const viewedAt = { ...get().viewedAt }
       for (const p of paths) {
@@ -851,6 +922,13 @@ export const useStore = create<AppStore>((set, get) => {
     },
     closeDoc() {
       set({ docPath: null })
+    },
+    setGlobalDiffMode(mode) {
+      // re-sync every file to the global choice — clearing overrides re-selects the switch
+      set({ diffMode: mode, fileDiffMode: {} })
+    },
+    setFileDiffMode(file, mode) {
+      set({ fileDiffMode: { ...get().fileDiffMode, [file]: mode } })
     },
     setFocusTarget(t) {
       set({ focusTarget: t })

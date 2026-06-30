@@ -113,6 +113,11 @@
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gnav-files{padding:1px 0 8px}
 .gnav-file{display:flex;align-items:center;gap:8px;padding:3px 13px 3px 24px;font-size:11.5px;cursor:pointer;border-left:2px solid transparent}
+.gnav-file .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gnav-dirty{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.gnav-worktree{margin-top:6px;border-top:1px solid var(--line)}
+.gnav-wt-head{display:flex;align-items:center;gap:7px;padding:8px 13px 5px 13px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--amber)}
+.gnav-wt-head .gnav-wt-count{margin-left:auto;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
 /* distinct from the section-level :hover (--panel-2) and the current-section
    tint (--accent-soft), so a file always highlights on hover in any section */
 .gnav-file:hover{background:var(--accent-line)}
@@ -151,9 +156,51 @@
 .page-head{padding:22px 30px 4px}
 .page-head h1{font-size:19px;font-weight:700;letter-spacing:-.3px;margin:6px 0 0}
 .wf .page-head{display:flex;flex-direction:column;align-items:stretch}
-.wf .page-head .page-title-row{display:flex;align-items:flex-end;gap:16px}
+.wf .page-head .page-title-row{display:flex;align-items:center;gap:12px}
 .wf .page-head .page-h1-cmt{flex:1 1 auto;min-width:0}
-.wf .page-head .rv-approve{margin-left:auto;align-self:flex-end;flex:0 0 auto}
+/* one header line: title (grows) … diff dropdown · markers key · approve, all inline */
+.wf .page-head .page-title-row .diffmode-bar{margin-top:0;flex:0 0 auto}
+.wf .page-head .rv-approve{flex:0 0 auto}
+/* global diff-baseline dropdown + markers key — lives in both the annotated
+   (page-head) and flat (flat-toolbar) headers. Ported from design 07 (fh-dd/fh-rails). */
+.diffmode-bar{display:inline-flex;align-items:center;gap:9px}
+.wf .page-head .diffmode-bar{margin-top:10px}
+.diffmode-bar .dm-mixed{display:inline-flex;align-items:center;gap:4px;margin-left:1px;padding:2px 7px;font-size:10.5px;font-weight:600;color:var(--accent-ink);background:var(--amber-soft);border:1px solid var(--amber-line);border-radius:999px}
+.diffmode-bar .dm-mixed svg{color:var(--amber)}
+/* ── diff-mode dropdown (design fh-dd/fh-seg/fh-chev/fh-dd-menu/fh-dd-item) ── */
+.fh-dd{position:relative;display:inline-flex}
+.fh-seg{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--ink-2);border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:4px 9px;cursor:pointer}
+.fh-seg svg{width:13px;height:13px;color:var(--muted-2)}
+.fh-chev{color:var(--muted-2);font-size:10px;margin-left:1px}
+.fh-dd:hover .fh-seg,.fh-dd.open .fh-seg{border-color:var(--line-3)}
+.fh-dd.open .fh-chev{color:var(--ink-2)}
+.fh-dd-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;display:flex;flex-direction:column;min-width:184px;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:9px;padding:5px;text-align:left;
+  box-shadow:0 14px 36px -14px rgba(40,38,32,.4);opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .12s,transform .12s}
+.fh-dd.open .fh-dd-menu{opacity:1;transform:none;pointer-events:auto}
+.fh-dd-item{display:flex;align-items:center;gap:7px;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink-2);padding:6px 9px;border:none;background:none;border-radius:6px;cursor:pointer;white-space:nowrap;text-align:left;width:100%}
+.fh-dd-item:hover{background:var(--panel-2)}
+.fh-dd-check{width:12px;height:12px;flex:0 0 auto;color:var(--accent);font-size:11px;line-height:1;opacity:0}
+.fh-dd-item.sel{color:var(--accent-ink);font-weight:600}
+.fh-dd-item.sel .fh-dd-check{opacity:1}
+/* ── markers key (design fh-rails/fh-pop/rail-row/rail-sw/rail-tx) ── */
+.fh-rails{position:relative;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);border-radius:999px;padding:5px;cursor:default;outline:none}
+.fh-rails:hover,.fh-rails:focus-visible{border-color:var(--accent-line);background:var(--accent-soft)}
+.fh-i{width:13px;height:13px;color:var(--muted-2);flex:0 0 auto}
+.fh-rails:hover .fh-i,.fh-rails:focus-visible .fh-i{color:var(--accent)}
+.fh-pop{position:absolute;top:calc(100% + 9px);right:0;z-index:30;display:flex;flex-direction:column;gap:9px;width:170px;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:11px;padding:13px 14px;text-align:left;
+  box-shadow:0 18px 44px -16px rgba(40,38,32,.4);opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .14s,transform .14s}
+.fh-rails:hover .fh-pop,.fh-rails:focus-visible .fh-pop,.fh-rails:focus-within .fh-pop{opacity:1;transform:none;pointer-events:auto}
+.fh-pop::before{content:"";position:absolute;top:-5px;right:18px;width:9px;height:9px;background:var(--panel);border-left:1px solid var(--line-2);border-top:1px solid var(--line-2);transform:rotate(45deg)}
+.fh-pop .rail-row{display:flex;align-items:stretch;gap:11px}
+.fh-pop .rail-sw{width:4px;border-radius:2px;flex:0 0 auto}
+.fh-pop .rail-sw.com{background:var(--line-2)}
+.fh-pop .rail-sw.staged{background:var(--amber)}
+.fh-pop .rail-sw.unstaged{background:repeating-linear-gradient(to bottom,var(--amber) 0 3px,transparent 3px 6px)}
+.fh-pop .rail-tx{font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.4}
+.fh-pop .rail-tx b{display:block;font-size:12px;color:var(--ink);font-weight:650;letter-spacing:-.1px}
+.fh-pop .rail-tx em{font-style:normal;color:var(--muted-2)}
 /* once recorded, "Approved" reads ghost-GREEN — approval is a green review signal,
    not a muted/disabled grey (overrides .btn-ghost's --muted color). */
 .wf .rv-approve.rv-approved{color:var(--accent-ink);border-color:var(--accent-line)}
@@ -391,6 +438,10 @@
 .gfile.viewed .gfile-head{background:var(--accent-soft)}
 .gfile.viewed .file-viewed{color:var(--accent-ink)}
 .gfile.viewed .fv-box{background:var(--accent);border-color:var(--accent)}
+/* changed-since-viewed: the amber `~` middle ground between viewed and unviewed */
+.file-viewed.amber{color:var(--amber)}
+.file-viewed.amber .fv-box{background:var(--amber-soft);border-color:var(--amber-line);
+  color:var(--amber);font-family:var(--mono);font-size:12px;font-weight:700;line-height:1}
 
 /* ---- section-level tri-state "Viewed" checkbox ---- */
 .gsec-viewed{flex:0 0 auto}
@@ -406,8 +457,6 @@
   color:var(--accent-ink);font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;
   background:none;cursor:pointer;font-family:var(--sans);font-size:11px}
 .dthread .send-now:hover{color:var(--accent)}
-
-.gfile-seg{margin-right:10px}
 
 /* ---- narrated plain-language band ---- */
 .plain-note{display:flex;gap:8px;align-items:flex-start;font-family:var(--sans);font-size:12px;

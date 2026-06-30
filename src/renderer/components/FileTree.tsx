@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import type { FileDiff, ViewMark } from '../../shared/types'
+import { isUncommittedOrigin, type FileDiff, type ViewMark } from '../../shared/types'
 import { clickable } from '../lib/clickable'
 import { buildFileTree, type FileTreeDir } from '../lib/fileOrder'
 import { combineReviewStatuses, reviewStatusForFile, reviewStatusLabel, type ReviewGlyphStatus } from '../lib/fileStatus'
@@ -11,10 +11,10 @@ function countFiles(dir: FileTreeDir): number {
   return n
 }
 
-function dirStatus(dir: FileTreeDir, viewedAt: Record<string, ViewMark>): ReviewGlyphStatus {
+function dirStatus(dir: FileTreeDir, viewedAt: Record<string, ViewMark>, headSha?: string): ReviewGlyphStatus {
   const statuses = [
-    ...dir.files.map((f) => reviewStatusForFile(f, viewedAt)),
-    ...[...dir.dirs.values()].map((child) => dirStatus(child, viewedAt))
+    ...dir.files.map((f) => reviewStatusForFile(f, viewedAt, headSha)),
+    ...[...dir.dirs.values()].map((child) => dirStatus(child, viewedAt, headSha))
   ]
   return combineReviewStatuses(statuses)
 }
@@ -41,9 +41,10 @@ function DirNode({ dir, collapsed, toggle, status, children }: {
   )
 }
 
-export function FileTree({ files, viewedAt, currentFile, onFileClick, className, order = 'tree' }: {
+export function FileTree({ files, viewedAt, headSha, currentFile, onFileClick, className, order = 'tree' }: {
   files: FileDiff[]
   viewedAt: Record<string, ViewMark>
+  headSha?: string
   currentFile: string | null
   onFileClick: (path: string, file: FileDiff) => void
   className?: string
@@ -65,19 +66,21 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className,
     <>
       {items.map((f) => {
         const name = f.path.split('/').pop() ?? f.path
-        const stat = reviewStatusForFile(f, viewedAt)
+        const stat = reviewStatusForFile(f, viewedAt, headSha)
         // status as text too — the glyph is otherwise color-only (invisible to AT
         // and to colorblind users); this enriches the row's accessible name + tooltip.
         const label = reviewStatusLabel(stat)
+        const uncommitted = f.hunks.some((h) => h.lines.some((l) => isUncommittedOrigin(l.origin)))
         return (
           <div
             key={f.path}
             className={'gnav-file' + (currentFile === f.path ? ' cur' : '')}
-            title={`${f.path} · ${label}`}
+            title={`${f.path} · ${label}${uncommitted ? ' · uncommitted edits' : ''}`}
             {...clickable(() => onFileClick(f.path, f))}
           >
             <FileGlyph status={stat} />
             <span className="nm">{name}</span>
+            {uncommitted && <span className="gnav-dirty" title="uncommitted working-tree edits" />}
           </div>
         )
       })}
@@ -87,7 +90,7 @@ export function FileTree({ files, viewedAt, currentFile, onFileClick, className,
   const renderDir = (dir: FileTreeDir): ReactNode => (
     <>
       {[...dir.dirs.values()].map((child) => (
-        <DirNode key={child.path} dir={child} collapsed={collapsed} toggle={toggle} status={dirStatus(child, viewedAt)}>
+        <DirNode key={child.path} dir={child} collapsed={collapsed} toggle={toggle} status={dirStatus(child, viewedAt, headSha)}>
           {renderDir(child)}
         </DirNode>
       ))}

@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, effectiveSections, fileViewed, GUIDANCE, sectionDisclosureState, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, globalDiffModeSelection, GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
 import { SectionView } from '../components/SectionView'
 import { DiffView } from '../components/DiffView'
+import { UntrackedGroup } from '../components/UntrackedGroup'
 import { GenPanel, startGenerateNow } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { ArtifactDoc } from '../components/ArtifactDoc'
@@ -88,9 +89,93 @@ function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummar
   )
 }
 
+/** Markers-key legend (design 07 `fh-rails`/`fh-pop`): an "i" affordance that opens a
+ *  hover/focus popover explaining the per-line left-edge rails — committed (solid grey),
+ *  staged (solid amber), unstaged (dotted amber). Replaces the per-file "uncommitted"
+ *  chip that used to repeat on every working-tree row. */
+function MarkersKey() {
+  return (
+    <span className="fh-rails" tabIndex={0} role="button" aria-label="What the diff left-edge markers mean">
+      <I.info className="fh-i" />
+      <span className="fh-pop" role="tooltip">
+        <span className="rail-row"><span className="rail-sw com" /><span className="rail-tx"><b>committed</b><em>landed in a commit</em></span></span>
+        <span className="rail-row"><span className="rail-sw staged" /><span className="rail-tx"><b>staged</b><em>in the index</em></span></span>
+        <span className="rail-row"><span className="rail-sw unstaged" /><span className="rail-tx"><b>unstaged</b><em>working-tree edit</em></span></span>
+      </span>
+    </span>
+  )
+}
+
+/** The global diff-baseline dropdown (design 07 `fh-dd`) + the markers key. Always
+ *  renders the "Full diff" option; "Since approved"/"Since viewed" appear only when a
+ *  file has that baseline. Picking one re-syncs every file via `setGlobalDiffMode`.
+ *  Shown in both the annotated (page-head) and flat (flat-toolbar) headers. */
+function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirty, setGlobalDiffMode }: {
+  globalMode: ReturnType<typeof globalDiffModeSelection>
+  anySinceApproved: boolean
+  anySinceViewed: boolean
+  dirty: boolean
+  setGlobalDiffMode: (m: 'branch' | 'approved' | 'viewed') => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+  const labelFor = (m: 'branch' | 'approved' | 'viewed'): string =>
+    m === 'approved' ? 'Since approved' : m === 'viewed' ? 'Since viewed' : 'Full diff'
+  const items: ('branch' | 'approved' | 'viewed')[] = [
+    'branch',
+    ...(anySinceApproved ? (['approved'] as const) : []),
+    ...(anySinceViewed ? (['viewed'] as const) : [])
+  ]
+  return (
+    <div className="diffmode-bar">
+      <span className={'fh-dd' + (open ? ' open' : '')} ref={ref}>
+        <button
+          type="button"
+          className="fh-seg"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          title="Choose which baseline the diffs are shown against"
+          onClick={() => setOpen((o) => !o)}
+          onBlur={(e) => { if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) setOpen(false) }}
+        >
+          <I.list style={{ width: 13, height: 13 }} />
+          <span className="fh-dd-label">{globalMode ? labelFor(globalMode) : 'Mixed'}</span>
+          <span className="fh-chev">▾</span>
+        </button>
+        <span className="fh-dd-menu" role="listbox">
+          {items.map((m) => (
+            <button
+              type="button"
+              key={m}
+              role="option"
+              aria-selected={globalMode === m}
+              className={'fh-dd-item' + (globalMode === m ? ' sel' : '')}
+              onClick={() => { setGlobalDiffMode(m); setOpen(false) }}
+            >
+              <span className="fh-dd-check">✓</span>{labelFor(m)}
+            </button>
+          ))}
+        </span>
+      </span>
+      {globalMode === null && (
+        <span className="dm-mixed" title="Files are showing different diff bases — pick one above to re-sync them all">
+          <I.diff style={{ width: 10, height: 10 }} />mixed · per-file
+        </span>
+      )}
+      {dirty && <MarkersKey />}
+    </div>
+  )
+}
+
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc, diffMode, fileDiffMode, setGlobalDiffMode } = store
   const scrollRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   // scroll memory: the review position to return to when a doc closes, plus each
@@ -109,11 +194,13 @@ export default function Review() {
   // lines interleaved per file, origin-tagged) drives every file surface; otherwise the
   // plain committed spine does. skeleton/volatile stay canonical for anchoring & approval.
   const renderedFiles = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
-  const filesFor = (s: Section): FileDiff[] => orderFilesForReview(renderedFiles, s.files)
+  const isExcluded = (f: FileDiff): boolean => fileIsExcluded(loaded, f)
+  // excluded (untracked, hidden) files leave their section/band for the Excluded group
+  const filesFor = (s: Section): FileDiff[] => orderFilesForReview(renderedFiles, s.files).filter((f) => !isExcluded(f))
   // a section is done when all its files are viewed (derived — no separate flag)
   const isSectionDone = (s: Section): boolean => {
     const fs = filesFor(s)
-    return fs.length > 0 && fs.every((f) => fileViewed(f, viewedAt))
+    return fs.length > 0 && fs.every((f) => fileViewed(f, viewedAt, loaded?.skeleton.headSha))
   }
 
   // dev-only scripted flow: LIMN_FLOW=generate auto-runs the engine once
@@ -169,9 +256,10 @@ export default function Review() {
       if (useStore.getState().docPath) return
       const baseTop = box.getBoundingClientRect().top + 90
       const va = useStore.getState().viewedAt
+      const vaHead = useStore.getState().loaded?.skeleton.headSha
       const sectionDone = (s: Section): boolean => {
         const fs = filesFor(s)
-        return fs.length > 0 && fs.every((f) => fileViewed(f, va))
+        return fs.length > 0 && fs.every((f) => fileViewed(f, va, vaHead))
       }
       let active: string | undefined
       if (sections.length > 0) {
@@ -216,9 +304,18 @@ export default function Review() {
   const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
-  // the files actually rendered: merged (base→working-tree) while dirty, else the spine
-  const displayFiles = renderedFiles
+  // the files actually rendered: merged (base→working-tree) while dirty, else the spine.
+  // excluded untracked files are split off — they carry no review state and live in
+  // their own collapsed group, out of every count and section.
+  const renderedAll = renderedFiles
+  const excludedFiles = orderFilesForReview(renderedAll.filter(isExcluded))
+  const displayFiles = renderedAll.filter((f) => !isExcluded(f))
   const flatDisplayFiles = orderFilesForReview(displayFiles)
+  // global diff-baseline switch: which mode (if any) all files currently agree on, and
+  // which baselines exist to switch to across the changed files.
+  const globalMode = globalDiffModeSelection(diffMode, fileDiffMode)
+  const anySinceApproved = displayFiles.some((f) => f.sinceHunks)
+  const anySinceViewed = displayFiles.some((f) => f.sinceViewedHunks)
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine
   // entry — surfaced in a trailing band so they aren't dropped.
   const sectionedPaths = new Set(sections.flatMap((s) => s.files))
@@ -230,7 +327,7 @@ export default function Review() {
   const dirtyDel = loaded.volatile.reduce((n, f) => n + f.del, 0)
   const reviewedCount = sections.filter(isSectionDone).length
   const fileCount = displayFiles.length
-  const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt)).length
+  const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt, loaded.skeleton.headSha)).length
   const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const stepComments = (n: number) => state.comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -461,13 +558,18 @@ export default function Review() {
   const looseBand = loaded.dirty && looseFiles.length > 0 && (
     <div className="vol-band">
       <div className="vol-head">
-        <span className="vol-tag"><I.warn style={{ width: 12, height: 12 }} />Uncommitted</span>
-        <span className="vol-lead">Working tree — {looseFiles.length} file{looseFiles.length === 1 ? '' : 's'} with no committed changes, on top of <span className="mono">{shortSha(skeleton.headSha)}</span></span>
-        <span className="vol-note">not pinned to a commit · auto-pins when committed</span>
+        <span className="vol-title">Working tree</span>
+        <span className="vol-count">{looseFiles.length}</span>
+        <span className="vol-sub">Uncommitted changes not in a narrated section</span>
       </div>
       {looseFiles.map((f) => <DiffView key={'vol:' + f.path} f={f} />)}
     </div>
   )
+
+  // Excluded untracked files: a compact `utrack` box (design 07), narrower than the
+  // diff column, rows collapsed by default (peek to read, Include to lift into the
+  // review). Carries no review state; never affects counts or approval.
+  const excludedBand = <UntrackedGroup files={excludedFiles} />
 
   return (
     <div className={`wf dz-${DENSITY} stage-code`}>
@@ -634,6 +736,7 @@ export default function Review() {
               <FileTree
                 files={flatDisplayFiles}
                 viewedAt={viewedAt}
+                headSha={loaded.skeleton.headSha}
                 currentFile={curFile}
                 onFileClick={(path) => jumpToRawFile(path)}
                 className="gnav-tree-flat"
@@ -644,9 +747,8 @@ export default function Review() {
                 id: s.id,
                 collapsed: store.collapsed,
                 expanded: store.expanded,
-                focused: store.focusTarget?.sectionId === s.id,
-                cur
-              })
+                focused: store.focusTarget?.sectionId === s.id
+              }, loaded.skeleton.headSha)
               return (
                 <div
                   key={s.id}
@@ -667,6 +769,7 @@ export default function Review() {
                   <FileTree
                     files={sFiles}
                     viewedAt={viewedAt}
+                    headSha={loaded.skeleton.headSha}
                     currentFile={curFile}
                     onFileClick={(path) => jumpToFile(s.id, path)}
                     order="explicit"
@@ -674,6 +777,22 @@ export default function Review() {
                 </div>
               )
             })}
+            {annotations && looseFiles.length > 0 && (
+              <div className="gnav-worktree">
+                <div className="gnav-wt-head">
+                  <span className="gnav-dirty" />Working tree
+                  <span className="gnav-wt-count">{looseFiles.length}</span>
+                </div>
+                <FileTree
+                  files={looseFiles}
+                  viewedAt={viewedAt}
+                  headSha={loaded.skeleton.headSha}
+                  currentFile={curFile}
+                  onFileClick={(path) => jumpToRawFile(path)}
+                  order="explicit"
+                />
+              </div>
+            )}
           </div>
 
         </nav>
@@ -691,6 +810,13 @@ export default function Review() {
                     {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
                     {annotations?.title ?? fallbackTitle}
                   </h1>
+                  <HeaderDiffControls
+                    globalMode={globalMode}
+                    anySinceApproved={anySinceApproved}
+                    anySinceViewed={anySinceViewed}
+                    dirty={loaded.dirty}
+                    setGlobalDiffMode={setGlobalDiffMode}
+                  />
                   {approveButton}
                 </div>
               </div>
@@ -777,6 +903,7 @@ export default function Review() {
               )}
 
               {annotations && looseBand}
+              {excludedBand}
               <div style={{ height: 40 }}></div>
             </>
           )}

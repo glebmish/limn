@@ -34,4 +34,23 @@ describe('fileViewed with content-hash drift', () => {
   it('not viewed when there is no mark', () => {
     expect(fileViewed(file('a.ts', 'h1'), {})).toBe(false)
   })
+
+  // Re-viewing a drifted file: the user clicks Viewed again, which stamps a fresh
+  // mark at the current head. The hunk's `sinceViewed` flag is stale until the next
+  // server reload (it was computed against the PRIOR, older mark sha). With the head
+  // known, that stale flag must be ignored so the tick reflects the click immediately.
+  it('viewed again at head despite stale sinceViewed marks', () => {
+    const f = file('a.ts', 'h1', true) // hunks still carry the pre-reload sinceViewed flag
+    expect(fileViewed(f, { 'a.ts': mark('h1', 'HEAD') }, 'HEAD')).toBe(true)
+  })
+
+  it('still un-viewed when the stale-flag file also drifted in content', () => {
+    const f = file('a.ts', 'h2', true) // re-marked at head but content moved on (dirty edit)
+    expect(fileViewed(f, { 'a.ts': mark('h1', 'HEAD') }, 'HEAD')).toBe(false)
+  })
+
+  it('a commit since viewing still un-views when the mark predates head', () => {
+    const f = file('a.ts', 'h1', true)
+    expect(fileViewed(f, { 'a.ts': mark('h1', 'oldsha') }, 'HEAD')).toBe(false)
+  })
 })

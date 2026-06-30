@@ -16,7 +16,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   forceOpen?: boolean
   secRef: (el: HTMLDivElement | null) => void
 }) {
-  const { viewedAt, collapsed, expanded, cur, setSectionViewed, openSection, loaded, focusTarget } = useStore()
+  const { viewedAt, collapsed, expanded, setSectionViewed, openSection, loaded, focusTarget } = useStore()
   const [commenting, setCommenting] = useState<null | 'header' | 'narration' | 'diagram'>(null)
   const comments = loaded?.state.comments ?? []
 
@@ -26,9 +26,8 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
     collapsed,
     expanded,
     forceOpen,
-    focused,
-    cur
-  })
+    focused
+  }, loaded?.skeleton.headSha)
   const reReview = hasSince
   const showCtx = GUIDANCE !== 'minimal'
   const sectionComments = comments.filter((c) => c.anchor.kind === 'section' && c.anchor.sectionId === s.id)

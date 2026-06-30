@@ -134,20 +134,54 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .rv-refs { display: inline-flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .rv-arrow { color: var(--faint); font-family: var(--mono); }
 
-/* ── volatile band (uncommitted working tree) ──────────────────────────── */
+/* ── trailing groups below the narrated sections: the Working tree (tracked,
+   uncommitted, not in a section) and Untracked (no review state) groups. Delineated
+   like the sections above — a top rule + heading, file cards flowing directly under —
+   rather than boxed, so a group of cards doesn't read as nested boxes. Low-key: the
+   per-line staged/unstaged rails carry the git-state signal, so no alarm chrome. */
 .vol-band {
-  margin-top: 28px; border: 1px dashed var(--amber-line); border-radius: var(--r-lg);
-  background: repeating-linear-gradient(135deg, var(--amber-soft) 0 12px, color-mix(in srgb, var(--amber-soft) 60%, var(--panel)) 12px 24px);
-  padding: 14px;
+  margin-top: 30px; border-top: 1px solid var(--line); padding: 22px 30px 0;
 }
-.vol-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.vol-tag {
-  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
-  color: var(--amber); background: var(--panel); border: 1px solid var(--amber-line); border-radius: 20px; padding: 3px 10px;
+.vol-head { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; margin-bottom: 16px; }
+.vol-title { font-size: 15px; font-weight: 700; letter-spacing: -.2px; color: var(--ink); }
+.vol-count {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--muted);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 9px; align-self: center;
 }
-.vol-lead { font-size: 13px; color: var(--ink-2); }
-.vol-lead .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.vol-note { font-size: 11.5px; color: var(--muted); font-style: italic; margin-left: auto; }
+.vol-sub { flex-basis: 100%; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.vol-sub .mono { font-family: var(--mono); font-size: 11.5px; color: var(--muted-2); }
+
+/* ── Untracked group (design 07 `utrack`): a compact bordered box, narrower than the
+   diff column. Rows collapse by default — peek to read, Include (+) to lift a file
+   into the review. Row open/closed is component-local and not persisted. ────────── */
+/* spans the same width as the diff cards above (the 30px content inset on both sides). */
+.utrack { margin: 30px 30px 0 30px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.utrack-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--ink-2); background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.utrack-head .uh-ic { color: var(--muted-2); flex: 0 0 auto; }
+.utrack-n { font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted); background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 0 7px; }
+.utrack-list { display: flex; flex-direction: column; }
+.utrack-item { border-top: 1px solid var(--line); }
+.utrack-item:first-child { border-top: none; }
+.utrack-file { display: flex; align-items: center; gap: 8px; padding: 8px 13px; font-family: var(--mono); font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.utrack-file:hover { background: var(--panel-2); }
+.utrack-file .cv { width: 11px; height: 11px; color: var(--muted-2); flex: 0 0 auto; transition: transform .12s; }
+.utrack-item.open .utrack-file .cv { transform: rotate(90deg); }
+.utrack-file .review-glyph { width: 14px; height: 14px; flex: 0 0 auto; }
+.utrack-file .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.utrack-file .nm .dim { color: var(--muted); }
+.utrack-file .delta { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: 11px; }
+.utrack-inc { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border-radius: 7px; border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); cursor: pointer; }
+.utrack-inc:hover { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-ink); }
+.utrack-body { border-top: 1px solid var(--line); }
+
+/* icon-only rounded-square toggle on untracked files: × excludes an included file
+   back to the Untracked group (the Include + lives on `.utrack-inc`, same shape). */
+.file-exclude {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border-radius: 7px; border: 1px solid var(--line-2);
+  background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.file-exclude:hover { color: var(--ink-2); border-color: var(--line-3); background: var(--panel-2); }
 
 /* ── git-state dot: amber = uncommitted (dirty); clean = no dot ── */
 .gdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; margin-left: 4px; vertical-align: middle; }

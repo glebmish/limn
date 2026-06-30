@@ -42,6 +42,24 @@ describe('mergeAnnotations', () => {
     expect(all).toEqual(sk.files.map((f) => f.path).sort())
     expect(new Set(all).size).toBe(all.length) // exactly once each
   })
+
+  it('sections may reference untracked files; unsectioned untracked stays orphan (not Other changes)', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const untracked = new Set(['new.ts', 'scratch.ts'])
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        { id: 'a', name: 'A', desc: 'd', what: 'w', files: [...sk.files.map((f) => f.path), 'new.ts'], order: 1 }
+      ],
+      questions: []
+    }
+    const { annotations } = mergeAnnotations(sk, raw, untracked)
+    const all = annotations.sections.flatMap((s) => s.files)
+    expect(all).toContain('new.ts')          // a relevant untracked file the agent sectioned
+    expect(all).not.toContain('scratch.ts')  // orphan untracked is NOT forced into the review
+    // every tracked file was assigned, so there is no Other-changes catch-all here
+    expect(annotations.sections.find((s) => s.id === 'other-changes')).toBeFalsy()
+  })
 })
 
 describe('FakeEngine contract', () => {

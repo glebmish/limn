@@ -41,9 +41,11 @@ export function buildReviewPrompt(req: ReviewRequest): string {
     .map((f) => {
       const ranges = f.hunks.map((h) => h.range).join(', ')
       const tag = f.status === 'renamed' ? `renamed from ${f.oldPath}` : f.status
-      return `- ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''})${ranges ? ` hunks: ${ranges}` : ''}`
+      const untracked = f.untracked ? ', untracked — optional' : ''
+      return `- ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''}${untracked})${ranges ? ` hunks: ${ranges}` : ''}`
     })
     .join('\n')
+  const hasUntracked = req.diff.files.some((f) => f.untracked)
 
   const artifactBlock = req.artifacts.length
     ? `\nProject artifacts to read (the intent this change is judged against):\n${req.artifacts.map((a) => `- ${a.path} (${a.role})`).join('\n')}\n`
@@ -73,7 +75,7 @@ Changed files (${req.diff.files.length}) between merge-base ${req.diff.mergeBase
 ${fileList}
 
 Then produce the structured review:
-1. Group ALL changed files into logical sections (by what they accomplish together, not by directory). Every file in the list above must appear in exactly one section's "files" array, using the exact paths shown. Order sections by where the reviewer's attention pays off most (core logic first, tests/config later).
+1. Group the changed files into logical sections (by what they accomplish together, not by directory). Every committed/staged file in the list above must appear in exactly one section's "files" array, using the exact paths shown.${hasUntracked ? ' Files marked "untracked — optional" are NOT yet tracked by git: include one in a section ONLY if it is genuinely part of this change (e.g. a new source/test file the branch needs); leave scratch, build, or unrelated stray files out entirely — anything you omit is kept out of the review rather than forced into it.' : ''} Order sections by where the reviewer's attention pays off most (core logic first, tests/config later).
 2. For each section write: "desc" — one sentence on why this section matters to the reviewer; "what" — plain-language explanation of what changed and why (this is your narration, the heart of the review).
 3. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
 4. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.

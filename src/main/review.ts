@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
-import { effectiveRef } from '../shared/types.js'
+import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import {
-  branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
+  attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
@@ -139,6 +139,7 @@ export async function assembleReview(
     try {
       const since = await diffSince(repo, baseline, compareEff)
       markSince(skeleton, since, 'since')
+      attachSinceHunks(skeleton.files, since.files, 'sinceHunks')
       sinceTagged = true
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
@@ -152,6 +153,7 @@ export async function assembleReview(
     try {
       const since = await diffSince(repo, sha, compareEff)
       markSince(skeleton, since, 'sinceViewed', paths)
+      attachSinceHunks(skeleton.files, since.files, 'sinceViewedHunks', paths)
     } catch {
       for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
     }
@@ -166,11 +168,35 @@ export async function assembleReview(
     try {
       merged = await mergedWorkingDiff(wt, baseEff, compareEff)
       const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
+      // A since-diff that equals the file's full diff adds nothing — e.g. an untracked
+      // working-tree file is wholly new at the baseline too. Tag only files whose delta
+      // since the baseline is narrower than the full diff, so we don't slap a redundant
+      // (and, for untracked files, misleading) "since approved/viewed" badge on them.
+      const fullByPath = new Map(merged.map((f) => [f.path, f]))
+      const narrowerThanFull = (sinceFiles: FileDiff[], within?: Set<string>): Set<string> => {
+        const out = new Set<string>()
+        for (const sf of sinceFiles) {
+          if (within && !within.has(sf.path)) continue
+          const full = fullByPath.get(sf.path)
+          if (full && (sf.add !== full.add || sf.del !== full.del)) out.add(sf.path)
+        }
+        return out
+      }
       if (baseline) {
-        try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, baseline)), 'since') } catch { /* baseline unreachable */ }
+        try {
+          const sinceW = await diffSinceWorking(wt, baseline)
+          const paths = narrowerThanFull(sinceW)
+          markSince(asSkel(merged), asSkel(sinceW), 'since', paths)
+          attachSinceHunks(merged, sinceW, 'sinceHunks', paths)
+        } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
-        try { markSince(asSkel(merged), asSkel(await diffSinceWorking(wt, sha)), 'sinceViewed', paths) } catch { /* view sha unreachable */ }
+        try {
+          const sinceW = await diffSinceWorking(wt, sha)
+          const within = narrowerThanFull(sinceW, paths)
+          markSince(asSkel(merged), asSkel(sinceW), 'sinceViewed', within)
+          attachSinceHunks(merged, sinceW, 'sinceViewedHunks', within)
+        } catch { /* view sha unreachable */ }
       }
     } catch { merged = undefined /* fall back to skeleton + volatile band */ }
   }
@@ -187,7 +213,15 @@ export async function assembleReview(
       }
     } catch { /* hashing failed — viewed falls back to commit-only detection */ }
   }
-  const branchHash = branchSurfaceHash(skeleton.headSha, dirty ? volatile : [])
+  // Excluded untracked files carry no review state — they must not move the branch
+  // surface hash (which gates "still approved"), or hiding a scratch file would
+  // silently un-approve the review. Drop them before hashing.
+  const annotated = Boolean(state.annotations)
+  const sectionedPaths = new Set((state.annotations?.sections ?? []).flatMap((s) => s.files))
+  const hashVolatile = dirty
+    ? volatile.filter((f) => !fileEffectivelyExcluded(f, state.fileExcluded, annotated, !sectionedPaths.has(f.path)))
+    : []
+  const branchHash = branchSurfaceHash(skeleton.headSha, hashVolatile)
   // Re-anchor against the surface that is actually rendered. When dirty that's the
   // merged base→working-tree diff (committed + uncommitted lines in worktree-space
   // line numbers), so comments on committed lines line up even when dirty edits above
@@ -234,7 +268,7 @@ function emptyReviewState(repo: string, pair: RefPair, agent: AgentRef): ReviewS
     agent,
     annotations: undefined,
     comments: [], chats: [],
-    viewedAt: {}, reviewedSections: [],
+    viewedAt: {}, reviewedSections: [], fileExcluded: {},
     artifactApprovals: {}, iterations: [], artifacts: []
   }
 }

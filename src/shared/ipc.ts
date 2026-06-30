@@ -48,6 +48,7 @@ export interface CliOpenMsg { repo?: string; baseInput?: string; compareInput?: 
 export interface UiStatePatch {
   viewedAt?: Record<string, ViewMark>
   reviewedSections?: string[]
+  fileExcluded?: Record<string, boolean>
   engine?: EngineId
 }
 

@@ -199,12 +199,12 @@ function suggestResolved(action: Extract<AgentAction, { kind: 'suggest_viewed' }
   const sections = effectiveSections(loaded)
   const filesViewed = files.every((p) => {
     const fd = diffFiles.find((f) => f.path === p)
-    return fd ? fileViewed(fd, viewedAt) : false
+    return fd ? fileViewed(fd, viewedAt, loaded?.skeleton.headSha) : false
   })
   const sectionsViewed = sectionIds.every((id) => {
     const sec = sections.find((s) => s.id === id)
     if (!sec) return false
-    return sectionViewState(diffFiles.filter((f) => sec.files.includes(f.path)), viewedAt) === 'all'
+    return sectionViewState(diffFiles.filter((f) => sec.files.includes(f.path)), viewedAt, loaded?.skeleton.headSha) === 'all'
   })
   return filesViewed && sectionsViewed ? 'done' : 'idle'
 }

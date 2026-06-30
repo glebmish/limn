@@ -51,14 +51,39 @@ function scrollLineWithin(main: HTMLElement, line: HTMLElement, header: HTMLElem
   main.scrollTo({ top: Math.max(0, top), behavior: 'instant' as ScrollBehavior })
 }
 
-function flash(el: HTMLElement): void {
+const BADGE_W = 52
+// Place the "focus" chip on the line, but only when the line is genuinely visible in
+// the diff viewport. Diff lines run full-width (and can overflow), so anchoring to the
+// line's right edge would push the chip over the chat drawer; a line behind the sticky
+// file header or scrolled off would peg it to a screen corner. Clamp to .gmain below
+// the sticky header, and skip the chip entirely when the line isn't in that band.
+function placeBadge(el: HTMLElement): HTMLElement | null {
+  const r = el.getBoundingClientRect()
+  const main = el.closest<HTMLElement>('.gmain')
+  let top: number, left: number
+  if (main) {
+    const mr = main.getBoundingClientRect()
+    const head = el.closest('.gfile')?.querySelector<HTMLElement>('.gfile-head')
+    const topMin = (head ? head.getBoundingClientRect().bottom : mr.top) + 2
+    // line hidden behind the sticky header, or off the bottom → no chip
+    if (r.bottom <= topMin || r.top >= mr.bottom) return null
+    top = Math.min(Math.max(r.top + 4, topMin), mr.bottom - 20)
+    left = Math.min(Math.max(r.right - BADGE_W, mr.left + 8), mr.right - BADGE_W - 8)
+  } else {
+    top = Math.max(8, r.top + 4)
+    left = Math.max(8, r.right - BADGE_W)
+  }
   const badge = document.createElement('div')
   badge.className = 'limn-focus-badge'
   badge.textContent = 'focus'
+  badge.style.top = `${top}px`
+  badge.style.left = `${left}px`
   document.body.appendChild(badge)
-  const r = el.getBoundingClientRect()
-  badge.style.top = `${Math.max(8, r.top + 4)}px`
-  badge.style.left = `${Math.max(8, r.right - 52)}px`
+  return badge
+}
+
+function flash(el: HTMLElement): void {
+  const badge = placeBadge(el)
 
   if (dev.holdFocus) {
     // dev: a static highlight (the animation ends transparent) for a clean capture
@@ -71,7 +96,7 @@ function flash(el: HTMLElement): void {
   el.classList.add('limn-flash')
   window.setTimeout(() => {
     el.classList.remove('limn-flash')
-    badge.remove()
+    badge?.remove()
   }, FLASH_MS)
 }
 
@@ -107,20 +132,27 @@ export function focusAnchor(anchor: FocusTarget): void {
   // target diff/section/file node won't exist to scroll to (the retry loop below
   // covers the few frames the changes list takes to remount).
   if (st.docPath) st.closeDoc()
-  // A file/line jump must also force-OPEN the section that holds the file: a
-  // collapsed section renders none of its diffs, so the target node would never
-  // exist. This goes through the TRANSIENT focus target (sectionId) — not
-  // openSection — so only the jumped section opens, and it returns to its natural
-  // state once the next jump moves focus on (no accumulation of opened sections).
-  let secId: string | undefined
-  if (anchor.kind === 'file' || anchor.kind === 'diff') {
-    secId = effectiveSections(st.loaded).find((s) => s.files.includes(anchor.file))?.id
-  }
-  st.setFocusTarget(
-    anchor.kind === 'section' ? { sectionId: anchor.sectionId }
-      : anchor.kind === 'file' || anchor.kind === 'diff' ? { file: anchor.file, ...(secId ? { sectionId: secId } : {}) }
+  // Jumping TO a section opens it imperatively (via openSection), so the arrival
+  // expands it but it's still freely collapsible afterward — selection landing on a
+  // section must never pin it permanently open. A file/line jump instead force-OPENs
+  // the section that holds the file through the TRANSIENT focus target: a collapsed
+  // section renders none of its diffs, so the target node would never exist; routing
+  // it through focusTarget (not openSection) means only the jumped section opens, and
+  // it returns to its natural state once the next jump moves focus on.
+  if (anchor.kind === 'section') {
+    st.openSection(anchor.sectionId)
+    st.setFocusTarget(null)
+  } else {
+    let secId: string | undefined
+    if (anchor.kind === 'file' || anchor.kind === 'diff') {
+      secId = effectiveSections(st.loaded).find((s) => s.files.includes(anchor.file))?.id
+    }
+    st.setFocusTarget(
+      anchor.kind === 'file' || anchor.kind === 'diff'
+        ? { file: anchor.file, ...(secId ? { sectionId: secId } : {}) }
         : null
-  )
+    )
+  }
   const sel = limnSelector(anchor)
   let tries = 0
   const tick = (): void => {

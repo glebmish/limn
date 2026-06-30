@@ -183,5 +183,22 @@ export const MIGRATIONS: Migration[] = [
       if (cols.some((c) => c.name === 'comment_refs_json')) return
       db.exec('ALTER TABLE chat_messages ADD COLUMN comment_refs_json TEXT')
     }
+  },
+  {
+    // Per-file exclude override for untracked working-tree files. `excluded` 1 = the
+    // reviewer hid it from the review; 0 = an explicit keep that overrides the auto
+    // "orphan untracked file in a narrated review is excluded" default. Absent rows
+    // fall back to that default. Only untracked files are ever stored here.
+    version: 6,
+    up(db) {
+      db.exec(`
+        CREATE TABLE excluded_files (
+          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          file TEXT NOT NULL,
+          excluded INTEGER NOT NULL,
+          PRIMARY KEY (session_id, file)
+        );
+      `)
+    }
   }
 ]

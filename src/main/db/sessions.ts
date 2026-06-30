@@ -612,6 +612,7 @@ export function unapproveSessionSha(db: DatabaseSync, sessionId: number, sha: st
 export interface UiStatePatch {
   viewedAt?: Record<string, ViewMark>
   reviewedSections?: string[]
+  fileExcluded?: Record<string, boolean>
   engine?: EngineId
 }
 
@@ -630,6 +631,12 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
       db.prepare('DELETE FROM reviewed_sections WHERE session_id = ?').run(sessionId)
       for (const s of patch.reviewedSections) {
         db.prepare('INSERT INTO reviewed_sections (session_id, section_id) VALUES (?, ?)').run(sessionId, s)
+      }
+    }
+    if (patch.fileExcluded !== undefined) {
+      db.prepare('DELETE FROM excluded_files WHERE session_id = ?').run(sessionId)
+      for (const [file, excluded] of Object.entries(patch.fileExcluded)) {
+        db.prepare('INSERT INTO excluded_files (session_id, file, excluded) VALUES (?, ?, ?)').run(sessionId, file, excluded ? 1 : 0)
       }
     }
     if (patch.engine !== undefined) {
@@ -666,6 +673,11 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   const reviewedSections = (db.prepare('SELECT section_id FROM reviewed_sections WHERE session_id = ?')
     .all(sessionId) as { section_id: string }[]).map((r) => r.section_id)
 
+  const fileExcluded: Record<string, boolean> = {}
+  for (const r of db.prepare('SELECT file, excluded FROM excluded_files WHERE session_id = ?').all(sessionId) as { file: string; excluded: number }[]) {
+    fileExcluded[r.file] = r.excluded === 1
+  }
+
   const artifacts = db.prepare('SELECT role, path FROM artifacts WHERE session_id = ?')
     .all(sessionId) as { role: 'spec' | 'plan'; path: string }[]
 
@@ -682,7 +694,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     engine: meta.engine,
     agent: meta.agent,
     annotations: row.annotations_json ? (JSON.parse(row.annotations_json) as ReviewAnnotations) : undefined,
-    comments, chats, viewedAt, reviewedSections,
+    comments, chats, viewedAt, reviewedSections, fileExcluded,
     approvedSha: row.approved_sha ?? undefined,
     approvedShas: approvals.shas,
     approvedHashes: approvals.hashes,

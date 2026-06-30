@@ -1,7 +1,52 @@
 // ── git ground truth ──────────────────────────────────────────
-export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean; sinceViewed?: boolean; origin?: 'committed' | 'uncommitted' }
+/** Per-line provenance in a base→working-tree diff. `committed` lines landed in a
+ *  commit in range; `staged`/`unstaged` lines are uncommitted, split by whether the
+ *  change sits in the index (staged) or only the working tree (unstaged). Absent on
+ *  pure committed diffs (skeleton) where everything is committed by definition. */
+export type LineOrigin = 'committed' | 'staged' | 'unstaged'
+/** A line that is part of the uncommitted working tree (either index state). */
+export function isUncommittedOrigin(origin: LineOrigin | undefined): boolean {
+  return origin === 'staged' || origin === 'unstaged'
+}
+
+/** Whether a file is excluded from the review (no viewed/approved/drift state, shown
+ *  in the collapsed Excluded group). Only untracked files can ever be excluded — a
+ *  tracked file always returns false. An explicit per-file override wins; otherwise an
+ *  untracked file is auto-excluded when the review is narrated (`annotated`) and the
+ *  file is `orphan` (the agent placed it in no section). Flat (un-narrated) reviews
+ *  never auto-exclude, so nothing disappears before a narration exists. */
+export function fileEffectivelyExcluded(
+  file: { path: string; untracked?: boolean },
+  fileExcluded: Record<string, boolean> | undefined,
+  annotated: boolean,
+  orphan: boolean
+): boolean {
+  if (!file.untracked) return false
+  const override = fileExcluded?.[file.path]
+  if (override !== undefined) return override
+  return annotated && orphan
+}
+export interface DiffLine { old: number | null; new: number | null; kind: '' | 'add' | 'del'; text: string; since?: boolean; sinceViewed?: boolean; origin?: LineOrigin }
 export interface Hunk { range: string; header: string; lines: DiffLine[]; since?: boolean; sinceViewed?: boolean }
-export interface FileDiff { path: string; oldPath?: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; binary: boolean; add: number; del: number; hunks: Hunk[]; /** content hash (git blob) of the file as it currently is on disk — the "did it change since viewed" key. Absent when there is no working tree to read (non-branch compare). */ fileHash?: string }
+export interface FileDiff { path: string; oldPath?: string; status: 'modified' | 'added' | 'deleted' | 'renamed'; binary: boolean; add: number; del: number; hunks: Hunk[]; /** content hash (git blob) of the file as it currently is on disk — the "did it change since viewed" key. Absent when there is no working tree to read (non-branch compare). */ fileHash?: string;
+  /** True for a working-tree file git does not track yet (synthesized into an added
+   *  diff). Only untracked files can be `excluded` from the review; tracked files
+   *  never can. Absent (falsy) for every tracked/committed file. */
+  untracked?: boolean;
+  /** A mode-only change (e.g. chmod +x) carries the old→new file mode so the UI can
+   *  surface the transition as a chip — such diffs have no line hunks to render. */
+  modeChange?: { from: string; to: string };
+  /** True for a working-tree file with unresolved merge conflicts (git reports it as
+   *  unmerged). The diff body still renders normally — the conflict markers show
+   *  inline; the UI adds a `conflict` status pill in the header. Absent (falsy) for
+   *  every cleanly-merged file. */
+  conflict?: boolean;
+  /** Real git-diff hunks from the approved baseline → current surface (the "Since
+   *  approved" tab). Absent when the file is unchanged since approval. NOT a filtered
+   *  view of `hunks` — an independent `git diff` from a different base commit. */
+  sinceHunks?: Hunk[];
+  /** Real git-diff hunks from this file's viewed sha → current surface ("Since viewed"). */
+  sinceViewedHunks?: Hunk[] }
 /** A "viewed" snapshot: the compare head sha + the file's content hash at view time. */
 export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
@@ -227,6 +272,11 @@ export interface ReviewState {
    *  (catches uncommitted edits with no commit movement). */
   viewedAt: Record<string, ViewMark>;
   reviewedSections: string[];
+  /** Per-file exclude override for untracked working-tree files (path → excluded?).
+   *  An explicit entry wins; absent paths fall back to the auto default (an orphan
+   *  untracked file in a narrated review is excluded). Tracked files are never here.
+   *  See `fileEffectivelyExcluded`. */
+  fileExcluded?: Record<string, boolean>;
   /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;
   /** every committed state explicitly approved in this session */

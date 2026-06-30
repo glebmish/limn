@@ -5,11 +5,15 @@ export interface MergeResult {
   warnings: string[]
 }
 
-/** Validate engine annotations against the skeleton: every referenced file must exist;
- *  every skeleton file ends up in exactly one section ("Other changes" catches strays). */
-export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotations): MergeResult {
+/** Validate engine annotations against the changed files: every referenced file must
+ *  exist; every *committed/staged* (tracked) file ends up in exactly one section
+ *  ("Other changes" catches strays). Untracked files (`untracked`) are optional
+ *  candidates — the agent may section the relevant ones, but unsectioned untracked
+ *  files are NOT swept into "Other changes"; they stay orphan and are auto-excluded
+ *  from the review by the renderer. */
+export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotations, untracked: ReadonlySet<string> = new Set()): MergeResult {
   const warnings: string[] = []
-  const known = new Set(skeleton.files.map((f) => f.path))
+  const known = new Set([...skeleton.files.map((f) => f.path), ...untracked])
   const assigned = new Set<string>()
 
   const sections: Section[] = []
@@ -33,7 +37,9 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
     sections.push({ ...s, files })
   }
 
-  const strays = skeleton.files.map((f) => f.path).filter((p) => !assigned.has(p))
+  // only tracked (committed/staged) strays land in "Other changes"; an unsectioned
+  // untracked file is intentionally left orphan so the renderer auto-excludes it.
+  const strays = skeleton.files.map((f) => f.path).filter((p) => !assigned.has(p) && !untracked.has(p))
   if (strays.length > 0) {
     sections.push({
       id: 'other-changes',

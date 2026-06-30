@@ -21,12 +21,16 @@ describe('reviewStatusForFile', () => {
     expect(reviewStatusForFile(file('a.ts'), { 'a.ts': mark() })).toBe('st-rev')
   })
 
-  it('resets changed-since-viewed files to default', () => {
-    expect(reviewStatusForFile(file('a.ts', { hunks: [{ range: '@@', header: '', sinceViewed: true, lines: [] }] }), { 'a.ts': mark() })).toBe('st-unrev')
+  it('marks never-viewed files unviewed', () => {
+    expect(reviewStatusForFile(file('a.ts'), {})).toBe('st-unrev')
   })
 
-  it('resets content hash drift to default', () => {
-    expect(reviewStatusForFile(file('a.ts', { fileHash: 'h2' }), { 'a.ts': mark('h1') })).toBe('st-unrev')
+  it('marks a file changed by a commit since viewing amber (the ~ middle ground)', () => {
+    expect(reviewStatusForFile(file('a.ts', { hunks: [{ range: '@@', header: '', sinceViewed: true, lines: [] }] }), { 'a.ts': mark() })).toBe('st-amber')
+  })
+
+  it('marks content-hash drift since viewing amber', () => {
+    expect(reviewStatusForFile(file('a.ts', { fileHash: 'h2' }), { 'a.ts': mark('h1') })).toBe('st-amber')
   })
 
   it('marks deleted files by viewed state, not file status', () => {
@@ -36,13 +40,17 @@ describe('reviewStatusForFile', () => {
 })
 
 describe('combineReviewStatuses', () => {
-  it('resets folder state to default unless every child is viewed', () => {
-    expect(combineReviewStatuses(['st-rev', 'st-amber'])).toBe('st-unrev')
+  it('rolls a folder amber when any child changed since it was viewed', () => {
+    expect(combineReviewStatuses(['st-rev', 'st-amber'])).toBe('st-amber')
+    expect(combineReviewStatuses(['st-unrev', 'st-amber'])).toBe('st-amber')
+  })
+
+  it('rolls a folder unviewed for unviewed children with no amber drift', () => {
+    expect(combineReviewStatuses(['st-rev', 'st-unrev'])).toBe('st-unrev')
     expect(combineReviewStatuses(['st-rev', 'st-risk'])).toBe('st-unrev')
   })
 
   it('shows a folder green only when every child is viewed', () => {
     expect(combineReviewStatuses(['st-rev', 'st-rev'])).toBe('st-rev')
-    expect(combineReviewStatuses(['st-rev', 'st-unrev'])).toBe('st-unrev')
   })
 })

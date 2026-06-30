@@ -13,7 +13,7 @@ import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, E
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha,
-  listBranches, recentCommits, repoState, resolveRefInput
+  listBranches, recentCommits, repoState, resolveRefInput, untrackedDiffs
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
@@ -32,6 +32,11 @@ import { OperationCoordinator } from './operations.js'
 import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 
 const operations = new OperationCoordinator()
+
+/** Cap on untracked files offered to the narration as section candidates — past this
+ *  the overflow stays orphan (auto-excluded), keeping a scratch-heavy tree from
+ *  flooding the prompt. */
+const MAX_UNTRACKED_OFFERED = 40
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.
@@ -359,6 +364,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const compareEff = effectiveRef(session.pair.compare)
       const workdir = await resolveWorkdir(repo, session.pair)
       const skeleton = await getDiff(repo, baseEff, compareEff)
+      // Offer untracked files as optional section candidates so the agent can fold the
+      // relevant ones (a new test, a new module) into the narration. Capped so a tree
+      // full of scratch/build files can't flood the prompt — the overflow stays orphan
+      // and is auto-excluded, same as any unsectioned untracked file.
+      const untracked = (await untrackedDiffs(workdir)).slice(0, MAX_UNTRACKED_OFFERED)
+      const untrackedPaths = new Set(untracked.map((f) => f.path))
+      const genDiff = untracked.length ? { ...skeleton, files: [...skeleton.files, ...untracked] } : skeleton
       const state = dao.loadReviewState(db, sessionId)
       const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
       // "Update review": fold the new drift commits into the existing narration
@@ -378,7 +390,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       operations.throwIfCancelled(opId)
       const engine = makeEngine(agent.engine)
       const run = engine.generateReview({
-        repo: workdir, branch: compareEff, base: baseEff, diff: skeleton, artifacts,
+        repo: workdir, branch: compareEff, base: baseEff, diff: genDiff, artifacts,
         model: agent.model, reasoningEffort: agent.reasoningEffort,
         steer: steer?.trim() || undefined, prior
       })
@@ -387,7 +399,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const pump = pumpEvents(run.events, recorder.emit)
       const { value, sessionId: engineSession } = await run.result
       await pump
-      const { annotations, warnings } = mergeAnnotations(skeleton, value)
+      const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths)
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
 
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })

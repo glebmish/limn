@@ -97,7 +97,7 @@ describe('merged base→working-tree view (dirty)', () => {
     expect(b).toBeDefined()
     const lines = b!.hunks.flatMap((h) => h.lines)
     expect(lines.find((l) => l.text.includes('b = 3'))?.origin).toBe('committed')
-    expect(lines.find((l) => l.text.includes('d = 4'))?.origin).toBe('uncommitted')
+    expect(lines.find((l) => l.text.includes('d = 4'))?.origin).toBe('unstaged')
   })
 })
 
@@ -141,7 +141,7 @@ describe('comments line up with the merged (rendered) surface while dirty', () =
     write(dir, 'src/b.ts', 'export const b = 3\nexport const dirty = true\n')
     const loaded = await buildLoadedReview(db, session)
     const b = loaded.merged?.find((f) => f.path === 'src/b.ts')
-    expect(b?.hunks.some((h) => h.lines.some((l) => l.origin === 'uncommitted' && l.since))).toBe(true)
+    expect(b?.hunks.some((h) => h.lines.some((l) => l.origin === 'unstaged' && l.since))).toBe(true)
   })
 
   it('uses a branch surface hash that distinguishes dirty states from clean HEAD', async () => {

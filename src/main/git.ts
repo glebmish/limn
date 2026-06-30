@@ -111,8 +111,16 @@ export async function addWorktree(repo: string, branch: string, dir: string): Pr
   await execGit(repo, ['worktree', 'add', dir, branch])
 }
 
+/** Working-tree paths git reports as unmerged (unresolved merge conflicts). Backs the
+ *  `conflict` status pill — the diff body still renders, conflict markers inline. */
+async function unmergedPaths(dir: string): Promise<Set<string>> {
+  const out = await execGit(dir, ['diff', '--name-only', '--diff-filter=U'])
+  return new Set(out.split('\n').map((s) => s.trim()).filter(Boolean))
+}
+
 /** Working-tree diff against an arbitrary ref, with untracked files synthesized as
- *  fully-added files (so brand-new work shows) without mutating the index. */
+ *  fully-added files (so brand-new work shows) without mutating the index. Files git
+ *  reports as unmerged are flagged `conflict` so the UI can pill them. */
 async function workingTreeDiffFrom(dir: string, fromRef: string): Promise<FileDiff[]> {
   const raw = await execGit(dir, ['diff', ...DIFF_ARGS, fromRef])
   const files = parseUnifiedDiff(raw)
@@ -122,6 +130,8 @@ async function workingTreeDiffFrom(dir: string, fromRef: string): Promise<FileDi
     const file = await syntheticAddedFile(dir, path)
     if (file) files.push(file)
   }
+  const conflicted = await unmergedPaths(dir)
+  if (conflicted.size > 0) for (const f of files) if (conflicted.has(f.path)) f.conflict = true
   return files
 }
 
@@ -129,6 +139,20 @@ async function workingTreeDiffFrom(dir: string, fromRef: string): Promise<FileDi
  *  the "volatile band". */
 export async function workingTreeDiff(dir: string): Promise<FileDiff[]> {
   return workingTreeDiffFrom(dir, 'HEAD')
+}
+
+/** The untracked files of `dir` synthesized as added FileDiffs (each `untracked:true`).
+ *  Offered to the narration as optional section candidates — the agent sections the
+ *  relevant ones; the rest stay orphan and are auto-excluded from the review. */
+export async function untrackedDiffs(dir: string): Promise<FileDiff[]> {
+  const paths = (await execGit(dir, ['ls-files', '--others', '--exclude-standard']))
+    .split('\n').map((s) => s.trim()).filter(Boolean)
+  const out: FileDiff[] = []
+  for (const path of paths) {
+    const file = await syntheticAddedFile(dir, path)
+    if (file) out.push(file)
+  }
+  return out
 }
 
 /** The base→working-tree diff with each changed line attributed to the committed
@@ -140,7 +164,12 @@ export async function mergedWorkingDiff(dir: string, base: string, branch: strin
   const merged = await workingTreeDiffFrom(dir, mb)
   const skeleton = parseUnifiedDiff(await execGit(dir, ['diff', ...DIFF_ARGS, mb, await headSha(dir, branch)]))
   const volatile = await workingTreeDiff(dir)
-  tagOrigins(merged, skeleton, volatile)
+  // Two index pivots split the uncommitted lines: `unstaged` (index → working tree)
+  // carries worktree-space line numbers, so its adds join `merged` adds exactly;
+  // `staged` (HEAD → index) backs the best-effort text match for staged deletions.
+  const unstaged = parseUnifiedDiff(await execGit(dir, ['diff', ...DIFF_ARGS]))
+  const staged = parseUnifiedDiff(await execGit(dir, ['diff', ...DIFF_ARGS, '--cached']))
+  tagOrigins(merged, skeleton, volatile, unstaged, staged)
   return merged
 }
 
@@ -158,15 +187,15 @@ async function syntheticAddedFile(dir: string, path: string): Promise<FileDiff |
   let stat: fs.Stats
   try { stat = fs.statSync(abs) } catch { return null } // gone or unreadable
   if (!stat.isFile()) return null
-  if (stat.size > MAX_INLINE_BYTES) return { path, status: 'added', binary: true, add: 0, del: 0, hunks: [] }
+  if (stat.size > MAX_INLINE_BYTES) return { path, status: 'added', binary: true, untracked: true, add: 0, del: 0, hunks: [] }
   let content: string
   try { content = fs.readFileSync(abs, 'utf8') }
   catch { return null } // gone, unreadable, or binary read failure
-  if (content.includes('\0')) return { path, status: 'added', binary: true, add: 0, del: 0, hunks: [] }
+  if (content.includes('\0')) return { path, status: 'added', binary: true, untracked: true, add: 0, del: 0, hunks: [] }
   const lines = content.split('\n')
   if (lines[lines.length - 1] === '') lines.pop() // trailing newline → drop the empty tail
   return {
-    path, status: 'added', binary: false, add: lines.length, del: 0,
+    path, status: 'added', binary: false, untracked: true, add: lines.length, del: 0,
     hunks: [{ range: `@@ -0,0 +1,${lines.length} @@`, header: '', lines: lines.map((text, i) => ({ old: null, new: i + 1, kind: 'add' as const, text })) }]
   }
 }
@@ -225,6 +254,8 @@ export function parseUnifiedDiff(raw: string): FileDiff[] {
     let newPath: string | undefined
     let status: FileDiff['status'] = 'modified'
     let binary = false
+    let oldMode: string | undefined
+    let newMode: string | undefined
     const hunks: Hunk[] = []
     let cur: Hunk | null = null
     let oldNo = 0
@@ -252,6 +283,10 @@ export function parseUnifiedDiff(raw: string): FileDiff[] {
         status = 'added'
       } else if (ln.startsWith('deleted file mode')) {
         status = 'deleted'
+      } else if (ln.startsWith('old mode ')) {
+        oldMode = ln.slice('old mode '.length).trim()
+      } else if (ln.startsWith('new mode ')) {
+        newMode = ln.slice('new mode '.length).trim()
       } else if (ln.startsWith('Binary files ')) {
         binary = true
         // "Binary files a/x and b/x differ" — recover path if not set
@@ -293,6 +328,9 @@ export function parseUnifiedDiff(raw: string): FileDiff[] {
       hunks: binary ? [] : hunks
     }
     if (status === 'renamed' && oldPath && oldPath !== path) file.oldPath = oldPath
+    // a mode-only change (chmod) carries old/new mode but no ---/+++ headers or hunks;
+    // surface the transition so the file doesn't render as an empty blank.
+    if (oldMode && newMode && oldMode !== newMode) file.modeChange = { from: oldMode, to: newMode }
     for (const h of file.hunks) {
       for (const l of h.lines) {
         if (l.kind === 'add') file.add++
@@ -367,6 +405,18 @@ export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' 
     if (file.hunks.length === 0 && (sf.binary || sf.hunks.length > 0)) {
       // binary file changed since — nothing line-level to tag
     }
+  }
+}
+
+/** Attach a real per-baseline `git diff` (e.g. approvedSha→working) to each rendered
+ *  file under `key`, so the "Since approved" / "Since viewed" tabs render an actual
+ *  diff from that base commit rather than a filtered slice of the full diff. */
+export function attachSinceHunks(target: FileDiff[], since: FileDiff[], key: 'sinceHunks' | 'sinceViewedHunks', onlyPaths?: Set<string>): void {
+  const byPath = new Map(since.map((f) => [f.path, f]))
+  for (const f of target) {
+    if (onlyPaths && !onlyPaths.has(f.path)) continue
+    const sf = byPath.get(f.path)
+    if (sf) f[key] = sf.hunks
   }
 }
 
