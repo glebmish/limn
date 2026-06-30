@@ -177,6 +177,7 @@ export default function Review() {
   const store = useStore()
   const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc, diffMode, fileDiffMode, setGlobalDiffMode } = store
   const scrollRef = useRef<HTMLDivElement>(null)
+  const headRef = useRef<HTMLDivElement>(null)
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({})
   // scroll memory: the review position to return to when a doc closes, plus each
   // doc's own scroll position (per file — a different doc opens from its own top)
@@ -244,6 +245,19 @@ export default function Review() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
+
+  // publish the pinned header's live height as a CSS var on the scroll container so
+  // the (also-sticky) file headers stick *below* it instead of behind it. Measured,
+  // not hard-coded, because the header height shifts with density and title wrapping.
+  useEffect(() => {
+    const head = headRef.current, box = scrollRef.current
+    if (!head || !box) return
+    const apply = (): void => box.style.setProperty('--limn-head-h', `${head.offsetHeight}px`)
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(head)
+    return () => ro.disconnect()
+  }, [loaded, docPath])
 
   // scroll-sync: keep the sidebar's current section AND current file in step with
   // the scroll position, so the tree always shows where you are in the diff.
@@ -803,7 +817,7 @@ export default function Review() {
             <ArtifactDoc path={docPath} onClose={closeDocBack} />
           ) : (
             <>
-              <div className="page-head">
+              <div className="page-head" ref={headRef}>
                 <div className="eyebrow">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">

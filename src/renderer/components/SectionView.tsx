@@ -72,7 +72,10 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               onChange={() => setSectionViewed(s.id, files.map((f) => f.path), viewState !== 'all')}
             />
             <span className={'fv-box' + (viewState === 'some' ? ' some' : '')}>
-              {viewState === 'all' ? <I.check style={{ width: 10, height: 10 }} /> : viewState === 'some' ? <span className="fv-dash" /> : null}
+              {viewState === 'all' ? <I.check style={{ width: 10, height: 10 }} />
+                : reReview ? '~'
+                : viewState === 'some' ? <span className="fv-dash" />
+                : null}
             </span>
             Viewed
           </label>
