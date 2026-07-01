@@ -1,6 +1,6 @@
 {
   "name": "limn",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Agentic local branch review — guided code review backed by Claude or Codex",
   "main": "out/main/index.js",
