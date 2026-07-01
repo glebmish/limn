@@ -4,35 +4,33 @@
 [![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
 [![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
-A native macOS app for **agentic review of local git branches** that helps you understand the code.
+A macOS app for **agentic review of local git branches** that helps you understand the code.
 
 ![A 27-file branch under guided review in Limn: the diff grouped into logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 2 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
-- **Guided-review UI** — pick a repo and branch; the diff against a base, grouped into logical sections.
-- **Your engine, per review** — Claude (Agent SDK) or Codex (Codex SDK).
-- **Narrated, not just diffed** — "what changed" notes, risk flags, and mechanism diagrams.
-- **Spec/plan cross-check** — flags where the implementation diverged from what it was built to do.
-- **Comment on anything** — diff lines, spec lines, plan steps, section narration — and chat with the agent.
-- **Comments become commits** — send them back and the agent applies fixes as a new iteration on the branch.
-- **Only the delta** — after each round, see only what changed since you approved.
+- **Guided review** — Agent explains what has changed, splits changes on semantical groups and asks clarifying questions.
+- **Agentic tools** — Tools for agent to help user navigate: navigate to a file that builds a database query, explain the auth workflow across multiple files, etc.
+- **Spec/plan cross-check** — flags where the implementation diverged from what the spec and plan define.
+- **Comment on anything** — diff lines, spec lines, plan steps, section narration — comment and agent will follow up on it.
+- **Agent agnostic** — Supports both Claude and Codex via SDKs.
+- **Native support for quick local iterations** — see diff from the last reviewed state, update narration for the new commits.
 
-Git is ground truth throughout: diffs are always parsed from `git diff`; the agent only annotates them and can never alter the code you see.
 
 ## What it does
 
-**It narrates the change, it doesn't just diff it.** The agent explores callers, tests, and history, then explains how the change actually works — here, a seven-stop tour that follows one value from the UI selector through IPC down to the engine, scrolling the diff to each stop.
+**Narrates the change.** The agent explores callers, tests, and history, then explains how the change actually works — here, a seven-stop tour that follows one value from the UI selector through IPC down to the engine, scrolling the diff to each stop.
 
 ![The chat drawer showing a seven-stop "propagation tour"; each stop is a file and line, and selecting one jumps the diff to that code.](docs/media/review-tour.webp)
 
-**It checks the change against the spec, not just itself.** Point Limn at the spec or plan the work was built from and it flags where the implementation diverged, marking each acceptance criterion done or partial.
+**Checks the change against the spec.** Limn auto-discovers specs and plans based on popular conventions and flags where the implementation diverged, criteria by criteria.
 
 ![The spec view with a "Where the implementation diverged" callout listing four divergences, beside a list of acceptance criteria tagged DONE or PARTIAL.](docs/media/spec-divergence.png)
 
-**Comments turn into commits.** Queue comments on any line, section, or spec point, send them to the agent, and watch it work — reading callers, running commands, editing — then report a resolution per comment, committed on your branch.
+**Follows up on comments.** Leave comments on any line, section, or spec point, send them to the agent — it will read callers, run commands, edit files — then report a resolution per comment and commit the changes.
 
 ![Queued reviewer comments sent to the agent; the chat drawer streams its tool calls — grep, read, edit — and returns one resolution per comment.](docs/media/apply-loop.webp)
 
-**It stays current with the branch.** When new commits land — from the agent or a terminal session — a titlebar pill shows the drift; after reload, "changed since viewed / approved" rails highlight only what moved, so re-review is just the delta.
+**Shows updates as they come.** When new commits land — from the agent or the user — a titlebar pill shows the drift; after reload, diff shows just the delta. Agent can also update the narration based on the new changes.
 
 ![A titlebar drift pill showing the branch is a commit behind; after reload the "Since viewed" filter highlights the changed section and a new working-tree file, ready to re-approve.](docs/media/drift-freshness.webp)
 
@@ -41,10 +39,7 @@ Git is ground truth throughout: diffs are always parsed from `git diff`; the age
 Limn is a local app with no telemetry, accounts, hosted backend, or cloud sync of
 its own. It does not store Claude, Codex, Anthropic, or OpenAI credentials. It uses
 the credentials and command-line agents already installed and authorized on your
-machine (`claude`, `codex`, `ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`). Limn also
-does not use macOS Keychain; Electron's default Keychain-backed safe-storage
-integration is disabled so the app does not create or request access to a
-`Limn Safe Storage` keychain item.
+machine (`claude`, `codex`). Limn also does not use macOS Keychain.
 
 Review state lives in one local SQLite database at the app's user-data location
 (`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
@@ -56,14 +51,13 @@ When you choose Claude or Codex, the selected provider receives the prompts and
 repository context needed for the review, using your existing provider account or
 API key. Limn itself does not send data anywhere else.
 
-Limn runs a coding agent against your repo. The execution tier, set per review,
+Limn runs a coding agent against your repo. The execution tier, set per agent,
 controls how much it can do on its own:
 
 - **Ask for approval** / **Accept edits** — the agent confirms before running
   commands; safe defaults for unfamiliar code.
 - **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
-  without confirming each step; **Full access** also lifts the sandbox (network and
-  any file).
+  without confirming each step.
 
 Only use **Auto mode** or **Full access** on repos you trust. For code you have not
 vetted, stay on **Ask for approval** or **Accept edits**.
