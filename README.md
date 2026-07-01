@@ -6,11 +6,29 @@
 
 A native macOS app for **agentic review of local git branches** — before you open a PR.
 
-![Limn's guided-review screen: the diff split into logical sections, AI-generated "what changed" narration, reviewer comments queued for the agent, and an agent question awaiting a decision.](docs/review.png)
+![A 27-file branch under guided review in Limn: the diff grouped into logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 2 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
 Pick a repo and a branch; the app shows the diff against a base branch in a guided-review UI. An AI agent — **Claude (Agent SDK) or Codex (Codex SDK), your choice per review** — explores the repository (callers, tests, history, specs) and turns the raw diff into a narrated review: logical sections, plain-language "what changed" notes, risk flags, mechanism diagrams, and a cross-check against the spec/plan the change was built from. You comment on anything — diff lines, spec lines, plan steps, section narration — chat with the agent about the code, then send your comments back: the agent applies fixes as a new iteration on the branch, and the app shows you only what changed since you approved.
 
 Git is ground truth throughout: diffs are always parsed from `git diff`; the agent only annotates them and can never alter the code you see.
+
+## What it does
+
+**It narrates the change, it doesn't just diff it.** The agent explores callers, tests, and history, then explains how the change actually works — here, a seven-stop tour that follows one value from the UI selector through IPC down to the engine, scrolling the diff to each stop.
+
+![The chat drawer showing a seven-stop "propagation tour"; each stop is a file and line, and selecting one jumps the diff to that code.](docs/media/review-tour.webp)
+
+**It checks the change against the spec, not just itself.** Point Limn at the spec or plan the work was built from and it flags where the implementation diverged, marking each acceptance criterion done or partial.
+
+![The spec view with a "Where the implementation diverged" callout listing four divergences, beside a list of acceptance criteria tagged DONE or PARTIAL.](docs/media/spec-divergence.png)
+
+**Comments turn into commits.** Queue comments on any line, section, or spec point, send them to the agent, and watch it work — reading callers, running commands, editing — then report a resolution per comment, committed on your branch.
+
+![Queued reviewer comments sent to the agent; the chat drawer streams its tool calls — grep, read, edit — and returns one resolution per comment.](docs/media/apply-loop.webp)
+
+**It stays current with the branch.** When new commits land — from the agent or a terminal session — a titlebar pill shows the drift; after reload, "changed since viewed / approved" rails highlight only what moved, so re-review is just the delta.
+
+![A titlebar drift pill showing the branch is a commit behind; after reload the "Since viewed" filter highlights the changed section and a new working-tree file, ready to re-approve.](docs/media/drift-freshness.webp)
 
 ## Security & privacy
 
