@@ -539,7 +539,7 @@ export default function Review() {
 
   const approveButton = (
     <button
-      className={'btn btn-sm rv-approve ' + (approved ? 'btn-ghost rv-approved' : 'btn-primary')}
+      className={'btn btn-sm rv-approve ' + (approved ? 'btn-primary rv-approved' : '')}
       disabled={gen.running}
       title={approved
         ? 'Clear your approval for this commit'
@@ -555,7 +555,7 @@ export default function Review() {
     >
       <span className="rv-approve-main">
         {approved
-          ? <><I.x style={{ width: 13, height: 13 }} />Unapprove</>
+          ? <><I.check style={{ width: 13, height: 13 }} />Approved</>
           : <><I.check style={{ width: 13, height: 13 }} />{dirtyNeedsApproval ? 'Committed changes approved' : 'Approve'}</>}
       </span>
       {dirtyNeedsApproval && <span className="rv-approve-dirty">new uncommitted changes</span>}
