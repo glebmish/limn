@@ -161,4 +161,4 @@ Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dive
 
 ## License
 
-[ISC](LICENSE) © Gleb Mishchenko
+[MIT](LICENSE) © Gleb Mishchenko
