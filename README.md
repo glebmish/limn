@@ -4,11 +4,17 @@
 [![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
 [![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
-A native macOS app for **agentic review of local git branches** — before you open a PR.
+A native macOS app for **agentic review of local git branches** that helps you understand the code.
 
 ![A 27-file branch under guided review in Limn: the diff grouped into logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 2 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
-Pick a repo and a branch; the app shows the diff against a base branch in a guided-review UI. An AI agent — **Claude (Agent SDK) or Codex (Codex SDK), your choice per review** — explores the repository (callers, tests, history, specs) and turns the raw diff into a narrated review: logical sections, plain-language "what changed" notes, risk flags, mechanism diagrams, and a cross-check against the spec/plan the change was built from. You comment on anything — diff lines, spec lines, plan steps, section narration — chat with the agent about the code, then send your comments back: the agent applies fixes as a new iteration on the branch, and the app shows you only what changed since you approved.
+- **Guided-review UI** — pick a repo and branch; the diff against a base, grouped into logical sections.
+- **Your engine, per review** — Claude (Agent SDK) or Codex (Codex SDK).
+- **Narrated, not just diffed** — "what changed" notes, risk flags, and mechanism diagrams.
+- **Spec/plan cross-check** — flags where the implementation diverged from what it was built to do.
+- **Comment on anything** — diff lines, spec lines, plan steps, section narration — and chat with the agent.
+- **Comments become commits** — send them back and the agent applies fixes as a new iteration on the branch.
+- **Only the delta** — after each round, see only what changed since you approved.
 
 Git is ground truth throughout: diffs are always parsed from `git diff`; the agent only annotates them and can never alter the code you see.
 
