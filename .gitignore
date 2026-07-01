@@ -9,6 +9,10 @@ dist/
 .superpowers/
 docs/superpowers/
 
+# per-developer agent config + local scratch (not shared)
+.claude/
+.tmp/
+
 # env files (none used today; guard against future ones)
 .env
 .env.*
