@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I, Delta, EngineGlyph, CmtPlus } from '../kit'
-import { fileViewed, fileIsExcluded, GUIDANCE, useStore } from '../store'
+import { fileViewed, fileIsExcluded, diffHunksForMode, GUIDANCE, useStore } from '../store'
 import { addComment } from '../lib/comments'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -90,13 +90,11 @@ export function DiffView({ f, plainNote }: {
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
   const showBody = focused || effectiveOpen
-  // show exactly the selected baseline — if the file has no diff at that baseline it
-  // renders the empty state below, rather than silently falling back to the full diff
-  // (which made the shown content contradict the selected "Since …" mode).
-  const hunks =
-    mode === 'approved' ? (f.sinceHunks ?? [])
-    : mode === 'viewed' ? (f.sinceViewedHunks ?? [])
-    : f.hunks
+  // show exactly the selected baseline — if a tracked file has no diff at that baseline
+  // it renders the empty state below, rather than silently falling back to the full diff
+  // (which made the shown content contradict the selected "Since …" mode). Untracked
+  // files are wholly new, so their since-diff equals the full diff (see diffHunksForMode).
+  const hunks = diffHunksForMode(f, mode)
   const lang = langForPath(f.path)
   const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
 

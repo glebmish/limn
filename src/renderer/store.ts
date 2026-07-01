@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview, OperationStatus } from '../shared/ipc'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, Hunk, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { fileEffectivelyExcluded } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
@@ -79,6 +79,19 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>, head
   // with no content hash (non-branch compare / hashing skipped) doesn't read back
   // as drifted and clear its own tick.
   return mark.hash === (f.fileHash ?? '')
+}
+
+/** The hunks a file renders under the active diff-baseline mode. "Since approved" /
+ *  "Since viewed" show the real per-baseline slice (or empty — a genuine "No changes
+ *  since…" — when there is none). Untracked files are the exception: a wholly-new file
+ *  has no prior version, so its since-diff IS its full diff. Showing the full diff there
+ *  doesn't contradict the mode the way a tracked-file fallback would, and it avoids the
+ *  misleading "No changes since you viewed" on a brand-new file that was never (or only
+ *  just) viewed. */
+export function diffHunksForMode(f: FileDiff, mode: 'branch' | 'approved' | 'viewed'): Hunk[] {
+  if (mode === 'approved') return f.untracked ? f.hunks : (f.sinceHunks ?? [])
+  if (mode === 'viewed') return f.untracked ? f.hunks : (f.sinceViewedHunks ?? [])
+  return f.hunks
 }
 
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current

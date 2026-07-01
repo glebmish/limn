@@ -181,6 +181,26 @@ describe('viewed content-hash drift', () => {
   })
 })
 
+describe('since-tagging is uniform (narrower-than-full suppression removed)', () => {
+  it('attaches sinceViewedHunks to an untracked file viewed at an earlier sha', async () => {
+    const dir = makeRepoWithArtifact() // feature committed & clean
+    const session = await sessionFor(dir)
+    const baseMain = await headSha(dir, 'main')
+
+    // a brand-new untracked file in the working tree (dirty)
+    write(dir, 'src/new.ts', 'export const n = 1\n')
+    // recorded as viewed at the base sha (≠ feature head) → enters the since-viewed group.
+    // Its since-diff equals its full diff (wholly new), which the old hack suppressed.
+    replaceUiState(db, session.id, { viewedAt: { 'src/new.ts': { sha: baseMain, hash: 'stale' } } })
+
+    const loaded = await buildLoadedReview(db, session)
+    const nf = (loaded.merged ?? loaded.skeleton.files).find((f) => f.path === 'src/new.ts')!
+    expect(nf.untracked).toBe(true)
+    expect(nf.sinceViewedHunks).toBeDefined()
+    expect(nf.sinceViewedHunks!.length).toBeGreaterThan(0)
+  })
+})
+
 describe('buildLoadedReview (persisted path) still writes', () => {
   it('resolves branch sessions to the latest branch head on each load', async () => {
     const dir = makeRepoWithArtifact()

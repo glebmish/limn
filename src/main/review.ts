@@ -168,34 +168,22 @@ export async function assembleReview(
     try {
       merged = await mergedWorkingDiff(wt, baseEff, compareEff)
       const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
-      // A since-diff that equals the file's full diff adds nothing — e.g. an untracked
-      // working-tree file is wholly new at the baseline too. Tag only files whose delta
-      // since the baseline is narrower than the full diff, so we don't slap a redundant
-      // (and, for untracked files, misleading) "since approved/viewed" badge on them.
-      const fullByPath = new Map(merged.map((f) => [f.path, f]))
-      const narrowerThanFull = (sinceFiles: FileDiff[], within?: Set<string>): Set<string> => {
-        const out = new Set<string>()
-        for (const sf of sinceFiles) {
-          if (within && !within.has(sf.path)) continue
-          const full = fullByPath.get(sf.path)
-          if (full && (sf.add !== full.add || sf.del !== full.del)) out.add(sf.path)
-        }
-        return out
-      }
+      // Since-tag every file uniformly — a "changed since approved/viewed" rail always
+      // means "this line changed since that baseline", even for a wholly-new (untracked)
+      // file whose since-diff equals its full diff. The renderer decides how to present a
+      // wholly-new file (diffHunksForMode); the data layer no longer suppresses it here.
       if (baseline) {
         try {
           const sinceW = await diffSinceWorking(wt, baseline)
-          const paths = narrowerThanFull(sinceW)
-          markSince(asSkel(merged), asSkel(sinceW), 'since', paths)
-          attachSinceHunks(merged, sinceW, 'sinceHunks', paths)
+          markSince(asSkel(merged), asSkel(sinceW), 'since')
+          attachSinceHunks(merged, sinceW, 'sinceHunks')
         } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
         try {
           const sinceW = await diffSinceWorking(wt, sha)
-          const within = narrowerThanFull(sinceW, paths)
-          markSince(asSkel(merged), asSkel(sinceW), 'sinceViewed', within)
-          attachSinceHunks(merged, sinceW, 'sinceViewedHunks', within)
+          markSince(asSkel(merged), asSkel(sinceW), 'sinceViewed', paths)
+          attachSinceHunks(merged, sinceW, 'sinceViewedHunks', paths)
         } catch { /* view sha unreachable */ }
       }
     } catch { merged = undefined /* fall back to skeleton + volatile band */ }
