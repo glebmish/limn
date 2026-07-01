@@ -40,15 +40,13 @@ The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC 
 **Selection** — `makeEngine(id)`:
 
 ```ts
-if (process.env.LIMN_DEMO === '1') return new FakeEngine()
+if (process.env.LIMN_DEMO === '1') return new FakeEngine(id)
 return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
 ```
 
 A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides everything.
 
-**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `tour` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI.
-
-> ⚠️ `FakeEngine.id` is hardcoded `'claude'` regardless of the requested engine — a latent inconsistency if any code keys behavior off the reported id.
+**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `tour` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI. `FakeEngine` carries the requested engine id (`new FakeEngine(id)`), so demo mode reports the engine the caller asked for.
 
 ## Claude engine (`claude.ts`)
 
