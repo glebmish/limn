@@ -14,11 +14,13 @@ import type { CommitInfo } from '../../shared/types'
 export { startGenerate, startGenerateNow }
 
 /** Hover hint on the "Update review" button. Honest about the mechanism: an update is a
- *  FRESH engine run (no session resume — ReviewRequest carries no engineSessionId) seeded
- *  with the prior review's structure, not a resumed "same session". The Limn-side half
- *  (comments/viewed marks) does survive. See specs/ux-a11y-sweep spec §5. */
+ *  FRESH engine run seeded with the prior review's structure, not a resumed "same session".
+ *  When drift since the last iteration is small, Limn scopes the pass to just the touched
+ *  sections (splices the patch into the prior review) rather than re-narrating everything.
+ *  The Limn-side half (comments/viewed marks) survives either way. See specs/ux-a11y-sweep
+ *  §5 + specs/scoped-update-generation §8. */
 export const UPDATE_REVIEW_HINT =
-  'Fresh agent pass seeded with the existing review’s structure — folds the new commits into the narration. Your comments and viewed marks survive.'
+  'Fresh agent pass seeded with the existing review’s structure — folds the new commits into the narration; small drift updates only the touched sections. Your comments and viewed marks survive.'
 
 /** mm:ss for the live elapsed counter. */
 function fmtElapsed(ms: number): string {

@@ -648,12 +648,16 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           })
         }
       })
-      return annotations.sections.length
+      return { sections: annotations.sections.length, scope, agentTurnText }
     })
 
     if (outcome.status === 'succeeded') {
       sendOpResult(opId, 'review', 'succeeded', undefined, true)
-      notifyIfUnfocused('Guided review ready', `${outcome.value} sections — ${session.pair.compare.symbol}`)
+      // scoped runs mirror the persisted turn ("Updated N of M sections…", spec §8/Q10);
+      // a full run keeps today's "N sections — <compare>" summary.
+      notifyIfUnfocused('Guided review ready', outcome.value.scope === 'scoped'
+        ? outcome.value.agentTurnText
+        : `${outcome.value.sections} sections — ${session.pair.compare.symbol}`)
     } else {
       const err = outcome.error
       // off-schema/empty engine output surfaces as a raw ZodError from

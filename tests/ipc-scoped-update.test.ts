@@ -20,6 +20,7 @@ interface Harness {
   results: OpResultMsg[]
   sessionId: number
   repo: string
+  notifications: { title: string; body: string }[]
 }
 
 async function setup(): Promise<Harness> {
@@ -35,17 +36,18 @@ async function setup(): Promise<Harness> {
   const handlers = new Map<string, (...args: unknown[]) => Promise<unknown>>()
   const events: OpEventMsg[] = []
   const results: OpResultMsg[] = []
+  const notifications: { title: string; body: string }[] = []
   const transport: Transport = {
     handle(name, fn) { handlers.set(name, fn as (...a: unknown[]) => Promise<unknown>) },
     broadcast(channel, msg) {
       if (channel === 'op:event') events.push(msg as OpEventMsg)
       if (channel === 'op:result') results.push(msg as OpResultMsg)
     },
-    notify() { /* not used */ },
+    notify(title, body) { notifications.push({ title, body }) },
     async pickDirectory() { return null }
   }
   registerIpc(db, [], transport)
-  return { db, handlers, events, results, sessionId, repo: dir }
+  return { db, handlers, events, results, sessionId, repo: dir, notifications }
 }
 
 /** Run one generation (fresh or update) through beginReview + generate. */
@@ -113,7 +115,12 @@ describe('generate — scoped update path (IPC integration)', () => {
     expect(notes(h, 'op-scoped').some((n) => /scoped update — 1 file changed since/.test(n))).toBe(true)
     // the persisted review-thread agent turn reports the section rollup
     const reviewThread = st.chats.find((t) => t.kind === 'review')!
-    expect(reviewThread.messages.at(-1)!.text).toMatch(/^Updated \d+ of \d+ sections \(\+\d+ new, −\d+\)\.$/)
+    const turnText = reviewThread.messages.at(-1)!.text
+    expect(turnText).toMatch(/^Updated \d+ of \d+ sections \(\+\d+ new, −\d+\)\.$/)
+    // §8/Q10: the completion notification for a scoped run mirrors that persisted turn
+    // (the FULL first-generation notification is the plain "N sections — …" summary).
+    expect(h.notifications.at(-1)).toEqual({ title: 'Guided review ready', body: turnText })
+    expect(h.notifications[0].body).toMatch(/ sections — /) // the initial full run
   })
 
   it('large drift falls to the FULL path (scope=full)', async () => {

@@ -15,4 +15,11 @@ describe('Update review hint copy', () => {
   it('keeps the true half: comments and viewed marks survive', () => {
     expect(UPDATE_REVIEW_HINT).toContain('comments and viewed marks survive')
   })
+
+  // Branch 04 §8: the hint gains one clause conveying that a small drift update only
+  // touches the changed sections (scoped path) — ADDED to, not replacing, the honest
+  // branch-02 wording asserted above.
+  it('conveys the scoped path: small drift updates only the touched sections', () => {
+    expect(UPDATE_REVIEW_HINT).toContain('small drift updates only the touched sections')
+  })
 })
