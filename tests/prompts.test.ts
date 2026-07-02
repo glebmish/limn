@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { buildChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt } from '../src/main/engines/prompts'
+import { buildChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildScopedUpdatePrompt } from '../src/main/engines/prompts'
+import type { ScopedUpdatePromptInput } from '../src/main/engines/prompts'
 import type { ReviewRequest } from '../src/main/engines/types'
-import type { Comment, CommentReply } from '../src/shared/types'
+import type { Comment, CommentReply, FileDiff, ReviewAnnotations } from '../src/shared/types'
 
 const baseReq: ReviewRequest = {
   repo: '/tmp/repo', branch: 'feat/x', base: 'main', artifacts: [],
@@ -99,6 +100,98 @@ describe('buildReviewPrompt update (drift "Update review")', () => {
   })
   it('omits the update block on a from-scratch pass', () => {
     expect(buildReviewPrompt(baseReq)).not.toContain('UPDATING AN EXISTING REVIEW')
+  })
+})
+
+describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
+  function mkFile(over: Partial<FileDiff> = {}): FileDiff {
+    return {
+      path: 'src/a.ts', status: 'modified', binary: false, add: 1, del: 0,
+      hunks: [{ range: '@@ -1 +1 @@', header: '@@ -1 +1 @@ ctx', lines: [{ old: null, new: 1, kind: 'add', text: 'const a = 1' }] }],
+      ...over
+    }
+  }
+  const priorAnn: ReviewAnnotations = {
+    title: 'Billing overhaul',
+    summary: 'Adds subscriptions.',
+    sections: [
+      { id: 's1', name: 'Migrations', desc: 'schema', what: 'MIGRATION_NARRATION creates the tables', files: ['src/db/mig.ts'], order: 1 },
+      { id: 's2', name: 'Lifecycle', desc: 'runtime', what: 'LIFECYCLE_NARRATION wires the hooks', files: ['src/life.ts'], order: 2, diagram: [['n', 'hi', '']], insight: { caption: 'x' } }
+    ],
+    questions: [{ id: 'q1', text: 'was linear retry deliberate?', context: 'retry.ts' }]
+  }
+  function mkInput(over: Partial<ScopedUpdatePromptInput> = {}): ScopedUpdatePromptInput {
+    return {
+      branch: 'feat/x', base: 'main', prior: priorAnn, sinceSha: 'c'.repeat(40),
+      since: [mkFile({ path: 'src/db/mig.ts', hunks: [{ range: '@@', header: '@@ mig', lines: [{ old: null, new: 2, kind: 'add', text: 'DRIFT_HUNK_LINE' }] }] })],
+      ...over
+    }
+  }
+
+  it('embeds the prior narration (what) and section ids', () => {
+    const p = buildScopedUpdatePrompt(mkInput())
+    expect(p).toContain('MIGRATION_NARRATION creates the tables')
+    expect(p).toContain('LIFECYCLE_NARRATION wires the hooks')
+    expect(p).toContain('[s1]')
+    expect(p).toContain('[s2]')
+    expect(p).toContain('[q1]') // open questions carry their ids
+    expect(p).toContain('Billing overhaul')
+  })
+
+  it('inlines the since-diff hunks only — a file not in the drift has no hunks in the prompt', () => {
+    const p = buildScopedUpdatePrompt(mkInput())
+    expect(p).toContain('DRIFT_HUNK_LINE') // the since file's hunk is inlined
+    // src/life.ts (owned by s2) is NOT in the since-diff; its content never appears.
+    const staleFile = mkFile({ path: 'src/life.ts', hunks: [{ range: '@@', header: '@@ life', lines: [{ old: null, new: 3, kind: 'add', text: 'STALE_HUNK_LINE' }] }] })
+    expect(staleFile.hunks[0].lines[0].text).toBe('STALE_HUNK_LINE')
+    expect(p).not.toContain('STALE_HUNK_LINE')
+  })
+
+  it('labels each since file with its owning prior section, or "unsectioned"', () => {
+    const p = buildScopedUpdatePrompt(mkInput({
+      since: [
+        mkFile({ path: 'src/db/mig.ts' }),                 // owned by s1
+        mkFile({ path: 'src/brand-new.ts', status: 'added' }) // no prior section owns it
+      ]
+    }))
+    expect(p).toContain('[s1]')                    // owner id shown next to mig.ts
+    expect(p).toContain('unsectioned — new file')  // the new file is flagged
+  })
+
+  it('embeds the reviewer steer as a scoped steer block with the data-not-instructions line', () => {
+    const p = buildScopedUpdatePrompt(mkInput({ steer: 'focus on error handling' }))
+    expect(p).toContain('<reviewer_steer>\nfocus on error handling\n</reviewer_steer>')
+    expect(p).toContain(DATA_LINE)
+  })
+
+  it('omits the steer block and data line when no steer is given', () => {
+    const p = buildScopedUpdatePrompt(mkInput())
+    expect(p).not.toContain('<reviewer_steer>')
+    expect(p).not.toContain(DATA_LINE)
+  })
+
+  it('offers untracked candidates but excludes already-sectioned paths', () => {
+    const input = mkInput({
+      since: [
+        mkFile({ path: 'src/db/mig.ts', untracked: true, status: 'added' }), // already owned by s1
+        mkFile({ path: 'scratch/new.ts', untracked: true, status: 'added' }) // genuinely new untracked file
+      ]
+    })
+    const p = buildScopedUpdatePrompt(input)
+    const header = 'Untracked files in the drift that no prior section owns'
+    const idx = p.indexOf(header)
+    expect(idx).toBeGreaterThan(-1)
+    const block = p.slice(idx)
+    expect(block).toContain('scratch/new.ts')        // the new untracked file is offered
+    expect(block).not.toContain('src/db/mig.ts')     // the sectioned untracked file is not offered again
+  })
+
+  it('carries the do-not-re-explore / return-only-revised / keep-ids instruction', () => {
+    const p = buildScopedUpdatePrompt(mkInput())
+    expect(p).toContain('Do NOT re-explore the whole branch')
+    expect(p).toContain('Return ONLY the sections you revise')
+    expect(p).toContain('keptSectionIds')
+    expect(p).toContain('ccccccc') // sinceSha short form in the instruction
   })
 })
 

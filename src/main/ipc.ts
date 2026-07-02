@@ -23,7 +23,7 @@ import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { resolveDecision } from './engines/approvals.js'
-import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
+import { buildBatchPrompt, buildAnswerPrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
@@ -33,11 +33,6 @@ import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 import { decideWatch, initialWatchDecision } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
-
-/** Cap on untracked files offered to the narration as section candidates — past this
- *  the overflow stays orphan (auto-excluded), keeping a scratch-heavy tree from
- *  flooding the prompt. */
-const MAX_UNTRACKED_OFFERED = 40
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.

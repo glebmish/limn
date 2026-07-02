@@ -1,6 +1,12 @@
 import type { CommentAnchor, SelectionScope } from '../../shared/types.js'
-import type { Comment } from '../../shared/types.js'
+import type { Comment, FileDiff, ReviewAnnotations, Section } from '../../shared/types.js'
 import type { ChatContext, ReviewRequest } from './types.js'
+
+/** Cap on untracked files offered to the narration as section candidates — past this
+ *  the overflow stays orphan (auto-excluded), keeping a scratch-heavy tree from
+ *  flooding the prompt. Shared by the full-generation path (ipc) and the scoped
+ *  update prompt below. */
+export const MAX_UNTRACKED_OFFERED = 40
 
 /** Reviewer-typed text is wrapped in `<reviewer_…>` tags at each interpolation
  *  site so its markdown (fences, numbered lists, "ignore the above") can't blur
@@ -140,6 +146,122 @@ Handle them using your tools:
 - When you reference a specific file or diff line, call focus to point the reviewer at it.
 - Keep the existing code style. Answers to your earlier open questions are decisions, not code comments.
 - Finish with a 2-3 sentence summary of what you did.`
+}
+
+/** Input to `buildScopedUpdatePrompt` — the fields the scoped-patch prompt needs.
+ *  A subset of the T5 `ScopedUpdateRequest`: T5 passes `{ branch, base, prior,
+ *  since, sinceSha: latestIteration.endSha, steer }`. Pure prompt data only. */
+export interface ScopedUpdatePromptInput {
+  branch: string
+  base: string
+  /** the prior iteration's full annotations — serialized compactly for the patch. */
+  prior: ReviewAnnotations
+  /** the since-diff (drift since the last iteration): changed files WITH hunks.
+   *  Untracked files are synthesized in here with `untracked: true`. */
+  since: FileDiff[]
+  /** the sha the drift is measured from (last iteration's endSha); shown short. */
+  sinceSha: string
+  /** optional reviewer steer — stays scoped to the drift (one-shot). */
+  steer?: string
+}
+
+/** One prior section, compacted: id/name/desc/what/files/order, with diagram/
+ *  insight/plainNotes NAMED (not inlined — the engine keeps them by not revising). */
+function renderPriorSection(s: Section): string {
+  const kept: string[] = []
+  if (s.diagram?.length) kept.push('diagram')
+  if (s.insight) kept.push('insight')
+  if (s.plainNotes && Object.keys(s.plainNotes).length) kept.push('file notes')
+  const keepNote = kept.length ? ` [also has ${kept.join(', ')} — kept as-is unless you revise this section]` : ''
+  return `- [${s.id}] "${s.name}" (order ${s.order})${keepNote}
+    desc: ${s.desc}
+    what: ${s.what}
+    files: ${s.files.length ? s.files.join(', ') : '(none)'}`
+}
+
+/** Inline a file's hunks as unified-diff-ish text (small by the scoped threshold). */
+function renderHunks(f: FileDiff): string {
+  if (f.binary) return '  (binary file — no textual hunks)'
+  if (!f.hunks.length) return '  (no hunks)'
+  return f.hunks
+    .map((h) => {
+      const body = h.lines
+        .map((l) => `${l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '}${l.text}`)
+        .join('\n')
+      return `${h.header}\n${body}`
+    })
+    .join('\n')
+}
+
+/** The diff-scoped update turn: patch the prior review against a SMALL since-diff
+ *  instead of re-narrating the whole branch. Returns ONLY revised/new/deleted
+ *  sections plus a keptSectionIds handshake; Limn splices it (see splice.ts). Pure
+ *  string builder — no engine/IPC/side effects. Spec Design §2. */
+export function buildScopedUpdatePrompt(input: ScopedUpdatePromptInput): string {
+  const { prior, since, sinceSha } = input
+  const sinceShort = sinceSha.slice(0, 7)
+
+  const ownerOf = (path: string): Section | undefined =>
+    prior.sections.find((s) => s.files.includes(path))
+
+  const priorSections = prior.sections.map(renderPriorSection).join('\n')
+  const priorQuestions = prior.questions.length
+    ? prior.questions.map((q) => `- [${q.id}] ${q.text}${q.context ? ` (context: ${q.context})` : ''}`).join('\n')
+    : '(none)'
+  const planMapNote = prior.planMap
+    ? 'A planMap exists — it is kept as-is unless you return a new one.'
+    : 'No planMap.'
+
+  // The since-diff: tracked changes with hunks inlined, each labelled by owner.
+  const tracked = since.filter((f) => !f.untracked)
+  const sinceBlock = tracked.length
+    ? tracked
+        .map((f) => {
+          const owner = ownerOf(f.path)
+          const label = owner ? `owned by section "${owner.name}" [${owner.id}]` : 'unsectioned — new file'
+          const tag = f.status === 'renamed' ? `renamed from ${f.oldPath}` : f.status
+          return `### ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''}) — ${label}\n${renderHunks(f)}`
+        })
+        .join('\n\n')
+    : '(no tracked file changes in the drift)'
+
+  // Untracked candidates: only untracked files NOT already owned by a prior section,
+  // capped by MAX_UNTRACKED_OFFERED (Q7). Already-sectioned untracked files stay with
+  // their section unless the engine moves them, so they are not offered here.
+  const sectioned = new Set(prior.sections.flatMap((s) => s.files))
+  const untrackedCandidates = since
+    .filter((f) => f.untracked && !sectioned.has(f.path))
+    .slice(0, MAX_UNTRACKED_OFFERED)
+  const untrackedBlock = untrackedCandidates.length
+    ? `\nUntracked files in the drift that no prior section owns — add one to a section ONLY if it is genuinely part of this change; leave scratch/stray files out:\n${untrackedCandidates.map((f) => `- ${f.path} (+${f.add}/−${f.del})`).join('\n')}\n`
+    : ''
+
+  const steerBlock = input.steer
+    ? `\nSTEER FROM THE REVIEWER — weight this patch toward their focus, but STAY SCOPED to the drift below:\n<reviewer_steer>\n${input.steer}\n</reviewer_steer>\n${REVIEWER_TEXT_POLICY}\n`
+    : ''
+
+  return `You are updating an existing guided review of the local branch \`${input.branch}\` against \`${input.base}\`. The branch gained a small amount of drift since ${sinceShort}. Do NOT re-explore the whole branch. Read only the files listed below (and their immediate context) if the hunks aren't self-explanatory. Return ONLY the sections you revise, add, or delete, referencing every other prior section by id in \`keptSectionIds\`. Keep ids of revised sections unchanged; mint new ids only for new sections.
+
+PRIOR REVIEW (the whole thing — patch it, do not re-derive it):
+title: ${prior.title}
+summary: ${prior.summary}
+sections (in order — id is the sole matching key; names are prose and may be edited):
+${priorSections}
+open questions (add/resolve only — do NOT reword existing ones):
+${priorQuestions}
+${planMapNote}
+${steerBlock}
+DRIFT SINCE ${sinceShort} — the only files that changed; their hunks are inlined:
+${sinceBlock}
+${untrackedBlock}
+Produce the scoped patch:
+1. For each prior section the drift changes, return it in \`revisedSections\` with the SAME id and a fully rewritten body (desc/what/files/diagram/insight as needed).
+2. For a genuinely new area, add a section to \`revisedSections\` with a fresh id and an \`order\` where it belongs.
+3. List every prior section you did NOT revise or delete in \`keptSectionIds\` (by id). Put ids of sections the drift removes entirely in \`deletedSectionIds\`.
+4. \`title\`/\`summary\`/\`planMap\`: null to keep the prior value, or a new value to replace it.
+5. \`newQuestions\` for genuinely new intent gaps; \`resolvedQuestionIds\` for ones the drift settles. Do not edit existing question text.
+
+Be concrete and specific to this drift. Do not re-narrate untouched sections; keeping their ids is enough.`
 }
 
 /** Read-only refine turn: the reviewer answered open intent question(s). Fold the
