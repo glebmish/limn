@@ -35,18 +35,35 @@ const wirePlanMap = z.object({
   deviations: z.array(z.object({ text: z.string(), sectionId: z.string() }))
 })
 
+const wireQuestion = z.object({
+  id: z.string(),
+  text: z.string(),
+  context: z.string().nullable(),
+  options: z.array(z.string())
+})
+
 export const reviewWireSchema = z.object({
   title: z.string(),
   summary: z.string(),
   sections: z.array(wireSection),
   planMap: wirePlanMap.nullable(),
-  questions: z.array(z.object({
-    id: z.string(),
-    text: z.string(),
-    context: z.string().nullable(),
-    options: z.array(z.string())
-  })),
+  questions: z.array(wireQuestion),
   artifactPaths: z.array(z.string()).nullable()
+})
+
+// Scoped-update patch: what the engine returns for a diff-scoped iteration.
+// `null` scalars mean "keep prior"; the id arrays are the anti-hallucination
+// handshake the splice validates. wireSection/wireQuestion are reused verbatim
+// so a revised/new section is byte-identical in shape to a fresh generation.
+export const scopedReviewWireSchema = z.object({
+  title: z.string().nullable(),
+  summary: z.string().nullable(),
+  revisedSections: z.array(wireSection),
+  deletedSectionIds: z.array(z.string()),
+  keptSectionIds: z.array(z.string()),
+  newQuestions: z.array(wireQuestion),
+  resolvedQuestionIds: z.array(z.string()),
+  planMap: wirePlanMap.nullable()
 })
 
 function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
@@ -57,6 +74,14 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
 
 // JSON Schema for the SDKs' structured-output options
 export const reviewJsonSchema = toJsonSchema(reviewWireSchema)
+export const scopedReviewJsonSchema = toJsonSchema(scopedReviewWireSchema)
+
+// Parsed scoped patch; splice consumes this against the prior annotations.
+export type ScopedReviewPatch = z.infer<typeof scopedReviewWireSchema>
+
+export function parseScopedOutput(raw: unknown): ScopedReviewPatch {
+  return scopedReviewWireSchema.parse(raw)
+}
 
 export function parseReviewOutput(raw: unknown): ReviewAnnotations {
   const wire = reviewWireSchema.parse(raw)
