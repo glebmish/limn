@@ -32,7 +32,7 @@ import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
-import { OperationCoordinator } from './operations.js'
+import { OperationCoordinator, RepoBusyError } from './operations.js'
 import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 import { decideWatch, initialWatchDecision } from './watch-decision.js'
 
@@ -741,7 +741,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // flips true the instant the engine turn is invoked; the classifier requires it so a
     // pre-model app throw (bad workdir, RepoBusyError) can't masquerade as a lost session.
     let engineInvoked = false
-    const outcome = await operations.run(opId, repo, async () => {
+    // A read-only turn runs on the SHARED lane, alongside a generation/batch holding
+    // the exclusive lane. `readOnly` forces the engine read-only regardless of tier.
+    const doTurn = async (readOnly: boolean): Promise<void> => {
+      // leading status so the stream (and persisted history) explains the coercion.
+      if (readOnly) recorder.emit({ type: 'status', text: 'Read-only turn — a review is generating' })
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
@@ -769,6 +773,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         tools,
         opId,
         executionMode: thread.executionMode,
+        readOnly,
         context: thread.engineSessionId
           ? undefined
           : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
@@ -794,7 +799,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       }
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-    })
+    }
+    // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
+    // shared lane forced read-only; otherwise take the exclusive lane at full tier.
+    // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
+    // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
+    let outcome = operations.repoBusy(repo)
+      ? await operations.runShared(opId, repo, () => doTurn(true))
+      : await operations.run(opId, repo, () => doTurn(false))
+    if (outcome.status === 'failed' && outcome.error instanceof RepoBusyError && outcome.error.lane === 'exclusive') {
+      outcome = await operations.runShared(opId, repo, () => doTurn(true))
+    }
     if (outcome.status === 'succeeded') {
       sendOpResult(opId, 'chat', 'succeeded')
     } else {

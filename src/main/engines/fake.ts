@@ -27,6 +27,17 @@ function wireSection(id: string, name: string, files: string[], order: number, r
   }
 }
 
+/** Test affordance: a `[hold]` chat turn parks until `releaseFakeHolds()` fires, so a
+ *  test can observe a concurrent op holding a lane (e.g. generation holds exclusive
+ *  while a shared read-only chat runs). Module-level so it survives per-op FakeEngine
+ *  instances. */
+let fakeHoldResolvers: Array<() => void> = []
+export function releaseFakeHolds(): void {
+  const pending = fakeHoldResolvers
+  fakeHoldResolvers = []
+  for (const r of pending) r()
+}
+
 /** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
   constructor(readonly id: EngineId = 'claude') {}
@@ -238,6 +249,14 @@ export class FakeEngine implements ReviewEngine {
       }
       if (turn.message.includes('[cancel]')) {
         throw new DOMException('cancelled', 'AbortError')
+      }
+      if (turn.message.includes('[hold]')) {
+        // park holding this turn's lane until releaseFakeHolds() fires (concurrency tests)
+        q.push({ type: 'status', text: turn.readOnly ? 'holding (read-only)…' : 'holding…' })
+        await new Promise<void>((resolve) => { fakeHoldResolvers.push(resolve) })
+        q.push({ type: 'done' })
+        q.close()
+        return { value: 'held then released', sessionId: turn.engineSessionId || 'fake-hold' }
       }
       q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
       // structured tool-call lifecycle for the activity log (wf-D): a settled grep,
