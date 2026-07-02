@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { FileDiff, ViewMark } from '../src/shared/types'
+import type { Comment, FileDiff, ViewMark } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { useStore } from '../src/renderer/store'
@@ -126,5 +126,63 @@ describe('DiffView per-line composer trigger + anchor source fields', () => {
     // the line content renders (syntax-highlighted, so not contiguous) — the raw
     // 'const x = 1' feeds the anchor's lineContent; the visible fragment confirms it rendered
     expect(out).toContain('x = ')
+  })
+})
+
+// Comment.notInDiff (Task 4's re-anchor pipeline): the anchor line is valid in the
+// file but not present in any rendered hunk at the current baseline (reverted nearby
+// change / -U3 eviction). DiffBody surfaces these in a "not shown in this diff"
+// bucket, mirroring the existing "outdated" bucket — never inline (their line, by
+// construction, matches no rendered `dline`).
+function makeComment(over: Partial<Comment> & { id: string }): Comment {
+  return {
+    author: 'user', text: 'note', status: 'queued', replies: [], createdAt: '2026-01-01T00:00:00Z', iteration: 0,
+    anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 99, hunkRange: '@@', lineContent: 'gone' },
+    ...over,
+  } as Comment
+}
+
+describe('DiffBody "not shown in this diff" bucket', () => {
+  it('renders a notInDiff comment in the bucket, not inline', () => {
+    const f = makeFile({
+      path: 'src/a.ts',
+      hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
+    })
+    const c = makeComment({ id: 'c1', notInDiff: true, text: 'anchored off-screen', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 99, hunkRange: '@@ -80,1 +99,1 @@', lineContent: 'gone' } })
+    seed(makeLoaded({ files: [f], comments: [c] }))
+    const out = render(f)
+    expect(out).toContain('1 comment anchored to lines not shown in this diff:')
+    expect(out).toContain('anchored off-screen')
+    expect(out).toContain('not shown here')
+    // not inline: line 99 is not among the rendered lines, so no thread renders next
+    // to the (only) rendered line 1 — the bucket text is the sole appearance.
+    const occurrences = out.split('anchored off-screen').length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  it('is absent when no comment has notInDiff', () => {
+    const f = makeFile({
+      path: 'src/a.ts',
+      hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
+    })
+    const c = makeComment({ id: 'c1', text: 'plain comment', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 1, hunkRange: '@@ -1,1 +1,1 @@', lineContent: 'const x = 1' } })
+    seed(makeLoaded({ files: [f], comments: [c] }))
+    const out = render(f)
+    expect(out).not.toContain('not shown in this diff')
+  })
+
+  it('coexists with the outdated bucket without cross-contaminating', () => {
+    const f = makeFile({
+      path: 'src/a.ts',
+      hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
+    })
+    const outdated = makeComment({ id: 'c1', status: 'outdated', text: 'stale note', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 5, hunkRange: '@@', lineContent: 'gone' } })
+    const notShown = makeComment({ id: 'c2', notInDiff: true, text: 'off-screen note', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 99, hunkRange: '@@', lineContent: 'gone' } })
+    seed(makeLoaded({ files: [f], comments: [outdated, notShown] }))
+    const out = render(f)
+    expect(out).toContain('1 outdated comment')
+    expect(out).toContain('stale note')
+    expect(out).toContain('1 comment anchored to lines not shown in this diff:')
+    expect(out).toContain('off-screen note')
   })
 })

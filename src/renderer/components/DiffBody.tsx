@@ -58,12 +58,13 @@ export function DiffBody({ f, mode, showBody, plainNote, isViewed, engine, fileC
   const lang = langForPath(f.path)
   const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
   const outdated = fileComments.filter((c) => c.status === 'outdated')
+  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated')
 
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
     line == null
       ? []
       : fileComments.filter((c) =>
-          c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated'
+          c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
         )
 
   return (
@@ -149,6 +150,14 @@ export function DiffBody({ f, mode, showBody, plainNote, isViewed, engine, fileC
               })}
             </div>
           ))}
+          {notShown.length > 0 && (
+            <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
+              {notShown.length} comment{notShown.length > 1 ? 's' : ''} anchored to lines not shown in this diff:
+              {notShown.map((c) => (
+                <InlineThread key={c.id} c={c} locLabel="not shown here" />
+              ))}
+            </div>
+          )}
           {outdated.length > 0 && (
             <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
               {outdated.length} outdated comment{outdated.length > 1 ? 's' : ''} (the lines they referenced changed):
