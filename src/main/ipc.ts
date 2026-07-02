@@ -18,6 +18,7 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
+import { stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
@@ -714,6 +715,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('upsertComment', async (sessionId: number, comment: Comment) => {
+    const session = mustGetSession(db, sessionId)
+    const workdir = await resolveWorkdir(session.repo, session.pair)
+    comment = { ...comment, anchor: await stampAnchor(workdir, session, comment.anchor) }
     dao.upsertComment(db, sessionId, comment)
     return dao.loadReviewState(db, sessionId)
   })

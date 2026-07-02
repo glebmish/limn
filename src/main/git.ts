@@ -217,6 +217,12 @@ export async function hashObjects(dir: string, paths: string[]): Promise<Map<str
   return out
 }
 
+/** True if the working tree has staged/unstaged/untracked changes to this one path.
+ *  The per-file primitive stamping uses to pick the blob source (worktree vs tip). */
+export async function pathHasChanges(dir: string, path: string): Promise<boolean> {
+  return (await execGit(dir, ['status', '--porcelain', '--', path])).trim().length > 0
+}
+
 /** git blob sha of ref:path, or null if the path is absent at that ref. */
 export async function blobShaAt(dir: string, ref: string, path: string): Promise<string | null> {
   try {
@@ -437,7 +443,7 @@ const DIFF_ARGS = ['--no-color', '--no-ext-diff', '-U3', '-M']
 /** git's empty-tree object: the diff base when two sides share NO common ancestor
  *  (unrelated roots, a grafted/imported branch) — `merge-base` exits non-zero there,
  *  so we fall back to this and the review renders as a full-add diff. */
-const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 export async function getDiff(dir: string, base: string, branch: string): Promise<DiffSkeleton> {
   const mb = await mergeBase(dir, base, branch).catch(() => EMPTY_TREE) // no common history → empty tree

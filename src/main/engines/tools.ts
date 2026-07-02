@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations } from '../../shared/types.js'
-import { loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
+import { getSession, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
+import { stampAnchor } from '../anchorStamp.js'
 
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
 // shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
@@ -218,9 +219,12 @@ const TOOL_IMPLS: ToolImpl[] = [
       'mentioning it in chat — anchored comments persist in the review; chat prose does not. ' +
       'Anchor as specifically as possible.',
     input: ADD_COMMENT_INPUT,
-    run: (ctx, raw) => {
+    run: async (ctx, raw) => {
       const { anchor: rawAnchor, text } = raw as z.infer<z.ZodObject<typeof ADD_COMMENT_INPUT>>
-      const anchor = normalizeAnchor(rawAnchor)
+      let anchor = normalizeAnchor(rawAnchor)
+      // ctx.repo is already the resolved workdir; ctx has no pair → reload the session.
+      const session = getSession(ctx.db, ctx.sessionId)
+      if (session) anchor = await stampAnchor(ctx.repo, session, anchor)
       const iteration = loadReviewState(ctx.db, ctx.sessionId).latestIteration?.n ?? 0
       const comment: Comment = {
         id: `ac-${Date.now()}-${commentSeq++}`,
