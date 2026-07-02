@@ -90,6 +90,9 @@ async function main() {
   const updateSamples: Record<string, unknown> = {};
   const permissionRequests: unknown[] = [];
 
+  // intentional initial state: the client permission handler (closure below) may read
+  // it before session/new resolves.
+  // eslint-disable-next-line no-useless-assignment
   let activeSessionId: string | null = null;
 
   const client: Client = {
