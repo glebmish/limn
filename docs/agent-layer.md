@@ -1,8 +1,10 @@
 # Agent (Engine) Layer
 
-How Limn drives an AI agent — Claude through the Agent SDK or Codex through app-server — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
+How Limn drives an AI agent — Claude and Codex, both through the **Agent Client Protocol (ACP)** — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
-> **Audience:** developers working on the main process. This describes the engine abstraction, the two SDK implementations, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/main/engines/` (with anchoring in `src/main/anchor.ts` and artifact detection in `src/main/artifacts.ts`) and is orchestrated by `src/main/ipc.ts`.
+> **Audience:** developers working on the main process. This describes the engine abstraction, the single ACP engine + its per-engine adapter configs, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/main/engines/` (with anchoring in `src/main/anchor.ts` and artifact detection in `src/main/artifacts.ts`) and is orchestrated by `src/main/ipc.ts`.
+
+> **One protocol, two adapters.** Both engines are driven by one `AcpEngine` (`acp.ts`) speaking ACP over stdio to a per-engine **adapter** — a pinned npm package (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`) that translates ACP into each engine's native CLI. Per-engine code is a small `AcpEngineConfig` record (`adapters.ts`): the mode-id mapping, per-turn spawn env, effort config-options, and which native-binary env var to feed. The adapter version *is* the pinned engine version — see [acp-adapters.md](acp-adapters.md).
 
 ## Guiding principle: git is ground truth
 
@@ -41,55 +43,52 @@ The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC 
 
 ```ts
 if (process.env.LIMN_DEMO === '1') return new FakeEngine(id)
-return id === 'claude' ? new ClaudeEngine() : new CodexEngine()
+return id === 'claude' ? new AcpEngine(CLAUDE_ACP_CONFIG) : new AcpEngine(CODEX_ACP_CONFIG)
 ```
 
-A fresh engine instance is constructed per operation. `LIMN_DEMO=1` overrides everything.
+A fresh engine instance is constructed per operation — the same `AcpEngine` class, differing only by its config record. `LIMN_DEMO=1` overrides everything.
 
 **FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `tour` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI. `FakeEngine` carries the requested engine id (`new FakeEngine(id)`), so demo mode reports the engine the caller asked for.
 
-## Claude engine (`claude.ts`)
+## ACP engine (`acp.ts`)
 
-- **SDK:** `@anthropic-ai/claude-agent-sdk` — `query({ prompt, options })`, an async-iterable of `SDKMessage`. In-process SDK driving the `claude` CLI subprocess.
-- **Auth:** delegated to the CLI. `authStatus` reports healthy if `ANTHROPIC_API_KEY` is set or `~/.claude` exists.
-- **Tools / permissions:**
-  - `generateReview`: `allowedTools: [Read, Grep, Glob, Bash]`, `permissionMode: 'auto'`. (Bash is allowed even in review, for `git log` / `git show`.)
-  - `chat`/batch: read-safe tools (`Read, Grep, Glob`) auto-allow; the Limn MCP tools are added to `allowedTools` (write tools only when `writeEnabled`). `permissionMode` comes from the turn's execution tier (`executionPolicy(...).claudePermissionMode`). `Bash`/`Edit`/`Write` are left out of `allowedTools` so the mode + the `canUseTool` callback gate them; read-only chat additionally sets `disallowedTools: [Edit, Write]`.
-- **Approvals:** the SDK's `canUseTool` callback (`makeCanUseTool`) auto-allows Limn + read-safe tools and **parks** every other tool on a reviewer decision via `awaitDecision` (see *Execution modes & approvals*).
-- **Working dir:** the user's repo (`cwd: repo`).
-- **Structured output:** `outputFormat: { type: 'json_schema', schema }`; the terminal `result` message carries `structured_output` (first-class).
-- **Sessions:** the Claude session id is captured from `system/init` and the terminal `result`. A resuming chat/batch turn passes `resume: engineSessionId` to continue the review's conversation; a turn with no session starts fresh (seeded prompt).
-- **Model & effort:** `modelOpt(model, effort)` sets the SDK `model` and `effort` options (`low → max`; the Codex-only `minimal` is dropped). See *Model & reasoning effort*.
+One `AcpEngine implements ReviewEngine` drives both engines; the only per-engine data is the `AcpEngineConfig` record (`adapters.ts`) selected by `makeEngine`. `generateReview` and `chat` both funnel into one `runAcpTurn`, which owns the whole turn lifecycle:
 
-## Codex engine (`codex.ts`)
+1. **MCP host** — for tool-enabled turns, `registerTurn(host)` opens the per-turn localhost MCP server and yields its `{url, release}` (see *The tool layer*); the url is passed as an ACP `mcpServers: [{type:'http', name:'limn', …}]` entry.
+2. **Preflight + spawn** — when the config marks the native binary **required** (Codex), an unresolved binary fails fast with the `engineBinaryStatus` hint (see *Binary resolution*). Otherwise the adapter is spawned via Electron's own Node (`process.execPath` + `ELECTRON_RUN_AS_NODE`), **one process per turn**, in its own process group so cancel kills the tree. Per-turn spawn env layers on `binaryEnv()` (the native-binary path) and `env(turn)` (e.g. `ANTHROPIC_MODEL`).
+3. **`initialize`** — declines all client capabilities (`fs.readTextFile/writeTextFile: false`, `terminal: false`) so the agent uses its own tools against the worktree, as before. The negotiated protocol version must be `1` — anything else throws an actionable "update Limn" error (spec OQ10).
+4. **Session** — resume via `session/load(engineSessionId)` when the adapter advertises `loadSession`, else `session/new` and treat the turn as seeded. **Replay is suppressed:** every `session/update` before the load response resolves is dropped — that history already lives in Limn's DB.
+5. **`session/set_mode`** — the tier's ACP mode id (`config.modeFor(mode, writeEnabled)`); a method-not-found is swallowed (forward-compat with modes' announced move to config options).
+6. **`session/prompt`** — the built prompt as one text block; `session/update` notifications stream through `acpToEvents` (`acpEvents.ts`) into the `EventQueue`, and `session/request_permission` requests route through `ladderPolicy` (see *Execution modes & approvals*).
+7. **Terminal** — `end_turn` resolves `{value, sessionId}`; `cancelled` settles quietly; `refusal`/`max_*` error. `finally` closes the queue, kills the process group, and `release()`s the MCP turn.
 
-> The bidirectional `codex app-server` wire protocol — framing, handshake, the v2
-> approval methods and their `accept`/`decline` vocabulary — has its own reference:
-> [codex-app-server.md](codex-app-server.md). It is not publicly documented; that doc
-> is pinned to a `generate-ts` capture of the bundled binary.
-
-- **App-server:** generation, chat, and batch all use `codex app-server` over JSON-RPC stdio via `runAppServerTurn`. This keeps approval handling, MCP setup, cancellation, and event mapping on one Codex path.
-- **Auth:** `OPENAI_API_KEY` or `~/.codex/auth.json`.
-- **Sandbox (the permission analogue):** generation uses the app-server equivalent of workspace-write with `approvalPolicy: 'on-request'`, matching Claude's command-capable review exploration. Chat/batch map the reviewer's execution tier through `codexAppServer.ts`: read-only for ordinary chat, workspace-write for write-enabled batch, and danger-full-access for Full access.
-- **Tools:** the engine-agnostic Limn tools are reflected into a **per-turn localhost MCP server** (`registerCodexTurn`) and `codex app-server` is pointed at it via config args.
-- **Interactive approvals:** app-server maps the tier to Codex's approval/sandbox policy and surfaces guardian approval requests as `approval_request` events.
-- **Sessions:** the app-server thread id is the session id (`thread/start` for generate / a fresh chat, `thread/resume` for a continued chat/batch).
-- **Model & effort:** app-server turn params set `model` and `effort` (`low → xhigh`; the Claude-only `max` is dropped). See *Model & reasoning effort*.
-- **Key difference from Claude:** Codex returns its review result as the final `agent_message` **text**, not a structured field. The engine runs it through `parseJson()`, which tries `JSON.parse` and, on failure, strips a ```` ```json ```` fence and retries before throwing. This fence-stripping is the only robustness net for schema-constrained output occasionally arriving fenced.
+- **Auth** is unchanged and per-engine: `authStatus` reports healthy for Claude if `ANTHROPIC_API_KEY` is set or `~/.claude` exists, for Codex if `OPENAI_API_KEY` or `~/.codex/auth.json` exists. The adapters read those same credential locations.
+- **Sessions** — `engineSessionId` **is** the ACP `sessionId`; no schema change. New session → `session/new` returns it → persisted where the SDK session id / thread id was persisted before. Pre-migration ids (Claude JSONL ids, Codex thread ids) are keyed the same way by the adapters, so they load; on any load failure the turn degrades to a seeded fresh session — history and review context are never lost.
+- **Event mapping (`acpEvents.ts`)** — one pure `acpToEvents(update): EngineEvent[]` mapper (unit-tested per row) folds ACP `agent_message_chunk` / `agent_thought_chunk` / `plan` / `tool_call` / `tool_call_update` into the same `EngineEvent` union both engines already produced. Sparse `tool_call_update`s fold by `toolCallId`; `current_mode_update` / `available_commands_update` / `usage_update` / `config_option_update` are ignored.
+- **Model & effort** are per-turn config, not turn params — see *Model & reasoning effort*.
+- **Structured output** has no ACP channel, so `generateReview` uses schema-in-prompt + a repair turn — see *Schema & validation*.
 
 ## Model & reasoning effort
 
 The agent for a review — and for each chat thread — is an `AgentRef` = `{ engine, model?, reasoningEffort? }` (`shared/types.ts`), chosen from a curated catalog (`shared/agents.ts`). `model`/`reasoningEffort` left undefined means **Auto**: let the CLI pick its default (the original behavior).
 
-- **Catalog** (`AGENT_CATALOG`) — Claude offers `opus`/`sonnet` with reasoning effort `low → max`, and `haiku` with **no effort** (the agent SDK errors on Haiku effort). Codex offers `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`, all `low → xhigh`. Model ids pass straight to each SDK's `model` option, so the lists are tuned here with no schema/IPC change.
-- **Plumbing** — `model` and `reasoningEffort` ride on `ReviewRequest` / `ChatTurn` (the chat/batch carrier) and reach the SDK two ways: Claude → the agent SDK's `effort` option (via `modelOpt`, which drops the Codex-only `minimal`); Codex → `modelReasoningEffort` on `ThreadOptions` (via `modelOpts`, which drops the Claude-only `max`). The shared `ReasoningEffort` union spans both ladders (`minimal | low | medium | high | xhigh | max`); each model's `reasoningEfforts` gates which values the UI offers.
+- **Catalog** (`AGENT_CATALOG`) — Claude offers `opus`/`sonnet` with reasoning effort `low → max`, and `haiku` with **no effort**. Codex offers `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini`, all `low → xhigh`. Model ids pass straight through, so the lists are tuned here with no schema/IPC change.
+- **Plumbing** — `model` and `reasoningEffort` ride on `ReviewRequest` / `ChatTurn` (the chat/batch carrier) and reach each adapter through the `AcpEngineConfig` (`adapters.ts`), which is where the two engines' quirks live:
+  - **Claude** — model via the **`ANTHROPIC_MODEL` spawn env** (`config.env`; one process per turn makes it exact); effort via a post-session `setSessionConfigOption({configId:'effort'})` (`config.configOptions`). `claudeEffort` clamps the Codex-only `minimal` up to `low`.
+  - **Codex** — no model env var: **both** model and effort go through `setSessionConfigOption` (`configId` `model` / `reasoning_effort`). `codexEffort` clamps `minimal → low` and the Claude-only `max → xhigh`.
+  - Config-option passthrough is advisory — the adapter swallows unknown/unsupported ids. The shared `ReasoningEffort` union spans both ladders (`minimal | low | medium | high | xhigh | max`); each model's `reasoningEfforts` gates which values the UI offers.
 - **Selection UI** — `AgentPicker` (a single trigger opening a structured popover: engine + auth, model guidance, a segmented effort control) in the chat agent bar, plus the engine cards + model/effort controls on the Compare "Review agent" rail. The chosen `AgentRef` is persisted on the session, seeds chat 1, and each chat thread can retarget its own agent.
 
 ## Binary resolution (`binaries.ts`)
 
-Each CLI is resolved from the user's **system PATH** only (`claude` / `codex`) — each candidate is checked for executability and that it's a file/symlink. Nothing is bundled: the SDKs' platform binaries are excluded from the app package (`electron-builder.yml`), so the user supplies and updates the CLIs via their own installs.
+Two kinds of artifact, resolved differently:
 
-> There is **no version pinning or checking** anywhere; whatever CLI is first on PATH is used and assumed SDK-compatible.
+- **The ACP adapters + their JS SDK glue are bundled** in the app (pinned npm packages, `asarUnpack`'d so the spawned Node children can load them). The adapter version is the pinned engine-protocol version.
+- **The native CLIs are NOT bundled.** Each of `claude` / `codex` is resolved from the user's **system PATH** (checked for executability + that it's a file/symlink), with a Settings absolute-path override that wins even when broken (so a stale path surfaces as an error, not a silent swap). `binaries.ts` feeds the resolved path to the adapter via the env var it reads — `CLAUDE_CODE_EXECUTABLE` for claude-agent-acp, `CODEX_PATH` for codex-acp (`AcpEngineConfig.binaryEnv`, spec OQ7). The multi-hundred-MB platform binaries the SDKs would otherwise bundle are excluded from the package (`electron-builder.yml`).
+
+> **Codex hard-requires its binary.** claude-agent-acp can self-discover `claude`, but codex-acp's only fallback is the *bundled* `@openai/codex` binary — which packaging strips — so a missing `codex` must be caught before spawn. `CODEX_ACP_CONFIG.binaryRequired` + the `runAcpTurn` preflight turn that into the actionable `engineBinaryStatus` hint instead of a raw `MODULE_NOT_FOUND`.
+
+> **Version reporting, not gating** — `probeEngineVersion` best-effort-reads `<cli> --version` and warns below a known-good floor (Codex only), but never blocks. The *protocol* version, by contrast, is hard-pinned: `initialize` must negotiate `1`. Deliberate engine upgrades are adapter-version bumps — see [acp-adapters.md](acp-adapters.md).
 
 ## Prompts (`prompts.ts`)
 
@@ -104,11 +103,11 @@ Plain-string builders. `describeAnchor()` renders each of the 11 `CommentAnchor`
 
 Two layers sit between the SDK and the persisted review. Only the **generate** output is schema-constrained — chat/batch return free text plus tool-driven side effects.
 
-**Wire schema (`schema.ts`)** — Zod schemas distinct from the internal `shared/types.ts` shapes, because of two SDK constraints:
-- Claude CLI **silently drops schemas containing `prefixItems`** → no tuples. Diagram nodes travel as `{label, kind, sub}` objects and are mapped to `[label, kind, sub]` tuples after parse.
+**Wire schema (`schema.ts`)** — Zod schemas distinct from the internal `shared/types.ts` shapes, because of two engine constraints (still valid now that the schema is prompt-embedded rather than passed as an output-format param):
+- Some CLIs **silently drop schemas containing `prefixItems`** → no tuples. Diagram nodes travel as `{label, kind, sub}` objects and are mapped to `[label, kind, sub]` tuples after parse.
 - OpenAI strict mode **requires every property in `required` and forbids records** → optionals are modeled as `.nullable()` (not `.optional()`), and per-file notes travel as an array of `{file, note}` rather than a record, reassembled afterward.
 
-`reviewJsonSchema` (derived via `z.toJSONSchema()`) is handed to the SDKs. `parseReviewOutput` Zod-parses the raw payload and translates wire→internal (object→tuple, array→record, `null`→`undefined`). **There are no retries** — an invalid payload throws, the engine pushes an `error` event, `result` rejects, and the IPC handler reports failure.
+**Schema-in-prompt + one repair turn (`structured.ts`).** ACP exposes no output-schema channel, so `generateReview` converges on one strategy for both engines: `buildReviewPrompt` appends a `structuredEpilogue(reviewJsonSchema)` ("respond with a single JSON object only, no fences, no prose"); streamed text is suppressed and collected; `parseJson` extracts it (direct `JSON.parse` → strip a ```` ```json ```` fence → balanced-brace slice); `parseReviewOutput` Zod-parses and translates wire→internal (object→tuple, array→record, `null`→`undefined`). On extraction/validation failure there is **one** automatic repair turn — a follow-up `session/prompt` on the same session quoting the Zod issues and asking for corrected JSON — then re-parse. A second failure fails the op (error event + rejected `result`; the ZodError → friendly-message path in `ipc.ts` still applies). This replaces the Claude SDK's native `outputFormat` enforcement and Codex's app-server `outputSchema`; the same `parseJson` net now serves both.
 
 **Reconciliation against git (`validate.ts` → `mergeAnnotations(skeleton, parsed)`)** — the layer that enforces "git is ground truth". It:
 - drops files/flags that reference files not in the diff;
@@ -133,24 +132,39 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 | `resolve_comment` | resolve a comment (by id) with verdict + note |
 | `edit_review` | amend title / summary / a section's `what`/`desc` in place |
 
-- **Hosting:** Claude consumes the Zod `input` shape directly via the in-process MCP server (`createSdkMcpServer` + `tool(...)`); Codex app-server connects to a per-turn localhost MCP server that reflects the same shapes into JSON Schema. Both expose the tools to the model as `mcp__limn__<name>`.
-- **The write path is the engine's own:** since Limn has no write tool, `limnAllowedToolNames()` always returns the same set; the *code-editing* capability is the engine's Bash/Edit/Write tools, gated by the turn's `writeEnabled` + execution mode (see *Execution modes & approvals*). A non-write turn degrades to review/comment-only.
-- **Auto-accept is opt-in, not prefix-wide:** both engines skip the reviewer-approval ladder for Limn tools, but only for names on the hand-maintained `AUTO_ACCEPT_TOOL_NAMES` allowlist (`tools.ts`) — Claude's `makeCanUseTool` checks membership (a non-member `mcp__limn__*` tool falls through to `awaitDecision`), and Codex's `registerCodexTurn` calls `assertAutoAcceptCoverage(LIMN_TOOLS)` to throw if any tool is unlisted. A `tools.test.ts` two-way set-equality test makes a new tool a red test, not a production throw. Every current tool is metadata-only, so all are listed and today's behavior is unchanged.
+- **Hosting is now one path:** `mcpHost.ts` (generalized from the old Codex-only `codexMcp.ts`) runs **one** per-turn localhost streamable-HTTP MCP server reflecting the Zod `input` shapes into JSON Schema, passed to every adapter via the ACP `mcpServers` param. Claude's old in-process `createSdkMcpServer` path is gone — the dual-hosting duplication collapsed to this single host. Both engines see the tools as `mcp__limn__<name>` (or `limn__<name>`, adapter-dependent). Hardening (unguessable UUID path token, DNS-rebinding protection, loopback-only) carries over unchanged.
+- **The write path is the engine's own:** since Limn has no write tool, the *code-editing* capability is the engine's Bash/Edit/Write tools, gated by the turn's `writeEnabled` + execution mode (see *Execution modes & approvals*). A non-write turn degrades to review/comment-only.
+- **Limn tools auto-allow at the permission layer:** ACP has no tool-allowlist knob, so limn-tool permission requests are auto-allowed by `ladderPolicy` (row 1: `isLimnTool` → `allow`) — the same effect as the old per-engine auto-accept, minus the fragile Codex elicitation-auto-accept workaround, which disappeared with the code that needed it.
 - **Call path:** `createToolHost(ctx).call(name, args)` validates args against the Zod shape at the boundary, runs the handler, and — if it produced an `AgentAction` — emits it live (`type:'action'`) *and* collects it for persistence on the chat message (so chips rebuild on reload). A handler throw becomes `{isError:true}` text, not a crash.
 - **The comment id is the join key** that survives the whole batch round-trip: prompt → the agent's `resolve_comment` / `reply_to_comment` call → the DB row's `resolution`.
 
 ## Execution modes & approvals
 
-One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `ask`) — maps to each engine's native knobs via `executionPolicy(mode)` (`shared/executionMode.ts`):
+One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `ask`) — is enforced in **two deliberate layers**, so the tiers finally mean the *same thing on both engines* (the old `auto`-tier divergence — Claude's `permissionMode:auto` vs Codex's `on-failure` — was a product bug this migration fixes).
 
-| Tier | Reviewer sees | Claude `permissionMode` | Codex `approvalPolicy` / `sandbox` |
+**(a) Baseline engine mode** — set once per session via `session/set_mode` (`AcpEngineConfig.modeFor`), chosen so the engine is permissive enough to allow anything Limn might allow, yet restrictive enough that anything Limn might gate produces a `session/request_permission` rather than executing silently:
+
+| Tier | Reviewer sees | claude-agent-acp mode | codex-acp mode |
 | --- | --- | --- | --- |
-| `ask` | Ask for approval | `default` | `on-request` / `read-only` |
-| `edits` | Accept edits | `acceptEdits` | `on-request` / `workspace-write` |
-| `auto` | Auto mode | `auto` | `on-failure` / `workspace-write` |
-| `full` | Full access | `bypassPermissions` | `never` / `danger-full-access` |
+| `ask` | Ask for approval | `default` | `read-only` |
+| `edits` | Accept edits | `acceptEdits` | `agent` |
+| `auto` | Auto mode | `acceptEdits` | `agent` |
+| `full` | Full access | `bypassPermissions` | `agent-full-access` |
+| read-only chat (`writeEnabled` false) | — | `default` + client-side deny | `read-only` |
 
-**Approval registry (`approvals.ts`)** — engine-agnostic. When a tier requires a go-ahead, the adapter parks on `awaitDecision(opId, request, emit)`: it emits an `approval_request` event (the renderer shows a blocking card) and returns a promise that settles when the reviewer answers. The answer flows back through the `respondApproval` IPC → `resolveDecision(opId, requestId, decision)`, unblocking the parked promise. `clearPending(opId)` auto-denies everything still parked on cancel / turn end (no leak). The raw tool call is normalized into an engine-agnostic `ApprovalRequest` (`toApprovalRequest` on Claude; `approvalRequestFromParams` on the Codex app-server) so one card renders for either engine. **There is no timeout** — a request waits until answered or cancelled.
+**(b) One shared decision function** — `ladderPolicy(mode, req, writeEnabled)` (`shared/approvalPolicy.ts`, pure, unit-tested) runs on **every** incoming `session/request_permission`, identical for both engines. The ACP payload is normalized to Limn's `ApprovalRequest` (`acpPermissionToRequest`: `execute` → `command`, `edit|delete|move`/diff → `file_change`, else `tool_use`), then the tier × kind table decides:
+
+| Tier | limn MCP tools | `file_change` | `command` (safe) | `command` (unsafe) | other `tool_use` |
+| --- | --- | --- | --- | --- | --- |
+| `ask` | allow | ask | ask | ask | ask |
+| `edits` | allow | allow | ask | ask | ask |
+| `auto` | allow | allow | **allow** | **ask** | ask |
+| `full` | allow | allow | allow | allow | allow |
+
+- *Safe command* is defined by one Limn-owned conservative classifier (`isSafeCommand` + `SAFE_COMMAND_ALLOWLIST`: read/build/test verbs — `git status/log/diff`, `ls`, `cat`, `grep`, `rg`, package `test`/`lint`/`typecheck`; anything with network, `sudo`, file redirects, `git push`, `rm`, or an unrecognized verb → unsafe). This single definition is what makes `auto` mean the same thing on both engines — the tier copy ("only asks for actions detected as potentially unsafe") finally holds.
+- Limn MCP tools are auto-allowed (`isLimnTool` → row 1); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`).
+
+**Approval registry (`approvals.ts`)** — engine-agnostic and reused byte-for-byte. When `ladderPolicy` says `ask`, the turn parks on `awaitDecision(opId, request, emit)`: it emits an `approval_request` event (the renderer shows a blocking card) and returns a promise that settles when the reviewer answers. The answer flows back through the `respondApproval` IPC → `resolveDecision(opId, requestId, decision)`; `allow` → the option whose kind is `allow_once`, `deny` → `reject_once`. `clearPending(opId)` answers everything still parked with the ACP-required `cancelled` outcome on cancel / turn end (no leak). **There is no timeout** — a request waits until answered or cancelled.
 
 ## Anchoring & artifacts
 
@@ -195,8 +209,9 @@ After a batch, the next `loadSession` re-diffs against git and tags the new comm
 ## Invariants & sharp edges
 
 - **Concurrency:** one agent op per repo (`repoLocks`, a `Set<string>`). The watch-mode poller skips a locked repo so the app's own commits don't trigger a spurious reload. `EventQueue` is single-consumer.
-- **Cancellation:** `EngineRun.cancel` → Claude `AbortController.abort()` or Codex app-server process-group disposal. **There is no timeout** anywhere — a wedged run, or a parked approval, hangs until the user cancels.
+- **Cancellation:** `EngineRun.cancel` → `session/cancel` notification, pending permission requests answered `cancelled`, then the adapter process group is killed after a short grace. **There is no timeout** anywhere — a wedged run, or a parked approval, hangs until the user cancels.
 - **Errors:** propagate as both an `{type:'error'}` event and a rejected `result`. No retry/backoff, including on invalid structured output — one bad parse fails the whole op.
 - **Session resumption assumption:** a chat/batch turn whose thread *has* an `engineSessionId` resumes it (the review's session, from the last iteration). If that session is gone (CLI store pruned) the resume fails, and the turn is classified by its observable shape (session id present + zero text/tool events + failed, not cancelled) and surfaces a distinct `ENGINE_SESSION_LOST` error telling the reviewer to start a new chat; **the thread is never auto-rebound or retried** (its visible history stays intact). A thread that never produced the review has no id and is seeded fresh by design.
 - **Write degradation, not failure:** an un-met batch precondition (dirty tree, wrong branch, fixed-commit compare) silently withholds the write tools rather than erroring — the agent answers/comments instead of editing.
-- **Codex output fragility:** the review payload rides the final `agent_message` text (valid or fenced JSON); Claude gets first-class `structured_output`.
+- **Structured output is best-effort for both engines now:** no engine gets a native output-schema guarantee — the review payload rides prompt-embedded JSON, extracted by `parseJson` with one repair turn (see *Schema & validation*). One retry, then the op fails.
+- **Adapters are pinned, protocol is pinned:** the engine runtime moves only when the adapter `package.json` pin moves (a deliberate bump guarded by tests + canaries); `initialize` hard-fails any adapter not negotiating protocol `1`. See [acp-adapters.md](acp-adapters.md).

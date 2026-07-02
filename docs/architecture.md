@@ -94,6 +94,9 @@ directly by Electron main and is desktop-only.
 
 - **`git`** (subprocess) — the source of truth for all diff, ref, and worktree
   state. Invoked via `execFile` (never a shell) with `core.quotePath=false`.
-- **Claude Agent SDK / Codex app-server** — drive the `claude` / `codex` CLIs.
-  Authentication and billing inherit from the CLI logins; Limn never stores keys.
+- **ACP adapters** (`@agentclientprotocol/claude-agent-acp`, `codex-acp`) — pinned
+  npm packages, spawned per turn, that speak the Agent Client Protocol and drive the
+  user's `claude` / `codex` CLIs. The adapters + their JS SDK glue are bundled; the
+  native CLIs are not (resolved from PATH/Settings). Authentication and billing
+  inherit from the CLI logins; Limn never stores keys. See [agent-layer.md](agent-layer.md).
 - **`node:sqlite`** — the bundled SQLite binding; no third-party driver.
