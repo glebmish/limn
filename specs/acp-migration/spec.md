@@ -1,6 +1,20 @@
 # Migrate engine adapters to ACP (Agent Client Protocol)
 
-## Status: Phase-0 spike DONE (Claude) — Phase 1 design frozen; Codex probe deferred to Phase 2
+## Status: DONE — Phases 0–3 shipped (both engines on AcpEngine; consolidation + packaging complete)
+
+Phase 0 (spike), Phase 1 (AcpEngine + Claude cutover), Phase 2 (Codex cutover;
+`codexAppServer.ts`/`codexMcp.ts`/`codex.ts`/`docs/codex-app-server.md` deleted), and
+Phase 3 (consolidation) are all landed. Phase 3 result: `binaryEnv` feeds
+`CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH` from `binaries.ts`; direct `@anthropic-ai/
+claude-agent-sdk` dep dropped (transitive-pinned via the adapter); adapters pinned
+exact; electron-builder bundles adapters + JS SDKs and excludes the ~225M/~242M native
+binaries (app 238M), verified by spawning both packaged adapters through a real
+`initialize`; docs rewritten + `docs/acp-adapters.md` playbook added.
+
+**Non-obvious finding:** codex-acp's only fallback when `CODEX_PATH` is unset is the
+*bundled* `@openai/codex` binary — which packaging strips — so Codex hard-requires
+`CODEX_PATH` (`CODEX_ACP_CONFIG.binaryRequired` + a `runAcpTurn` preflight). claude-
+agent-acp self-discovers `claude`, so Claude does not.
 
 Grounding pass done 2026-07-01. **Phase-0 spike run 2026-07-02** against the real
 `@agentclientprotocol/claude-agent-acp@0.55.0` adapter + live `~/.claude` creds
