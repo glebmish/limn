@@ -201,23 +201,26 @@ export function buildScopedUpdatePrompt(input: ScopedUpdatePromptInput): string 
   const { prior, since, sinceSha } = input
   const sinceShort = sinceSha.slice(0, 7)
 
-  const ownerOf = (path: string): Section | undefined =>
-    prior.sections.find((s) => s.files.includes(path))
+  const ownerOf = (f: FileDiff): Section | undefined =>
+    prior.sections.find((s) => s.files.includes(f.path) || (f.oldPath !== undefined && s.files.includes(f.oldPath)))
 
   const priorSections = prior.sections.map(renderPriorSection).join('\n')
   const priorQuestions = prior.questions.length
     ? prior.questions.map((q) => `- [${q.id}] ${q.text}${q.context ? ` (context: ${q.context})` : ''}`).join('\n')
     : '(none)'
-  const planMapNote = prior.planMap
-    ? 'A planMap exists — it is kept as-is unless you return a new one.'
-    : 'No planMap.'
+  const planMapBlock = prior.planMap
+    ? `planMap (compact — return a new planMap only if the drift changes plan tracking; keep step sectionIds stable):
+  acceptance:${prior.planMap.acceptance.length ? '\n' + prior.planMap.acceptance.map((a) => `    - [${a.met === true ? 'met' : a.met === 'partial' ? 'partial' : 'unmet'}] ${a.text}`).join('\n') : ' (none)'}
+  steps:${prior.planMap.steps.length ? '\n' + prior.planMap.steps.map((st) => `    - #${st.n} [${st.status}] → section [${st.sectionId}]: ${st.text}`).join('\n') : ' (none)'}
+  deviations:${prior.planMap.deviations.length ? '\n' + prior.planMap.deviations.map((d) => `    - [${d.sectionId}]: ${d.text}`).join('\n') : ' (none)'}`
+    : 'planMap: none.'
 
   // The since-diff: tracked changes with hunks inlined, each labelled by owner.
   const tracked = since.filter((f) => !f.untracked)
   const sinceBlock = tracked.length
     ? tracked
         .map((f) => {
-          const owner = ownerOf(f.path)
+          const owner = ownerOf(f)
           const label = owner ? `owned by section "${owner.name}" [${owner.id}]` : 'unsectioned — new file'
           const tag = f.status === 'renamed' ? `renamed from ${f.oldPath}` : f.status
           return `### ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''}) — ${label}\n${renderHunks(f)}`
@@ -249,7 +252,7 @@ sections (in order — id is the sole matching key; names are prose and may be e
 ${priorSections}
 open questions (add/resolve only — do NOT reword existing ones):
 ${priorQuestions}
-${planMapNote}
+${planMapBlock}
 ${steerBlock}
 DRIFT SINCE ${sinceShort} — the only files that changed; their hunks are inlined:
 ${sinceBlock}

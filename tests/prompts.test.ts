@@ -193,6 +193,31 @@ describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
     expect(p).toContain('keptSectionIds')
     expect(p).toContain('ccccccc') // sinceSha short form in the instruction
   })
+
+  it('serializes the prior planMap content (criteria, steps with sectionIds, deviations)', () => {
+    const withPlan: ReviewAnnotations = {
+      ...priorAnn,
+      planMap: {
+        acceptance: [{ text: 'ACCEPT_TABLES_CREATED', met: true }],
+        steps: [{ n: 1, text: 'STEP_ADD_MIGRATION', sectionId: 's1', status: 'done' }],
+        deviations: [{ text: 'DEVIATION_SKIPPED_INDEX', sectionId: 's2' }]
+      }
+    }
+    const p = buildScopedUpdatePrompt(mkInput({ prior: withPlan }))
+    expect(p).toContain('ACCEPT_TABLES_CREATED')
+    expect(p).toContain('STEP_ADD_MIGRATION')
+    expect(p).toContain('s1') // the step's sectionId reference is embedded so ids stay stable
+    expect(p).toContain('DEVIATION_SKIPPED_INDEX')
+  })
+
+  it('labels a renamed since file by its old path owner, not "unsectioned"', () => {
+    // s1 owns 'src/db/mig.ts'; the drift renames it to 'src/db/migrate.ts'.
+    const renamed = mkFile({ path: 'src/db/migrate.ts', oldPath: 'src/db/mig.ts', status: 'renamed' })
+    const p = buildScopedUpdatePrompt(mkInput({ since: [renamed] }))
+    const line = p.split('\n').find((l) => l.includes('src/db/migrate.ts')) ?? ''
+    expect(line).toContain('[s1]')
+    expect(line).not.toContain('unsectioned — new file')
+  })
 })
 
 // describeAnchor is module-private; exercise it through buildChatPrompt, which
