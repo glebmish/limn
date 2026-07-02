@@ -1,6 +1,41 @@
 # Chat while generation runs — two-lane operation model
 
-## Status: Draft — awaiting answers to open questions
+## Status: RESOLVED — building on `07-concurrent-chat` (stacked on the acp-migration tip)
+
+### Resolved open questions (2026-07-02) — all recommendations adopted
+1. `generate` stays **exclusive** (not tightened to enforced read-only); profile tightening filed separately.
+2. Shared-lane capacity: **exactly one** concurrent chat turn.
+3. An exclusive op **may** start while a shared turn streams (read-only ⇒ no tree conflict).
+4. **Coerce** to read-only + badge + leading status event (no explicit confirm step).
+5. Read-only tool set = **strict minimum** (Read/Grep/Glob + Limn only; no network, no subagents).
+6. The review thread **cannot** take chat turns during its own generation (composer stays disabled); shared turns go to other threads.
+7. The renderer learns an op's lane via an **optional `lane` field on the IPC envelope** (`OpEventMsg`/`OpResultMsg`), not status-sniffing. Non-breaking additive field.
+8. Shared-lane-full: **disable** the send button with a tooltip; keep the typed draft; never silent-drop.
+9. Feedback (no silent no-ops) is a **property of every rewritten guard**, landed with the lane split rather than as a throwaway pre-phase.
+
+### Re-grounding onto ACP (the spec predates the acp-migration, now in the stack below)
+The engine layer is no longer `claude.ts` + `codexAppServer.ts`; both engines run through
+one `AcpEngine` (`acp.ts`) + `AcpEngineConfig` (`adapters.ts`) + the shared
+`ladderPolicy`/`modeFor` (`shared/approvalPolicy.ts`). So §3's two per-engine
+profile changes collapse into **one** cross-engine change:
+
+- Add `readOnly?: boolean` to `ChatTurn` (`engines/types.ts`); `FakeEngine` records it.
+- In `runAcpTurn`, a `readOnly` turn forces the read-only session mode
+  (`modeFor(mode, /*writeEnabled*/ false)` → claude `default`, codex `read-only`) **and**
+  routes permissions through a read-only ladder that **denies** every non-Limn tool
+  request (command / file_change / tool_use) regardless of the thread's tier — so a
+  shared turn never parks an approval. Limn tools stay allowed (`isLimnTool`). This is
+  strictly stronger than today's `!writeEnabled` (which only denies `file_change`).
+- Codex read-only additionally gets the engine's OS-sandbox `read-only` mode via
+  `modeFor`; Claude read-only is harness/ladder-enforced (adequate, not a security
+  boundary — same honesty caveat as the original §3).
+
+Everything else in the spec (lock split §1, ipc routing §2, renderer demux §4,
+approvals §5, watcher §6, cancellation §7) applies as written; `operations.ts`
+(`OperationCoordinator` + `repoOwners`) and the sliced store (`store/ops.ts`, still a
+single `gen`) match the design's assumptions.
+
+## Status: Draft — awaiting answers to open questions (original draft below)
 
 ## Problem (evidence)
 
