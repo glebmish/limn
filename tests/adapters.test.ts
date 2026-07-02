@@ -62,6 +62,11 @@ describe('CODEX_ACP_CONFIG', () => {
     expect(CODEX_ACP_CONFIG.binaryEnv?.()).toEqual({ CODEX_PATH: '/opt/codex' })
   })
 
+  it('hard-requires its native binary (bundled codex fallback is stripped); Claude self-discovers', () => {
+    expect(CODEX_ACP_CONFIG.binaryRequired).toBe(true)
+    expect(CLAUDE_ACP_CONFIG.binaryRequired).toBeUndefined()
+  })
+
   it('configOptions yields model + reasoning_effort, clamping max -> xhigh', () => {
     expect(CODEX_ACP_CONFIG.configOptions?.({ model: 'gpt-5.5', reasoningEffort: 'max' })).toEqual([
       { configId: 'model', value: 'gpt-5.5' },

@@ -17,6 +17,7 @@ import { ladderPolicy } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
+import { engineBinaryStatus } from './binaries.js'
 import { buildReviewPrompt, buildScopedUpdatePrompt, buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
 import { parseJson, structuredEpilogue, buildRepairPrompt } from './structured.js'
 import {
@@ -177,6 +178,14 @@ export class AcpEngine implements ReviewEngine {
         }
 
         // (b) spawn the adapter and wire an ACP ClientSideConnection over its stdio.
+        // Fail fast with an actionable error when the adapter can't self-discover its
+        // native binary and Limn can't resolve one either (Codex: the bundled fallback
+        // is stripped from the package, so a missing `codex` would otherwise crash the
+        // adapter with a raw MODULE_NOT_FOUND).
+        if (this.config.binaryRequired) {
+          const st = engineBinaryStatus(this.config.id)
+          if (!st.ok) throw new Error(st.hint)
+        }
         child = spawnAdapter(this.config.adapterEntry, {
           ...this.config.env?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }),
           ...this.config.binaryEnv?.()

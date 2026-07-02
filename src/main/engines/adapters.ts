@@ -25,6 +25,12 @@ export interface AcpEngineConfig {
    *  reads `CODEX_PATH`. Returns `{}` when unresolved so the adapter self-discovers
    *  (its own `claudeCliPath()` / `"codex"` PATH default). */
   binaryEnv?: () => Record<string, string>
+  /** True when the adapter CANNOT self-discover its native binary, so an unresolved
+   *  `binaryEnv` must fail fast with an actionable error instead of letting the
+   *  adapter crash. codex-acp's only fallback is the bundled `@openai/codex` binary,
+   *  which packaging deliberately excludes — so Codex hard-requires `CODEX_PATH`.
+   *  claude-agent-acp discovers `claude` itself, so Claude leaves this unset. */
+  binaryRequired?: boolean
 }
 
 const require_ = createRequire(import.meta.url)
@@ -44,7 +50,11 @@ export function resolveAdapterEntry(pkg: string, override?: string): string {
         ? Object.values(pkgJson.bin)[0]
         : pkgJson.main
   if (!binRel) throw new Error(`adapter ${pkg} has no bin/main entry`)
-  return path.join(pkgDir, binRel)
+  const entry = path.join(pkgDir, binRel)
+  // In a packaged app the adapter is unpacked from the asar (asarUnpack) so it can be
+  // spawned as a real file; require.resolve still returns the in-asar path, so redirect
+  // to the unpacked tree. No-op in dev/tests (no `app.asar` segment present).
+  return entry.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
 }
 
 /** Spawn an ACP adapter as a child process using Electron's own Node
@@ -108,5 +118,6 @@ export const CODEX_ACP_CONFIG: AcpEngineConfig = {
   binaryEnv: (): Record<string, string> => {
     const p = codexBinaryPath()
     return p ? { CODEX_PATH: p } : {}
-  }
+  },
+  binaryRequired: true
 }

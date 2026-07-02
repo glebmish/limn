@@ -9,10 +9,18 @@ files:
   - out/**
   - package.json
   - "!node_modules/electron/**"
-  # engine CLIs come from the user's PATH (claude / codex installs);
-  # exclude Claude SDK bundled platform binaries to keep the app small
-  - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+  # ACP adapters (@agentclientprotocol/*) + their JS SDK glue are bundled; the
+  # engines' NATIVE binaries are NOT. The user supplies claude / codex via their own
+  # installs, resolved onto CLAUDE_CODE_EXECUTABLE / CODEX_PATH (adapters.ts binaryEnv),
+  # so strip the multi-hundred-MB bundled platform binaries the SDKs pull in.
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**" # bundled claude-code binary (~225M)
+  - "!node_modules/@openai/codex-*/**"                  # bundled codex binary (~242M)
 asarUnpack:
+  # Adapters are spawned as Node scripts (ELECTRON_RUN_AS_NODE), so their whole runtime
+  # closure must be real on-disk files, not inside app.asar. That closure is exactly
+  # these two scopes: both adapters + @agentclientprotocol/sdk + @anthropic-ai/
+  # claude-agent-sdk, each with zero further runtime deps.
+  - "**/node_modules/@agentclientprotocol/**"
   - "**/node_modules/@anthropic-ai/**"
 mac:
   target:

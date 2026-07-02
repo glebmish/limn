@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { AcpEngine } from '../src/main/engines/acp'
 import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/main/engines/adapters'
 import { resolveDecision, pendingCount } from '../src/main/engines/approvals'
+import { setEngineBinaryPrefs } from '../src/main/engines/binaries'
+import { ENGINE_PATH_PREF_KEYS } from '../src/shared/prefs'
 import type { EngineEvent, ReviewAnnotations } from '../src/shared/types'
 import type { AcpEngineConfig } from '../src/main/engines/adapters'
 import type { FakeScript } from './helpers/fakeAcpAgent'
@@ -26,6 +28,7 @@ function fakeEngine(
   const engine = new AcpEngine({
     ...baseConfig,
     adapterEntry: FAKE_ENTRY,
+    binaryRequired: false, // the fake adapter needs no native engine binary
     env: (t) => ({
       ...(baseConfig.env?.(t) ?? {}),
       LIMN_FAKE_ACP_SCRIPT: JSON.stringify(script),
@@ -301,6 +304,21 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     )
     // Codex has no model spawn env — the fake's env only carries the test-harness keys.
     expect(optionCalls.length).toBe(2)
+  })
+
+  it('12. binaryRequired: an unresolved native binary fails the turn before spawn with the status hint', async () => {
+    // Codex hard-requires its binary (bundled fallback stripped from the package); an
+    // invalid configured path must surface as a turn error, not an adapter crash.
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.codex]: '/no/such/codex' })
+    try {
+      const engine = new AcpEngine({ ...CODEX_ACP_CONFIG, adapterEntry: FAKE_ENTRY })
+      const run = engine.chat({ repo: '/r', message: 'go' })
+      const events = await drain(run.events)
+      expect(events.at(-1)).toMatchObject({ type: 'error' })
+      await expect(run.result).rejects.toThrow()
+    } finally {
+      setEngineBinaryPrefs({})
+    }
   })
 })
 
