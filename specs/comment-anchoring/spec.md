@@ -1,6 +1,6 @@
 # Diff-mapped comment anchoring
 
-## Status: Draft — awaiting answers to open questions
+## Status: Resolved — all open questions answered (recommendations adopted); ready to implement
 
 Replace the exact-text re-anchoring in `src/main/anchor.ts` with a three-stage
 pipeline: (1) deterministic Gerrit-style position mapping through a blob diff
@@ -537,6 +537,36 @@ candidates *in favor of the hinted region*.
 repo to confirm the persisted re-anchor (`upsertComment`) stores the mapped
 values and that a second load is stage-0-only (assert via injected exec spy —
 zero `diff --no-index` calls).
+
+---
+
+## Resolved decisions (2026-07-02)
+
+All ten open questions are resolved by adopting the spec's recommended answer.
+Binding decisions for implementation:
+
+1. **Persist dirty/untracked blobs with `git hash-object -w`** at stamp time
+   (new `hashObjectsWrite` `-w` variant). Degrade to stage-2 context after gc.
+2. **No gc-pin ref** (`refs/limn/anchors/*`). Accept gc-window degradation to
+   stage 2 via the stored ±3 context lines.
+3. **Mapped-but-not-rendered ⇒ new per-file "not shown in this diff" bucket,
+   `status` stays `queued`.** Never mark such a comment `outdated`.
+4. **`stamp` and `context` are immutable** once written. Re-anchoring persists
+   only `line`/`hunkRange`/`file`, and `lineContent` on a *stage-2* success.
+5. **Stage-2 weights 0.5 quote / 0.35 context / 0.15 proximity, accept ≥ 0.75,
+   blank-quote requires `ctxSim ≥ 0.8`** — as named constants with table tests
+   pinning accept/reject examples.
+6. **Lazy heal-forward backfill** on first successful stage-3 load. No eager DB
+   migration.
+7. **Inline re-anchor pass** (no `branchHash` memo for now). Stage 0 keeps the
+   steady-state pass free of git calls; add the memo later only if profiling
+   shows it matters.
+8. **Retargeted base ⇒ same stage-1 mapping** through
+   `diff(stamp.mergeBase:path, newMergeBase:path)`. No special casing.
+9. **Add a narrow `execGitDiff` variant** accepting exit codes {0,1}, used only
+   by `diffContents`. Do not loosen the general `execGit` wrapper.
+10. **Artifact anchors use the same `-w` stamping** as dirty files (one code
+    path).
 
 ---
 
