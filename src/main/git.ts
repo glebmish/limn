@@ -1,7 +1,9 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import nodePath from 'node:path'
-import { execGit } from './exec.js'
+import { execGit, execGitDiff } from './exec.js'
 import { tagOrigins } from './mergeDiff.js'
+import type { EditHunk } from './anchor.js'
 import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
 
 export async function listBranches(dir: string): Promise<string[]> {
@@ -212,6 +214,94 @@ export async function hashObjects(dir: string, paths: string[]): Promise<Map<str
   const raw = await execGit(dir, ['hash-object', '--', ...existing])
   const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
   existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
+  return out
+}
+
+/** git blob sha of ref:path, or null if the path is absent at that ref. */
+export async function blobShaAt(dir: string, ref: string, path: string): Promise<string | null> {
+  try {
+    return (await execGit(dir, ['rev-parse', `${ref}:${path}`])).trim()
+  } catch {
+    return null
+  }
+}
+
+/** Content of a blob by sha (a commit-tree blob or a `hash-object -w` loose
+ *  blob), or null if the sha is missing/GC'd. Do NOT trim — content is exact. */
+export async function catBlob(dir: string, blobSha: string): Promise<string | null> {
+  try {
+    return await execGit(dir, ['cat-file', 'blob', blobSha])
+  } catch {
+    return null
+  }
+}
+
+/** Content at ref:path, or null if absent. Do NOT trim. */
+export async function showFile(dir: string, ref: string, path: string): Promise<string | null> {
+  try {
+    return await execGit(dir, ['show', `${ref}:${path}`])
+  } catch {
+    return null
+  }
+}
+
+/** Like hashObjects, but persists each file as a loose blob in the object DB
+ *  (`-w`) so the content is recoverable later via catBlob. Same Map<path,sha>
+ *  return, same missing-path skipping. This is the ONLY difference from
+ *  hashObjects — do not modify hashObjects. */
+export async function hashObjectsWrite(dir: string, paths: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const existing = paths.filter((p) => {
+    try { return fs.statSync(nodePath.join(dir, p)).isFile() } catch { return false }
+  })
+  if (existing.length === 0) return out
+  const raw = await execGit(dir, ['hash-object', '-w', '--', ...existing])
+  const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
+  existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
+  return out
+}
+
+/** The -U0 edit list between two in-memory contents, as EditHunk[] (ascending),
+ *  or null when the contents are identical. Writes a/b to a throwaway temp dir
+ *  and runs `git diff --no-index --no-color -U0 -- a b` via execGitDiff. */
+export async function diffContents(a: string, b: string): Promise<EditHunk[] | null> {
+  const tmp = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'limn-anchor-'))
+  try {
+    const aPath = nodePath.join(tmp, 'a')
+    const bPath = nodePath.join(tmp, 'b')
+    fs.writeFileSync(aPath, a)
+    fs.writeFileSync(bPath, b)
+    const raw = await execGitDiff(tmp, ['diff', '--no-index', '--no-color', '-U0', '--', aPath, bPath])
+    if (raw.trim() === '') return null
+    const hunks: EditHunk[] = []
+    const re = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm
+    let m: RegExpExecArray | null
+    while ((m = re.exec(raw))) {
+      hunks.push({
+        oldStart: Number(m[1]),
+        oldLen: m[2] === undefined ? 1 : Number(m[2]),
+        newStart: Number(m[3]),
+        newLen: m[4] === undefined ? 1 : Number(m[4])
+      })
+    }
+    return hunks
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+}
+
+/** Rename map old→new between two committed states (git diff -M --name-status). */
+export async function renameMap(dir: string, fromSha: string, toSha: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const raw = await execGit(dir, ['diff', '-M', '--name-status', fromSha, toSha])
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue
+    const parts = line.split('\t')
+    const status = parts[0]
+    if (!status.startsWith('R')) continue
+    const [, oldPath, newPath] = parts
+    if (oldPath && newPath) out.set(oldPath, newPath)
+  }
   return out
 }
 
