@@ -1,6 +1,47 @@
 # Migrate engine adapters to ACP (Agent Client Protocol)
 
-## Status: Draft — awaiting answers to open questions
+## Status: Phase-0 spike DONE (Claude) — Phase 1 design frozen; Codex probe deferred to Phase 2
+
+Grounding pass done 2026-07-01. **Phase-0 spike run 2026-07-02** against the real
+`@agentclientprotocol/claude-agent-acp@0.55.0` adapter + live `~/.claude` creds
+(`scripts/acp-probe.ts`, output `scripts/acp-probe-out.json`). Measured decisions
+below govern implementation; where they contradict the draft body, the spike wins.
+
+### Resolved decisions (Phase-0 spike, Claude)
+- **Protocol version negotiated = `1`** (== `PROTOCOL_VERSION`). OQ10: hard-fail any
+  adapter answering ≠1 (adopted).
+- **`agentCapabilities.loadSession = true`**; `sessionCapabilities` also advertises
+  `resume`, `fork`, `list`, `delete`, `close` → prefer cheaper `session/resume`
+  (no replay) when present, else `session/load` with replay suppressed (D1/D6). OQ2
+  (Claude): yes.
+- **`mcpCapabilities.http = true`** (also `sse`) → OQ4: single localhost HTTP MCP
+  host, no stdio-proxy shim needed for Claude. `mcpStdioProxy.ts` NOT built in Phase 1.
+- **ACP mode ids** (from `newSession().modes.availableModes`): `auto`, `default`,
+  `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions` (all switchable via
+  `setSessionMode`). **`modeFor` (Claude):** ask→`default`, edits→`acceptEdits`,
+  auto→`acceptEdits`, full→`bypassPermissions`, read-only chat→`default` + client-side
+  deny of edit requests (D3 confirmed). Native engine-`auto` DOES exist (Risk-4's
+  "not exposed" was wrong) but `auto` still moves client-side for cross-engine uniformity.
+- **Model/effort passthrough (OQ6, Claude):** model via **`ANTHROPIC_MODEL` spawn env**
+  (per-turn, one-process-per-turn makes this exact); reasoning effort via
+  **`setSessionConfigOption({ configId: 'effort', … })`** post-`session/new` (opts:
+  default/low/medium/high/xhigh/max) — there is no effort env var. `configOptions` also
+  exposes `model` (opus/fable/sonnet/haiku) as an alternative; env is primary.
+- **`config_option_update`** is an ADDITIONAL `session/update` discriminator the adapter
+  emits (mode/model/effort publication) — add it to D2's ignored row alongside
+  `current_mode_update`/`available_commands_update`/`usage_update`.
+- **`authMethods: []`** (already authenticated via `~/.claude`) — no `authenticate` step.
+- Canonical client wiring: `@agentclientprotocol/sdk` `ClientSideConnection(toClient, ndJsonStream(child.stdin-web, child.stdout-web))` — mirror in `acp.ts` (see `scripts/acp-probe.ts`).
+- **Deferred to Phase-2 spike** (Codex adapter not yet installed): OQ1 (codex-acp
+  production-readiness), OQ2/OQ4/OQ6 for Codex. Phase 1 is Claude-only; Codex stays on
+  `codexAppServer.ts` behind the `ReviewEngine` seam.
+- Non-spike OQs adopted per recommendation: OQ3 schema-in-prompt + one repair turn (both
+  engines, D5); OQ5 conservative `isSafeCommand` allowlist; OQ7 bundle adapters+runtimes
+  (auth from user creds); OQ8 per-turn process; OQ9 keep Settings adapter-path override.
+
+---
+
+## Status: Draft — awaiting answers to open questions (original draft below)
 
 Grounding pass done 2026-07-01: all cited Limn files re-read and verified; external
 claims carry source URLs with fetch dates. Nothing here is implemented.
