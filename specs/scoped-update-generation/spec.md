@@ -1,6 +1,21 @@
 # Diff-scoped update generation
 
-## Status: Draft — awaiting answers to open questions
+## Status: Ready to implement — all open questions resolved (2026-07-02)
+
+Resolutions (all recommendations accepted): Q1 K=8 files / T=1000 lines / ≤50% ratio;
+Q2 force full after 5 consecutive scoped iterations; **Q3 a reviewer steer stays SCOPED
+(embedded in the patch prompt); Regenerate is the full-rethink escape hatch**; Q4 garbage
+guard = SpliceError when >50% prior sections deleted or 100% revised; **Q5 unclaimed
+drift-added file → WARN and keep the scoped result (sweeps to 'other-changes'), do NOT fall
+back**; Q6 add the `scope` column now; Q7 untracked candidates = only not-already-sectioned
+(reuse MAX_UNTRACKED_OFFERED); Q8 scoped patch may add/resolve questions only, NOT edit
+question text; Q9 dirty-only drift takes the scoped path (basis `diffSinceWorking`, endSha
+= committed head); Q10 surface "updated N of M sections" via the persisted review-thread
+agent turn + completion notification + a live status event (no new chrome).
+
+Coordination: 04 lands BEFORE acp-migration (06), so it uses today's structured-output
+mechanism (Claude `outputFormat` json_schema; Codex `outputSchema`); acp-migration later
+adopts this new wire schema.
 
 ## Problem (cost evidence: what a full update re-reads today)
 
