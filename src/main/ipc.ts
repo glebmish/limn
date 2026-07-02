@@ -716,8 +716,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('upsertComment', async (sessionId: number, comment: Comment) => {
     const session = mustGetSession(db, sessionId)
-    const workdir = await resolveWorkdir(session.repo, session.pair)
-    comment = { ...comment, anchor: await stampAnchor(workdir, session, comment.anchor) }
+    try {
+      const workdir = await resolveWorkdir(session.repo, session.pair)
+      comment = { ...comment, anchor: await stampAnchor(workdir, session, comment.anchor) }
+    } catch { /* stamping is best-effort — never lose the comment to a git hiccup (spec §2.5) */ }
     dao.upsertComment(db, sessionId, comment)
     return dao.loadReviewState(db, sessionId)
   })

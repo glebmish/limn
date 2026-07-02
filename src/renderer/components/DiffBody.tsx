@@ -58,7 +58,7 @@ export function DiffBody({ f, mode, showBody, plainNote, isViewed, engine, fileC
   const lang = langForPath(f.path)
   const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
   const outdated = fileComments.filter((c) => c.status === 'outdated')
-  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated')
+  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated' && c.status !== 'resolved')
 
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
     line == null

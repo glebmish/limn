@@ -185,4 +185,16 @@ describe('DiffBody "not shown in this diff" bucket', () => {
     expect(out).toContain('1 comment anchored to lines not shown in this diff:')
     expect(out).toContain('off-screen note')
   })
+
+  it('excludes a resolved comment from the bucket (its stale notInDiff flag is never cleared)', () => {
+    const f = makeFile({
+      path: 'src/a.ts',
+      hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
+    })
+    const resolved = makeComment({ id: 'c1', status: 'resolved', notInDiff: true, text: 'resolved off-screen note', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 99, hunkRange: '@@', lineContent: 'gone' } })
+    seed(makeLoaded({ files: [f], comments: [resolved] }))
+    const out = render(f)
+    expect(out).not.toContain('not shown in this diff')
+    expect(out).not.toContain('resolved off-screen note')
+  })
 })

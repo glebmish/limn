@@ -316,9 +316,13 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
       if (editList === null) { renderPlace(c, a); return true } // identical → line unchanged
-      const mapped = mapLine(editList, a.line)
+      // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
+      // edit list is built from), NOT the already-mutated a.line — else the shift delta
+      // compounds on every reload once stage 0 stops short-circuiting.
+      const origLine = stamp.origLine ?? a.line
+      const mapped = mapLine(editList, origLine)
       if (typeof mapped === 'number') { a.line = mapped; renderPlace(c, a); return true }
-      hint = editedHint(editList, a.line, stamp.origLine ?? a.line) // 'EDITED' → stage 2 hint
+      hint = editedHint(editList, origLine, origLine) // 'EDITED' → stage 2 hint
     }
 
     // Stage 2 — fuzzy context fallback over the FULL new content.

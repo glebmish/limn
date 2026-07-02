@@ -255,11 +255,16 @@ describe('reanchorComments — pipeline scenarios', () => {
     fixtureWrite(repo, 'config.ts', lines("export const name = 'svc'", 'const timeout = 30', 'export default name')); commit(repo, 'add config')
     const session = mkSession(repo)
     const c = await stampedComment(repo, session, { file: 'config.ts', line: 2, text: 'const timeout = 30' })
+    const stampBefore = structuredClone((c.anchor as { stamp: unknown }).stamp)
+    const contextBefore = structuredClone((c.anchor as { context?: unknown }).context)
     fixtureWrite(repo, 'config.ts', lines("export const name = 'svc'", 'const timeout = 60', 'export default name')); commit(repo, 'tweak timeout')
     await reanchorComments(await buildCtx(repo, session), [c], [])
     expect(c.status).not.toBe('outdated')
     expect(anchorLine(c)).toBe(2)
     expect(anchorText(c)).toBe('const timeout = 60') // refreshed
+    // the stage-2 lineContent refresh must NOT mutate the immutable stamp/context
+    expect((c.anchor as { stamp: unknown }).stamp).toEqual(stampBefore)
+    expect((c.anchor as { context?: unknown }).context).toEqual(contextBefore)
   })
 
   it('5b. commented line totally rewritten: outdated', async () => {
@@ -356,6 +361,26 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(c.status).not.toBe('outdated')
     expect(c.notInDiff).toBeFalsy()         // cleared: the line is on a rendered hunk again
     expect(anchorLine(c)).toBe(20)
+  })
+
+  it('11. regression: a line-shifting change re-anchors ONCE and stays put on a no-op reload (no compounding drift)', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'app.ts', lines('a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'target-line', 'a8', 'a9')); commit(repo, 'add app')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'app.ts', line: 7, text: 'target-line' })
+    // insert two lines near the top; target-line (line 7) shifts to line 9
+    fixtureWrite(repo, 'app.ts', lines('a1', 'INS-1', 'INS-2', 'a2', 'a3', 'a4', 'a5', 'a6', 'target-line', 'a8', 'a9')); commit(repo, 'insert above')
+    await reanchorComments(await buildCtx(repo, session), [c], []) // load 1: 7 → 9
+    expect(anchorLine(c)).toBe(9)
+    // load 2: file unchanged since load 1, but stage 0 can't short-circuit (the blob has
+    // diverged from creation state), so stage 1 re-runs. It must map the IMMUTABLE
+    // stamp.origLine through the original→current diff, NOT the already-shifted a.line —
+    // else the +delta compounds every reload (9 → 11 → …) until the comment detaches.
+    await reanchorComments(await buildCtx(repo, session), [c], []) // load 2: no-op reload
+    expect(c.status).not.toBe('outdated')
+    expect(anchorLine(c)).toBe(9) // STABLE — no compounding drift
   })
 
   it('10. regression guard: an unchanged second load makes ZERO diff --no-index calls (stage 0)', async () => {
