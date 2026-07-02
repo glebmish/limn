@@ -7,7 +7,7 @@ import type { AppStore } from './index'
 import { useStore } from './index'
 import { newOpId } from './ops'
 import type { ChatDraft } from './derive'
-import { activeChat, batchUserPreview, DRAFT_CHAT_ID, pickActiveChat } from './derive'
+import { activeChat, anyRunning, batchUserPreview, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat } from './derive'
 
 // ── promoted stateful helpers ────────────────────────────────
 // These were closures over set/get inside the store factory; they now reach the
@@ -46,7 +46,10 @@ async function materializeActiveChat(): Promise<number | null> {
  *  activeChatId having just been changed by another action. */
 function sendChatToThread(threadId: number, body: string, anchor?: CommentAnchor): void {
   const text = body.trim()
-  if (!text || useStore.getState().gen.running) return
+  // block only if this exact thread is streaming or the shared lane is full — a turn
+  // may run alongside a generation (it routes read-only in main). The composer is
+  // also disabled in these cases (visible feedback), so this is defense-in-depth.
+  if (!text || chatSendBlocked(useStore.getState().ops, threadId)) return
   const loaded = useStore.getState().loaded
   if (loaded) {
     setChats(loaded.state.chats.map((c) => c.id === threadId
@@ -169,7 +172,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
 
   sendChat(text, anchor) {
     const body = text.trim()
-    if (!body || get().gen.running) return
+    if (!body || chatSendBlocked(get().ops, get().activeChatId)) return
     // a draft chat persists lazily on its first turn — mint the real thread now,
     // then send into THAT id.
     void (async () => {
@@ -183,7 +186,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
    *  that authored the review) with a chat turn, opening the drawer so it streams. */
   followUp(text) {
     const body = text.trim()
-    if (!body || get().gen.running) return
+    if (!body) return
     const loaded = get().loaded
     if (!loaded) return
     void (async () => {
@@ -193,6 +196,9 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
         : undefined)
         ?? [...(current?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
       let targetId = review?.id
+      // don't follow-up a thread that's already streaming (incl. its own generation,
+      // OQ6) or when the shared lane is full — checked before any createChat side effect.
+      if (targetId != null && chatSendBlocked(get().ops, targetId)) return
       if (targetId == null) {
         // Older/generated sessions can predate persisted review threads. Create a
         // normal chat with the review agent so Follow up still has somewhere real
@@ -215,7 +221,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
   },
 
   sendBatch(threadId, commentIds, steer, refine) {
-    if (get().gen.running) return
+    if (anyRunning(get().ops)) return // batch needs the exclusive lane; no queueing (spec §4)
     const trimmed = steer?.trim() || undefined
     if (commentIds.length === 0 && !trimmed) return
     const loaded = get().loaded
@@ -237,12 +243,12 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     // sending to the agent (queued comments OR a decision answer) opens the chat
     // so the turn + its tool calls are visible as they run
     get().openChat(threadId)
-    get().startOp('chat', opId, threadId)
+    get().startOp('chat', opId, threadId, true) // batch is write-capable → exclusive lane
     void api().sendBatch(threadId, commentIds, trimmed, opId, refine)
   },
 
   sendQueuedComments(commentIds, steer) {
-    if (get().gen.running) return
+    if (anyRunning(get().ops)) return // batch path → exclusive lane, no queueing (spec §4)
     // queued comments go to whatever chat is active (its agent is the destination
     // shown in the UI), materializing a draft chat into a real thread first.
     void (async () => {

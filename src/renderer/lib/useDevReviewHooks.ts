@@ -33,7 +33,7 @@ export function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null, answeredApprovals: new Set() }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true }
 }
 
 /** The dev/screenshot one-shot effects that used to live inline in Review: the scripted
@@ -79,7 +79,7 @@ export function useDevReviewHooks({
     // generation panel (activity log + phase header + counters) can be captured
     if (dev.fakeGen && !devGenRan && loaded) {
       devGenRan = true
-      useStore.setState({ gen: fakeGenState() })
+      useStore.setState({ ops: { 'dev-fake': fakeGenState() } })
     }
     // dev-only: LIMN_FAKE_DRIFT seeds a synthetic "branch moved" so the titlebar
     // fetch pill can be captured without a real external commit (open it via is-open)

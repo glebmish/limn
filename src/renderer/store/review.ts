@@ -181,9 +181,11 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       const loaded = await api().loadSession(sessionId)
       set({
         sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
-        // reset the (global) gen state so a previous session's running/errored op
-        // doesn't bleed its strip or error banner onto the one being opened.
-        gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() },
+        // reset the op map so a previous session's running/errored op doesn't bleed
+        // its strip or error banner onto the one being opened. Switching sessions
+        // orphans any live stream (main keeps running; its result is dropped by the
+        // unknown-opId rule) — acceptable per the concurrent-chat cancellation matrix.
+        ops: {},
         repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: loaded.state.viewedAt,
         collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,

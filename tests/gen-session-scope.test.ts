@@ -1,44 +1,45 @@
 import { describe, it, expect } from 'vitest'
-import { chatsWithDraft, genForLoaded } from '../src/renderer/store'
-import type { GenState } from '../src/renderer/store'
+import { chatsWithDraft, reviewOp } from '../src/renderer/store'
+import type { GenState, OpState } from '../src/renderer/store'
 import type { LoadedReview } from '../src/shared/ipc'
 
-// gen state is global to the renderer; genForLoaded scopes it to the review you're
-// viewing so an op started on another session can't paint its progress here.
-function gen(over: Partial<GenState>): GenState {
-  return { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), ...over }
+// reviewOp scopes the review-generation op to the review you're viewing so an op
+// started on another session can't paint its progress/cancel state here.
+function gen(over: Partial<GenState>): OpState {
+  return { running: false, opId: 'op-1', kind: 'review', threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over }
 }
-// minimal LoadedReview: genForLoaded only reads state.chats[].id.
+const opsOf = (op: OpState): Record<string, OpState> => ({ [op.opId ?? 'x']: op })
+// minimal LoadedReview: reviewOp only reads state.chats[].id.
 function loadedWithThreads(ids: number[]): LoadedReview {
   return { state: { chats: ids.map((id) => ({ id })) } } as unknown as LoadedReview
 }
 
-describe('genForLoaded (scopes the global gen op to the review being viewed)', () => {
+describe('reviewOp (scopes the review generation op to the review being viewed)', () => {
   it('returns the op when it streams into one of this review\'s threads', () => {
-    const g = gen({ running: true, opId: 'op-1', kind: 'review', threadId: 7 })
-    expect(genForLoaded(g, loadedWithThreads([7, 9]))).toBe(g)
+    const g = gen({ running: true, threadId: 7 })
+    expect(reviewOp(opsOf(g), loadedWithThreads([7, 9]))).toBe(g)
   })
 
   it('hides an op whose thread belongs to a different session (the cross-session leak)', () => {
-    const g = gen({ running: true, opId: 'op-1', kind: 'review', threadId: 42 })
-    const scoped = genForLoaded(g, loadedWithThreads([7, 9]))
+    const g = gen({ running: true, threadId: 42 })
+    const scoped = reviewOp(opsOf(g), loadedWithThreads([7, 9]))
     expect(scoped.running).toBe(false)
     expect(scoped.opId).toBe(null)
   })
 
   it('also scopes a cancelled op — its cancelled block must not show on another session', () => {
-    const g = gen({ outcome: 'cancelled', opId: 'op-1', kind: 'review', threadId: 42 })
-    expect(genForLoaded(g, loadedWithThreads([7])).outcome).toBe(null)
+    const g = gen({ outcome: 'cancelled', threadId: 42 })
+    expect(reviewOp(opsOf(g), loadedWithThreads([7])).outcome).toBe(null)
   })
 
   it('keeps a cancelled op visible on its own session', () => {
-    const g = gen({ outcome: 'cancelled', opId: 'op-1', kind: 'review', threadId: 7 })
-    expect(genForLoaded(g, loadedWithThreads([7])).outcome).toBe('cancelled')
+    const g = gen({ outcome: 'cancelled', threadId: 7 })
+    expect(reviewOp(opsOf(g), loadedWithThreads([7])).outcome).toBe('cancelled')
   })
 
   it('is idle for an op with no thread, or when no review is loaded', () => {
-    expect(genForLoaded(gen({ running: true, threadId: null }), loadedWithThreads([7])).running).toBe(false)
-    expect(genForLoaded(gen({ running: true, threadId: 7 }), null).running).toBe(false)
+    expect(reviewOp(opsOf(gen({ running: true, threadId: null })), loadedWithThreads([7])).running).toBe(false)
+    expect(reviewOp(opsOf(gen({ running: true, threadId: 7 })), null).running).toBe(false)
   })
 })
 

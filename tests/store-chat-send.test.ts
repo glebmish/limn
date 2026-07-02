@@ -9,7 +9,9 @@ const createChat = vi.fn(async (): Promise<Partial<ChatThread>[]> => [])
 ;(globalThis as unknown as { window: unknown }).window = { api: { sendChat, sendBatch, createChat } }
 
 const flush = () => new Promise((r) => setTimeout(r))
-const IDLE_GEN = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() }
+// a running exclusive op streaming into `threadId`, for the "target thread is busy" guards.
+const runningOp = (threadId: number) => ({ 'op-run': { running: true, opId: 'op-run', kind: 'chat' as const, threadId, log: [], error: null, startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(), exclusive: true } })
+const anyOpRunning = () => Object.values(useStore.getState().ops).some((o) => o.running)
 const chat = (id: number, kind: 'user' | 'review', messages: unknown[] = []): Partial<ChatThread> =>
   ({ id, kind, agent: { engine: 'claude' }, messages: messages as never, createdAt: 'now', executionMode: 'ask' })
 
@@ -18,11 +20,11 @@ function chatsOf() { return useStore.getState().loaded?.state.chats ?? [] }
 describe('sendChat', () => {
   beforeEach(() => {
     sendChat.mockClear(); sendBatch.mockClear(); createChat.mockClear()
-    useStore.setState({ sessionId: 1, gen: IDLE_GEN as never, activeChatId: null, draftChat: null })
+    useStore.setState({ sessionId: 1, ops: {}, activeChatId: null, draftChat: null })
   })
 
-  it('is a no-op while an op is running', async () => {
-    useStore.setState({ gen: { ...IDLE_GEN, running: true } as never, loaded: makeLoaded({ chats: [chat(1, 'user')] }), activeChatId: 1 })
+  it('is a no-op while the target thread already has a running op', async () => {
+    useStore.setState({ ops: runningOp(1) as never, loaded: makeLoaded({ chats: [chat(1, 'user')] }), activeChatId: 1 })
     useStore.getState().sendChat('hi')
     await flush()
     expect(createChat).not.toHaveBeenCalled()
@@ -43,7 +45,7 @@ describe('sendChat', () => {
     const minted = chatsOf().find((c) => c.id === 77)
     expect(minted?.messages.at(-1)).toMatchObject({ role: 'user', text: 'hello agent' })
     expect(sendChat).toHaveBeenCalledWith(77, 'hello agent', expect.any(String), undefined)
-    expect(useStore.getState().gen.running).toBe(true) // startOp fired
+    expect(anyOpRunning()).toBe(true) // startOp fired
     expect(useStore.getState().activeChatId).toBe(77)
     expect(useStore.getState().draftChat).toBeNull()
   })
@@ -52,7 +54,7 @@ describe('sendChat', () => {
 describe('followUp', () => {
   beforeEach(() => {
     sendChat.mockClear(); createChat.mockClear()
-    useStore.setState({ sessionId: 1, gen: IDLE_GEN as never, chatOpen: false })
+    useStore.setState({ sessionId: 1, ops: {}, chatOpen: false })
   })
 
   it('targets the latest review thread and opens the drawer', async () => {
@@ -79,7 +81,7 @@ describe('followUp', () => {
 describe('sendBatch', () => {
   beforeEach(() => {
     sendBatch.mockClear()
-    useStore.setState({ sessionId: 1, gen: IDLE_GEN as never, chatOpen: false })
+    useStore.setState({ sessionId: 1, ops: {}, chatOpen: false })
   })
 
   it('writes the batchUserPreview text and commentRefs onto the target thread, then dispatches', () => {
@@ -97,7 +99,7 @@ describe('sendBatch', () => {
     expect(msg.text).toBe('Handle 2 comment(s).')
     expect(msg.commentRefs).toEqual(['c1', 'c2'])
     expect(sendBatch).toHaveBeenCalledWith(5, ['c1', 'c2'], undefined, expect.any(String), undefined)
-    expect(useStore.getState().gen.running).toBe(true)
+    expect(anyOpRunning()).toBe(true)
     expect(useStore.getState().chatOpen).toBe(true)
   })
 

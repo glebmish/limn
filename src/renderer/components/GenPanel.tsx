@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { checkoutGate, genCancelled, genForLoaded, pendingApprovals, startGenerate, startGenerateNow, useStore } from '../store'
+import { checkoutGate, genCancelled, reviewOp, anyExclusiveRunning, pendingApprovals, startGenerate, startGenerateNow, useStore } from '../store'
 import { I, EngineGlyph, shortSha, ago } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
@@ -100,11 +100,13 @@ function candidateAge(commitsOld: number): string {
 }
 
 export function GenPanel() {
-  const { loaded, gen: rawGen, agent } = useStore()
-  // gen is global to the renderer; only honor it here when the op belongs to the
-  // review being viewed, so a generation started on another session doesn't paint
-  // its progress/cancel state onto this one.
-  const gen = genForLoaded(rawGen, loaded)
+  const { loaded, ops, agent } = useStore()
+  // the review-generation op for this review (scoped to its threads); a generation on
+  // another session — or a concurrent chat/batch — never paints its strip here.
+  const gen = reviewOp(ops, loaded)
+  // any exclusive op (this review's generation, a batch, or an exclusive chat) blocks
+  // starting a new generation — a read-only shared chat does not.
+  const busy = anyExclusiveRunning(ops)
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)
@@ -167,7 +169,7 @@ export function GenPanel() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => useStore.getState().cancelOp()}
+            onClick={() => { if (gen.opId) useStore.getState().cancelOp(gen.opId) }}
           >
             Cancel
           </button>
@@ -234,7 +236,7 @@ export function GenPanel() {
             <span>Review available from <b>{candidate.compareSymbol}</b> · {candidateAge(candidate.commitsOld)}</span>
             <button
               className="btn btn-sm"
-              disabled={gen.running}
+              disabled={busy}
               onClick={() => void useStore.getState().copyReviewFrom(candidate.sessionId, candidate.iteration)}
             >
               Copy review
@@ -243,7 +245,7 @@ export function GenPanel() {
         )}
         <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
-        <button className="btn btn-primary" disabled={gate.blocked || gen.running} onClick={() => startGenerateNow(steer)}>
+        <button className="btn btn-primary" disabled={gate.blocked || busy} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
         </button>
         {gate.blocked && <GateNote branch={gate.branch} />}
@@ -304,7 +306,7 @@ export function GenPanel() {
           generatedOutOfHistory ? (
             <button
               className="btn btn-sm btn-primary"
-              disabled={gate.blocked || gen.running}
+              disabled={gate.blocked || busy}
               ref={hintL.anchorRef}
               {...hintL.hoverProps}
               onClick={() => void startGenerateNow(steer)}
@@ -315,7 +317,7 @@ export function GenPanel() {
           ) : (
             <button
               className="btn btn-sm btn-primary"
-              disabled={gate.blocked || gen.running}
+              disabled={gate.blocked || busy}
               ref={hintL.anchorRef}
               {...hintL.hoverProps}
               onClick={() => void startGenerateNow(steer, true)}
@@ -337,7 +339,7 @@ export function GenPanel() {
         )}
         <span className="grow"></span>
         <div className="regen-split" ref={hintR.anchorRef} {...hintR.hoverProps}>
-          <button className="rs-go" disabled={gate.blocked || gen.running} onClick={() => startGenerateNow(steer)}>
+          <button className="rs-go" disabled={gate.blocked || busy} onClick={() => startGenerateNow(steer)}>
             <I.changed />Regenerate
           </button>
           <span className="rs-sep"></span>

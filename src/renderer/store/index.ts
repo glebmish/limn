@@ -35,12 +35,17 @@ export {
   fileIsExcluded,
   genSessionLost,
   genCancelled,
-  genForLoaded,
+  opForThread,
+  reviewOp,
+  anyExclusiveRunning,
+  anyRunning,
+  anySharedRunning,
+  chatSendBlocked,
   pendingApprovals,
   activeChat,
   chatsWithDraft
 } from './derive'
-export type { Density, Guidance, SectionDisclosureState, DiffMode, GenState } from './derive'
+export type { Density, Guidance, SectionDisclosureState, DiffMode, GenState, OpState } from './derive'
 // The OPS slice (generation / operation lifecycle) lives in ./ops; re-export its
 // public names so `from '../store'` keeps resolving newOpId + the startGenerate pair.
 export { newOpId, startGenerate, startGenerateNow } from './ops'

@@ -116,7 +116,7 @@ describe('resumeExisting resets gen / collapsed / diffMode and picks the active 
   beforeEach(() => {
     loadSession.mockClear()
     useStore.setState({
-      gen: { running: true, opId: 'op-x', kind: 'review', threadId: 9, log: [{ type: 'token' }], error: 'e', startedAt: 1, outcome: null, errorCode: null, answeredApprovals: new Set(['a']) } as never,
+      ops: { 'op-x': { running: true, opId: 'op-x', kind: 'review', threadId: 9, log: [{ type: 'token' }], error: 'e', startedAt: 1, outcome: null, errorCode: null, answeredApprovals: new Set(['a']), exclusive: true } } as never,
       collapsed: new Set(['s1']) as never,
       expanded: new Set(['s2']) as never,
       diffMode: 'viewed', activeChatId: 999,
@@ -132,8 +132,7 @@ describe('resumeExisting resets gen / collapsed / diffMode and picks the active 
     }))
     await useStore.getState().resumeExisting(3)
     const s = useStore.getState()
-    expect(s.gen.running).toBe(false)
-    expect(s.gen.opId).toBeNull()
+    expect(Object.keys(s.ops)).toHaveLength(0) // the op map is cleared on session switch
     expect(s.collapsed.size).toBe(0)
     expect(s.expanded.size).toBe(0)
     expect(s.diffMode).toBe('branch')

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, genForLoaded, GUIDANCE, pendingApprovals, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
 import { I, shortSha, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
@@ -26,7 +26,11 @@ import { dev } from '../dev'
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, gen, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode } = store
+  // the review-generation op for THIS review (scoped to its threads); drives the gen
+  // strip/CTA and the approve-disabled state. A concurrent read-only chat is a
+  // separate op and does not gate the review surface.
+  const gen = reviewOp(store.ops, loaded)
   const [titleCommenting, setTitleCommenting] = useState(false)
   const chatOpen = store.chatOpen
 
@@ -58,7 +62,7 @@ export default function Review() {
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
   // a parked approval is answerable from the drawer — badge the Chat button
   // unconditionally so it's discoverable even when the drawer is already open.
-  const hasPendingApproval = pendingApprovals(genForLoaded(gen, loaded)).length > 0
+  const hasPendingApproval = pendingApprovals(gen).length > 0
   const annotations = state.annotations
   const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)

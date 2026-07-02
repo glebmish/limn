@@ -17,6 +17,7 @@ const statusEvent: EngineEvent = { type: 'status', text: 'thinking' }
 const gen = (over: Partial<GenState> = {}): GenState => ({
   running: true, opId: 'op1', kind: 'chat', threadId: 1, log: [], error: null,
   startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(),
+  exclusive: false,
   ...over,
 })
 
@@ -43,25 +44,25 @@ describe('pendingApprovals derivation', () => {
   })
 })
 
-describe('gen slice answered-approval tracking', () => {
+describe('ops slice answered-approval tracking', () => {
   beforeEach(() => {
     respondApproval.mockClear()
-    useStore.setState({ gen: gen({ answeredApprovals: new Set(['stale']) }) })
+    useStore.setState({ ops: { op1: gen({ answeredApprovals: new Set(['stale']) }) } })
   })
 
   it('startOp resets answeredApprovals to an empty set', () => {
-    useStore.getState().startOp('review', 'op2', 1)
-    expect(useStore.getState().gen.answeredApprovals.size).toBe(0)
+    useStore.getState().startOp('review', 'op2', 2)
+    expect(useStore.getState().ops.op2.answeredApprovals.size).toBe(0)
   })
 
   it('respondApproval records the id before the IPC call', () => {
     let recordedBeforeIpc = false
     respondApproval.mockImplementation(() => {
-      recordedBeforeIpc = useStore.getState().gen.answeredApprovals.has('a')
+      recordedBeforeIpc = useStore.getState().ops.op1.answeredApprovals.has('a')
     })
-    useStore.getState().respondApproval('a', 'allow')
+    useStore.getState().respondApproval('op1', 'a', 'allow')
     expect(recordedBeforeIpc).toBe(true)
-    expect(useStore.getState().gen.answeredApprovals.has('a')).toBe(true)
+    expect(useStore.getState().ops.op1.answeredApprovals.has('a')).toBe(true)
     expect(respondApproval).toHaveBeenCalledWith('op1', 'a', 'allow')
   })
 })

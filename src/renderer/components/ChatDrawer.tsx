@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, genForLoaded, genSessionLost, pendingApprovals, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, opForThread, genSessionLost, pendingApprovals, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
@@ -40,13 +40,17 @@ export function windowMessages<T>(messages: T[], shown: number): { start: number
  *  any agent and are seeded with review context. */
 export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const store = useStore()
-  const { loaded, gen, activeChatId, draftChat } = store
+  const { loaded, ops, activeChatId, draftChat } = store
   const chats = useMemo(() => chatsWithDraft(loaded, draftChat), [loaded, draftChat])
-  // resolve the active chat, falling back to the running op's thread so a review
-  // streams into a fully-chromed chat even if selection hasn't caught up yet.
+  // resolve the active chat, falling back to a thread currently streaming an op so a
+  // review streams into a fully-chromed chat even if selection hasn't caught up yet.
   const active = activeChat(loaded, activeChatId, draftChat)
-    ?? chats.find((c) => c.id === gen.threadId)
+    ?? chats.find((c) => opForThread(ops, c.id).running)
     ?? chats[chats.length - 1] ?? null
+  // the op (if any) streaming into the ACTIVE thread — one op per thread. Every live
+  // stream / approval / session-lost signal below is scoped to this, so two concurrent
+  // ops on different threads never cross-render.
+  const op = opForThread(ops, active?.id)
   const latestReview = [...chats].reverse().find((c) => c.kind === 'review')
   // viewing a superseded review session (an older generation) — offer to switch
   const onOldReview = active?.kind === 'review' && latestReview != null && active.id !== latestReview.id
@@ -94,49 +98,47 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     }
   }, [shown])
 
-  // stream the running op into whichever thread it targets — review generation and
-  // chat turns both flow through this one path (routed by threadId, not kind).
-  const streaming = gen.running && gen.threadId != null && gen.threadId === active?.id
+  // stream the active thread's op into it — review generation and chat turns both flow
+  // through this one path (the op is already thread-scoped, so no kind check needed).
+  const streaming = op.running
   // a lost-engine-session failure on this thread: the CLI pruned the session, so the
   // turn can't be retried in place. Surface a distinct banner pointing at a new chat
   // (the thread's visible history is intact — nothing was mutated on the failure path).
-  const sessionLost = !gen.running && gen.threadId != null && gen.threadId === active?.id && genSessionLost(gen)
-  // gen.error is "<human message>\n\n<raw engine error>". Show the human line as the
+  const sessionLost = !op.running && op.opId != null && genSessionLost(op)
+  // op.error is "<human message>\n\n<raw engine error>". Show the human line as the
   // headline and keep the raw engine error visible as a muted detail — over-classified
   // causes (e.g. a dirty tree) must stay diagnosable (spec §7).
   const [sessionLostMsg, sessionLostDetail] = sessionLost
-    ? (() => { const [head, ...rest] = (gen.error ?? '').split('\n\n'); return [head, rest.join('\n\n')] as const })()
+    ? (() => { const [head, ...rest] = (op.error ?? '').split('\n\n'); return [head, rest.join('\n\n')] as const })()
     : ['', '']
   // ordered segments (text↔tool interleave) + the folded tool calls they reference;
   // rendered inline so live + persisted messages keep the agent's true call order.
-  // Memoized on [streaming, gen.log]: the log is a fresh array per event (so this still
+  // Memoized on [streaming, op.log]: the log is a fresh array per event (so this still
   // recomputes per event, bounded by the 200-cap) but stops re-reducing on unrelated
   // renders — draft typing, scroll state, window changes.
   const { liveSegments, liveCalls } = useMemo(
     () => streaming
-      ? { liveSegments: reduceSegments(gen.log), liveCalls: reduceToolCalls(gen.log) }
+      ? { liveSegments: reduceSegments(op.log), liveCalls: reduceToolCalls(op.log) }
       : { liveSegments: [] as MessageSegment[], liveCalls: [] as ToolCall[] },
-    [streaming, gen.log]
+    [streaming, op.log]
   )
   // a scalar that grows with every streamed event — drives the follow-scroll effect.
-  const streamLen = streaming ? gen.log.length : 0
+  const streamLen = streaming ? op.log.length : 0
   const { statusLine, liveActions } = useMemo(
     () => streaming
       ? {
-          statusLine: [...gen.log].reverse().find((e) => e.type === 'status'),
-          liveActions: gen.log.flatMap((e) => (e.type === 'action' ? [e.action] : [])) as AgentAction[],
+          statusLine: [...op.log].reverse().find((e) => e.type === 'status'),
+          liveActions: op.log.flatMap((e) => (e.type === 'action' ? [e.action] : [])) as AgentAction[],
         }
       : { statusLine: undefined, liveActions: [] as AgentAction[] },
-    [streaming, gen.log]
+    [streaming, op.log]
   )
-  // pending approvals: single source of truth is the store (answered ids live on the
-  // gen slice). Scope to this review so a foreign session's op can't surface here.
-  // Un-gated from `streaming`: the parked approval must be reachable even when the
-  // active chat isn't the gen thread (a compact nudge deep-links to it below).
-  const genForReview = genForLoaded(gen, loaded)
-  const genThreadId = genForReview.threadId
-  const pending = pendingApprovals(genForReview)
-  const onGenThread = genThreadId != null && genThreadId === active?.id
+  // pending approvals for the ACTIVE thread's op → the full card below. Un-gated from
+  // `streaming` so a parked approval stays answerable. A parked approval on a DIFFERENT
+  // thread (e.g. the generation asks while you read another chat) surfaces as a compact
+  // deep-link nudge instead (concurrent-chat §5).
+  const pending = pendingApprovals(op)
+  const otherApprovalThread = chats.find((c) => c.id !== active?.id && pendingApprovals(opForThread(ops, c.id)).length > 0)?.id ?? null
 
   // follow the stream only while parked at the bottom, so a burst of tool calls
   // doesn't yank a reader who has scrolled up. switching chats / opening jumps to
@@ -166,10 +168,10 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const ranChat = useRef(false)
   useEffect(() => {
     const text = dev.runChat
-    if (ranChat.current || !text || !active || gen.running) return
+    if (ranChat.current || !text || !active || op.running) return
     ranChat.current = true
     setTimeout(() => store.sendChat(text), 400)
-  }, [active, gen.running, store])
+  }, [active, op.running, store])
 
   // a11y: on open, move focus into the drawer (announced via the complementary
   // landmark on the root); on close, restore focus to whatever opened it.
@@ -272,26 +274,25 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             )}
           </div>
 
-          {pending.length > 0 && genThreadId != null && (
-            onGenThread ? (
-              // full card only on the owning (gen) thread — Approve/Deny/Stop live here
-              <ApprovalCard
-                request={pending[0]}
-                index={0}
-                total={pending.length}
-                onDecide={(d) => store.respondApproval(pending[0].id, d)}
-                onStop={() => store.cancelOp()}
-              />
-            ) : (
-              // any other chat: a compact amber nudge that deep-links to the gen thread
-              <div className="chat-oldsession chat-approval-nudge" role="alert">
-                <I.warn style={{ width: 12, height: 12 }} />
-                <span>The review agent is waiting on an approval.</span>
-                <button className="btn btn-sm btn-primary" onClick={() => store.switchChat(genThreadId)}>
-                  Go to approval<I.chevR style={{ width: 11, height: 11 }} />
-                </button>
-              </div>
-            )
+          {pending.length > 0 && op.opId != null ? (
+            // full card on the active thread — Approve/Deny/Stop route to this op
+            <ApprovalCard
+              request={pending[0]}
+              index={0}
+              total={pending.length}
+              onDecide={(d) => store.respondApproval(op.opId!, pending[0].id, d)}
+              onStop={() => store.cancelOp(op.opId!)}
+            />
+          ) : otherApprovalThread != null && (
+            // an approval parked on another thread (e.g. the generation): a compact
+            // amber nudge that deep-links to it, where the full card renders.
+            <div className="chat-oldsession chat-approval-nudge" role="alert">
+              <I.warn style={{ width: 12, height: 12 }} />
+              <span>The review agent is waiting on an approval.</span>
+              <button className="btn btn-sm btn-primary" onClick={() => store.switchChat(otherApprovalThread)}>
+                Go to approval<I.chevR style={{ width: 11, height: 11 }} />
+              </button>
+            </div>
           )}
 
           {active && queued.length > 0 && !streaming && (

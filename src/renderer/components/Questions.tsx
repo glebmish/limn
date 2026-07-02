@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentAction, AgentQuestion, ChatThread, Comment } from '../../shared/types'
+import type { AgentAction, AgentQuestion, ChatThread, Comment, EngineEvent } from '../../shared/types'
 import { agentLabel } from '../../shared/agents'
-import { genForLoaded, useStore } from '../store'
+import { reviewOp, useStore } from '../store'
 import { I, EngineGlyph } from '../kit'
 import { currentReviewChat, sendAnswers } from '../lib/comments'
 
@@ -41,7 +41,7 @@ function reviewEditTargetCount(chats: ChatThread[]): number {
   return new Set(edits.map((a) => a.sectionId ? `section:${a.sectionId}` : a.field)).size
 }
 
-function progressStep(log: ReturnType<typeof useStore.getState>['gen']['log']): number {
+function progressStep(log: EngineEvent[]): number {
   const sawReviewEdit = log.some((event) => event.type === 'action' && event.action.kind === 'review_edited')
   const sawText = log.some((event) => event.type === 'text')
   const sawTool = log.some((event) => event.type === 'tool')
@@ -53,9 +53,9 @@ function progressStep(log: ReturnType<typeof useStore.getState>['gen']['log']): 
 /** "Agent needs decisions" block — open intent questions from the review, answered as one refine turn. */
 export function Questions() {
   const loaded = useStore((s) => s.loaded)
-  const rawGen = useStore((s) => s.gen)
+  const ops = useStore((s) => s.ops)
   const openChat = useStore((s) => s.openChat)
-  const gen = genForLoaded(rawGen, loaded)
+  const gen = reviewOp(ops, loaded)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [activeCommentIds, setActiveCommentIds] = useState<string[]>([])

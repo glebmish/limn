@@ -9,7 +9,6 @@ import { useStore, DRAFT_CHAT_ID } from '../src/renderer/store'
 import type { LoadedReview } from '../src/shared/ipc'
 
 const flush = () => new Promise((r) => setTimeout(r))
-const IDLE_GEN = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null }
 
 const chat = (id: number, engine: 'claude' | 'codex', kind: 'user' | 'review' = 'user') =>
   ({ id, kind, agent: { engine }, messages: [], createdAt: '2026-01-01T00:00:00Z', executionMode: 'ask' as const })
@@ -18,7 +17,7 @@ function load(chats: ReturnType<typeof chat>[]) {
   const comments = [{ id: 'c1', status: 'queued', anchor: { kind: 'line' } }]
   useStore.setState({
     loaded: { state: { chats, comments, agent: { engine: 'codex' } } } as unknown as LoadedReview,
-    sessionId: 1, gen: IDLE_GEN as never,
+    sessionId: 1, ops: {},
   })
 }
 

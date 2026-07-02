@@ -17,13 +17,12 @@ const listRepoSessions = vi.fn(async () => [])
 import { useStore } from '../src/renderer/store'
 
 const flush = () => new Promise((r) => setTimeout(r))
-const IDLE_GEN = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() }
 
 function reset(): void {
   useStore.setState({
     sessionId: null, loaded: null, transientFresh: false, error: null,
     viewedAt: {}, collapsed: new Set(), expanded: new Set(),
-    repo: '/repo', agent: { engine: 'claude' } as never, gen: IDLE_GEN as never,
+    repo: '/repo', agent: { engine: 'claude' } as never, ops: {},
   })
 }
 

@@ -189,7 +189,15 @@ export interface GenState {
    *  truth so every approval surface (drawer card, nudge, strip, badge) agrees.
    *  Reset per op in startOp; a request is "pending" until its id lands here. */
   answeredApprovals: Set<string>
+  /** Whether this op holds/needs the EXCLUSIVE lane (generate, batch, or a chat that
+   *  started on an idle repo). A read-only shared chat is `false`. Drives the "disable
+   *  Generate/batch" gates and the watcher. Predicted at start from `anyExclusiveRunning`
+   *  and corrected by the terminal result's `lane` (concurrent-chat §4 / OQ7). */
+  exclusive: boolean
 }
+
+/** Alias: an entry in the per-op `ops` map. Same shape as a single op's state. */
+export type OpState = GenState
 
 /** Whether a finished op failed because the thread's engine session was pruned — the
  *  chat surface shows a distinct "start a new chat" prompt for this. */
@@ -202,13 +210,49 @@ export function genCancelled(gen: GenState): boolean {
   return gen.outcome === 'cancelled'
 }
 
-/** `gen` is global to the renderer, but an op belongs to the review whose thread it
- *  streams into. Scope it to the loaded review so an op started on a *different*
- *  session can't paint its progress/cancel state onto the one you're viewing.
- *  Returns the real op when it's owned here, otherwise an idle state. */
-export function genForLoaded(gen: GenState, loaded: LoadedReview | null): GenState {
-  if (gen.threadId != null && loaded?.state.chats?.some((c) => c.id === gen.threadId)) return gen
+/** The op (running or last-finished) streaming into a given thread, or an idle state.
+ *  Per-thread there is at most one op (`startOp` evicts a prior op on the same thread),
+ *  so this is unambiguous. Replaces the single-`gen` thread check. */
+export function opForThread(ops: Record<string, OpState>, threadId: number | null | undefined): OpState {
+  if (threadId == null) return IDLE_GEN
+  for (const op of Object.values(ops)) if (op.threadId === threadId) return op
   return IDLE_GEN
+}
+
+/** The review-generation op for the loaded review: the `review`-kind op whose thread
+ *  belongs to this review's chats. Scoped to `loaded` so an op on a *different* session
+ *  can't paint its progress/cancel state onto the one you're viewing. */
+export function reviewOp(ops: Record<string, OpState>, loaded: LoadedReview | null): OpState {
+  for (const op of Object.values(ops)) {
+    if (op.kind === 'review' && op.threadId != null && loaded?.state.chats?.some((c) => c.id === op.threadId)) return op
+  }
+  return IDLE_GEN
+}
+
+/** True while any EXCLUSIVE op is running (generate / batch / an exclusive chat) — the
+ *  gate for "can a new generate/batch start" and the watcher-suppression meaning. A
+ *  read-only shared chat does not count. */
+export function anyExclusiveRunning(ops: Record<string, OpState>): boolean {
+  return Object.values(ops).some((op) => op.running && op.exclusive)
+}
+
+/** True while any op at all is running (either lane). */
+export function anyRunning(ops: Record<string, OpState>): boolean {
+  return Object.values(ops).some((op) => op.running)
+}
+
+/** True while a read-only SHARED chat op is running (the shared lane, capacity one). */
+export function anySharedRunning(ops: Record<string, OpState>): boolean {
+  return Object.values(ops).some((op) => op.running && !op.exclusive)
+}
+
+/** Whether a chat turn to `threadId` can be sent right now (concurrent-chat guards):
+ *  the target thread must be idle, and if the exclusive lane is busy the shared lane
+ *  (capacity one) must be free. A send on an idle repo takes the exclusive lane. */
+export function chatSendBlocked(ops: Record<string, OpState>, threadId: number | null | undefined): boolean {
+  if (opForThread(ops, threadId).running) return true      // the target thread is already streaming
+  if (!anyExclusiveRunning(ops)) return false              // exclusive lane free → this turn takes it
+  return anySharedRunning(ops)                             // else it must fit the (single) shared lane
 }
 
 /** Approval requests still awaiting the reviewer: derived from the running op's log,
