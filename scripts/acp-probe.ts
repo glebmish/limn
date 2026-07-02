@@ -1,18 +1,18 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Phase-0 ACP spike probe.
+ * ACP spike probe (Phase 0: Claude, Phase 2: Codex).
  *
- * Spawns the installed `@agentclientprotocol/claude-agent-acp` adapter as a
- * child process, drives it over stdio with an ACP `ClientSideConnection`, and
- * records measured facts that gate the ACP migration (see
- * specs/acp-migration/spec.md, Phase 0 + Open Questions 1/2/4/6).
+ * Spawns an installed ACP adapter as a child process, drives it over stdio with
+ * an ACP `ClientSideConnection`, and records measured facts that gate the ACP
+ * migration (see specs/acp-migration/spec.md, Phase 0/2 + Open Questions
+ * 1/2/4/6).
  *
- * Run:  npx tsx scripts/acp-probe.ts
- * Out:  JSON report to stdout AND scripts/acp-probe-out.json
+ * Run:  npx tsx scripts/acp-probe.ts [--engine=claude|codex]   (default: claude)
+ * Out:  JSON report to stdout AND scripts/acp-probe-out[-codex].json
  *
- * This makes a REAL prompt turn against the user's ~/.claude credentials, i.e.
- * a real Anthropic API call. If the sandbox blocks network, re-run with the
- * Bash sandbox disabled.
+ * This makes a REAL prompt turn against the user's ~/.claude or ~/.codex
+ * credentials, i.e. a real Anthropic/OpenAI API call. If the sandbox blocks
+ * network, re-run with the Bash sandbox disabled.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
@@ -34,11 +34,47 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
-const ADAPTER_ENTRY = join(
-  REPO_ROOT,
-  "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
+
+/** Per-engine adapter entry + report filename. */
+const ENGINES = {
+  claude: {
+    adapterEntry:
+      "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
+    outFile: "acp-probe-out.json",
+    // Most-restrictive mode for the --elicit-permission run (a command must ask).
+    restrictiveModeId: "default",
+  },
+  codex: {
+    adapterEntry: "node_modules/@agentclientprotocol/codex-acp/dist/index.js",
+    outFile: "acp-probe-out-codex.json",
+    restrictiveModeId: "read-only",
+  },
+} as const;
+type EngineKey = keyof typeof ENGINES;
+
+/** `--engine=<key>` (default claude). */
+function parseEngine(argv: string[]): EngineKey {
+  const arg = argv.find((a) => a.startsWith("--engine="));
+  const raw = arg ? arg.slice("--engine=".length) : "claude";
+  if (raw in ENGINES) return raw as EngineKey;
+  throw new Error(
+    `unknown --engine=${raw}; expected one of ${Object.keys(ENGINES).join("|")}`,
+  );
+}
+
+const ENGINE = parseEngine(process.argv.slice(2));
+const ADAPTER_ENTRY = join(REPO_ROOT, ENGINES[ENGINE].adapterEntry);
+// --elicit-permission: run the turn at the most-restrictive mode with a command-
+// triggering prompt so the adapter emits a `session/request_permission` we can
+// answer (validates the approval round-trip + tool_call shapes). Writes to a
+// separate output file so it never clobbers the default handshake report.
+const ELICIT_PERMISSION = process.argv.slice(2).includes("--elicit-permission");
+const OUT_FILE = join(
+  __dirname,
+  ELICIT_PERMISSION
+    ? ENGINES[ENGINE].outFile.replace(/\.json$/, "-perm.json")
+    : ENGINES[ENGINE].outFile,
 );
-const OUT_FILE = join(__dirname, "acp-probe-out.json");
 
 /** Reject a promise if it does not settle within `ms`. */
 function withTimeout<T>(label: string, ms: number, p: T | PromiseLike<T>): Promise<T> {
@@ -76,6 +112,7 @@ function shapeKey(update: Record<string, unknown>): string {
 async function main() {
   const report: Record<string, unknown> = {
     meta: {
+      engine: ENGINE,
       probeStartedAt: new Date().toISOString(),
       adapterEntry: ADAPTER_ENTRY,
       repoRoot: REPO_ROOT,
@@ -205,6 +242,11 @@ async function main() {
         }
       | undefined;
     report.modes = modes ?? null;
+    // Session Config Options (OQ6): codex-acp exposes per-turn model + reasoning
+    // effort here (configIds `model` / `reasoning_effort`); claude exposes model
+    // + effort too. Surface them explicitly for the passthrough decision.
+    report.configOptions =
+      (newSession as Record<string, unknown>).configOptions ?? null;
 
     // ---- Phase: set-session-mode for each available mode, then restore ----
     const modeSwitchResults: Array<{
@@ -233,19 +275,32 @@ async function main() {
           });
         }
       }
-      // restore
+      // For --elicit-permission, leave the session in the most-restrictive mode
+      // so a command asks; otherwise restore the original mode.
+      const finalModeId = ELICIT_PERMISSION
+        ? (ENGINES[ENGINE].restrictiveModeId as string)
+        : original;
       try {
         await conn.setSessionMode!({
           sessionId: activeSessionId,
-          modeId: original,
+          modeId: finalModeId,
         });
       } catch {
         /* best effort */
       }
+      report.finalModeId = finalModeId;
     }
     report.modeSwitchResults = modeSwitchResults;
 
     // ---- Phase: one real prompt turn ----
+    // Default: a trivial text turn. --elicit-permission: a command-triggering
+    // prompt at restrictive mode so the adapter requests permission.
+    // A WRITE command is used (not a read like `ls`): Codex's read-only sandbox
+    // auto-allows non-escalating reads and only asks (session/request_permission)
+    // when a command must escape the sandbox to write/reach network.
+    const promptText = ELICIT_PERMISSION
+      ? "Run this exact shell command and report the result: `echo ok > acp_probe_scratch.txt`. You must actually execute it as a command."
+      : "Reply with exactly the word: PONG";
     let promptResult: unknown = null;
     let promptError: string | null = null;
     try {
@@ -254,9 +309,7 @@ async function main() {
         120_000,
         conn.prompt({
           sessionId: activeSessionId,
-          prompt: [
-            { type: "text", text: "Reply with exactly the word: PONG" },
-          ],
+          prompt: [{ type: "text", text: promptText }],
         }),
       );
     } catch (e) {
