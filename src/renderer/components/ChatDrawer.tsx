@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, opForThread, genSessionLost, pendingApprovals, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, opForThread, anyExclusiveRunning, chatSendBlocked, genSessionLost, pendingApprovals, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
@@ -139,6 +139,13 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // deep-link nudge instead (concurrent-chat §5).
   const pending = pendingApprovals(op)
   const otherApprovalThread = chats.find((c) => c.id !== active?.id && pendingApprovals(opForThread(ops, c.id)).length > 0)?.id ?? null
+  // Composer feedback (concurrent-chat §UI copy / OQ4/OQ8): never a silent no-op.
+  // `sendBlocked` covers "this thread is already streaming" OR "the single shared lane
+  // is full". `willRunReadOnly` is the coerce case — a send lands read-only alongside a
+  // running generation. `sharedFull` distinguishes the disabled-because-another-chat case.
+  const sendBlocked = chatSendBlocked(ops, active?.id)
+  const willRunReadOnly = !streaming && !sendBlocked && anyExclusiveRunning(ops)
+  const sharedFull = sendBlocked && !streaming
 
   // follow the stream only while parked at the bottom, so a burst of tool calls
   // doesn't yank a reader who has scrolled up. switching chats / opening jumps to
@@ -191,7 +198,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
   const send = (): void => {
     const text = draft.trim()
-    if (!text || !active || streaming || gate.blocked) return
+    if (!text || !active || sendBlocked || gate.blocked) return
     store.sendChat(text)
     setDraft('')
   }
@@ -341,30 +348,51 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
+          {/* a review is generating: replies to an idle thread run read-only (coerced,
+              no confirm — OQ4); the shared lane being full disables the send (OQ8). */}
+          {active && willRunReadOnly && (
+            <div className="chat-gate chat-readonly-badge" role="status">
+              <I.info style={{ width: 12, height: 12 }} />
+              <span>Review is generating — replies run read-only until it finishes.</span>
+            </div>
+          )}
+          {active && sharedFull && (
+            <div className="chat-gate warn" role="status">
+              <I.warn style={{ width: 12, height: 12 }} />
+              <span>Another chat turn is running — this will be sendable when it finishes.</span>
+            </div>
+          )}
+
           <div className="chat-foot">
             <textarea
               rows={2}
               placeholder={gate.blocked ? 'Check out the branch to chat' : active ? `Ask ${agentLabel(active.agent)}…` : 'Pick a chat'}
-              disabled={!active || streaming || gate.blocked}
+              disabled={!active || sendBlocked || gate.blocked}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
               }}
             />
-            <button className="btn btn-primary btn-sm" disabled={!active || streaming || gate.blocked || !draft.trim()} onClick={send}>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={!active || sendBlocked || gate.blocked || !draft.trim()}
+              title={sharedFull ? 'Another chat turn is running — it’ll be sendable when it finishes' : undefined}
+              onClick={send}
+            >
               <I.send style={{ width: 12, height: 12 }} />
             </button>
           </div>
 
           {/* agent + mode live at the bottom (per the mockup): pick who answers and
-              how much leash, directly under the composer. */}
+              how much leash, directly under the composer. A read-only coerced turn
+              disables the tier selector (the tier is overridden for this turn). */}
           {active && (
             <div className="chat-botbar">
               <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
               <ModeSelector
                 mode={active.executionMode}
-                disabled={streaming}
+                disabled={streaming || willRunReadOnly}
                 onChange={(m) => void store.setChatMode(active.id, m)}
               />
             </div>

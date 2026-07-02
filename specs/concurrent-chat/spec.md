@@ -9,7 +9,14 @@
 4. **Coerce** to read-only + badge + leading status event (no explicit confirm step).
 5. Read-only tool set = **strict minimum** (Read/Grep/Glob + Limn only; no network, no subagents).
 6. The review thread **cannot** take chat turns during its own generation (composer stays disabled); shared turns go to other threads.
-7. The renderer learns an op's lane via an **optional `lane` field on the IPC envelope** (`OpEventMsg`/`OpResultMsg`), not status-sniffing. Non-breaking additive field.
+7. ~~The renderer learns an op's lane via an optional `lane` field on the IPC
+   envelope.~~ **Superseded during implementation:** the renderer predicts the lane at
+   `startOp` from its own `ops` map (`exclusive = !anyExclusiveRunning(ops)`). Within a
+   single renderer this is *exact* — any exclusive op (generate/batch) was started by
+   that same renderer and is already in `ops` before a chat send reads it. The only
+   cross-source is a second window, whose op is dropped by the unknown-opId rule anyway,
+   and main stays authoritative (a wrong guess → `RepoBusyError`, not corruption). So a
+   `lane` envelope field would be dead plumbing; it was not added.
 8. Shared-lane-full: **disable** the send button with a tooltip; keep the typed draft; never silent-drop.
 9. Feedback (no silent no-ops) is a **property of every rewritten guard**, landed with the lane split rather than as a throwaway pre-phase.
 
