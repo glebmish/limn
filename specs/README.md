@@ -37,4 +37,5 @@ grounded against the code as of `d896f37` and ends with numbered open questions
    acp-migration changes the structured-output strategy (schema-in-prompt), and
    scoped-update-generation adds a new wire schema — whichever lands second
    adopts the other's mechanism.
-5. **concurrent-chat** last.
+5. **concurrent-chat** last. — DONE on branch `07-concurrent-chat` (stacked on
+   `06-acp-migration`); adopted acp-migration's schema-in-prompt structured output.

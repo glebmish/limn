@@ -1,6 +1,13 @@
 # Chat while generation runs — two-lane operation model
 
-## Status: RESOLVED — building on `07-concurrent-chat` (stacked on the acp-migration tip)
+## Status: DONE — implemented on `07-concurrent-chat` (stacked on the acp-migration tip)
+
+Shipped in 5 phases (all tests green, typecheck + lint clean, renderer bundles):
+1. Two-lane `OperationCoordinator` (`run` exclusive / `runShared`; `repoBusy` = exclusive-only).
+2. `readOnly` ChatTurn on `AcpEngine` — read-only mode + `readOnlyLadder` (deny all non-Limn, never park).
+3. `ipc.sendChat` lane routing (repoBusy → shared + read-only + leading status; one TOCTOU retry).
+4. Renderer demux: `gen` → `ops: Record<opId, OpState>`; per-op events/approvals/cancel; new selectors; every `gen` consumer re-scoped.
+5. Composer read-only badge + block-aware disable (no silent no-op); per-op approval UI + exclusive-only watcher landed with phase 4.
 
 ### Resolved open questions (2026-07-02) — all recommendations adopted
 1. `generate` stays **exclusive** (not tightened to enforced read-only); profile tightening filed separately.
