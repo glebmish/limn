@@ -41,13 +41,13 @@ const ADAPTER_ENTRY = join(
 const OUT_FILE = join(__dirname, "acp-probe-out.json");
 
 /** Reject a promise if it does not settle within `ms`. */
-function withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
+function withTimeout<T>(label: string, ms: number, p: T | PromiseLike<T>): Promise<T> {
   return new Promise<T>((res, rej) => {
     const t = setTimeout(
       () => rej(new Error(`phase timed out after ${ms}ms: ${label}`)),
       ms,
     );
-    p.then(
+    Promise.resolve(p).then(
       (v) => {
         clearTimeout(t);
         res(v);
@@ -216,7 +216,7 @@ async function main() {
           await withTimeout(
             `set_mode:${m.id}`,
             10_000,
-            conn.setSessionMode({
+            conn.setSessionMode!({
               sessionId: activeSessionId,
               modeId: m.id,
             }),
@@ -232,7 +232,7 @@ async function main() {
       }
       // restore
       try {
-        await conn.setSessionMode({
+        await conn.setSessionMode!({
           sessionId: activeSessionId,
           modeId: original,
         });
