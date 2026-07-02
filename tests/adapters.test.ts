@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG, claudeEffort, codexEffort } from '../src/main/engines/adapters'
+import { setEngineBinaryPrefs } from '../src/main/engines/binaries'
+import { ENGINE_PATH_PREF_KEYS } from '../src/shared/prefs'
+
+// binaryEnv resolves through binaries.ts' module-level configured prefs; clear
+// them after each test so a set path can't leak into unrelated cases.
+afterEach(() => setEngineBinaryPrefs({}))
 
 describe('CLAUDE_ACP_CONFIG', () => {
   it('env carries ANTHROPIC_MODEL when a model is set, empty otherwise', () => {
@@ -29,6 +35,11 @@ describe('CLAUDE_ACP_CONFIG', () => {
     expect(CLAUDE_ACP_CONFIG.modeFor('full', true)).toBe('bypassPermissions')
     expect(CLAUDE_ACP_CONFIG.modeFor('edits', false)).toBe('default')
   })
+
+  it('binaryEnv points CLAUDE_CODE_EXECUTABLE at the resolved (Settings-configured) binary', () => {
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.claude]: '/opt/claude' })
+    expect(CLAUDE_ACP_CONFIG.binaryEnv?.()).toEqual({ CLAUDE_CODE_EXECUTABLE: '/opt/claude' })
+  })
 })
 
 describe('CODEX_ACP_CONFIG', () => {
@@ -42,8 +53,13 @@ describe('CODEX_ACP_CONFIG', () => {
     expect(CODEX_ACP_CONFIG.modeFor('full', false)).toBe('read-only')
   })
 
-  it('has no spawn env (model + effort both go through config options)', () => {
+  it('has no model/effort spawn env (both go through config options)', () => {
     expect(CODEX_ACP_CONFIG.env).toBeUndefined()
+  })
+
+  it('binaryEnv points CODEX_PATH at the resolved (Settings-configured) binary', () => {
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.codex]: '/opt/codex' })
+    expect(CODEX_ACP_CONFIG.binaryEnv?.()).toEqual({ CODEX_PATH: '/opt/codex' })
   })
 
   it('configOptions yields model + reasoning_effort, clamping max -> xhigh', () => {

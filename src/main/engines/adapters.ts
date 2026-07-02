@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import type { EngineId, ExecutionMode, ReasoningEffort } from '../../shared/types.js'
+import { claudeBinaryPath, codexBinaryPath } from './binaries.js'
 
 /** Per-engine ACP adapter config. One small record replaces a whole hand-written
  *  engine client — the mode-id mapping, per-turn spawn env, and effort mechanism
@@ -18,6 +19,12 @@ export interface AcpEngineConfig {
    *  `setSessionConfigOption` (Codex: `model` + `reasoning_effort`; Claude: `effort`).
    *  Best-effort — the engine swallows unknown/unsupported option ids. */
   configOptions?: (turn: { model?: string; reasoningEffort?: ReasoningEffort }) => { configId: string; value: string }[]
+  /** Spawn env pointing the adapter at its native engine binary, resolved fresh
+   *  per turn from `binaries.ts` (PATH probe + Settings override). NEITHER binary is
+   *  bundled (spec OQ7): `claude-agent-acp` reads `CLAUDE_CODE_EXECUTABLE`, `codex-acp`
+   *  reads `CODEX_PATH`. Returns `{}` when unresolved so the adapter self-discovers
+   *  (its own `claudeCliPath()` / `"codex"` PATH default). */
+  binaryEnv?: () => Record<string, string>
 }
 
 const require_ = createRequire(import.meta.url)
@@ -67,7 +74,11 @@ export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   modeFor: (mode, writeEnabled) =>
     !writeEnabled ? 'default' : ({ ask: 'default', edits: 'acceptEdits', auto: 'acceptEdits', full: 'bypassPermissions' }[mode] ?? 'default'),
   env: (t): Record<string, string> => (t.model ? { ANTHROPIC_MODEL: t.model } : {}),
-  configOptions: (t) => (t.reasoningEffort ? [{ configId: 'effort', value: claudeEffort(t.reasoningEffort) }] : [])
+  configOptions: (t) => (t.reasoningEffort ? [{ configId: 'effort', value: claudeEffort(t.reasoningEffort) }] : []),
+  binaryEnv: (): Record<string, string> => {
+    const p = claudeBinaryPath()
+    return p ? { CLAUDE_CODE_EXECUTABLE: p } : {}
+  }
 }
 
 /** Codex's `configOptions` effort mapping: Codex's `reasoning_effort` config option
@@ -93,5 +104,9 @@ export const CODEX_ACP_CONFIG: AcpEngineConfig = {
   configOptions: (t) => [
     ...(t.model ? [{ configId: 'model', value: t.model }] : []),
     ...(t.reasoningEffort ? [{ configId: 'reasoning_effort', value: codexEffort(t.reasoningEffort) }] : [])
-  ]
+  ],
+  binaryEnv: (): Record<string, string> => {
+    const p = codexBinaryPath()
+    return p ? { CODEX_PATH: p } : {}
+  }
 }

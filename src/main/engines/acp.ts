@@ -177,7 +177,10 @@ export class AcpEngine implements ReviewEngine {
         }
 
         // (b) spawn the adapter and wire an ACP ClientSideConnection over its stdio.
-        child = spawnAdapter(this.config.adapterEntry, this.config.env?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? {})
+        child = spawnAdapter(this.config.adapterEntry, {
+          ...this.config.env?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }),
+          ...this.config.binaryEnv?.()
+        })
         child.stderr.setEncoding('utf8')
         child.stderr.on('data', (d: string) => { stderrTail = (stderrTail + d).slice(-4000) })
         child.on('error', (e: Error) => { stderrTail = (stderrTail + `spawn error: ${String(e)}`).slice(-4000) })
