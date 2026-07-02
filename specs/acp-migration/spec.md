@@ -36,8 +36,25 @@ below govern implementation; where they contradict the draft body, the spike win
   production-readiness), OQ2/OQ4/OQ6 for Codex. Phase 1 is Claude-only; Codex stays on
   `codexAppServer.ts` behind the `ReviewEngine` seam.
 - Non-spike OQs adopted per recommendation: OQ3 schema-in-prompt + one repair turn (both
-  engines, D5); OQ5 conservative `isSafeCommand` allowlist; OQ7 bundle adapters+runtimes
-  (auth from user creds); OQ8 per-turn process; OQ9 keep Settings adapter-path override.
+  engines, D5); OQ5 conservative `isSafeCommand` allowlist; OQ8 per-turn process; OQ9 keep
+  Settings adapter-path override.
+- **OQ7 REFINED by user (2026-07-02): bundle the JS, not the native binaries.**
+  Bundle the ACP adapters (`claude-agent-acp`, `codex-acp`) AND the JS SDK glue
+  (`@anthropic-ai/claude-agent-sdk`) into the `.app`; do NOT bundle native BINARIES.
+  **BOTH engines drive a native binary — Claude via the claude-code executable, Codex via
+  the codex binary — and NEITHER is bundled**; resolve both from the user's PATH or a
+  Settings path (Claude is NOT self-contained: the Claude Agent SDK spawns the claude-code
+  CLI, exactly as today's `binaries.ts` PATH-resolves `claude` and electron-builder strips
+  the SDK's bundled CLI). **Concrete mechanism, verified in the installed adapters:**
+  `claude-agent-acp` reads `pathToClaudeCodeExecutable = process.env.CLAUDE_CODE_EXECUTABLE
+  ?? claudeCliPath()` → set **`CLAUDE_CODE_EXECUTABLE`**; `codex-acp` reads
+  `codexPath = process.env.CODEX_PATH ?? 'codex'` → set **`CODEX_PATH`**. Both env vars
+  ride the existing `AcpEngineConfig.env(turn)` → `spawnAdapter` seam (already carries
+  `ANTHROPIC_MODEL`). Phase 3: source the binary paths from `binaries.ts` (PATH probe +
+  `ENGINE_PATH_PREF_KEYS` Settings prefs), add them to each config's `env`, and configure
+  `electron-builder` to bundle the adapters + JS SDKs while EXCLUDING the native binaries
+  (claude-code executable + `@openai/codex` binary). `binaries.ts` is NOT retired — it
+  feeds `CLAUDE_CODE_EXECUTABLE`/`CODEX_PATH`.
 
 ---
 
