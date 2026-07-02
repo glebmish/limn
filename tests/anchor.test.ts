@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { reanchorComments } from '../src/main/anchor'
-import type { Artifact, Comment, DiffSkeleton } from '../src/shared/types'
+import {
+  reanchorComments,
+  mapLine,
+  fuzzyFind,
+  normalizeWs,
+  similarity,
+  ACCEPT_THRESHOLD,
+  type EditHunk
+} from '../src/main/anchor'
+import type { Artifact, Comment, DiffSkeleton, AnchorContext } from '../src/shared/types'
 
 function mkSkeleton(lines: { new: number | null; old: number | null; kind: '' | 'add' | 'del'; text: string }[]): DiffSkeleton {
   return {
@@ -73,5 +81,144 @@ describe('reanchorComments', () => {
     expect(sec.status).toBe('queued')
     expect(resolved.status).toBe('resolved')
     expect((resolved.anchor as { line: number }).line).toBe(5)
+  })
+})
+
+describe('normalizeWs', () => {
+  it('trims and collapses internal whitespace runs', () => {
+    expect(normalizeWs('  a   b  \t c  ')).toBe('a b c')
+  })
+  it('leaves an already-normalized string untouched', () => {
+    expect(normalizeWs('a b c')).toBe('a b c')
+  })
+  it('collapses to empty for whitespace-only input', () => {
+    expect(normalizeWs('   \t  ')).toBe('')
+  })
+})
+
+describe('similarity', () => {
+  it('both empty -> 1', () => {
+    expect(similarity('', '')).toBe(1)
+  })
+  it('exactly one empty -> 0', () => {
+    expect(similarity('a', '')).toBe(0)
+    expect(similarity('', 'a')).toBe(0)
+  })
+  it('single-character strings fall back to exact equality', () => {
+    expect(similarity('a', 'a')).toBe(1)
+    expect(similarity('a', 'b')).toBe(0)
+  })
+  it('classic Dice coefficient example (night/nacht)', () => {
+    // bigrams(night)={ni,ig,gh,ht} bigrams(nacht)={na,ac,ch,ht}; 1 shared of 4+4
+    expect(similarity('night', 'nacht')).toBeCloseTo(0.25, 10)
+  })
+  it('identical multi-char strings -> 1', () => {
+    expect(similarity('hello world', 'hello world')).toBe(1)
+  })
+  it('counts duplicate bigrams via multiset intersection', () => {
+    // bigrams(aaaa) = {aa:3}; bigrams(aaa) = {aa:2}; intersection = min(3,2) = 2
+    expect(similarity('aaaa', 'aaa')).toBeCloseTo((2 * 2) / (3 + 2), 10)
+  })
+})
+
+describe('mapLine', () => {
+  it('before the first hunk: passes through unchanged', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 1, newStart: 5, newLen: 1 }]
+    expect(mapLine(hunks, 2)).toBe(2)
+  })
+
+  it('between two hunks with mixed +/- deltas: accumulates only the earlier delta', () => {
+    const hunks: EditHunk[] = [
+      { oldStart: 2, oldLen: 1, newStart: 2, newLen: 3 },  // net +2
+      { oldStart: 10, oldLen: 2, newStart: 12, newLen: 0 } // net -2
+    ]
+    expect(mapLine(hunks, 6)).toBe(8)
+  })
+
+  it('after the last hunk: accumulates every delta', () => {
+    const hunks: EditHunk[] = [
+      { oldStart: 2, oldLen: 1, newStart: 2, newLen: 3 },  // net +2
+      { oldStart: 10, oldLen: 2, newStart: 12, newLen: 0 } // net -2
+    ]
+    expect(mapLine(hunks, 15)).toBe(15)
+  })
+
+  it('inside a pure-insert hunk (oldLen=0): never EDITED, maps through', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 0, newStart: 5, newLen: 4 }]
+    expect(mapLine(hunks, 5)).toBe(9)
+  })
+
+  it('inside a replace hunk: EDITED', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 2, newStart: 5, newLen: 3 }]
+    expect(mapLine(hunks, 5)).toBe('EDITED')
+    expect(mapLine(hunks, 6)).toBe('EDITED')
+  })
+
+  it('exact boundary: L === oldStart of a replace hunk -> EDITED', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 2, newStart: 5, newLen: 3 }]
+    expect(mapLine(hunks, 5)).toBe('EDITED')
+  })
+
+  it('exact boundary: L === oldStart + oldLen (first line after) -> mapped, not EDITED', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 2, newStart: 5, newLen: 3 }]
+    expect(mapLine(hunks, 7)).toBe(8)
+  })
+})
+
+describe('fuzzyFind', () => {
+  it('accepts a whitespace-only reformat of the target line', () => {
+    const content = ['a', '  target   line  ', 'c']
+    const result = fuzzyFind(content, 'target line', undefined, 2)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(2)
+    expect(result?.score).toBeGreaterThanOrEqual(ACCEPT_THRESHOLD)
+  })
+
+  it('accepts a one-token rename on the line', () => {
+    const content = ['x', 'let total = items.length', 'y']
+    const result = fuzzyFind(content, 'let count = items.length', undefined, 2)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(2)
+  })
+
+  it('rejects an unrelated line', () => {
+    const content = ['completely different text here', 'another random line entirely']
+    const result = fuzzyFind(content, 'const foo = getValue()', undefined, 1)
+    expect(result).toBeNull()
+  })
+
+  it('accepts a blank quote only with strong surrounding context', () => {
+    const content = ['function foo() {', 'return 1', '}', 'other']
+    const context: AnchorContext = { before: ['function foo() {', 'return 1'], after: ['other'] }
+    const result = fuzzyFind(content, '   ', context, 3)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(3)
+  })
+
+  it('rejects a blank quote when context is weak', () => {
+    const content = ['function foo() {', 'return 1', '}', 'other']
+    const context: AnchorContext = { before: ['nothing like it', 'also unrelated'], after: ['still unrelated'] }
+    const result = fuzzyFind(content, '   ', context, 3)
+    expect(result).toBeNull()
+  })
+
+  it('rejects a blank quote with no context at all', () => {
+    const content = ['function foo() {', 'return 1', '}', 'other']
+    const result = fuzzyFind(content, '', undefined, 3)
+    expect(result).toBeNull()
+  })
+
+  it('proximity breaks ties between two byte-identical candidates, favoring the hint', () => {
+    const content = ['x', 'TARGET', 'y1', 'y2', 'y3', 'y4', 'y5', 'y6', 'TARGET', 'z']
+    const result = fuzzyFind(content, 'TARGET', undefined, 2)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(2)
+  })
+
+  it('proximity tie-break also favors the hint when it is nearer the later candidate', () => {
+    const content = ['x', 'TARGET', 'y1', 'y2', 'y3', 'y4', 'y5', 'y6', 'TARGET', 'z']
+    const result = fuzzyFind(content, 'TARGET', undefined, 9)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(9)
   })
 })

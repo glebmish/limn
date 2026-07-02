@@ -104,9 +104,28 @@ export type SelectionScope =
   | { region: 'section'; sectionId: string }
   | { region: 'artifact'; path: string }
   | { region: 'file-note'; file: string }
+/** Immutable record of the surface a positional comment was created against.
+ *  Written once by the main process at upsert time; never mutated afterwards. */
+export interface AnchorStamp {
+  headSha: string          // compare tip at creation
+  mergeBase: string        // merge-base at creation (blob source for side:'old')
+  blobSha?: string         // git blob sha of the file content the line lives in;
+                            // undefined only if blob resolution failed
+  surface: 'committed' | 'dirty'  // line-number space of `line` at creation
+  origLine: number         // immutable original line
+  origPath: string         // immutable original path (rename tracking starts here)
+}
+
+/** ±CONTEXT_N exact context lines captured from the same content blobSha names.
+ *  The durability floor: survives in SQLite even if the blob is GC'd. */
+export interface AnchorContext {
+  before: string[]         // up to CONTEXT_N lines above, in order
+  after: string[]          // up to CONTEXT_N lines below, in order
+}
+
 export type CommentAnchor =
-  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; hunkRange: string; lineContent: string }
-  | { kind: 'artifact'; path: string; line: number; lineContent: string }
+  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; hunkRange: string; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
+  | { kind: 'artifact'; path: string; line: number; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
   | { kind: 'plan-step'; stepN: number }
   | { kind: 'section'; sectionId: string; part?: 'narration' | 'diagram' }
   | { kind: 'summary' }
