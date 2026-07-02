@@ -9,11 +9,11 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
-  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha,
-  listBranches, recentCommits, repoState, resolveRefInput, untrackedDiffs
+  addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
+  getDiff, hashObjects, headSha, isAncestor, isDirty, listBranches, recentCommits, repoState, resolveRefInput, untrackedDiffs
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
@@ -26,6 +26,9 @@ import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
+import { scopedEligible, SCOPE_CHAIN_CAP } from './engines/scope.js'
+import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
+import type { ScopedReviewPatch } from './engines/schema.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator } from './operations.js'
@@ -174,6 +177,25 @@ function isLostEngineSession(engineInvoked: boolean, hadEngineSession: boolean, 
 
 function errorMessage(error: unknown): string {
   return String(error instanceof Error ? error.message : error)
+}
+
+/** A cancellation surfaced as a thrown error (AbortError / "cancelled"). The scoped
+ *  fallback ladder must re-throw these rather than treat them as a bad scoped output
+ *  and spend a full pass. Mirrors OperationCoordinator's own abort classification. */
+function isCancellation(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || /\b(?:abort(?:ed)?|cancelled)\b/i.test(error.message))
+}
+
+/** The converged product of the generate ladder — full or scoped — that the shared
+ *  atomic iteration write persists. `agentTurnText` is the review-thread agent turn
+ *  (scoped: "Updated N of M sections…"; full: today's text); `scope` is written to
+ *  the iteration row for provenance / the chain cap. */
+interface GenResult {
+  annotations: ReviewAnnotations
+  warnings: string[]
+  engineSession: string
+  agentTurnText: string
+  scope: 'full' | 'scoped'
 }
 
 /** Notify that a long-running agent op finished. Whether this surfaces (and the
@@ -440,31 +462,135 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
       // "Update review": fold the new drift commits into the existing narration
       // instead of re-narrating from scratch. Only meaningful if a review exists.
-      const prior = update && state.annotations
+      // Also the full-update escape hatch a failed scoped attempt falls back to.
+      const priorAnnotations = update ? state.annotations : undefined
+      const prior = priorAnnotations
         ? {
-            title: state.annotations.title,
-            summary: state.annotations.summary,
-            sections: state.annotations.sections.map((s) => s.name),
+            title: priorAnnotations.title,
+            summary: priorAnnotations.summary,
+            sections: priorAnnotations.sections.map((s) => s.name),
             sinceSha: state.reviewedAtSha
           }
         : undefined
+      const engine = makeEngine(agent.engine)
+      const recorder = opRecorder(opId)
+
+      // ── Decide scoped vs full (spec §1). Scoped only when: this is an update, a
+      //    prior review + iteration exist, that iteration's endSha is still reachable
+      //    from head (rebase/amend → unreachable → full), the reachable drift is small
+      //    (scopedEligible), and we're not chain-capped. Anything else → today's full. ─
+      const latest = state.latestIteration
+      let scopedPlan:
+        | { sinceBase: string; since: FileDiff[]; sinceAddedPaths: ReadonlySet<string>; resume?: string }
+        | null = null
+      if (priorAnnotations && latest) {
+        const sinceBase = latest.endSha // == state.reviewedAtSha after any generate
+        const reachable = await isAncestor(workdir, sinceBase, skeleton.headSha)
+        const chainCapped = dao.trailingScopedCount(db, sessionId, SCOPE_CHAIN_CAP) >= SCOPE_CHAIN_CAP
+        if (reachable && !chainCapped) {
+          const dirty = await isDirty(workdir)
+          const since = dirty
+            ? await diffSinceWorking(workdir, sinceBase)
+            : (await diffSince(workdir, sinceBase, compareEff)).files
+          // Empty since (update clicked with no drift) or drift too large → full.
+          if (since.length > 0 && scopedEligible(since, skeleton)) {
+            scopedPlan = {
+              sinceBase, since,
+              sinceAddedPaths: new Set(since.filter((f) => f.status === 'added').map((f) => f.path)),
+              // resume the prior iteration's engine session, but only within the same
+              // engine (model changes are fine); a cross-engine picker starts fresh.
+              resume: latest.engine === agent.engine ? latest.sessionId : undefined
+            }
+          }
+        }
+      }
+
       // a cancel during the pre-engine async setup above lands before run.cancel is
       // registered, so it would otherwise be a no-op and the engine would launch
-      // anyway. Check here (no await before activeOps.set, so the window is closed)
-      // and bail via the catch, which writes the cancelled note + op:result.
+      // anyway. Check here (no await before the first registerCancel, so the window is
+      // closed) and bail via the catch. Covers both the scoped and full launch.
       operations.throwIfCancelled(opId)
-      const engine = makeEngine(agent.engine)
-      const run = engine.generateReview({
-        repo: workdir, branch: compareEff, base: baseEff, diff: genDiff, artifacts,
-        model: agent.model, reasoningEffort: agent.reasoningEffort,
-        steer: steer?.trim() || undefined, prior
-      })
-      operations.registerCancel(opId, run.cancel)
-      const recorder = opRecorder(opId)
-      const pump = pumpEvents(run.events, recorder.emit)
-      const { value, sessionId: engineSession } = await run.result
-      await pump
-      const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths)
+
+      const runFullPass = async (): Promise<GenResult> => {
+        const run = engine.generateReview({
+          repo: workdir, branch: compareEff, base: baseEff, diff: genDiff, artifacts,
+          model: agent.model, reasoningEffort: agent.reasoningEffort,
+          steer: steer?.trim() || undefined, prior
+        })
+        operations.registerCancel(opId, run.cancel)
+        const pump = pumpEvents(run.events, recorder.emit)
+        const { value, sessionId: engineSession } = await run.result
+        await pump
+        const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths)
+        return {
+          annotations, warnings, engineSession, scope: 'full',
+          agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`
+        }
+      }
+
+      const runScopedTurn = async (resume?: string): Promise<{ value: ScopedReviewPatch; engineSession: string }> => {
+        const run = engine.generateScopedUpdate({
+          repo: workdir, branch: compareEff, base: baseEff,
+          since: scopedPlan!.since, prior: priorAnnotations!, sinceSha: scopedPlan!.sinceBase,
+          priorEngineSessionId: resume,
+          model: agent.model, reasoningEffort: agent.reasoningEffort,
+          steer: steer?.trim() || undefined
+        })
+        operations.registerCancel(opId, run.cancel)
+        const pump = pumpEvents(run.events, recorder.emit)
+        const { value, sessionId: engineSession } = await run.result
+        await pump
+        return { value, engineSession }
+      }
+
+      const runScopedPass = async (plan: NonNullable<typeof scopedPlan>): Promise<GenResult> => {
+        recorder.emit({ type: 'status', text: `note: scoped update — ${plan.since.length} file${plan.since.length === 1 ? '' : 's'} changed since ${plan.sinceBase.slice(0, 7)}` })
+        let patch: ScopedReviewPatch
+        let engineSession: string
+        const mark = recorder.events.length
+        try {
+          ({ value: patch, engineSession } = await runScopedTurn(plan.resume))
+        } catch (err) {
+          // ladder step 2 (resume-fail) vs step 3 (bad output): a lost resume aborts at
+          // run START with zero text/tool work (isLostEngineSession's shape). A bad
+          // output rejects only AFTER the model explored (text/tool events present).
+          const producedWork = recorder.events.slice(mark).some((e) => e.type === 'text' || e.type === 'tool')
+          if (plan.resume && !producedWork && !isCancellation(err)) {
+            recorder.emit({ type: 'status', text: 'note: could not resume prior session — retrying scoped update fresh' })
+            ;({ value: patch, engineSession } = await runScopedTurn(undefined))
+          } else {
+            throw err // bad output / cancellation → propagate (ladder step 3 or cancel)
+          }
+        }
+        const spliced = spliceScopedUpdate(priorAnnotations!, patch, skeleton, untrackedPaths, plan.sinceAddedPaths)
+        const priorIds = new Set(priorAnnotations!.sections.map((s) => s.id))
+        const added = patch.revisedSections.filter((s) => !priorIds.has(s.id)).length
+        const deleted = patch.deletedSectionIds.length
+        return {
+          annotations: spliced.annotations, warnings: spliced.warnings, engineSession, scope: 'scoped',
+          agentTurnText: `Updated ${spliced.revisedCount} of ${spliced.annotations.sections.length} sections (+${added} new, −${deleted}).`
+        }
+      }
+
+      // ── Fallback ladder (spec §7): a scoped attempt (with its own resume→fresh retry)
+      //    then, on unusable output, ONE full pass + a status note. A full-pass failure
+      //    is handled by the outer catch, unchanged. Single opId / review thread / ONE
+      //    iteration row across the whole ladder — nothing is persisted until below. ──
+      let result: GenResult
+      if (scopedPlan) {
+        try {
+          result = await runScopedPass(scopedPlan)
+        } catch (err) {
+          if (isCancellation(err)) throw err
+          const reason = err instanceof SpliceError ? err.message : errorMessage(err)
+          recorder.emit({ type: 'status', text: `note: scoped update failed (${reason}) — running a full update` })
+          result = await runFullPass()
+        }
+      } else {
+        result = await runFullPass()
+      }
+
+      const { annotations, warnings, engineSession, agentTurnText, scope } = result
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
 
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
@@ -499,7 +625,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           at: new Date().toISOString(),
           title: annotations.title,
           summary: annotations.summary,
-          annotations
+          annotations,
+          scope
         })
         dao.updateSessionMeta(db, sessionId, {
           engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
@@ -516,7 +643,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
           dao.addChatMessage(db, reviewThreadId, {
             role: 'agent', at,
-            text: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
+            text: agentTurnText,
             ...(genTools.length ? { tools: genTools } : {})
           })
         }

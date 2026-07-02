@@ -90,6 +90,16 @@ export class FakeEngine implements ReviewEngine {
         q.close()
         throw new Error(message)
       }
+      // [scoped-resume-fail] / LIMN_SCOPED_RESUME_FAIL=1 — the engine session could
+      // not be resumed (pruned/expired): throw at run START with NO text/tool events,
+      // exactly like a lost resume, but ONLY when resuming. Run fresh (no
+      // priorEngineSessionId) and it proceeds to the well-formed patch below — this
+      // models ladder step 2 (resume-fail → same scoped turn retried fresh).
+      if ((steer.includes('[scoped-resume-fail]') || process.env.LIMN_SCOPED_RESUME_FAIL === '1') && req.priorEngineSessionId) {
+        q.push({ type: 'status', text: 'Resuming the previous session…' }) // status doesn't count as work
+        q.close()
+        throw new Error('engine resume failed: session not found (fake)')
+      }
       q.push({ type: 'status', text: 'Reviewing the drift…' })
       q.push({ type: 'tool', call: { id: 'u1', verb: 'bash', name: 'git', arg: `git diff ${req.sinceSha}..${req.branch}`, state: 'run' } })
       q.push({ type: 'tool', call: { id: 'u1', verb: 'bash', name: 'git', arg: `git diff ${req.sinceSha}..${req.branch}`, state: 'ok', meta: `${req.since.length} files` } })
@@ -159,8 +169,15 @@ export class FakeEngine implements ReviewEngine {
         do { mintN += 1 } while (priorIdSet.has(`s${mintN}`))
         return `s${mintN}`
       }
-      for (const [, e] of newByDir) {
-        revisedSections.push(wireSection(mintId(), e.name, [...e.files], mintN, false))
+      // [scoped-miss] / LIMN_SCOPED_MISS=1 — the engine ignored a genuinely-new file:
+      // suppress minting for unowned dirs so those since-added files are claimed by NO
+      // section. The patch stays well-formed (splice succeeds); mergeAnnotations sweeps
+      // the orphan into 'other-changes' and splice step-9 WARNs (Q5 — no fallback).
+      const suppressMint = steer.includes('[scoped-miss]') || process.env.LIMN_SCOPED_MISS === '1'
+      if (!suppressMint) {
+        for (const [, e] of newByDir) {
+          revisedSections.push(wireSection(mintId(), e.name, [...e.files], mintN, false))
+        }
       }
 
       const revisedIds = new Set(revisedFiles.keys())

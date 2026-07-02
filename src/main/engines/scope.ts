@@ -6,6 +6,9 @@ export const SCOPE_MAX_FILES = 8
 export const SCOPE_MAX_LINES = 1000
 /** Since-diff may touch at most this fraction of the full branch's files. */
 export const SCOPE_MAX_FILE_RATIO = 0.5
+/** After this many consecutive scoped iterations, force a full update to re-ground
+ *  the narration and bound resumed-session context growth (spec §6/Q2). */
+export const SCOPE_CHAIN_CAP = 5
 
 /** Σ(add+del) across the since-diff. A binary file counts as 0 lines (git reports
  *  no line counts for binaries) but still as 1 file toward the file cap. */

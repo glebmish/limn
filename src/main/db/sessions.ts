@@ -471,9 +471,9 @@ export function pruneOrphanReviewThreads(db: DatabaseSync, sessionId: number, ex
 
 export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration): void {
   if (!it.title || !it.annotations) throw new Error('iteration requires title and annotations')
-  db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at, title, annotations_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at, it.title, JSON.stringify(it.annotations))
+  db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at, it.title, JSON.stringify(it.annotations), it.scope ?? null)
 }
 
 export function nextIterationNumber(db: DatabaseSync, sessionId: number): number {
@@ -481,7 +481,21 @@ export function nextIterationNumber(db: DatabaseSync, sessionId: number): number
   return row.n
 }
 
-type IterationRow = { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string; title: string; annotations_json: string }
+/** Number of most-recent consecutive iterations with `scope:'scoped'` (up to `cap`).
+ *  Used to force a full re-grounding after a chain of scoped updates (spec §6/Q2).
+ *  A NULL/'full' scope (or no iterations) breaks the run. */
+export function trailingScopedCount(db: DatabaseSync, sessionId: number, cap: number): number {
+  const rows = db.prepare('SELECT scope FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT ?')
+    .all(sessionId, cap) as { scope: string | null }[]
+  let n = 0
+  for (const r of rows) {
+    if (r.scope === 'scoped') n++
+    else break
+  }
+  return n
+}
+
+type IterationRow = { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string; title: string; annotations_json: string; scope?: string | null }
 
 /** An iteration whose annotations blob is malformed is skipped (returns undefined):
  *  iterations are history, and `latestIteration` / the iterations list degrade to the
@@ -500,13 +514,15 @@ function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteratio
     at: r.at,
     ...(r.summary ? { summary: r.summary } : {}),
     title: r.title,
-    annotations
+    annotations,
+    // NULL scope (legacy rows) is omitted → callers treat absence as 'full'.
+    ...(r.scope === 'full' || r.scope === 'scoped' ? { scope: r.scope } : {})
   }
 }
 
 export function latestIteration(db: DatabaseSync, sessionId: number): Iteration | null {
   const row = db.prepare(
-    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1'
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1'
   ).get(sessionId) as IterationRow | undefined
   return row ? rowToIteration(row) ?? null : null
 }
@@ -552,7 +568,7 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
   const target = getSession(db, targetSessionId)
   if (!source || !target) throw new Error('review session not found')
   const itRow = db.prepare(
-    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? AND n = ?'
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope FROM iterations WHERE session_id = ? AND n = ?'
   ).get(sourceSessionId, sourceIteration) as IterationRow | undefined
   if (!itRow) throw new Error('source review has no generated content to copy')
   const it = rowToIteration(itRow)
@@ -720,7 +736,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   const chats = listChatThreads(db, sessionId, warnings)
 
   const iterations = (db.prepare(
-    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n'
+    'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope FROM iterations WHERE session_id = ? ORDER BY n'
   ).all(sessionId) as IterationRow[])
     .map((r) => rowToIteration(r, warnings))
     .filter((it): it is Iteration => it !== undefined)

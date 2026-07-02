@@ -249,7 +249,7 @@ export interface ChatThread {
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
 }
-export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations }
+export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations; /** provenance of this iteration: 'full' = fresh/replacement generation, 'scoped' = diff-scoped update spliced onto the prior. Absent on rows written before the column existed (treated as 'full' historically). */ scope?: 'full' | 'scoped' }
 export interface ReviewCopyCandidate {
   sessionId: number
   iteration: number

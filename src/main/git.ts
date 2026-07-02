@@ -363,6 +363,19 @@ export async function diffSinceWorking(dir: string, sinceSha: string): Promise<F
   return workingTreeDiffFrom(dir, sinceSha)
 }
 
+/** True iff `ancestor` is reachable from `descendant` (an ancestor commit, or the
+ *  same commit). Used to gate the scoped-update path: a prior iteration's endSha
+ *  that is no longer an ancestor of head (rebase/amend/force-push) is unreachable,
+ *  so the since-diff is meaningless and generation falls back to a full pass. */
+export async function isAncestor(dir: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await execGit(dir, ['merge-base', '--is-ancestor', ancestor, descendant])
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Diff of the branch tip against an earlier sha on the branch (for "since approved"). */
 export async function diffSince(dir: string, sinceSha: string, branch: string): Promise<DiffSkeleton> {
   const tip = await headSha(dir, branch)

@@ -200,5 +200,17 @@ export const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // Iteration provenance: 'full' = today's fresh/replacement generation,
+    // 'scoped' = a diff-scoped update spliced onto the prior iteration. Nullable:
+    // rows written before this column read back NULL and are treated as 'full'
+    // historically (never backfilled). Written at iteration insert.
+    version: 7,
+    up(db) {
+      const cols = db.prepare('PRAGMA table_info(iterations)').all() as { name: string }[]
+      if (cols.some((c) => c.name === 'scope')) return
+      db.exec('ALTER TABLE iterations ADD COLUMN scope TEXT')
+    }
   }
 ]
