@@ -6,10 +6,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { assertAutoAcceptCoverage, LIMN_TOOLS, type AgentToolHost } from './tools.js'
 
 // The single localhost streamable-HTTP MCP host that serves Limn's tools to every
-// agent. An agent subprocess (Codex app-server today; every ACP adapter after the
-// migration) opens the connection, so we run this HTTP MCP server in main. Each turn
+// agent. An agent subprocess (every ACP adapter) opens the connection, so we run
+// this HTTP MCP server in main. Each turn
 // registers its AgentToolHost under an unguessable path token; permission requests are
-// handled separately (codexAppServer for Codex; ladderPolicy for ACP engines).
+// handled separately (ladderPolicy for every ACP engine).
 // One McpServer + transport per turn, addressed at /mcp/<token>.
 
 interface Turn { server: McpServer; transport: StreamableHTTPServerTransport }

@@ -116,8 +116,8 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     })
     const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
     const events = await drain(run.events)
-    // NO raw {type:'error'} event — ipc.ts renders the friendly copy from the rejection
-    // (mirrors CodexEngine, which parses outside the turn).
+    // NO raw {type:'error'} event — ipc.ts renders the friendly copy from the
+    // rejection (the parse happens after the turn completes, not as part of it).
     expect(events.some((e) => e.type === 'error')).toBe(false)
     // the rejection preserves ZodError.name so ipc.ts's friendly-message gate fires.
     const err = await run.result.then(() => null, (e: unknown) => e)

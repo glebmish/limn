@@ -4,8 +4,8 @@ import { acpToEvents, acpPermissionToRequest, verbOf } from '../src/main/engines
 
 // Pure ACP session/update -> EngineEvent mapper. One event per update (folding
 // pending->completed by id is downstream, in reduceToolCalls) — mirrors the
-// per-message shape of claude.ts's toEvents / codexAppServer.ts's
-// appServerNotifToEvent, which this mapper replaces (spec.md §D2).
+// per-message shape of claude.ts's toEvents, which this mapper replaces
+// (spec.md §D2), same as the app-server's now-deleted appServerNotifToEvent did.
 
 describe('acpToEvents — text / thought / plan chunks', () => {
   it('maps agent_message_chunk to a text event', () => {

@@ -195,8 +195,9 @@ export interface ToolCall {
 
 // ── execution mode (approvals ladder) ─────────────────────────
 /** The per-chat autonomy tier the reviewer picks. One product vocabulary across
- *  engines; `executionPolicy(mode)` maps it to each engine's permission mode +
- *  sandbox. Persisted on the chat thread; defaults to 'ask'. */
+ *  engines; each `AcpEngineConfig.modeFor` maps it to the engine's session mode,
+ *  and `ladderPolicy` maps it to per-request approval decisions. Persisted on the
+ *  chat thread; defaults to 'ask'. */
 export type ExecutionMode = 'ask' | 'edits' | 'auto' | 'full'
 export interface ExecutionTier {
   key: ExecutionMode

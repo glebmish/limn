@@ -339,7 +339,7 @@ export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
  *  allowlist members). Called at turn registration; unit-tested directly. */
 export function assertAutoAcceptCoverage(tools: ToolDef[]): void {
   const unlisted = tools.filter((t) => !AUTO_ACCEPT_TOOL_NAMES.has(t.name))
-  if (unlisted.length) throw new Error(`limn tools not cleared for auto-accept: ${unlisted.map((t) => t.name).join(', ')} — Codex elicitations auto-accept every registered tool (codexAppServer.ts); add them to AUTO_ACCEPT_TOOL_NAMES only if they cannot write files/git, otherwise wire them through the approval ladder first.`)
+  if (unlisted.length) throw new Error(`limn tools not cleared for auto-accept: ${unlisted.map((t) => t.name).join(', ')} — every ACP engine auto-allows registered limn tools via the ladder policy; add them to AUTO_ACCEPT_TOOL_NAMES only if they cannot write files/git, otherwise wire them through the approval ladder first.`)
 }
 
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {

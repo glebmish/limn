@@ -285,8 +285,8 @@ export class AcpEngine implements ReviewEngine {
           } catch (finalErr) {
             // Final structured-parse failure: propagate UNWRAPPED (preserve
             // ZodError.name so ipc.ts's friendly-copy gate fires) and push NO raw
-            // {type:'error'} event — exactly as CodexEngine, which parses in a `.then`
-            // outside the turn. The outer catch recognizes the mark and re-throws it.
+            // {type:'error'} event — the parse happens after the turn completes, not
+            // as part of it. The outer catch recognizes the mark and re-throws it.
             throw markStructuredParse(finalErr)
           }
         }
@@ -302,7 +302,7 @@ export class AcpEngine implements ReviewEngine {
         }
         // A structured-parse failure (D5): surface it as the raw parse error so
         // ipc.ts renders its friendly copy — do NOT wrap (loses ZodError.name) and do
-        // NOT push a raw {type:'error'} event (matches CodexEngine).
+        // NOT push a raw {type:'error'} event.
         if (isStructuredParse(err)) throw err
         const tail = stderrTail.trim()
         const message = (err instanceof Error ? err.message : String(err)) + (tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : '')

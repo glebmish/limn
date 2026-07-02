@@ -11,11 +11,11 @@ import type {
 import type { ApprovalKind, ApprovalRequest, EngineEvent, EngineId, ToolVerb } from '../../shared/types.js'
 import { bashArg, clampOut, deriveVerb } from '../../shared/toolcalls.js'
 
-/** Pure ACP `session/update` -> Limn `EngineEvent` mapper (spec.md §D2). Replaces
- *  `toEvents` (claude.ts) and `appServerNotifToEvent`/`appServerItemToEvent`
- *  (codexAppServer.ts) for the ACP engine — one event per update, same as those
- *  mappers today; pending->completed folding by tool id happens downstream in
- *  `reduceToolCalls` (shared/toolcalls.ts). */
+/** Pure ACP `session/update` -> Limn `EngineEvent` mapper (spec.md §D2). Replaced
+ *  `toEvents` (claude.ts) and the app-server's `appServerNotifToEvent`/
+ *  `appServerItemToEvent` (now deleted) for the ACP engine — one event per update,
+ *  same as those mappers before; pending->completed folding by tool id happens
+ *  downstream in `reduceToolCalls` (shared/toolcalls.ts). */
 
 /** Extract the text payload of a content block, or '' for non-text blocks
  *  (image/audio/resource) — Limn's chat surface only renders text. */
@@ -184,9 +184,9 @@ export function acpToEvents(update: SessionUpdate): EngineEvent[] {
 }
 
 /** Normalize an ACP `session/request_permission` payload to Limn's engine-
- *  agnostic `ApprovalRequest` (spec.md §D3 first bullet) — replaces
- *  `toApprovalRequest` (claude.ts) and `approvalRequestFromParams`
- *  (codexAppServer.ts). `id` is the request's `toolCall.toolCallId` —
+ *  agnostic `ApprovalRequest` (spec.md §D3 first bullet) — replaced
+ *  `toApprovalRequest` (claude.ts) and the app-server's `approvalRequestFromParams`
+ *  (now deleted). `id` is the request's `toolCall.toolCallId` —
  *  `RequestPermissionRequest` carries no separate top-level correlation id, and
  *  the AcpEngine pairs the reviewer's decision back to the same tool call. */
 export function acpPermissionToRequest(req: RequestPermissionRequest, engine: EngineId): ApprovalRequest {

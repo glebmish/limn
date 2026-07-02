@@ -63,7 +63,8 @@ export interface ChatTurn {
   writeEnabled?: boolean
   /** op id for this turn — keys the approval registry (`awaitDecision`). */
   opId?: string
-  /** the chat's autonomy tier; the adapter maps it via `executionPolicy`. */
+  /** the chat's autonomy tier; the adapter maps it via `AcpEngineConfig.modeFor` /
+   *  `ladderPolicy`. */
   executionMode?: ExecutionMode
 }
 
