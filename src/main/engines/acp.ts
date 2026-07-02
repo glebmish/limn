@@ -253,14 +253,14 @@ export class AcpEngine implements ReviewEngine {
         }
         replaying = false // post-setup updates are live turn output, not replay
 
-        // (f) set mode + effort (best-effort; swallow method-not-found / no-ops).
+        // (f) set mode + config options (best-effort; swallow method-not-found / no-ops).
         try {
           await conn.setSessionMode({ sessionId, modeId: this.config.modeFor(mode, write) })
         } catch { /* forward-compat: modes are slated for removal */ }
-        if (this.config.effortVia === 'config-option' && opts.reasoningEffort) {
+        for (const opt of this.config.configOptions?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? []) {
           try {
-            await conn.setSessionConfigOption({ sessionId, configId: 'effort', value: opts.reasoningEffort })
-          } catch { /* effort passthrough is advisory */ }
+            await conn.setSessionConfigOption({ sessionId, configId: opt.configId, value: opt.value })
+          } catch { /* config-option passthrough is advisory — unknown ids are swallowed */ }
         }
 
         // (g) prompt + validate + one repair (spec §D5), on the SAME live session.

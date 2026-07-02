@@ -147,7 +147,7 @@ class FakeAgent implements Agent {
   setSessionConfigOption(
     params: Parameters<NonNullable<Agent['setSessionConfigOption']>>[0]
   ): { configOptions: never[] } {
-    record({ event: 'setSessionConfigOption', configId: params.configId })
+    record({ event: 'setSessionConfigOption', configId: params.configId, value: params.value })
     return { configOptions: [] }
   }
 

@@ -14,9 +14,10 @@ export interface AcpEngineConfig {
   modeFor: (mode: ExecutionMode, writeEnabled: boolean) => string
   /** per-turn spawn env (e.g. `ANTHROPIC_MODEL`); one process per turn makes it exact. */
   env?: (turn: { model?: string; reasoningEffort?: ReasoningEffort }) => Record<string, string>
-  /** how reasoning effort is applied post-session: 'config-option' →
-   *  `setSessionConfigOption({ configId: 'effort' })`. */
-  effortVia?: 'config-option'
+  /** per-turn ACP session config options applied post-session via
+   *  `setSessionConfigOption` (Codex: `model` + `reasoning_effort`; Claude: `effort`).
+   *  Best-effort — the engine swallows unknown/unsupported option ids. */
+  configOptions?: (turn: { model?: string; reasoningEffort?: ReasoningEffort }) => { configId: string; value: string }[]
 }
 
 const require_ = createRequire(import.meta.url)
@@ -51,6 +52,13 @@ export function spawnAdapter(entry: string, env: Record<string, string>): ChildP
   }) as ChildProcessWithoutNullStreams
 }
 
+/** Claude's `configOptions` effort mapping: Claude's `effort` config option offers
+ *  `default/low/medium/high/xhigh/max` — no `minimal`, so Limn's `minimal` clamps up
+ *  to `low`; every other Limn value passes through unchanged. Exported for tests. */
+export function claudeEffort(effort: ReasoningEffort): string {
+  return effort === 'minimal' ? 'low' : effort
+}
+
 /** Claude adapter config (spike-confirmed mode ids + `ANTHROPIC_MODEL` env). The
  *  adapter path resolves from `node_modules` at load; `LIMN_CLAUDE_ADAPTER` overrides. */
 export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
@@ -59,5 +67,31 @@ export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   modeFor: (mode, writeEnabled) =>
     !writeEnabled ? 'default' : ({ ask: 'default', edits: 'acceptEdits', auto: 'acceptEdits', full: 'bypassPermissions' }[mode] ?? 'default'),
   env: (t): Record<string, string> => (t.model ? { ANTHROPIC_MODEL: t.model } : {}),
-  effortVia: 'config-option'
+  configOptions: (t) => (t.reasoningEffort ? [{ configId: 'effort', value: claudeEffort(t.reasoningEffort) }] : [])
+}
+
+/** Codex's `configOptions` effort mapping: Codex's `reasoning_effort` config option
+ *  offers `low/medium/high/xhigh` only — no `minimal`/`max`, so Limn's `minimal`
+ *  clamps up to `low` and `max` clamps down to `xhigh`; everything else passes
+ *  through unchanged. Exported for tests. */
+export function codexEffort(effort: ReasoningEffort): string {
+  if (effort === 'minimal') return 'low'
+  if (effort === 'max') return 'xhigh'
+  return effort
+}
+
+/** Codex adapter config (spike-confirmed mode ids). Unlike Claude, Codex has no
+ *  model spawn env var — both model AND reasoning effort go through the
+ *  `session/set_config_option` channel (spike §3: `configId` `model` /
+ *  `reasoning_effort`). The adapter path resolves from `node_modules` at load;
+ *  `LIMN_CODEX_ADAPTER` overrides. */
+export const CODEX_ACP_CONFIG: AcpEngineConfig = {
+  id: 'codex',
+  adapterEntry: resolveAdapterEntry('@agentclientprotocol/codex-acp', process.env.LIMN_CODEX_ADAPTER),
+  modeFor: (mode, writeEnabled) =>
+    !writeEnabled ? 'read-only' : ({ ask: 'read-only', edits: 'agent', auto: 'agent', full: 'agent-full-access' }[mode] ?? 'read-only'),
+  configOptions: (t) => [
+    ...(t.model ? [{ configId: 'model', value: t.model }] : []),
+    ...(t.reasoningEffort ? [{ configId: 'reasoning_effort', value: codexEffort(t.reasoningEffort) }] : [])
+  ]
 }

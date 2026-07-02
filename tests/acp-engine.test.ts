@@ -4,24 +4,30 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpEngine } from '../src/main/engines/acp'
-import { CLAUDE_ACP_CONFIG } from '../src/main/engines/adapters'
+import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/main/engines/adapters'
 import { resolveDecision, pendingCount } from '../src/main/engines/approvals'
 import type { EngineEvent, ReviewAnnotations } from '../src/shared/types'
+import type { AcpEngineConfig } from '../src/main/engines/adapters'
 import type { FakeScript } from './helpers/fakeAcpAgent'
 
 const FAKE_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), 'helpers', 'fakeAcpAgent.ts')
 
 const outFiles: string[] = []
 
-/** Build an AcpEngine wired to the fake agent, injecting `script` via spawn env. */
-function fakeEngine(script: FakeScript): { engine: AcpEngine; readRecords: () => Array<Record<string, unknown>> } {
+/** Build an AcpEngine wired to the fake agent, injecting `script` via spawn env.
+ *  Defaults to `CLAUDE_ACP_CONFIG`'s mode/configOptions behaviour; pass `baseConfig`
+ *  (e.g. `CODEX_ACP_CONFIG`) to exercise a different engine's config against the fake. */
+function fakeEngine(
+  script: FakeScript,
+  baseConfig: AcpEngineConfig = CLAUDE_ACP_CONFIG
+): { engine: AcpEngine; readRecords: () => Array<Record<string, unknown>> } {
   const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-acp-')), 'out.ndjson')
   outFiles.push(outFile)
   const engine = new AcpEngine({
-    ...CLAUDE_ACP_CONFIG,
+    ...baseConfig,
     adapterEntry: FAKE_ENTRY,
     env: (t) => ({
-      ...(CLAUDE_ACP_CONFIG.env?.(t) ?? {}),
+      ...(baseConfig.env?.(t) ?? {}),
       LIMN_FAKE_ACP_SCRIPT: JSON.stringify(script),
       LIMN_FAKE_ACP_OUT: outFile
     })
@@ -279,6 +285,22 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(errorEvent).toBeTruthy()
     expect(errorEvent?.message).toMatch(/protocol/i)
     await expect(run.result).rejects.toThrow(/protocol/i)
+  })
+
+  it('11. Codex config: model + reasoning_effort applied via setSessionConfigOption (no ANTHROPIC_MODEL env)', async () => {
+    const { engine, readRecords } = fakeEngine({ sessionId: 'codex-1', turns: [{ text: 'ok' }] }, CODEX_ACP_CONFIG)
+    const run = engine.chat({ repo: '/r', message: 'go', model: 'gpt-5.5', reasoningEffort: 'max' })
+    await drain(run.events)
+    await run.result
+    const optionCalls = readRecords().filter((r) => r.event === 'setSessionConfigOption')
+    expect(optionCalls).toEqual(
+      expect.arrayContaining([
+        { event: 'setSessionConfigOption', configId: 'model', value: 'gpt-5.5' },
+        { event: 'setSessionConfigOption', configId: 'reasoning_effort', value: 'xhigh' } // max clamps to xhigh
+      ])
+    )
+    // Codex has no model spawn env — the fake's env only carries the test-harness keys.
+    expect(optionCalls.length).toBe(2)
   })
 })
 
