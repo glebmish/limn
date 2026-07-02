@@ -152,10 +152,15 @@ export class FakeEngine implements ReviewEngine {
       const revisedSections: WireSection[] = [...revisedFiles.values()].map((e) =>
         wireSection(e.section.id, e.section.name, [...e.files], e.section.order, true)
       )
+      // mint `s<N+1>`, skipping any id a (possibly non-sequential) prior review holds.
+      const priorIdSet = new Set(priorIds)
       let mintN = req.prior.sections.length
+      const mintId = (): string => {
+        do { mintN += 1 } while (priorIdSet.has(`s${mintN}`))
+        return `s${mintN}`
+      }
       for (const [, e] of newByDir) {
-        mintN += 1
-        revisedSections.push(wireSection(`s${mintN}`, e.name, [...e.files], mintN, false))
+        revisedSections.push(wireSection(mintId(), e.name, [...e.files], mintN, false))
       }
 
       const revisedIds = new Set(revisedFiles.keys())

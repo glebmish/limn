@@ -66,18 +66,22 @@ export class CodexEngine implements ReviewEngine {
   }
 
   generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch> {
-    // Same lifecycle as generateReview (structured output), plus resume via
-    // engineSessionId: thread/resume + outputSchema compose on the one turn. The
-    // resumed thread already holds the prior exploration; when absent it starts a
-    // fresh (self-contained) thread. A resume failure rejects; the caller retries fresh.
+    // Structured-output turn (like generateReview) plus resume via engineSessionId:
+    // thread/resume + outputSchema compose on the one turn. The resumed thread
+    // already holds the prior exploration; when absent it starts a fresh
+    // (self-contained) thread. A resume failure rejects; the caller retries fresh.
+    // READ-ONLY: the scoped patch only reads the since-diff and emits a JSON review
+    // patch — no file writes. Omitting writeEnabled/executionMode defaults to the
+    // 'ask' tier → read-only sandbox (matches Claude's READ_TOOLS scoped turn). The
+    // read-only sandbox restricts writes, not reads, so file reads + git log/show
+    // exploration still work.
     const run = runAppServerTurn({
       repo: req.repo,
       prompt: buildScopedUpdatePrompt(req),
       engineSessionId: req.priorEngineSessionId,
       model: req.model,
       reasoningEffort: req.reasoningEffort,
-      writeEnabled: true,
-      executionMode: 'edits',
+      writeEnabled: false,
       outputSchema: scopedReviewJsonSchema,
       streamText: false,
       status: 'Updating the review…'
