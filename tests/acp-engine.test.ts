@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { AcpEngine } from '../src/main/engines/acp'
 import { CLAUDE_ACP_CONFIG } from '../src/main/engines/adapters'
 import { resolveDecision, pendingCount } from '../src/main/engines/approvals'
-import type { EngineEvent } from '../src/shared/types'
+import type { EngineEvent, ReviewAnnotations } from '../src/shared/types'
 import type { FakeScript } from './helpers/fakeAcpAgent'
 
 const FAKE_ENTRY = path.join(path.dirname(fileURLToPath(import.meta.url)), 'helpers', 'fakeAcpAgent.ts')
@@ -215,6 +215,61 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const { value, sessionId } = await run.result
     expect(value).toBe('live answer')
     expect(sessionId).toBe('resume-me') // loaded, not fresh
+  })
+
+  it('9. generateScopedUpdate: parsed ScopedReviewPatch returned, resuming priorEngineSessionId', async () => {
+    const validScopedPatch = {
+      title: null,
+      summary: null,
+      revisedSections: [{
+        id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts', 'src/c.ts'], order: 1,
+        diagram: null, insight: null, plainNotes: null
+      }],
+      deletedSectionIds: [],
+      keptSectionIds: ['s2'],
+      newQuestions: [],
+      resolvedQuestionIds: [],
+      planMap: null
+    }
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'unused-scoped',
+      turns: [{ text: JSON.stringify(validScopedPatch) }]
+    })
+    const prior: ReviewAnnotations = {
+      title: 'Prior title',
+      summary: 'Prior summary',
+      sections: [
+        { id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts'], order: 1 },
+        { id: 's2', name: 'docs', desc: 'd', what: 'w', files: ['docs/x.md'], order: 2 }
+      ],
+      questions: []
+    }
+    const run = engine.generateScopedUpdate({
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'a'.repeat(40),
+      since: [{ path: 'src/c.ts', status: 'added', binary: false, add: 1, del: 0, hunks: [] }],
+      prior,
+      priorEngineSessionId: 'sess-prior'
+    })
+    await drain(run.events)
+    const { value, sessionId } = await run.result
+    expect(value).toEqual(validScopedPatch)
+    expect(sessionId).toBe('sess-prior') // resumed, not minted fresh
+    const load = readRecords().find((r) => r.event === 'loadSession')
+    expect(load?.sessionId).toBe('sess-prior')
+  })
+
+  it('10. protocol-version guard (OQ10): mismatched protocolVersion fails the turn with an actionable error', async () => {
+    const { engine } = fakeEngine({
+      sessionId: 'proto-mismatch',
+      protocolVersion: 2,
+      turns: [{ text: 'unused — the turn must fail before prompting' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'hi' })
+    const events = await drain(run.events)
+    const errorEvent = events.find((e): e is Extract<EngineEvent, { type: 'error' }> => e.type === 'error')
+    expect(errorEvent).toBeTruthy()
+    expect(errorEvent?.message).toMatch(/protocol/i)
+    await expect(run.result).rejects.toThrow(/protocol/i)
   })
 })
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,7 +6,6 @@ import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 import { getDiff, diffSince, markSince, headSha } from '../src/main/git'
 import { mergeAnnotations } from '../src/main/engines/validate'
 import { FakeEngine } from '../src/main/engines/fake'
-import { toEvents, makeCanUseTool, toApprovalRequest } from '../src/main/engines/claude'
 import { resolveDecision } from '../src/main/engines/approvals'
 import { createToolHost } from '../src/main/engines/tools'
 import { openDb } from '../src/main/db/db'
@@ -267,106 +266,5 @@ describe('FakeEngine approval round-trip', () => {
     }
     await run.result
     expect(seen.some((e) => e.type === 'status' && e.text.includes('denied'))).toBe(true)
-  })
-})
-
-describe('claude canUseTool policy', () => {
-  it('auto-allows limn + read-safe tools without prompting', async () => {
-    const emit = vi.fn()
-    const can = makeCanUseTool('opC', emit)
-    // 'allow' echoes the tool input back as updatedInput (without it the SDK
-    // forwards undefined to the tool → ZodError on its input schema).
-    expect(await can('mcp__limn__add_comment', {}, {} as never)).toEqual({ behavior: 'allow', updatedInput: {} })
-    expect(await can('Read', { file_path: 'a' }, {} as never)).toEqual({ behavior: 'allow', updatedInput: { file_path: 'a' } })
-    expect(await can('Grep', { pattern: 'x' }, {} as never)).toEqual({ behavior: 'allow', updatedInput: { pattern: 'x' } })
-    expect(emit).not.toHaveBeenCalled()
-  })
-
-  it('routes a non-allowlisted mcp__limn__ tool to the approval path', async () => {
-    const emit = vi.fn()
-    const can = makeCanUseTool('opC-write', emit)
-    // A fabricated write-capable limn tool is NOT on AUTO_ACCEPT_TOOL_NAMES, so it
-    // must fall through to awaitDecision rather than auto-allow on the prefix alone.
-    const p = can('mcp__limn__write_file', { path: 'a.ts' }, {} as never)
-    const ev = emit.mock.calls[0][0] as { type: string; request: { id: string } }
-    expect(ev.type).toBe('approval_request')
-    resolveDecision('opC-write', ev.request.id, 'allow')
-    expect(await p).toEqual({ behavior: 'allow', updatedInput: { path: 'a.ts' } })
-  })
-
-  it('prompts for Bash and routes a deny', async () => {
-    const emit = vi.fn()
-    const can = makeCanUseTool('opC2', emit)
-    const p = can('Bash', { command: 'rm -rf x' }, {} as never)
-    const ev = emit.mock.calls[0][0] as { type: string; request: { id: string; kind: string } }
-    expect(ev.type).toBe('approval_request')
-    expect(ev.request.kind).toBe('command')
-    resolveDecision('opC2', ev.request.id, 'deny')
-    expect(await p).toMatchObject({ behavior: 'deny' })
-  })
-
-  it('allows a write tool when approved', async () => {
-    const emit = vi.fn()
-    const can = makeCanUseTool('opC3', emit)
-    const p = can('Edit', { file_path: 'src/a.ts' }, {} as never)
-    const ev = emit.mock.calls[0][0] as { request: { id: string } }
-    resolveDecision('opC3', ev.request.id, 'allow')
-    expect(await p).toEqual({ behavior: 'allow', updatedInput: { file_path: 'src/a.ts' } })
-  })
-
-  it('toApprovalRequest maps tool → kind/detail', () => {
-    expect(toApprovalRequest('bash', 'Bash', { command: 'ls' }, 'r1')).toMatchObject({ kind: 'command', detail: { command: 'ls' } })
-    expect(toApprovalRequest('e', 'Write', { file_path: 'a.ts' }, 'r2')).toMatchObject({ kind: 'file_change', detail: { files: ['a.ts'] } })
-    expect(toApprovalRequest('w', 'WebFetch', { url: 'x' }, 'r3')).toMatchObject({ kind: 'tool_use', detail: { toolName: 'WebFetch' } })
-  })
-})
-
-describe('claude toEvents — tool lifecycle', () => {
-  it('maps a tool_use block to a running ToolCall', () => {
-    const msg = { type: 'assistant', message: { content: [
-      { type: 'tool_use', id: 'tu_1', name: 'Read', input: { file_path: 'src/a.ts' } },
-    ] } } as never
-    expect(toEvents(msg)).toEqual([
-      { type: 'tool', call: { id: 'tu_1', verb: 'read', name: 'Read', arg: 'src/a.ts', kv: [['file_path', 'src/a.ts']], state: 'run' } },
-    ])
-  })
-
-  it('maps a tool_result user message to ok with out', () => {
-    const msg = { type: 'user', message: { content: [
-      { type: 'tool_result', tool_use_id: 'tu_1', content: 'line1\nline2\nline3', is_error: false },
-    ] } } as never
-    expect(toEvents(msg)).toEqual([
-      { type: 'tool', call: { id: 'tu_1', verb: 'other', name: '', state: 'ok', out: 'line1\nline2\nline3' } },
-    ])
-  })
-
-  it('marks an errored tool_result as err', () => {
-    const msg = { type: 'user', message: { content: [
-      { type: 'tool_result', tool_use_id: 'tu_2', content: 'boom', is_error: true },
-    ] } } as never
-    expect(toEvents(msg)[0]).toMatchObject({ type: 'tool', call: { id: 'tu_2', state: 'err', out: 'boom' } })
-  })
-
-  it('handles array-form tool_result content', () => {
-    const msg = { type: 'user', message: { content: [
-      { type: 'tool_result', tool_use_id: 'tu_3', content: [{ type: 'text', text: 'hello' }] },
-    ] } } as never
-    expect(toEvents(msg)[0]).toMatchObject({ type: 'tool', call: { id: 'tu_3', state: 'ok', out: 'hello' } })
-  })
-
-  it('emits assistant text and [] for unrelated messages', () => {
-    expect(toEvents({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } } as never)).toEqual([{ type: 'text', text: 'hi' }])
-    expect(toEvents({ type: 'system', subtype: 'other' } as never)).toEqual([])
-  })
-
-  it('emits multiple events from one assistant message (text + tool_use)', () => {
-    const msg = { type: 'assistant', message: { content: [
-      { type: 'text', text: 'looking' },
-      { type: 'tool_use', id: 'tu_9', name: 'Grep', input: { pattern: 'foo' } },
-    ] } } as never
-    expect(toEvents(msg)).toEqual([
-      { type: 'text', text: 'looking' },
-      { type: 'tool', call: { id: 'tu_9', verb: 'grep', name: 'Grep', arg: 'foo', kv: [['pattern', 'foo']], state: 'run' } },
-    ])
   })
 })
