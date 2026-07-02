@@ -117,6 +117,15 @@ const TIER_TABLE: Record<ExecutionMode, { file_change: LadderDecision; commandSa
   full: { file_change: 'allow', commandSafe: 'allow', commandUnsafe: 'allow', tool_use: 'allow' },
 }
 
+/** Shared-lane read-only turn (concurrent-chat): allow only Limn's own tools; DENY
+ *  every working-tree / shell / other tool request outright — never park on the
+ *  reviewer — regardless of the thread's tier. Strictly stronger than `!writeEnabled`
+ *  (which only denies `file_change`): a read-only turn running alongside a generation
+ *  must never edit, run a command, or block waiting for an approval. */
+export function readOnlyLadder(req: ApprovalRequest): 'allow' | 'deny' {
+  return req.kind === 'tool_use' && isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
+}
+
 /** The one shared decision function that runs on every incoming ACP
  *  `session/request_permission`, identical for every engine (D3(b)). */
 export function ladderPolicy(mode: ExecutionMode, req: ApprovalRequest, writeEnabled: boolean): LadderDecision {

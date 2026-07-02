@@ -170,6 +170,25 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(value).toBe('focused')
   })
 
+  it('4c. readOnly turn denies a command WITHOUT parking, even at the full tier', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4c',
+      turns: [{
+        permission: { toolCallId: 'cmd4c', title: 'run', kind: 'execute', rawInput: { command: 'ls' } },
+        text: 'done',
+        rejectedText: 'refused'
+      }]
+    })
+    // full tier would normally allow commands; readOnly overrides to deny-all-non-limn.
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4c', message: 'go', opId: 'op4c', executionMode: 'full', readOnly: true })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'approval_request')).toBe(false) // never parked
+    const { value } = await run.result
+    expect(value).toBe('refused') // reject branch taken
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
+  })
+
   it('5. cancel → cancelled; pending permission cleared', async () => {
     const { engine } = fakeEngine({
       sessionId: 'ch-5',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ladderPolicy, isSafeCommand, isLimnTool, SAFE_COMMAND_ALLOWLIST } from '../src/shared/approvalPolicy.js'
+import { ladderPolicy, readOnlyLadder, isSafeCommand, isLimnTool, SAFE_COMMAND_ALLOWLIST } from '../src/shared/approvalPolicy.js'
 import type { ApprovalRequest, ExecutionMode } from '../src/shared/types.js'
 
 function req(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
@@ -12,6 +12,20 @@ function req(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
     ...overrides,
   }
 }
+
+describe('readOnlyLadder (shared-lane read-only turn)', () => {
+  it('allows Limn tools', () => {
+    expect(readOnlyLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp__limn__focus' } }))).toBe('allow')
+  })
+  it('denies (never asks) a command regardless of safety', () => {
+    expect(readOnlyLadder(req({ kind: 'command', detail: { command: 'ls' } }))).toBe('deny')
+    expect(readOnlyLadder(req({ kind: 'command', detail: { command: 'rm -rf /' } }))).toBe('deny')
+  })
+  it('denies file_change and non-Limn tool_use', () => {
+    expect(readOnlyLadder(req({ kind: 'file_change', detail: {} }))).toBe('deny')
+    expect(readOnlyLadder(req({ kind: 'tool_use', detail: { toolName: 'Bash' } }))).toBe('deny')
+  })
+})
 
 describe('isLimnTool', () => {
   it('recognizes mcp__limn__ prefixed tool names', () => {

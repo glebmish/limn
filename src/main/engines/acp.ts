@@ -13,7 +13,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
 import type { ReasoningEffort, ReviewAnnotations, ExecutionMode } from '../../shared/types.js'
-import { ladderPolicy } from '../../shared/approvalPolicy.js'
+import { ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
@@ -73,6 +73,8 @@ interface AcpTurnOptions<T> {
   writeEnabled?: boolean
   opId?: string
   executionMode?: ExecutionMode
+  /** force read-only mode + deny-all-non-limn permissions regardless of tier. */
+  readOnly?: boolean
   /** suppress streamed text events (structured generate turns). */
   structured?: boolean
   /** identity for chat; parse∘extract for review/scoped — throws → one repair turn. */
@@ -136,6 +138,7 @@ export class AcpEngine implements ReviewEngine {
       writeEnabled: turn.writeEnabled,
       opId: turn.opId,
       executionMode: turn.executionMode,
+      readOnly: turn.readOnly,
       structured: false,
       parse: (t) => t
     })
@@ -149,7 +152,9 @@ export class AcpEngine implements ReviewEngine {
     const q = new EventQueue()
     if (opts.status) q.push({ type: 'status', text: opts.status })
     const mode: ExecutionMode = opts.executionMode ?? 'ask'
-    const write = Boolean(opts.writeEnabled)
+    // A read-only shared-lane turn is never write-capable, whatever the tier says.
+    const readOnly = Boolean(opts.readOnly)
+    const write = Boolean(opts.writeEnabled) && !readOnly
 
     let child: ChildProcessWithoutNullStreams | null = null
     let conn: ClientSideConnection | null = null
@@ -214,7 +219,7 @@ export class AcpEngine implements ReviewEngine {
           },
           requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
             const req = acpPermissionToRequest(params, this.config.id)
-            const decision = ladderPolicy(mode, req, write)
+            const decision = readOnly ? readOnlyLadder(req) : ladderPolicy(mode, req, write)
             const options = params.options ?? []
             if (decision === 'allow' || decision === 'deny') {
               const optionId = optionFor(options, decision)
