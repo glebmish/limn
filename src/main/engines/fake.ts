@@ -1,9 +1,31 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ApprovalRequest, EngineId, ReviewAnnotations } from '../../shared/types.js'
-import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
+import type { ApprovalRequest, EngineId, ReviewAnnotations, Section } from '../../shared/types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
+import type { ScopedReviewPatch, WireSection } from './schema.js'
 import { awaitDecision } from './approvals.js'
 import { execGit } from '../exec.js'
+
+/** Top-level directory of a repo path — the ownership key FakeEngine sections by
+ *  (mirrors `generateReview`'s by-dir grouping so a scoped patch lines up with it). */
+function topDir(p: string): string {
+  return p.includes('/') ? p.split('/')[0] : '(root)'
+}
+
+/** A revised/new section body in wire shape (nullable diagram/insight/plainNotes),
+ *  byte-identical in shape to a fresh generation's section. */
+function wireSection(id: string, name: string, files: string[], order: number, revised: boolean): WireSection {
+  return {
+    id, name,
+    desc: revised ? `Changes under ${name} (updated for the drift).` : `New area ${name} introduced by the drift.`,
+    what: `${revised ? 'Revised' : 'Added'} for ${files.length} changed file${files.length > 1 ? 's' : ''} in ${name}.`,
+    files,
+    order,
+    diagram: null,
+    insight: null,
+    plainNotes: null
+  }
+}
 
 /** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
@@ -43,6 +65,115 @@ export class FakeEngine implements ReviewEngine {
       q.push({ type: 'done' })
       q.close()
       return { value, sessionId: `fake-${Date.now()}` }
+    })()
+    return { events: q.iterable(), result, cancel: () => q.close() }
+  }
+
+  /** Deterministic diff-scoped patch: for each since-diff file, revise the prior
+   *  section owning that file's TOP-LEVEL DIR; mint `s<N+1>` for an unowned dir
+   *  (one new section per new dir); keep every other prior section by id; resolve
+   *  no questions; title/summary/planMap null (keep prior). Garbage env/message
+   *  hooks (for T6's fallback-ladder tests) force intentionally bad shapes. */
+  generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch> {
+    const q = new EventQueue()
+    const result = (async (): Promise<{ value: ScopedReviewPatch; sessionId: string }> => {
+      const sessionId = req.priorEngineSessionId || `fake-scoped-${Date.now()}`
+      const steer = req.steer ?? ''
+
+      // ── garbage hooks (mirror LIMN_HOLD_STREAM / [approve] style) ──────────────
+      // [scoped-fulldoc] / LIMN_SCOPED_FULLDOC=1 — the engine returned a full review
+      // document, not a patch → the real adapters' parse rejects. Simulate by throwing.
+      if (steer.includes('[scoped-fulldoc]') || process.env.LIMN_SCOPED_FULLDOC === '1') {
+        q.push({ type: 'status', text: 'Updating the review…' })
+        const message = 'scoped output parse failed: full review document, not a patch (fake)'
+        q.push({ type: 'error', message })
+        q.close()
+        throw new Error(message)
+      }
+      q.push({ type: 'status', text: 'Reviewing the drift…' })
+      q.push({ type: 'tool', call: { id: 'u1', verb: 'bash', name: 'git', arg: `git diff ${req.sinceSha}..${req.branch}`, state: 'run' } })
+      q.push({ type: 'tool', call: { id: 'u1', verb: 'bash', name: 'git', arg: `git diff ${req.sinceSha}..${req.branch}`, state: 'ok', meta: `${req.since.length} files` } })
+
+      const priorIds = req.prior.sections.map((s) => s.id)
+      // [scoped-garbage] / LIMN_SCOPED_GARBAGE=1 — handshake-violating: kept lists an
+      // id that never existed and omits the real prior ids, so the splice refuses.
+      if (steer.includes('[scoped-garbage]') || process.env.LIMN_SCOPED_GARBAGE === '1') {
+        const value: ScopedReviewPatch = {
+          title: null, summary: null,
+          revisedSections: [],
+          deletedSectionIds: [],
+          keptSectionIds: ['ghost-section-never-existed'],
+          newQuestions: [], resolvedQuestionIds: [], planMap: null
+        }
+        q.push({ type: 'done' }); q.close()
+        return { value, sessionId }
+      }
+      // [scoped-dup] / LIMN_SCOPED_DUP=1 — duplicate id within revisedSections, which
+      // the splice rejects (a section can't be revised twice in one patch).
+      if (steer.includes('[scoped-dup]') || process.env.LIMN_SCOPED_DUP === '1') {
+        const first = req.prior.sections[0]
+        const dupId = first?.id ?? 's1'
+        const value: ScopedReviewPatch = {
+          title: null, summary: null,
+          revisedSections: [
+            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], first?.order ?? 1, true),
+            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], first?.order ?? 1, true)
+          ],
+          deletedSectionIds: [],
+          keptSectionIds: priorIds.filter((id) => id !== dupId),
+          newQuestions: [], resolvedQuestionIds: [], planMap: null
+        }
+        q.push({ type: 'done' }); q.close()
+        return { value, sessionId }
+      }
+
+      // ── well-formed deterministic patch ───────────────────────────────────────
+      const sectionForDir = (dir: string): Section | undefined =>
+        req.prior.sections.find((s) => s.files.some((f) => topDir(f) === dir))
+
+      // Accumulate revised owners (by id) and minted new sections (by unowned dir),
+      // each collecting the since-file paths it claims (unioned onto the owner's files).
+      const revisedFiles = new Map<string, { section: Section; files: Set<string> }>()
+      const newByDir = new Map<string, { name: string; files: Set<string> }>()
+      for (const f of req.since) {
+        const dir = topDir(f.path)
+        const owner = sectionForDir(dir)
+        if (owner) {
+          const entry = revisedFiles.get(owner.id) ?? { section: owner, files: new Set(owner.files) }
+          entry.files.add(f.path)
+          revisedFiles.set(owner.id, entry)
+        } else {
+          const entry = newByDir.get(dir) ?? { name: dir === '(root)' ? 'Top-level files' : dir, files: new Set<string>() }
+          entry.files.add(f.path)
+          newByDir.set(dir, entry)
+        }
+      }
+
+      const revisedSections: WireSection[] = [...revisedFiles.values()].map((e) =>
+        wireSection(e.section.id, e.section.name, [...e.files], e.section.order, true)
+      )
+      let mintN = req.prior.sections.length
+      for (const [, e] of newByDir) {
+        mintN += 1
+        revisedSections.push(wireSection(`s${mintN}`, e.name, [...e.files], mintN, false))
+      }
+
+      const revisedIds = new Set(revisedFiles.keys())
+      const keptSectionIds = priorIds.filter((id) => !revisedIds.has(id))
+
+      q.push({ type: 'status', text: 'Writing the scoped patch…' })
+      const value: ScopedReviewPatch = {
+        title: null,
+        summary: null,
+        revisedSections,
+        deletedSectionIds: [],
+        keptSectionIds,
+        newQuestions: [],
+        resolvedQuestionIds: [],
+        planMap: null
+      }
+      q.push({ type: 'done' }); q.close()
+      return { value, sessionId }
     })()
     return { events: q.iterable(), result, cancel: () => q.close() }
   }

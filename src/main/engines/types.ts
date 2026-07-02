@@ -1,8 +1,9 @@
 import type {
   Artifact, CommentAnchor, DiffSkeleton, EngineEvent, EngineId,
-  ExecutionMode, ReasoningEffort, ReviewAnnotations
+  ExecutionMode, FileDiff, ReasoningEffort, ReviewAnnotations
 } from '../../shared/types.js'
 import type { AgentToolHost } from './tools.js'
+import type { ScopedReviewPatch } from './schema.js'
 
 export interface ReviewRequest {
   repo: string
@@ -17,6 +18,30 @@ export interface ReviewRequest {
   /** present on an UPDATE pass (drift "Update review"): the existing review to
    *  fold the new commits into, rather than narrating from scratch. */
   prior?: { title: string; summary: string; sections: string[]; sinceSha?: string }
+}
+
+/** A diff-scoped update pass: patch the prior iteration's review against a small
+ *  since-diff instead of re-narrating the whole branch. Optionally RESUMES the
+ *  prior iteration's engine session (near-zero re-reading). The resume→fresh
+ *  retry, same-engine guard, and full fallback are orchestrated one layer up —
+ *  this method just runs with the resume id when present, fresh when absent. */
+export interface ScopedUpdateRequest {
+  repo: string
+  branch: string
+  base: string
+  /** the since-diff (drift since the last iteration): changed files WITH hunks;
+   *  untracked files synthesized in with `untracked: true`. */
+  since: FileDiff[]
+  /** the prior iteration's full annotations — the review being patched. */
+  prior: ReviewAnnotations
+  /** the sha the drift is measured from (last iteration's endSha). */
+  sinceSha: string
+  /** resume this engine session when set; run fresh (self-contained prompt) when not. */
+  priorEngineSessionId?: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  /** optional reviewer steer — stays scoped to the drift (one-shot). */
+  steer?: string
 }
 
 /** Brief review context used to seed a fresh chat session when the chat agent
@@ -51,6 +76,11 @@ export interface EngineRun<T> {
 export interface ReviewEngine {
   id: EngineId
   generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
+  /** Diff-scoped update: run a scoped patch turn (structured output =
+   *  scopedReviewJsonSchema), resuming `priorEngineSessionId` when present. The
+   *  run returns whatever session id the engine yields (Claude mints a new id on
+   *  resume-fork; Codex keeps the thread id), same as generateReview. */
+  generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch>
   /** result.sessionId is the engine session id (new when seeded, else resumed).
    *  Tool-enabled turns (incl. the unified batch) flow through here via turn.tools. */
   chat(turn: ChatTurn): EngineRun<string>

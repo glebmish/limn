@@ -143,6 +143,99 @@ describe('FakeEngine contract', () => {
   })
 })
 
+describe('FakeEngine generateScopedUpdate', () => {
+  const prior = {
+    title: 'Prior title',
+    summary: 'Prior summary',
+    sections: [
+      { id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts', 'src/b.ts'], order: 1 },
+      { id: 's2', name: 'docs', desc: 'd', what: 'w', files: ['docs/x.md'], order: 2 },
+      { id: 's3', name: 'tests', desc: 'd', what: 'w', files: ['tests/t.ts'], order: 3 }
+    ],
+    questions: [{ id: 'q1', text: 'keep default?' }]
+  }
+  const fileDiff = (path: string, status: 'modified' | 'added' = 'modified') =>
+    ({ path, status, binary: false, add: 1, del: 0, hunks: [] })
+
+  it('revises the owner section by dir, mints a new section for an unowned dir, keeps the rest', async () => {
+    const req = {
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'abc1234',
+      since: [fileDiff('src/c.ts', 'added'), fileDiff('lib/new.ts', 'added')],
+      prior
+    }
+    const run = new FakeEngine().generateScopedUpdate(req)
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'status')).toBe(true)
+    const { value, sessionId } = await run.result
+    expect(sessionId).toBeTruthy()
+
+    // s1 owns dir 'src' → revised (same id), the new file unioned onto its files
+    const revS1 = value.revisedSections.find((s) => s.id === 's1')!
+    expect(revS1).toBeTruthy()
+    expect(revS1.files).toEqual(expect.arrayContaining(['src/a.ts', 'src/b.ts', 'src/c.ts']))
+    // 'lib' is unowned → a minted s4 (N+1 of the 3 prior sections)
+    const minted = value.revisedSections.find((s) => !['s1', 's2', 's3'].includes(s.id))!
+    expect(minted).toBeTruthy()
+    expect(minted.id).toBe('s4')
+    expect(minted.files).toEqual(['lib/new.ts'])
+    // every untouched prior section is kept by id; nothing deleted; scalars keep prior
+    expect(value.keptSectionIds.sort()).toEqual(['s2', 's3'])
+    expect(value.deletedSectionIds).toEqual([])
+    expect(value.resolvedQuestionIds).toEqual([])
+    expect(value.newQuestions).toEqual([])
+    expect(value.title).toBeNull()
+    expect(value.summary).toBeNull()
+    expect(value.planMap).toBeNull()
+  })
+
+  it('resumes the prior engine session id when present', async () => {
+    const run = new FakeEngine().generateScopedUpdate({
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'abc1234',
+      since: [fileDiff('src/a.ts')], prior, priorEngineSessionId: 'sess-prior'
+    })
+    await drain(run.events)
+    const { value, sessionId } = await run.result
+    expect(sessionId).toBe('sess-prior')
+    // only s1 revised (owns 'src'); s2/s3 kept
+    expect(value.revisedSections.map((s) => s.id)).toEqual(['s1'])
+    expect(value.keptSectionIds.sort()).toEqual(['s2', 's3'])
+  })
+
+  it('[scoped-garbage] hook emits a handshake-violating patch', async () => {
+    const run = new FakeEngine().generateScopedUpdate({
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'abc1234',
+      since: [fileDiff('src/a.ts')], prior, steer: '[scoped-garbage]'
+    })
+    await drain(run.events)
+    const { value } = await run.result
+    // references an id that never existed and omits every real prior id
+    expect(value.keptSectionIds).toEqual(['ghost-section-never-existed'])
+    expect(value.revisedSections).toEqual([])
+  })
+
+  it('[scoped-dup] hook emits a patch with a duplicate revised id', async () => {
+    const run = new FakeEngine().generateScopedUpdate({
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'abc1234',
+      since: [fileDiff('src/a.ts')], prior, steer: '[scoped-dup]'
+    })
+    await drain(run.events)
+    const { value } = await run.result
+    const ids = value.revisedSections.map((s) => s.id)
+    expect(ids).toEqual(['s1', 's1'])
+    expect(new Set(ids).size).toBe(1) // duplicate
+  })
+
+  it('[scoped-fulldoc] hook rejects like an adapter parse failure', async () => {
+    const run = new FakeEngine().generateScopedUpdate({
+      repo: '/r', branch: 'feature', base: 'main', sinceSha: 'abc1234',
+      since: [fileDiff('src/a.ts')], prior, steer: '[scoped-fulldoc]'
+    })
+    const rejects = expect(run.result).rejects.toThrow(/parse failed/)
+    await drain(run.events)
+    await rejects
+  })
+})
+
 describe('FakeEngine approval round-trip', () => {
   it('parks on an approval_request and resumes when the decision arrives', async () => {
     const run = new FakeEngine().chat({ repo: '/r', message: 'fix it [approve]', opId: 'opF' })

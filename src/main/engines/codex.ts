@@ -1,7 +1,7 @@
 import type { ReviewAnnotations } from '../../shared/types.js'
-import { type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
-import { parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildReviewPrompt } from './prompts.js'
+import { type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
+import { parseReviewOutput, parseScopedOutput, reviewJsonSchema, scopedReviewJsonSchema, type ScopedReviewPatch } from './schema.js'
+import { buildReviewPrompt, buildScopedUpdatePrompt } from './prompts.js'
 import { chatViaAppServer, runAppServerTurn } from './codexAppServer.js'
 
 function jsonSlice(text: string): string | null {
@@ -59,6 +59,33 @@ export class CodexEngine implements ReviewEngine {
       events: run.events,
       result: run.result.then(({ value, sessionId }) => ({
         value: parseReviewOutput(parseJson(value)),
+        sessionId
+      })),
+      cancel: run.cancel
+    }
+  }
+
+  generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch> {
+    // Same lifecycle as generateReview (structured output), plus resume via
+    // engineSessionId: thread/resume + outputSchema compose on the one turn. The
+    // resumed thread already holds the prior exploration; when absent it starts a
+    // fresh (self-contained) thread. A resume failure rejects; the caller retries fresh.
+    const run = runAppServerTurn({
+      repo: req.repo,
+      prompt: buildScopedUpdatePrompt(req),
+      engineSessionId: req.priorEngineSessionId,
+      model: req.model,
+      reasoningEffort: req.reasoningEffort,
+      writeEnabled: true,
+      executionMode: 'edits',
+      outputSchema: scopedReviewJsonSchema,
+      streamText: false,
+      status: 'Updating the review…'
+    })
+    return {
+      events: run.events,
+      result: run.result.then(({ value, sessionId }) => ({
+        value: parseScopedOutput(parseJson(value)),
         sessionId
       })),
       cancel: run.cancel

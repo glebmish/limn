@@ -1,8 +1,8 @@
 import { createSdkMcpServer, query, tool, type CanUseTool, type Options, type PermissionResult, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ApprovalKind, ApprovalRequest, EngineEvent, ReasoningEffort, ReviewAnnotations } from '../../shared/types.js'
-import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest } from './types.js'
-import { parseReviewOutput, reviewJsonSchema } from './schema.js'
-import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
+import { parseReviewOutput, parseScopedOutput, reviewJsonSchema, scopedReviewJsonSchema, type ScopedReviewPatch } from './schema.js'
+import { buildChatPrompt, buildReviewPrompt, buildScopedUpdatePrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
 import { AUTO_ACCEPT_TOOL_NAMES, LIMN_TOOLS, limnAllowedToolNames, type AgentToolHost } from './tools.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
@@ -189,6 +189,35 @@ export class ClaudeEngine implements ReviewEngine {
       events: q.iterable(),
       result: outcome.then(({ sessionId, structured }) => ({
         value: parseReviewOutput(structured),
+        sessionId
+      })),
+      cancel: () => abort.abort()
+    }
+  }
+
+  generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch> {
+    const q = new EventQueue()
+    q.push({ type: 'status', text: 'Updating the review…' })
+    // Resume the prior iteration's session when present (its exploration is already
+    // in context → near-zero re-reading); run fresh when absent. outputFormat +
+    // resume compose the same way chat proves resume and generateReview proves the
+    // structured-output option. A resume failure throws here; the caller retries fresh.
+    const { outcome, abort } = runQuery(
+      buildScopedUpdatePrompt(req),
+      {
+        cwd: req.repo,
+        ...(req.priorEngineSessionId ? { resume: req.priorEngineSessionId } : {}),
+        ...modelOpt(req.model, req.reasoningEffort),
+        allowedTools: READ_TOOLS,
+        permissionMode: 'auto',
+        outputFormat: { type: 'json_schema', schema: scopedReviewJsonSchema as Record<string, unknown> }
+      },
+      q
+    )
+    return {
+      events: q.iterable(),
+      result: outcome.then(({ sessionId, structured }) => ({
+        value: parseScopedOutput(structured),
         sessionId
       })),
       cancel: () => abort.abort()
