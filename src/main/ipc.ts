@@ -483,26 +483,38 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       let scopedPlan:
         | { sinceBase: string; since: FileDiff[]; sinceAddedPaths: ReadonlySet<string>; resume?: string }
         | null = null
-      if (priorAnnotations && latest) {
-        const sinceBase = latest.endSha // == state.reviewedAtSha after any generate
-        const reachable = await isAncestor(workdir, sinceBase, skeleton.headSha)
-        const chainCapped = dao.trailingScopedCount(db, sessionId, SCOPE_CHAIN_CAP) >= SCOPE_CHAIN_CAP
-        if (reachable && !chainCapped) {
-          const dirty = await isDirty(workdir)
-          const since = dirty
-            ? await diffSinceWorking(workdir, sinceBase)
-            : (await diffSince(workdir, sinceBase, compareEff)).files
-          // Empty since (update clicked with no drift) or drift too large → full.
-          if (since.length > 0 && scopedEligible(since, skeleton)) {
-            scopedPlan = {
-              sinceBase, since,
-              sinceAddedPaths: new Set(since.filter((f) => f.status === 'added').map((f) => f.path)),
-              // resume the prior iteration's engine session, but only within the same
-              // engine (model changes are fine); a cross-engine picker starts fresh.
-              resume: latest.engine === agent.engine ? latest.sessionId : undefined
+      // These eligibility probes (isAncestor / trailingScopedCount / isDirty /
+      // diffSince[Working]) are NEW to the scoped path — today's full-only generation
+      // never runs them. A probe throw must degrade to today's full update (ladder
+      // step 1: "can't decide → full"), never fail the whole op: the scoped attempt
+      // can never leave the review worse than a plain full update. So ANY throw here
+      // → scopedPlan stays null → full path below (which does no such probes).
+      try {
+        if (priorAnnotations && latest) {
+          const sinceBase = latest.endSha // == state.reviewedAtSha after any generate
+          const reachable = await isAncestor(workdir, sinceBase, skeleton.headSha)
+          const chainCapped = dao.trailingScopedCount(db, sessionId, SCOPE_CHAIN_CAP) >= SCOPE_CHAIN_CAP
+          if (reachable && !chainCapped) {
+            const dirty = await isDirty(workdir)
+            const since = dirty
+              ? await diffSinceWorking(workdir, sinceBase)
+              : (await diffSince(workdir, sinceBase, compareEff)).files
+            // Empty since (update clicked with no drift) or drift too large → full.
+            if (since.length > 0 && scopedEligible(since, skeleton)) {
+              scopedPlan = {
+                sinceBase, since,
+                sinceAddedPaths: new Set(since.filter((f) => f.status === 'added').map((f) => f.path)),
+                // resume the prior iteration's engine session, but only within the same
+                // engine (model changes are fine); a cross-engine picker starts fresh.
+                resume: latest.engine === agent.engine ? latest.sessionId : undefined
+              }
             }
           }
         }
+      } catch (err) {
+        // couldn't decide (a git probe threw) — fall through to today's full update.
+        scopedPlan = null
+        send('op:event', { opId, event: { type: 'status', text: `note: could not assess drift (${errorMessage(err).split('\n')[0]}) — running a full update` } })
       }
 
       // a cancel during the pre-engine async setup above lands before run.cancel is

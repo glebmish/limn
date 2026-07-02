@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/main/db/db'
+import * as dao from '../src/main/db/sessions'
 import { createSession, loadReviewState, latestIteration, addIteration, upsertComment, replaceUiState } from '../src/main/db/sessions'
 import { registerIpc } from '../src/main/ipc'
 import { resolveRefInput } from '../src/main/git'
@@ -69,6 +70,7 @@ function sectionIds(h: Harness): string[] {
 
 beforeEach(() => { process.env.LIMN_DEMO = '1' })
 afterEach(() => {
+  vi.restoreAllMocks()
   delete process.env.LIMN_DEMO
   delete process.env.LIMN_SCOPED_RESUME_FAIL
 })
@@ -217,6 +219,32 @@ describe('generate — scoped update path (IPC integration)', () => {
     expect(loadReviewState(h.db, h.sessionId).iterations.map((i) => i.n)).toEqual([1]) // no new iteration
     // engine never launched: no scoped status note streamed for this op
     expect(notes(h, 'op-cancel').some((n) => /scoped update/.test(n))).toBe(false)
+  })
+
+  it('an eligibility probe that throws degrades to the FULL path (never a hard op failure)', async () => {
+    const h = await setup()
+    await generate(h, 'op-full', false)
+
+    // small committed drift so the prior endSha is reachable (isAncestor passes) and we
+    // reach the chain-cap probe — which we force to throw, simulating any new git/DB
+    // eligibility probe failing. Pre-branch, this update would have just run a full gen.
+    fixtureWrite(h.repo, 'src/a.ts', 'export function a() {\n  return 8\n}\n')
+    fixtureGit(h.repo, 'add', '-A')
+    fixtureGit(h.repo, 'commit', '-m', 'drift for probe error')
+
+    // ipc.ts calls `dao.trailingScopedCount(...)` through this same namespace object.
+    const spy = vi.spyOn(dao, 'trailingScopedCount').mockImplementation(() => { throw new Error('probe boom') })
+    await generate(h, 'op-probe', true)
+    expect(spy).toHaveBeenCalled()
+
+    const st = loadReviewState(h.db, h.sessionId)
+    expect(st.iterations.map((i) => i.n)).toEqual([1, 2]) // ONE new iteration, op succeeded
+    expect(st.latestIteration!.scope).toBe('full')        // degraded to the full path
+    const res = h.results.find((r) => r.opId === 'op-probe')!
+    expect(res.status).toBe('succeeded')                   // no error thread / hard failure
+    expect(notes(h, 'op-probe').some((n) => /could not assess drift .* running a full update/.test(n))).toBe(true)
+    // no scoped attempt was made
+    expect(notes(h, 'op-probe').some((n) => /scoped update —/.test(n))).toBe(false)
   })
 
   it('missed new file (sinceAddedPaths) → warning surfaced, scoped kept (no fallback)', async () => {
