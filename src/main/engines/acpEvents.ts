@@ -113,7 +113,10 @@ function toolCallUpdateEvent(u: ToolCallUpdate): EngineEvent {
         name: 'file_change',
         arg: paths.join(', ').slice(0, 120),
         meta: `${paths.length} file${paths.length === 1 ? '' : 's'}`,
-        state: u.status === 'completed' ? 'ok' : 'run'
+        // A diff-producing edit can still fail — distinguish it so the renderer shows
+        // the failure icon instead of a permanent spinner (reduceToolCalls takes the
+        // last event's state unconditionally). Mirrors the old Codex fileChange branch.
+        state: u.status === 'completed' ? 'ok' : u.status === 'failed' ? 'err' : 'run'
       }
     }
   }

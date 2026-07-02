@@ -169,6 +169,18 @@ describe('acpToEvents — tool_call_update', () => {
     ])
   })
 
+  it('maps a diff content block that FAILED to verb edit with state err', () => {
+    const update: SessionUpdate = {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 't7',
+      status: 'failed',
+      content: [{ type: 'diff', path: '/repo/src/c.ts', oldText: 'old', newText: 'new' }]
+    }
+    expect(acpToEvents(update)).toEqual([
+      { type: 'tool', call: { id: 't7', verb: 'edit', name: 'file_change', arg: '/repo/src/c.ts', meta: '1 file', state: 'err' } }
+    ])
+  })
+
   it('a diff update that is not yet completed folds as running', () => {
     const update: SessionUpdate = {
       sessionUpdate: 'tool_call_update',
@@ -261,11 +273,13 @@ describe('acpPermissionToRequest', () => {
       options: []
     }
     const result = acpPermissionToRequest(req, 'codex')
-    expect(result.id).toBe('tc2')
-    expect(result.engine).toBe('codex')
-    expect(result.kind).toBe('file_change')
-    expect(result.detail?.files).toEqual(['/repo/src/a.ts'])
-    expect(result.summary).toContain('/repo/src/a.ts')
+    expect(result).toEqual({
+      id: 'tc2',
+      engine: 'codex',
+      kind: 'file_change',
+      summary: 'Edit /repo/src/a.ts',
+      detail: { files: ['/repo/src/a.ts'] }
+    })
   })
 
   it('normalizes a tool call carrying a diff content block (no kind) to kind file_change', () => {
@@ -279,8 +293,13 @@ describe('acpPermissionToRequest', () => {
       options: []
     }
     const result = acpPermissionToRequest(req, 'claude')
-    expect(result.kind).toBe('file_change')
-    expect(result.detail?.files).toEqual(['/repo/src/b.ts'])
+    expect(result).toEqual({
+      id: 'tc3',
+      engine: 'claude',
+      kind: 'file_change',
+      summary: 'Edit /repo/src/b.ts',
+      detail: { files: ['/repo/src/b.ts'] }
+    })
   })
 
   it('normalizes a plain tool call to kind tool_use with toolName', () => {
