@@ -3,42 +3,11 @@ import { type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, t
 import { parseReviewOutput, parseScopedOutput, reviewJsonSchema, scopedReviewJsonSchema, type ScopedReviewPatch } from './schema.js'
 import { buildReviewPrompt, buildScopedUpdatePrompt } from './prompts.js'
 import { chatViaAppServer, runAppServerTurn } from './codexAppServer.js'
-
-function jsonSlice(text: string): string | null {
-  const start = text.search(/[[{]/)
-  if (start < 0) return null
-  const open = text[start]
-  const close = open === '{' ? '}' : ']'
-  let depth = 0
-  let inString = false
-  let esc = false
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i]
-    if (inString) {
-      if (esc) esc = false
-      else if (ch === '\\') esc = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') { inString = true; continue }
-    if (ch === open) depth++
-    else if (ch === close && --depth === 0) return text.slice(start, i + 1)
-  }
-  return null
-}
-
-export function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    // schema-constrained output occasionally arrives fenced — strip and retry
-    const m = text.match(/```(?:json)?\n?([\s\S]*?)```/)
-    if (m) return JSON.parse(m[1])
-    const slice = jsonSlice(text)
-    if (slice) return JSON.parse(slice)
-    throw new Error('Codex returned non-JSON output')
-  }
-}
+import { parseJson } from './structured.js'
+// Re-exported for callers/tests that historically imported the JSON extractor
+// from this module — the implementation now lives in structured.ts, shared
+// with the ACP engine (spec `specs/acp-migration/spec.md` §D5).
+export { parseJson }
 
 export class CodexEngine implements ReviewEngine {
   id = 'codex' as const
