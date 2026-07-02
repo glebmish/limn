@@ -10,11 +10,11 @@ export const CONTEXT_WEIGHT = 0.35
 export const PROXIMITY_WEIGHT = 0.15
 export const ACCEPT_THRESHOLD = 0.75
 export const BLANK_QUOTE_CTX_MIN = 0.8 // blank/whitespace quote must be carried by context
-
-// Gentle proximity decay: 1.0 at the hint, strictly decreasing as distance
-// grows, asymptoting toward (but never reaching) 0. Not spec-mandated beyond
-// those properties — this is the concrete curve chosen to satisfy them.
-const PROXIMITY_DECAY = 0.05
+// Gentle proximity decay: proximity = 1 / (1 + distance·PROXIMITY_DECAY) — 1.0 at
+// the hint, strictly decreasing as distance grows, asymptoting toward (but never
+// reaching) 0. Exported (Q5: tuning must be a visible diff) since it materially
+// affects acceptance at distance for non-blank quotes.
+export const PROXIMITY_DECAY = 0.05
 
 /** Trim, then collapse every internal run of whitespace to a single space.
  *  Makes similarity comparisons whitespace-insensitive. */
@@ -109,12 +109,20 @@ function contextSimilarity(context: AnchorContext | undefined, content: string[]
 
 /** Stage-2 scorer: fuzzy-match `quote` (+ optional `context`) against every
  *  line of `content` (0-based array), returning the best 1-based candidate
- *  line iff its score clears `ACCEPT_THRESHOLD`. A blank/whitespace-only
- *  quote carries no signal of its own — its weight folds entirely into the
- *  context term, and a candidate is only eligible when `ctxSim >=
- *  BLANK_QUOTE_CTX_MIN` (so a blank quote can never anchor on proximity or a
- *  coincidental context match alone). When no context is available at all,
- *  the reverse fold applies: `CONTEXT_WEIGHT` moves onto the quote term. */
+ *  line, or `null` when nothing qualifies.
+ *
+ *  Non-blank quote: the best candidate wins iff its score clears
+ *  `ACCEPT_THRESHOLD`. When no context is available at all, `CONTEXT_WEIGHT`
+ *  folds onto the quote term.
+ *
+ *  Blank/whitespace-only quote (`normalizeWs(quote) === ''`): the quote term
+ *  carries no signal, so acceptance is gated purely on context —
+ *  `ctxSim >= BLANK_QUOTE_CTX_MIN` is *sufficient* for eligibility (spec
+ *  §"blank quote requires ctxSim ≥ 0.8"), NOT additionally subject to
+ *  `ACCEPT_THRESHOLD`. So a lone eligible candidate with strong context is
+ *  accepted even when the hint is far away; proximity only breaks ties among
+ *  several eligible candidates. A blank quote can never anchor on proximity
+ *  or a weak/coincidental context match alone. */
 export function fuzzyFind(
   content: string[],
   quote: string,
@@ -131,6 +139,8 @@ export function fuzzyFind(
 
     if (isBlankQuote) {
       if (ctxSim === null || ctxSim < BLANK_QUOTE_CTX_MIN) continue // not eligible at all
+      // Rank eligible candidates so proximity/ctxSim break ties; the ctxSim
+      // gate above — not ACCEPT_THRESHOLD — decides acceptance.
       const score = (QUOTE_WEIGHT + CONTEXT_WEIGHT) * ctxSim + PROXIMITY_WEIGHT * proximity(line, hint)
       if (!best || score > best.score) best = { line, score }
       continue
@@ -143,7 +153,10 @@ export function fuzzyFind(
     if (!best || score > best.score) best = { line, score }
   }
 
-  return best && best.score >= ACCEPT_THRESHOLD ? best : null
+  // Blank quotes are already gated by the ctxSim eligibility check above, so
+  // any surviving `best` is accepted; non-blank quotes must clear the threshold.
+  if (!best) return null
+  return isBlankQuote || best.score >= ACCEPT_THRESHOLD ? best : null
 }
 
 /** Re-anchor positional comments after the branch changed (mutates comments).

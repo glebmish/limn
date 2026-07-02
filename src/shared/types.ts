@@ -110,7 +110,7 @@ export interface AnchorStamp {
   headSha: string          // compare tip at creation
   mergeBase: string        // merge-base at creation (blob source for side:'old')
   blobSha?: string         // git blob sha of the file content the line lives in;
-                            // undefined only if blob resolution failed
+                           // undefined only if blob resolution failed
   surface: 'committed' | 'dirty'  // line-number space of `line` at creation
   origLine: number         // immutable original line
   origPath: string         // immutable original path (rename tracking starts here)

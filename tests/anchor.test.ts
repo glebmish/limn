@@ -195,6 +195,20 @@ describe('fuzzyFind', () => {
     expect(result?.line).toBe(3)
   })
 
+  it('accepts a blank quote with strong context even when the hint is far away', () => {
+    // Regression: acceptance is gated on ctxSim >= BLANK_QUOTE_CTX_MIN alone,
+    // NOT additionally on ACCEPT_THRESHOLD. ctxSim here is exactly 0.8
+    // (similarity('abcdef','abcdeg') === 0.8 for both neighbors), so under the
+    // old proximity-coupled formula a far hint dropped the score to ~0.71 and
+    // silently rejected this eligible candidate.
+    const content = ['abcdef', '   ', 'abcdef'] // blank candidate on line 2
+    const context: AnchorContext = { before: ['abcdeg'], after: ['abcdeg'] }
+    expect(similarity('abcdef', 'abcdeg')).toBeCloseTo(0.8, 10) // guards the fixture
+    const result = fuzzyFind(content, '   ', context, 100)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(2)
+  })
+
   it('rejects a blank quote when context is weak', () => {
     const content = ['function foo() {', 'return 1', '}', 'other']
     const context: AnchorContext = { before: ['nothing like it', 'also unrelated'], after: ['still unrelated'] }
@@ -205,6 +219,22 @@ describe('fuzzyFind', () => {
   it('rejects a blank quote with no context at all', () => {
     const content = ['function foo() {', 'return 1', '}', 'other']
     const result = fuzzyFind(content, '', undefined, 3)
+    expect(result).toBeNull()
+  })
+
+  it('accepts a `}`-only quote via ordinary scoring when a `}` line sits near the hint', () => {
+    // `}` normalizes non-empty, so it takes the ordinary (non-blank) path: an
+    // exact `}` candidate near the hint clears the threshold on its own.
+    const content = ['function foo() {', '  return 1', '}', 'other']
+    const result = fuzzyFind(content, '}', undefined, 3)
+    expect(result).not.toBeNull()
+    expect(result?.line).toBe(3)
+    expect(result?.score).toBeGreaterThanOrEqual(ACCEPT_THRESHOLD)
+  })
+
+  it('rejects a `}`-only quote when no `}` line is nearby', () => {
+    const content = ['const a = 1', 'const b = 2', 'const c = 3']
+    const result = fuzzyFind(content, '}', undefined, 2)
     expect(result).toBeNull()
   })
 
