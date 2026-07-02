@@ -102,15 +102,21 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(value.title).toBe('T')
   })
 
-  it('3b. repair turn: invalid twice → run rejects with error event', async () => {
+  it('3b. repair turn: invalid twice → rejects with an UNWRAPPED ZodError, no raw error event', async () => {
+    // valid JSON but off-schema on both turns → parseReviewOutput throws a ZodError.
     const { engine } = fakeEngine({
       sessionId: 'rev-3',
-      turns: [{ text: 'nope' }, { text: 'still nope' }]
+      turns: [{ text: '{"wrong":1}' }, { text: '{"still":"wrong"}' }]
     })
     const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
     const events = await drain(run.events)
-    expect(events.some((e) => e.type === 'error')).toBe(true)
-    await expect(run.result).rejects.toThrow()
+    // NO raw {type:'error'} event — ipc.ts renders the friendly copy from the rejection
+    // (mirrors CodexEngine, which parses outside the turn).
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    // the rejection preserves ZodError.name so ipc.ts's friendly-message gate fires.
+    const err = await run.result.then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).name).toBe('ZodError')
   })
 
   it('4. approval park/resolve: unsafe command asks, allow completes; limn tool auto-allows', async () => {
@@ -172,17 +178,20 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(pendingCount('op5')).toBe(0)
   })
 
-  it('6. session/load failure → seeded fresh session, turn still completes', async () => {
+  it('6. session/load failure REJECTS the turn cleanly (lost-session path, no unseeded fresh)', async () => {
+    // A failed resume must NOT silently mint an unseeded fresh session (chat built a
+    // non-seeded prompt) — it must reject BEFORE any text/tool event so ipc.ts's
+    // isLostEngineSession → ENGINE_SESSION_LOST affordance fires, as for the old engines.
     const { engine } = fakeEngine({
-      sessionId: 'fresh-6',
+      sessionId: 'should-not-be-used',
       failLoad: true,
-      turns: [{ text: 'answered fresh' }]
+      turns: [{ text: 'should never run' }]
     })
     const run = engine.chat({ repo: '/r', engineSessionId: 'stale-id', message: 'hi' })
-    await drain(run.events)
-    const { value, sessionId } = await run.result
-    expect(value).toBe('answered fresh')
-    expect(sessionId).toBe('fresh-6') // the fresh id, not the failed resume id
+    const events = await drain(run.events)
+    // no model work happened before the rejection — the shape isLostEngineSession keys on.
+    expect(events.some((e) => e.type === 'text' || e.type === 'tool')).toBe(false)
+    await expect(run.result).rejects.toThrow()
   })
 
   it('7. MCP url present: tools turn passes an http mcpServers entry to session/new', async () => {

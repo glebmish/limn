@@ -40,6 +40,19 @@ function formatZodIssues(err: ZodError): string {
   return err.issues.map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n')
 }
 
+/** Tag a final structured-parse failure so `runAcpTurn`'s outer catch re-throws it
+ *  UNWRAPPED (preserving `ZodError.name` for ipc.ts's friendly-copy gate) instead of
+ *  wrapping it and pushing a raw `{type:'error'}` event. The mark rides on the error
+ *  object itself, so the ZodError identity is untouched. */
+const STRUCTURED_PARSE = Symbol('structuredParse')
+function markStructuredParse(err: unknown): unknown {
+  if (err && typeof err === 'object') (err as Record<symbol, unknown>)[STRUCTURED_PARSE] = true
+  return err
+}
+function isStructuredParse(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as Record<symbol, unknown>)[STRUCTURED_PARSE])
+}
+
 /** Pick the option whose kind matches (allow → allow_once, deny → reject_once);
  *  falls back to the first option so a non-standard adapter still gets an answer. */
 function optionFor(options: PermissionOption[], decision: 'allow' | 'deny'): string | undefined {
@@ -222,16 +235,18 @@ export class AcpEngine implements ReviewEngine {
         const canLoad = init.agentCapabilities?.loadSession === true
         const canResume = Boolean((init.agentCapabilities?.sessionCapabilities as { resume?: unknown } | undefined)?.resume)
 
-        // (e) session: resume when asked + supported, else new; any load error → fresh.
-        if (opts.engineSessionId && canLoad) {
-          try {
-            if (canResume) await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
-            else await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
-            sessionId = opts.engineSessionId
-          } catch {
-            const fresh = await conn.newSession({ cwd: opts.repo, mcpServers })
-            sessionId = fresh.sessionId
-          }
+        // (e) session: `newSession` ONLY when there is no id to resume. When an id is
+        // set, a `resume`/`load` failure REJECTS the turn (before any text/tool event) —
+        // ipc.ts's `isLostEngineSession` → `ENGINE_SESSION_LOST` "start a new chat"
+        // affordance handles it exactly as for the old engines (spec §D6). We never
+        // silently mint an UNseeded fresh session for a failed resume: chat() already
+        // built a non-seeded prompt (engineSessionId was truthy) and ipc passes no
+        // context, so a fresh session would answer with no review/diff context.
+        if (opts.engineSessionId) {
+          if (canResume) await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
+          else if (canLoad) await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
+          else throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
+          sessionId = opts.engineSessionId
         } else {
           const fresh = await conn.newSession({ cwd: opts.repo, mcpServers })
           sessionId = fresh.sessionId
@@ -261,11 +276,19 @@ export class AcpEngine implements ReviewEngine {
         const first = await promptOnce(opts.prompt)
         try {
           value = opts.parse(first)
-        } catch (e) {
-          if (e instanceof Error && e.message === CANCELLED) throw e
-          const issues = e instanceof ZodError ? formatZodIssues(e) : String(e)
+        } catch (firstErr) {
+          // one automatic repair turn on the SAME live session (D5).
+          const issues = firstErr instanceof ZodError ? formatZodIssues(firstErr) : String(firstErr)
           const repaired = await promptOnce(buildRepairPrompt(issues))
-          value = opts.parse(repaired) // a second failure surfaces as the turn error
+          try {
+            value = opts.parse(repaired)
+          } catch (finalErr) {
+            // Final structured-parse failure: propagate UNWRAPPED (preserve
+            // ZodError.name so ipc.ts's friendly-copy gate fires) and push NO raw
+            // {type:'error'} event — exactly as CodexEngine, which parses in a `.then`
+            // outside the turn. The outer catch recognizes the mark and re-throws it.
+            throw markStructuredParse(finalErr)
+          }
         }
 
         // (h) done.
@@ -277,6 +300,10 @@ export class AcpEngine implements ReviewEngine {
         if (aborted || (err instanceof Error && err.message === CANCELLED)) {
           throw new Error(CANCELLED, { cause: err }) // quiet settle — no error strip
         }
+        // A structured-parse failure (D5): surface it as the raw parse error so
+        // ipc.ts renders its friendly copy — do NOT wrap (loses ZodError.name) and do
+        // NOT push a raw {type:'error'} event (matches CodexEngine).
+        if (isStructuredParse(err)) throw err
         const tail = stderrTail.trim()
         const message = (err instanceof Error ? err.message : String(err)) + (tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : '')
         q.push({ type: 'error', message })
