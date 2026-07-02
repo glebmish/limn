@@ -8,7 +8,7 @@ import { makeFixtureRepo } from '../tests/helpers/fixtureRepo'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread } from '../src/main/db/sessions'
 import { createToolHost } from '../src/main/engines/tools'
-import { registerCodexTurn } from '../src/main/engines/codexMcp'
+import { registerTurn } from '../src/main/engines/mcpHost'
 import type { EngineEvent, RefPair } from '../src/shared/types'
 
 const fx = makeFixtureRepo()
@@ -24,6 +24,6 @@ const host = createToolHost({
   db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
   agent: { engine: 'codex' }, emit: (e) => { events.push(e); if (e.type === 'action') console.error('★ HOST RAN:', JSON.stringify(e.action)) }
 })
-const mcp = await registerCodexTurn(host)
+const mcp = await registerTurn(host)
 console.log(JSON.stringify({ url: mcp.url, repo: fx.dir }))
 process.stdin.resume() // keep alive

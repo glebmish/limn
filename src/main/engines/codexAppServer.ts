@@ -6,7 +6,7 @@ import { executionPolicy, DEFAULT_EXECUTION_MODE } from '../../shared/executionM
 import { awaitDecision } from './approvals.js'
 import { codexBinaryPath } from './binaries.js'
 import { EventQueue, type ChatTurn, type EngineRun } from './types.js'
-import { registerCodexTurn } from './codexMcp.js'
+import { registerTurn } from './mcpHost.js'
 import { buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
 import { deriveVerb, clampOut, bashArg } from '../../shared/toolcalls.js'
 
@@ -397,7 +397,7 @@ export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> 
     try {
       let mcpArgs: string[] = []
       if (opts.tools) {
-        const mcp = await registerCodexTurn(opts.tools)
+        const mcp = await registerTurn(opts.tools)
         release = mcp.release
         mcpArgs = ['-c', `mcp_servers.limn.url=${mcp.url}`]
       }
@@ -438,7 +438,7 @@ export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> 
             const kind = (params as { _meta?: { codex_approval_kind?: string } } | null)?._meta?.codex_approval_kind
             // limn hosts only read-only/metadata review tools, so tool-call
             // elicitations default to ACCEPT. This blanket accept is kept safe by
-            // the registration-time guard in codexMcp.registerCodexTurn
+            // the registration-time guard in mcpHost.registerTurn
             // (assertAutoAcceptCoverage): a tool not on AUTO_ACCEPT_TOOL_NAMES
             // throws before any turn runs, so nothing unvetted reaches here.
             // Robust to _meta shape/version drift:

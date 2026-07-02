@@ -5,10 +5,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { assertAutoAcceptCoverage, LIMN_TOOLS, type AgentToolHost } from './tools.js'
 
-// Codex hosts Limn tools through external MCP servers. The `codex app-server`
-// subprocess opens the connection, so we run a localhost streamable-HTTP MCP
-// server in main. Each turn registers its AgentToolHost under an unguessable path
-// token; app-server approval requests are handled separately in codexAppServer.
+// The single localhost streamable-HTTP MCP host that serves Limn's tools to every
+// agent. An agent subprocess (Codex app-server today; every ACP adapter after the
+// migration) opens the connection, so we run this HTTP MCP server in main. Each turn
+// registers its AgentToolHost under an unguessable path token; permission requests are
+// handled separately (codexAppServer for Codex; ladderPolicy for ACP engines).
 // One McpServer + transport per turn, addressed at /mcp/<token>.
 
 interface Turn { server: McpServer; transport: StreamableHTTPServerTransport }
@@ -44,12 +45,13 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
   await turn.transport.handleRequest(req, res, body)
 }
 
-/** Register this turn's tool host and return the URL Codex should be pointed at,
+/** Register this turn's tool host and return the URL the agent should be pointed at,
  *  plus a `release` to tear the turn's MCP server down when the turn ends. */
-export async function registerCodexTurn(host: AgentToolHost): Promise<{ url: string; release: () => Promise<void> }> {
-  // Codex elicitations auto-ACCEPT every registered tool (codexAppServer.ts), so
-  // gate registration: no tool may reach that blanket accept unless it's cleared
-  // for auto-accept. A new write-capable tool trips this before a turn ever runs.
+export async function registerTurn(host: AgentToolHost): Promise<{ url: string; release: () => Promise<void> }> {
+  // Every limn tool is auto-allowed once registered (Codex elicitations auto-accept;
+  // ACP's ladderPolicy allows limn-prefixed tools). Gate registration so no tool
+  // reaches that blanket allow unless it's cleared for auto-accept — a new
+  // write-capable tool trips this before a turn ever runs.
   assertAutoAcceptCoverage(LIMN_TOOLS)
   const port = await ensureServer()
   const token = randomUUID()
