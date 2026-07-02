@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ReviewAnnotations } from '../../shared/types.js'
+import type { AgentQuestion, DiagramNode, ReviewAnnotations, Section } from '../../shared/types.js'
 
 // Wire schemas: what the engines are asked to return. Constraints from the two
 // structured-output validators:
@@ -78,9 +78,38 @@ export const scopedReviewJsonSchema = toJsonSchema(scopedReviewWireSchema)
 
 // Parsed scoped patch; splice consumes this against the prior annotations.
 export type ScopedReviewPatch = z.infer<typeof scopedReviewWireSchema>
+// Wire-shape section/question, reused by the splice to convert revised/new bodies.
+export type WireSection = z.infer<typeof wireSection>
+export type WireQuestion = z.infer<typeof wireQuestion>
 
 export function parseScopedOutput(raw: unknown): ScopedReviewPatch {
   return scopedReviewWireSchema.parse(raw)
+}
+
+/** Map a wire section (nullable objects/arrays) to the domain Section (tuples/records). */
+export function sectionFromWire(s: WireSection): Section {
+  return {
+    id: s.id,
+    name: s.name,
+    desc: s.desc,
+    what: s.what,
+    files: s.files,
+    order: s.order,
+    diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as DiagramNode) ?? undefined,
+    insight: s.insight ?? undefined,
+    plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
+  }
+}
+
+/** Map a wire question to the domain AgentQuestion (trim/dedup/cap the options). */
+export function questionFromWire(q: WireQuestion): AgentQuestion {
+  const options = [...new Set(q.options.map((o) => o.trim()).filter(Boolean))].slice(0, 4)
+  return {
+    id: q.id,
+    text: q.text,
+    context: q.context ?? undefined,
+    ...(options.length ? { options } : {})
+  }
 }
 
 export function parseReviewOutput(raw: unknown): ReviewAnnotations {
@@ -88,27 +117,9 @@ export function parseReviewOutput(raw: unknown): ReviewAnnotations {
   return {
     title: wire.title,
     summary: wire.summary,
-    sections: wire.sections.map((s) => ({
-      id: s.id,
-      name: s.name,
-      desc: s.desc,
-      what: s.what,
-      files: s.files,
-      order: s.order,
-      diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as [string, '' | 'hi' | 'new', string]) ?? undefined,
-      insight: s.insight ?? undefined,
-      plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
-    })),
+    sections: wire.sections.map(sectionFromWire),
     planMap: wire.planMap ?? undefined,
-    questions: wire.questions.map((q) => {
-      const options = [...new Set(q.options.map((o) => o.trim()).filter(Boolean))].slice(0, 4)
-      return {
-        id: q.id,
-        text: q.text,
-        context: q.context ?? undefined,
-        ...(options.length ? { options } : {})
-      }
-    }),
+    questions: wire.questions.map(questionFromWire),
     artifactPaths: wire.artifactPaths ?? undefined
   }
 }
