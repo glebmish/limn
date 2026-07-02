@@ -222,7 +222,10 @@ export async function assembleReview(
     : volatile.length
     ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
     : skeleton
-  reanchorComments(state.comments, forAnchor, artifacts)
+  await reanchorComments(
+    { workdir, wt, forAnchor, dirty, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session },
+    state.comments, artifacts
+  )
   if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
   const writeCapability = await writeCapabilityFor(repo, pair.compare)
   return {

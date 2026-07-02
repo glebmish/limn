@@ -144,6 +144,12 @@ export interface Comment {
    *  the identity chip + click-through (JSON blob — no column migration). */
   agentRef?: AgentRef; threadId?: number;
   status: 'queued' | 'sent' | 'resolved' | 'outdated';
+  /** Set by the re-anchor pipeline when a positional comment maps to a line that
+   *  is valid in the file but not present in any rendered hunk at the current
+   *  baseline (reverted nearby change / -U3 eviction / pure rename). The comment
+   *  is anchored-but-not-visible: NOT outdated, shown in a per-file "not in this
+   *  diff" bucket by the UI. Cleared on any load where it lands on a rendered line. */
+  notInDiff?: boolean;
   resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string; agentRef?: AgentRef };
   replies: CommentReply[]; createdAt: string; iteration: number;
 }

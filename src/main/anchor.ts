@@ -1,8 +1,12 @@
-import type { AnchorContext, Artifact, Comment, DiffSkeleton } from '../shared/types.js'
+import fs from 'node:fs'
+import nodePath from 'node:path'
+import type { AnchorContext, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, SessionMeta } from '../shared/types.js'
+import { blobShaAt, catBlob, diffContents, hashObjects, renameMap, showFile } from './git.js'
+import { stampAnchor } from './anchorStamp.js'
 
 // ── anchor v2: pure, git-free foundation ───────────────────────
 // (stage-1 diff mapping + stage-2 fuzzy context match; the async pipeline that
-// calls these, and the git plumbing that feeds them, land in a later task.)
+// composes them into the three-stage re-anchor is at the bottom of this file.)
 
 export const CONTEXT_N = 3
 export const QUOTE_WEIGHT = 0.5
@@ -159,57 +163,221 @@ export function fuzzyFind(
   return isBlankQuote || best.score >= ACCEPT_THRESHOLD ? best : null
 }
 
-/** Re-anchor positional comments after the branch changed (mutates comments).
- *  Exact-content match; nearest line wins on duplicates; no match → outdated. */
-export function reanchorComments(comments: Comment[], skeleton: DiffSkeleton, artifacts: Artifact[]): void {
-  const fileMap = new Map(skeleton.files.map((f) => [f.path, f]))
+// ── the async three-stage re-anchor pipeline (spec §3, §4) ─────
+// Composes the pure fns above (stage 1 mapLine, stage 2 fuzzyFind) with the git
+// plumbing (git.ts) and the creation-time stamps (anchorStamp.ts) into the full
+// pipeline. Per positional, unresolved comment: a STAMPED anchor runs stage
+// 0→1→2→3; a LEGACY anchor (no stamp) runs stage 3 only, then heals forward on
+// success. The pass mutates `comments`/`artifacts` in place; callers persist.
+
+/** The git context the re-anchor pass runs against — the rendered surface plus
+ *  the current tip/merge-base and the worktree (or null when the compare is a
+ *  commit / checked out nowhere). */
+export interface ReanchorCtx {
+  workdir: string
+  wt: string | null          // the compare worktree, or null (commit compare / not checked out)
+  forAnchor: DiffSkeleton    // the rendered surface (stage 3 + render placement run against this)
+  dirty: boolean
+  currentTip: string         // skeleton.headSha  (current compare tip)
+  currentMergeBase: string   // skeleton.mergeBase (current merge-base)
+  session: SessionMeta       // for heal-forward stamping of legacy anchors
+}
+
+type PositionalAnchor = Extract<CommentAnchor, { kind: 'diff' } | { kind: 'artifact' }>
+
+/** Split content into lines in stamping's line-number space (drop the empty tail
+ *  a trailing newline leaves), so stage-2 candidate indices line up with mapLine's
+ *  git-space line numbers. */
+function splitLines(content: string): string[] {
+  const lines = content.split('\n')
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  return lines
+}
+
+/** The stage-2 position hint for an EDITED line: the newStart of the hunk that
+ *  contains L (a real replace hunk, oldLen > 0); falls back to the stamp's
+ *  immutable origLine when L sits in no such hunk. */
+function editedHint(hunks: EditHunk[], L: number, origLine: number): number {
+  for (const h of hunks) {
+    if (h.oldLen > 0 && L >= h.oldStart && L < h.oldStart + Math.max(h.oldLen, 1)) return h.newStart
+  }
+  return origLine
+}
+
+/** Find the rendered line in `file` at (side, line) by NUMBER (not text), with the
+ *  same side discipline stage 3 uses — the hunk range it lives in, or null when the
+ *  line is not present in any rendered hunk at this baseline. */
+function findRenderedByLine(file: FileDiff | undefined, side: 'new' | 'old', line: number): string | null {
+  if (!file) return null
+  for (const h of file.hunks) {
+    for (const l of h.lines) {
+      const no = side === 'new' ? l.new : l.old
+      if (no !== line) continue
+      if (side === 'new' && l.kind === 'del') continue
+      if (side === 'old' && l.kind === 'add') continue
+      return h.range
+    }
+  }
+  return null
+}
+
+/** Re-anchor positional comments against the current surface (mutates comments &
+ *  artifacts in place — callers persist afterward). Skips `resolved` and every
+ *  non-positional anchor exactly as before. */
+export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], artifacts: Artifact[]): Promise<void> {
+  const fileMap = new Map(ctx.forAnchor.files.map((f) => [f.path, f]))
+  const filePaths = new Set(ctx.forAnchor.files.map((f) => f.path))
   const artMap = new Map(artifacts.map((a) => [a.path, a]))
+  // Per-pass edit-list dedup (Q7): comments cluster on files, so compute
+  // diffContents at most once per distinct (old blob, new content) pair. NO
+  // cross-load/module-level cache — a persistent LRU is deferred until profiling
+  // shows need (spec Q7: inline-first).
+  const diffMemo = new Map<string, EditHunk[] | null>()
 
-  for (const c of comments) {
-    if (c.status === 'resolved') continue
+  async function memoDiff(blobSha: string, oldContent: string, newContent: string): Promise<EditHunk[] | null> {
+    const key = `${blobSha}\n${newContent}` // blob shas carry no newline, so the boundary is unambiguous
+    const cached = diffMemo.get(key)
+    if (cached !== undefined || diffMemo.has(key)) return cached ?? null
+    const hunks = await diffContents(oldContent, newContent)
+    diffMemo.set(key, hunks)
+    return hunks
+  }
 
-    if (c.anchor.kind === 'diff') {
-      const file = fileMap.get(c.anchor.file)
-      const side = c.anchor.side
-      const candidates: { line: number; range: string }[] = []
+  /** Stage 0 blob probe: the file's CURRENT blob sha, or null when unresolvable. */
+  async function currentBlob(a: PositionalAnchor): Promise<string | null> {
+    if (a.kind === 'artifact') {
+      try { return (await hashObjects(ctx.workdir, [a.path])).get(a.path) ?? null } catch { return null }
+    }
+    if (a.side === 'old') return blobShaAt(ctx.workdir, ctx.currentMergeBase, a.file)
+    const rendered = fileMap.get(a.file)
+    return rendered?.fileHash ?? (await blobShaAt(ctx.workdir, ctx.currentTip, a.file))
+  }
+
+  /** The current NEW-side content + its lines, or null when it cannot be read. */
+  async function resolveNew(a: PositionalAnchor): Promise<{ content: string; lines: string[] } | null> {
+    if (a.kind === 'artifact') {
+      const art = artMap.get(a.path)
+      if (!art) return null
+      return { content: art.lines.join('\n'), lines: art.lines }
+    }
+    let content: string | null
+    if (a.side === 'old') content = await showFile(ctx.workdir, ctx.currentMergeBase, a.file)
+    else if (ctx.wt) { try { content = fs.readFileSync(nodePath.join(ctx.workdir, a.file), 'utf8') } catch { content = null } }
+    else content = await showFile(ctx.workdir, ctx.currentTip, a.file)
+    if (content === null) return null
+    return { content, lines: splitLines(content) }
+  }
+
+  /** Render placement (spec §3): the mapped line is correct in FILE space; attach
+   *  the thread to the rendered hunk it lives in. Off-diff → notInDiff (never
+   *  outdated). Never marks outdated. */
+  function renderPlace(c: Comment, a: PositionalAnchor): void {
+    if (a.kind === 'artifact') {
+      const art = artMap.get(a.path)
+      const visible = !!art && a.line >= 1 && a.line <= art.lines.length
+      if (c.status === 'outdated') c.status = 'queued'
+      c.notInDiff = visible ? undefined : true
+      return
+    }
+    const range = findRenderedByLine(fileMap.get(a.file), a.side, a.line)
+    if (range !== null) a.hunkRange = range
+    if (c.status === 'outdated') c.status = 'queued'
+    c.notInDiff = range !== null ? undefined : true
+  }
+
+  /** Stages 0→1→2 for a stamped anchor. Returns true when it placed the comment
+   *  (any of stage 0/1/2 succeeded → render placement done); false to fall through
+   *  to stage 3. */
+  async function tryStamped(c: Comment, a: PositionalAnchor): Promise<boolean> {
+    const stamp = a.stamp!
+    // Stage 0 — identity short-circuit: byte-identical content ⇒ stored line is
+    // already correct in file space ⇒ NO diff call.
+    const curBlob = await currentBlob(a)
+    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { renderPlace(c, a); return true }
+
+    // Stage 1 prep — recover old content from the stamped blob.
+    const oldContent = stamp.blobSha ? await catBlob(ctx.workdir, stamp.blobSha) : null
+
+    // Rename tracking (committed stamps only): follow origPath→new when the anchor's
+    // path is absent from the rendered surface, then read the new path below.
+    if (a.kind === 'diff' && !filePaths.has(a.file) && stamp.surface === 'committed') {
+      try {
+        const moved = (await renameMap(ctx.workdir, stamp.headSha, ctx.currentTip)).get(stamp.origPath)
+        if (moved) a.file = moved
+      } catch { /* rename probe failed — fall through to stage 2/3 */ }
+    }
+
+    const resolved = await resolveNew(a)
+    if (!resolved) return false // nothing to map/fuzz against → stage 3
+    const { content: newContent, lines: contentLines } = resolved
+
+    let hint = stamp.origLine ?? a.line
+    // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
+    if (oldContent !== null) {
+      const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
+      if (editList === null) { renderPlace(c, a); return true } // identical → line unchanged
+      const mapped = mapLine(editList, a.line)
+      if (typeof mapped === 'number') { a.line = mapped; renderPlace(c, a); return true }
+      hint = editedHint(editList, a.line, stamp.origLine ?? a.line) // 'EDITED' → stage 2 hint
+    }
+
+    // Stage 2 — fuzzy context fallback over the FULL new content.
+    const hit = fuzzyFind(contentLines, a.lineContent, a.context, hint)
+    if (hit) {
+      a.line = hit.line
+      a.lineContent = contentLines[hit.line - 1] // keep the outdated-card quote honest
+      renderPlace(c, a)
+      return true
+    }
+    return false // → stage 3
+  }
+
+  /** Stage 3 — exact-text floor (today's algorithm, verbatim), then outdated. On a
+   *  legacy (unstamped) success, heal forward against the current surface. */
+  async function stage3(c: Comment, a: PositionalAnchor): Promise<void> {
+    const candidates: { line: number; range: string }[] = []
+    if (a.kind === 'diff') {
+      const file = fileMap.get(a.file)
       if (file) {
         for (const h of file.hunks) {
           for (const l of h.lines) {
-            if (l.text !== c.anchor.lineContent) continue
-            const no = side === 'new' ? l.new : l.old
+            if (l.text !== a.lineContent) continue
+            const no = a.side === 'new' ? l.new : l.old
             if (no == null) continue
-            if (side === 'new' && l.kind === 'del') continue
-            if (side === 'old' && l.kind === 'add') continue
+            if (a.side === 'new' && l.kind === 'del') continue
+            if (a.side === 'old' && l.kind === 'add') continue
             candidates.push({ line: no, range: h.range })
           }
         }
       }
-      const best = pickNearest(candidates, c.anchor.line)
-      if (best) {
-        c.anchor = { ...c.anchor, line: best.line, hunkRange: best.range }
-        if (c.status === 'outdated') c.status = 'queued'
-      } else {
-        c.status = 'outdated'
-      }
-    } else if (c.anchor.kind === 'artifact') {
-      const art = artMap.get(c.anchor.path)
-      const candidates: { line: number; range: string }[] = []
-      if (art) {
-        art.lines.forEach((text, idx) => {
-          if (text === (c.anchor as { lineContent: string }).lineContent) candidates.push({ line: idx + 1, range: '' })
-        })
-      }
-      const best = pickNearest(candidates, c.anchor.line)
-      if (best) {
-        c.anchor = { ...c.anchor, line: best.line }
-        if (c.status === 'outdated') c.status = 'queued'
-      } else {
-        c.status = 'outdated'
-      }
+    } else {
+      const art = artMap.get(a.path)
+      if (art) art.lines.forEach((text, idx) => { if (text === a.lineContent) candidates.push({ line: idx + 1, range: '' }) })
     }
+    const best = pickNearest(candidates, a.line)
+    if (best) {
+      a.line = best.line
+      if (a.kind === 'diff') a.hunkRange = best.range
+      if (c.status === 'outdated') c.status = 'queued'
+      c.notInDiff = undefined
+      if (!a.stamp) c.anchor = await stampAnchor(ctx.workdir, ctx.session, a) // heal-forward (legacy only)
+    } else {
+      c.status = 'outdated'
+      c.notInDiff = undefined
+    }
+  }
+
+  for (const c of comments) {
+    if (c.status === 'resolved') continue
+    if (c.anchor.kind !== 'diff' && c.anchor.kind !== 'artifact') continue
     // all non-positional anchors are stable — untouched: section, summary, file,
     // question, plan-step, title, acceptance, deviation, hunk, and selection
     // (content-addressed via its own quote)
+    const a = c.anchor
+    try {
+      if (a.stamp && (await tryStamped(c, a))) continue
+      await stage3(c, a)
+    } catch { /* a git failure on one comment must never abort the pass — leave it */ }
   }
 }
 
