@@ -248,6 +248,24 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorText(c)).toBe('target-line')
   })
 
+  it('4b. regression: insertion immediately AFTER the commented line keeps it put (pure-insertion off-by-one)', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'app.ts', lines('a1', 'a2', 'a3', 'a4', 'target-line', 'a6', 'a7')); commit(repo, 'add app')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'app.ts', line: 5, text: 'target-line' })
+    // insert two lines right AFTER line 5 — git emits `@@ -5,0 +6,2 @@`; the
+    // commented line sits above the insertion and must NOT shift (the old
+    // boundary bug mapped it onto the inserted block at line 7)
+    fixtureWrite(repo, 'app.ts', lines('a1', 'a2', 'a3', 'a4', 'target-line', 'INS-1', 'INS-2', 'a6', 'a7')); commit(repo, 'insert after')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).not.toBe('outdated')
+    expect(anchorLine(c)).toBe(5)
+    expect(anchorText(c)).toBe('target-line')
+    expect(c.notInDiff).toBeFalsy()
+  })
+
   it('5a. commented line lightly edited: stage 2 re-anchors and refreshes the quote', async () => {
     const repo = mkRepo()
     fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')

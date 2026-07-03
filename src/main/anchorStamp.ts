@@ -15,15 +15,19 @@ import { EMPTY_TREE, blobShaAt, hashObjectsWrite, headSha, isDirty, mergeBase, p
 type SurfaceState = AnchorStamp['surface']
 
 /** Read a working-tree file as text, or null if it is gone/unreadable/binary.
- *  Matches syntheticAddedFile's on-disk read (git.ts). */
-function readOnDisk(workdir: string, path: string): string | null {
+ *  Matches syntheticAddedFile's on-disk read (git.ts). Shared with the
+ *  re-anchor pipeline's new-content resolution (anchor.ts). */
+export function readOnDisk(workdir: string, path: string): string | null {
   try { return fs.readFileSync(nodePath.join(workdir, path), 'utf8') }
   catch { return null }
 }
 
 /** Split content into lines in the SAME line-number space stamping uses, dropping
- *  the single empty tail a trailing newline leaves (like syntheticAddedFile). */
-function splitLines(content: string): string[] {
+ *  the single empty tail a trailing newline leaves (like syntheticAddedFile).
+ *  Shared with stage-2 fuzzy matching (anchor.ts), which must agree on this
+ *  drop-empty-tail convention so candidate indices line up with mapLine's
+ *  git-space line numbers. */
+export function splitLines(content: string): string[] {
   const lines = content.split('\n')
   if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   return lines

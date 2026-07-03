@@ -1,8 +1,6 @@
-import fs from 'node:fs'
-import nodePath from 'node:path'
 import type { AnchorContext, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, SessionMeta } from '../shared/types.js'
 import { blobShaAt, catBlob, diffContents, hashObjects, renameMap, showFile } from './git.js'
-import { stampAnchor } from './anchorStamp.js'
+import { readOnDisk, splitLines, stampAnchor } from './anchorStamp.js'
 
 // ── anchor v2: pure, git-free foundation ───────────────────────
 // (stage-1 diff mapping + stage-2 fuzzy context match; the async pipeline that
@@ -37,23 +35,37 @@ function bigramCounts(s: string): Map<string, number> {
   return counts
 }
 
+/** A string prepared for repeated similarity comparisons: its whitespace-
+ *  normalized form plus that form's bigram multiset, computed once. fuzzyFind
+ *  preps every content/context line and the quote up front so the candidate
+ *  scan never rebuilds a normalization or bigram map. */
+interface Prepped { norm: string; bigrams: Map<string, number> }
+
+function prep(raw: string): Prepped {
+  const norm = normalizeWs(raw)
+  return { norm, bigrams: bigramCounts(norm) }
+}
+
+/** Sørensen–Dice coefficient over pre-computed bigram multisets, 0..1. */
+function similarityPrepped(a: Prepped, b: Prepped): number {
+  if (a.norm === '' && b.norm === '') return 1
+  if (a.norm === '' || b.norm === '') return 0
+  if (a.norm.length === 1 || b.norm.length === 1) return a.norm === b.norm ? 1 : 0
+
+  let intersection = 0
+  for (const [bg, count] of a.bigrams) {
+    const other = b.bigrams.get(bg)
+    if (other) intersection += Math.min(count, other)
+  }
+  const total = (a.norm.length - 1) + (b.norm.length - 1)
+  return (2 * intersection) / total
+}
+
 /** Sørensen–Dice coefficient over character bigrams, 0..1. Hand-rolled (no
  *  new dependency). Callers pass already-normalized strings — this function
  *  does not normalize. */
 export function similarity(a: string, b: string): number {
-  if (a === '' && b === '') return 1
-  if (a === '' || b === '') return 0
-  if (a.length === 1 || b.length === 1) return a === b ? 1 : 0
-
-  const countsA = bigramCounts(a)
-  const countsB = bigramCounts(b)
-  let intersection = 0
-  for (const [bg, count] of countsA) {
-    const other = countsB.get(bg)
-    if (other) intersection += Math.min(count, other)
-  }
-  const total = (a.length - 1) + (b.length - 1)
-  return (2 * intersection) / total
+  return similarityPrepped({ norm: a, bigrams: bigramCounts(a) }, { norm: b, bigrams: bigramCounts(b) })
 }
 
 /** The `-U0` edit list between an old and a new content (a later task adapts
@@ -65,12 +77,14 @@ export interface EditHunk { oldStart: number; oldLen: number; newStart: number; 
  *  to its position in NEW-content space. Returns `'EDITED'` when `L` falls
  *  inside a real edited region (oldLen >= 1) — the caller falls back to
  *  stage 2. Pure insertions (oldLen === 0) sit *between* old lines and never
- *  contain `L`, so they never report `'EDITED'`. */
+ *  contain `L`, so they never report `'EDITED'`: git's `-N,0 +M,k` header
+ *  means "inserted AFTER old line N", so `L === oldStart` is still above the
+ *  insertion and keeps its position. */
 export function mapLine(hunks: EditHunk[], L: number): number | 'EDITED' {
   let delta = 0
   for (const h of hunks) {
-    if (L < h.oldStart) return L + delta
-    if (L < h.oldStart + Math.max(h.oldLen, 1) && h.oldLen !== 0) return 'EDITED'
+    if (L < h.oldStart || (h.oldLen === 0 && L === h.oldStart)) return L + delta
+    if (h.oldLen !== 0 && L < h.oldStart + h.oldLen) return 'EDITED'
     delta += h.newLen - h.oldLen
   }
   return L + delta
@@ -84,13 +98,14 @@ function proximity(line: number, hint: number): number {
   return 1 / (1 + dist * PROXIMITY_DECAY)
 }
 
-/** Average similarity between `context`'s before/after lines and the actual
- *  neighbor lines around 0-based candidate index `i` in `content`. `before`
- *  is nearest-last (its last entry sits immediately above `i`); `after` is
- *  nearest-first (its first entry sits immediately below `i`). Entries with
- *  no in-range neighbor are skipped. Returns `null` when no context line has
- *  an in-range neighbor at all (including when `context` is absent). */
-function contextSimilarity(context: AnchorContext | undefined, content: string[], i: number): number | null {
+/** Average similarity between the prepped `context` before/after lines and the
+ *  actual neighbor lines around 0-based candidate index `i` in prepped
+ *  `content`. `before` is nearest-last (its last entry sits immediately above
+ *  `i`); `after` is nearest-first (its first entry sits immediately below `i`).
+ *  Entries with no in-range neighbor are skipped. Returns `null` when no
+ *  context line has an in-range neighbor at all (including when `context` is
+ *  absent). */
+function contextSimilarity(context: { before: Prepped[]; after: Prepped[] } | undefined, content: Prepped[], i: number): number | null {
   if (!context) return null
   let sum = 0
   let count = 0
@@ -98,14 +113,14 @@ function contextSimilarity(context: AnchorContext | undefined, content: string[]
     const dist = context.before.length - k // nearest-last ordering
     const idx = i - dist
     if (idx < 0) continue
-    sum += similarity(normalizeWs(context.before[k]), normalizeWs(content[idx]))
+    sum += similarityPrepped(context.before[k], content[idx])
     count++
   }
   for (let k = 0; k < context.after.length; k++) {
     const dist = k + 1 // nearest-first ordering
     const idx = i + dist
     if (idx >= content.length) continue
-    sum += similarity(normalizeWs(context.after[k]), normalizeWs(content[idx]))
+    sum += similarityPrepped(context.after[k], content[idx])
     count++
   }
   return count > 0 ? sum / count : null
@@ -133,13 +148,18 @@ export function fuzzyFind(
   context: AnchorContext | undefined,
   hint: number
 ): { line: number; score: number } | null {
-  const normQuote = normalizeWs(quote)
-  const isBlankQuote = normQuote === ''
+  // Prep everything once: each content line is compared against the quote and
+  // (as the window slides) up to 2·CONTEXT_N context neighbors, so per-candidate
+  // recomputation of normalization/bigrams would dominate the scan.
+  const preppedQuote = prep(quote)
+  const preppedContent = content.map(prep)
+  const preppedCtx = context ? { before: context.before.map(prep), after: context.after.map(prep) } : undefined
+  const isBlankQuote = preppedQuote.norm === ''
 
   let best: { line: number; score: number } | null = null
   for (let i = 0; i < content.length; i++) {
     const line = i + 1
-    const ctxSim = contextSimilarity(context, content, i)
+    const ctxSim = contextSimilarity(preppedCtx, preppedContent, i)
 
     if (isBlankQuote) {
       if (ctxSim === null || ctxSim < BLANK_QUOTE_CTX_MIN) continue // not eligible at all
@@ -150,7 +170,7 @@ export function fuzzyFind(
       continue
     }
 
-    const qsim = similarity(normalizeWs(content[i]), normQuote)
+    const qsim = similarityPrepped(preppedContent[i], preppedQuote)
     const score = ctxSim === null
       ? (QUOTE_WEIGHT + CONTEXT_WEIGHT) * qsim + PROXIMITY_WEIGHT * proximity(line, hint)
       : QUOTE_WEIGHT * qsim + CONTEXT_WEIGHT * ctxSim + PROXIMITY_WEIGHT * proximity(line, hint)
@@ -184,15 +204,6 @@ export interface ReanchorCtx {
 }
 
 type PositionalAnchor = Extract<CommentAnchor, { kind: 'diff' } | { kind: 'artifact' }>
-
-/** Split content into lines in stamping's line-number space (drop the empty tail
- *  a trailing newline leaves), so stage-2 candidate indices line up with mapLine's
- *  git-space line numbers. */
-function splitLines(content: string): string[] {
-  const lines = content.split('\n')
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
-  return lines
-}
 
 /** The stage-2 position hint for an EDITED line: the newStart of the hunk that
  *  contains L (a real replace hunk, oldLen > 0); falls back to the stamp's
@@ -243,14 +254,29 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     return hunks
   }
 
+  // Per-pass memo for the remaining per-comment git lookups (same inline-first
+  // rationale as diffMemo): comments cluster on files, so each distinct blob
+  // probe / blob read / new-content read / rename map runs at most once per
+  // pass. Keys are namespaced (`kind:detail`); a rename that mutates a.file
+  // changes the key, so the renamed path is looked up fresh — behavior per
+  // comment is unchanged, only duplicate work is skipped.
+  const lookupMemo = new Map<string, Promise<unknown>>()
+  function memoLookup<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    let p = lookupMemo.get(key) as Promise<T> | undefined
+    if (!p) { p = compute(); lookupMemo.set(key, p) }
+    return p
+  }
+
   /** Stage 0 blob probe: the file's CURRENT blob sha, or null when unresolvable. */
   async function currentBlob(a: PositionalAnchor): Promise<string | null> {
     if (a.kind === 'artifact') {
-      try { return (await hashObjects(ctx.workdir, [a.path])).get(a.path) ?? null } catch { return null }
+      return memoLookup(`blob:art:${a.path}`, async () => {
+        try { return (await hashObjects(ctx.workdir, [a.path])).get(a.path) ?? null } catch { return null }
+      })
     }
-    if (a.side === 'old') return blobShaAt(ctx.workdir, ctx.currentMergeBase, a.file)
+    if (a.side === 'old') return memoLookup(`blob:old:${a.file}`, () => blobShaAt(ctx.workdir, ctx.currentMergeBase, a.file))
     const rendered = fileMap.get(a.file)
-    return rendered?.fileHash ?? (await blobShaAt(ctx.workdir, ctx.currentTip, a.file))
+    return rendered?.fileHash ?? (await memoLookup(`blob:new:${a.file}`, () => blobShaAt(ctx.workdir, ctx.currentTip, a.file)))
   }
 
   /** The current NEW-side content + its lines, or null when it cannot be read. */
@@ -261,9 +287,9 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
       return { content: art.lines.join('\n'), lines: art.lines }
     }
     let content: string | null
-    if (a.side === 'old') content = await showFile(ctx.workdir, ctx.currentMergeBase, a.file)
-    else if (ctx.wt) { try { content = fs.readFileSync(nodePath.join(ctx.workdir, a.file), 'utf8') } catch { content = null } }
-    else content = await showFile(ctx.workdir, ctx.currentTip, a.file)
+    if (a.side === 'old') content = await memoLookup(`show:old:${a.file}`, () => showFile(ctx.workdir, ctx.currentMergeBase, a.file))
+    else if (ctx.wt) content = await memoLookup(`disk:${a.file}`, async () => readOnDisk(ctx.workdir, a.file))
+    else content = await memoLookup(`show:new:${a.file}`, () => showFile(ctx.workdir, ctx.currentTip, a.file))
     if (content === null) return null
     return { content, lines: splitLines(content) }
   }
@@ -296,13 +322,16 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { renderPlace(c, a); return true }
 
     // Stage 1 prep — recover old content from the stamped blob.
-    const oldContent = stamp.blobSha ? await catBlob(ctx.workdir, stamp.blobSha) : null
+    const oldContent = stamp.blobSha
+      ? await memoLookup(`cat:${stamp.blobSha}`, () => catBlob(ctx.workdir, stamp.blobSha!))
+      : null
 
     // Rename tracking (committed stamps only): follow origPath→new when the anchor's
     // path is absent from the rendered surface, then read the new path below.
     if (a.kind === 'diff' && !filePaths.has(a.file) && stamp.surface === 'committed') {
       try {
-        const moved = (await renameMap(ctx.workdir, stamp.headSha, ctx.currentTip)).get(stamp.origPath)
+        const renames = await memoLookup(`ren:${stamp.headSha}`, () => renameMap(ctx.workdir, stamp.headSha, ctx.currentTip))
+        const moved = renames.get(stamp.origPath)
         if (moved) a.file = moved
       } catch { /* rename probe failed — fall through to stage 2/3 */ }
     }

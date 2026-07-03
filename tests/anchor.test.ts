@@ -156,9 +156,22 @@ describe('mapLine', () => {
     expect(mapLine(hunks, 15)).toBe(15)
   })
 
-  it('inside a pure-insert hunk (oldLen=0): never EDITED, maps through', () => {
-    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 0, newStart: 5, newLen: 4 }]
+  // Pure insertions use git's `-N,0 +M,k` convention: the block is inserted
+  // AFTER old line N (insert-after-5 emits `@@ -5,0 +6,2 @@`; insert-before-5
+  // emits `@@ -4,0 +5,4 @@`). Never EDITED; L === oldStart is above the block.
+  it('pure insertion AFTER L (`@@ -5,0 +6,2 @@`): L keeps its position', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 0, newStart: 6, newLen: 2 }]
+    expect(mapLine(hunks, 5)).toBe(5)
+  })
+
+  it('pure insertion BEFORE L (`@@ -4,0 +5,4 @@`): L shifts by newLen', () => {
+    const hunks: EditHunk[] = [{ oldStart: 4, oldLen: 0, newStart: 5, newLen: 4 }]
     expect(mapLine(hunks, 5)).toBe(9)
+  })
+
+  it('L far past a pure-insertion hunk: accumulates the full insertion delta', () => {
+    const hunks: EditHunk[] = [{ oldStart: 5, oldLen: 0, newStart: 6, newLen: 2 }]
+    expect(mapLine(hunks, 20)).toBe(22)
   })
 
   it('inside a replace hunk: EDITED', () => {
