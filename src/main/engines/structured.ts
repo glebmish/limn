@@ -1,17 +1,14 @@
-// ACP has no native output-schema channel, so structured review generation
-// moves to schema-in-prompt + client-side JSON extraction + one repair turn
-// (spec `specs/acp-migration/spec.md` §D5). These pure helpers are shared by
-// both engines: Codex still passes a native `outputSchema` to the app-server
-// but reuses `parseJson` here for its extraction fallback ladder; the ACP
-// engine (a later task) composes `structuredEpilogue`/`buildRepairPrompt`
-// around `buildReviewPrompt`/`buildScopedUpdatePrompt` from prompts.ts.
+// ACP has no native output-schema channel, so structured review generation is
+// schema-in-prompt + client-side JSON extraction + one automatic repair turn
+// (spec `specs/acp-migration/spec.md` §D5). These pure helpers serve exactly one
+// consumer, the ACP engine (`acp.ts`): it appends `structuredEpilogue` to the
+// review/scoped prompts from prompts.ts, extracts the payload with `parseJson`,
+// and sends `buildRepairPrompt` as the single repair turn when validation fails.
 
-/** Slice the first balanced `{...}` or `[...]` out of `text`, string-aware so
- *  braces inside JSON string values don't unbalance the count. Returns null
- *  if no balanced bracket run is found. */
-function jsonSlice(text: string): string | null {
-  const start = text.search(/[[{]/)
-  if (start < 0) return null
+/** From `start` (an opening `{` or `[`), find the index of the bracket that
+ *  balances it, string-aware so braces inside JSON string values don't
+ *  unbalance the count. Returns -1 when the run never balances. */
+function matchBalanced(text: string, start: number): number {
   const open = text[start]
   const close = open === '{' ? '}' : ']'
   let depth = 0
@@ -27,14 +24,35 @@ function jsonSlice(text: string): string | null {
     }
     if (ch === '"') { inString = true; continue }
     if (ch === open) depth++
-    else if (ch === close && --depth === 0) return text.slice(start, i + 1)
+    else if (ch === close && --depth === 0) return i
   }
-  return null
+  return -1
+}
+
+/** Every top-level balanced `{...}` / `[...]` run in `text`, in order. An
+ *  opener that never balances is skipped (scan resumes just past it) so a
+ *  stray brace in prose can't hide a later complete payload. */
+function jsonSlices(text: string): string[] {
+  const slices: string[] = []
+  let from = 0
+  while (from < text.length) {
+    const rel = text.slice(from).search(/[[{]/)
+    if (rel < 0) break
+    const start = from + rel
+    const end = matchBalanced(text, start)
+    if (end < 0) { from = start + 1; continue }
+    slices.push(text.slice(start, end + 1))
+    from = end + 1
+  }
+  return slices
 }
 
 /** Parse an engine's structured-output text via a 3-fallback ladder: direct
  *  `JSON.parse`, then a fenced ```json``` block, then a balanced-brace slice
- *  out of surrounding prose. Throws if none of the three yield valid JSON. */
+ *  out of surrounding prose — trying the LAST slice first, because the payload
+ *  trails any preamble and a preamble may itself contain a balanced fragment
+ *  ("I'll produce {...} first. Here it is: {...}"). Throws if nothing yields
+ *  valid JSON. */
 export function parseJson(text: string): unknown {
   try {
     return JSON.parse(text)
@@ -42,8 +60,10 @@ export function parseJson(text: string): unknown {
     // schema-constrained output occasionally arrives fenced — strip and retry
     const m = text.match(/```(?:json)?\n?([\s\S]*?)```/)
     if (m) return JSON.parse(m[1])
-    const slice = jsonSlice(text)
-    if (slice) return JSON.parse(slice)
+    const slices = jsonSlices(text)
+    for (let i = slices.length - 1; i >= 0; i--) {
+      try { return JSON.parse(slices[i]) } catch { /* an earlier slice may parse */ }
+    }
     throw new Error('Engine returned non-JSON output')
   }
 }

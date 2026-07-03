@@ -32,10 +32,13 @@ import {
 /** A single tool call the fake asks permission for mid-turn. */
 export interface FakePermission {
   toolCallId: string
-  title: string
+  /** omitted to mimic codex-acp's correlated MCP-approval shape (no title). */
+  title?: string
   kind: ToolCallUpdate['kind']
   /** raw command / input surfaced to `acpPermissionToRequest`. */
   rawInput?: unknown
+  /** request-level `_meta` (e.g. codex-acp's `{ is_mcp_tool_approval: true }`). */
+  meta?: Record<string, unknown>
   /** options offered; defaults to an allow_once / reject_once pair. */
   options?: PermissionOption[]
 }
@@ -173,11 +176,12 @@ class FakeAgent implements Agent {
           sessionId,
           toolCall: {
             toolCallId: p.toolCallId,
-            title: p.title,
+            ...(p.title !== undefined ? { title: p.title } : {}),
             kind: p.kind,
             status: 'pending',
             ...(p.rawInput !== undefined ? { rawInput: p.rawInput } : {})
           },
+          ...(p.meta !== undefined ? { _meta: p.meta } : {}),
           options: p.options ?? DEFAULT_OPTIONS
         })
         record({ event: 'permissionOutcome', outcome: res.outcome })

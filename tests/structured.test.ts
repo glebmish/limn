@@ -24,6 +24,25 @@ describe('parseJson', () => {
     expect(parseJson(text)).toEqual({ a: '{{{not a brace', b: { nested: '}}} still a string' } })
   })
 
+  it('prefers the LAST balanced object when a preamble contains a brace fragment', () => {
+    const text = 'I will structure the output as {"sections": [...]} roughly.\nHere it is:\n{"title":"T","summary":"S"}'
+    expect(parseJson(text)).toEqual({ title: 'T', summary: 'S' })
+  })
+
+  it('falls back to an earlier balanced object when the last one is not valid JSON', () => {
+    const text = '{"title":"T"}\ntrailing note {not json}'
+    expect(parseJson(text)).toEqual({ title: 'T' })
+  })
+
+  it('still finds a trailing payload after a stray unbalanced opener in prose', () => {
+    const text = 'an { unbalanced brace in prose\n{"title":"T"}'
+    expect(parseJson(text)).toEqual({ title: 'T' })
+  })
+
+  it('single wrapped object behaviour is unchanged', () => {
+    expect(parseJson('preamble\n{"only":"one"}\npostamble')).toEqual({ only: 'one' })
+  })
+
   it('throws a generic error for non-JSON output', () => {
     expect(() => parseJson('not json at all, no braces')).toThrow('Engine returned non-JSON output')
   })

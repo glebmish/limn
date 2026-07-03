@@ -13,7 +13,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
 import type { ReasoningEffort, ReviewAnnotations, ExecutionMode } from '../../shared/types.js'
-import { ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
+import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
@@ -75,8 +75,12 @@ interface AcpTurnOptions<T> {
   executionMode?: ExecutionMode
   /** force read-only mode + deny-all-non-limn permissions regardless of tier. */
   readOnly?: boolean
-  /** suppress streamed text events (structured generate turns). */
-  structured?: boolean
+  /** structured generation turn (review / scoped update): suppress streamed text
+   *  AND route permissions through `generationLadder` — its own explicit policy
+   *  (commands allowed, file changes denied), not a chat tier. The session mode is
+   *  the non-write one (`modeFor(mode, false)`) so file edits surface as permission
+   *  requests for the ladder to deny instead of being engine-auto-accepted. */
+  generation?: boolean
   /** identity for chat; parse∘extract for review/scoped — throws → one repair turn. */
   parse: (text: string) => T
   status?: string
@@ -95,9 +99,7 @@ export class AcpEngine implements ReviewEngine {
       prompt: buildReviewPrompt(req) + '\n' + structuredEpilogue(reviewJsonSchema),
       model: req.model,
       reasoningEffort: req.reasoningEffort,
-      writeEnabled: true,
-      executionMode: 'edits',
-      structured: true,
+      generation: true,
       status: 'Starting review…',
       parse: (t) => parseReviewOutput(parseJson(t))
     })
@@ -113,9 +115,7 @@ export class AcpEngine implements ReviewEngine {
       engineSessionId: req.priorEngineSessionId,
       model: req.model,
       reasoningEffort: req.reasoningEffort,
-      writeEnabled: true,
-      executionMode: 'edits',
-      structured: true,
+      generation: true,
       status: 'Updating review…',
       parse: (t) => parseScopedOutput(parseJson(t))
     })
@@ -139,7 +139,6 @@ export class AcpEngine implements ReviewEngine {
       opId: turn.opId,
       executionMode: turn.executionMode,
       readOnly: turn.readOnly,
-      structured: false,
       parse: (t) => t
     })
   }
@@ -153,7 +152,11 @@ export class AcpEngine implements ReviewEngine {
     if (opts.status) q.push({ type: 'status', text: opts.status })
     const mode: ExecutionMode = opts.executionMode ?? 'ask'
     // A read-only shared-lane turn is never write-capable, whatever the tier says.
+    // Generation turns pass no writeEnabled either: their session mode must be the
+    // non-write one so file edits ASK (and generationLadder denies them) rather
+    // than being auto-accepted engine-side.
     const readOnly = Boolean(opts.readOnly)
+    const generation = Boolean(opts.generation)
     const write = Boolean(opts.writeEnabled) && !readOnly
 
     let child: ChildProcessWithoutNullStreams | null = null
@@ -204,35 +207,40 @@ export class AcpEngine implements ReviewEngine {
 
         // (c) the Client handler: stream updates → events (with replay suppression),
         //     route permissions through the ladder.
+        // toolCallId → title of every tool_call seen this turn, so an MCP-tool
+        // approval that arrives with no title (codex-acp's correlated elicitation
+        // shape) can recover the tool name for the limn auto-allow.
+        const toolTitles = new Map<string, string>()
         const client: Client = {
           sessionUpdate: (params: SessionNotification): void => {
+            const u = params.update
+            if (u.sessionUpdate === 'tool_call' && u.title) toolTitles.set(u.toolCallId, u.title)
             // Drop everything until session/new|load resolves — replay is history
             // Limn already holds in its own DB (spec §D1 step 4).
             if (replaying) return
-            for (const ev of acpToEvents(params.update)) {
+            for (const ev of acpToEvents(u)) {
               if (ev.type === 'text') {
                 finalText += ev.text
-                if (opts.structured) continue // suppress streamed text on generate turns
+                if (generation) continue // suppress streamed text on generate turns
               }
               q.push(ev)
             }
           },
           requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
-            const req = acpPermissionToRequest(params, this.config.id)
-            const decision = readOnly ? readOnlyLadder(req) : ladderPolicy(mode, req, write)
-            const options = params.options ?? []
-            if (decision === 'allow' || decision === 'deny') {
-              const optionId = optionFor(options, decision)
-              return optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } }
-            }
-            // 'ask' — park on the reviewer's decision, but answer `cancelled` if the
-            // turn is cancelled while parked (ACP requires it for pending requests).
-            const decided = opts.opId
-              ? awaitDecision(opts.opId, req, (e) => q.push(e)).then((d): 'allow' | 'deny' | 'cancel' => d)
-              : Promise.resolve<'allow' | 'deny' | 'cancel'>('deny')
-            const outcome = await Promise.race([decided, cancelled.then((): 'cancel' => 'cancel')])
-            if (outcome === 'cancel') return { outcome: { outcome: 'cancelled' } }
-            const optionId = optionFor(options, outcome)
+            const req = acpPermissionToRequest(params, this.config.id, toolTitles)
+            const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(mode, req, write)
+            // 'ask' parks on the reviewer's decision, racing cancel so a pending
+            // request gets the ACP-required `cancelled` outcome. A turn with no opId
+            // has no approval surface to park on, so its 'ask' degrades to deny.
+            const decision: 'allow' | 'deny' | 'cancel' =
+              policy !== 'ask'
+                ? policy
+                : await Promise.race([
+                    opts.opId ? awaitDecision(opts.opId, req, (e) => q.push(e)) : Promise.resolve<'allow' | 'deny'>('deny'),
+                    cancelled.then((): 'cancel' => 'cancel')
+                  ])
+            if (decision === 'cancel') return { outcome: { outcome: 'cancelled' } }
+            const optionId = optionFor(params.options ?? [], decision)
             return optionId ? { outcome: { outcome: 'selected', optionId } } : { outcome: { outcome: 'cancelled' } }
           },
           readTextFile: () => { throw new Error('fs.readTextFile declined') },

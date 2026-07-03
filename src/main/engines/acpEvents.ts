@@ -77,6 +77,12 @@ function toolCallEvent(tc: ToolCall): EngineEvent {
   }
 }
 
+/** The typed diff blocks of a tool call's content — the one filter every
+ *  diff-aware branch (update folding, permission classification) shares. */
+function diffBlocks(blocks: ToolCallContent[] | null | undefined): Array<ToolCallContent & { type: 'diff'; path: string }> {
+  return (blocks ?? []).filter((b): b is ToolCallContent & { type: 'diff'; path: string } => b.type === 'diff')
+}
+
 /** Concatenated text of `content`-type ToolCallContent blocks (diff/terminal
  *  blocks carry no inline text). */
 function contentText(blocks: ToolCallContent[] | null | undefined): string {
@@ -102,9 +108,9 @@ function outTextOf(content: ToolCallContent[] | null | undefined, rawOutput: unk
  *  branch): `reduceToolCalls` only lets a non-'other' verb / non-empty name
  *  overwrite the identity established by the initiating `tool_call` event. */
 function toolCallUpdateEvent(u: ToolCallUpdate): EngineEvent {
-  const diffBlocks = (u.content ?? []).filter((b): b is ToolCallContent & { type: 'diff'; path: string } => b.type === 'diff')
-  if (diffBlocks.length > 0) {
-    const paths = diffBlocks.map((d) => d.path)
+  const diffs = diffBlocks(u.content)
+  if (diffs.length > 0) {
+    const paths = diffs.map((d) => d.path)
     return {
       type: 'tool',
       call: {
@@ -183,21 +189,47 @@ export function acpToEvents(update: SessionUpdate): EngineEvent[] {
   }
 }
 
+/** True for codex-acp's MCP-server tool approvals. The adapter forwards them as
+ *  elicitations shaped `toolCall { kind: 'execute', status: 'pending' }` with
+ *  title/rawInput OMITTED (correlated shape) or `rawInput { serverName, schema }`
+ *  (uncorrelated fallback), plus `_meta: { is_mcp_tool_approval: true }` — the one
+ *  reliable marker. Without this check they'd classify as an empty-command
+ *  `command` ("Run \`\`"), so Limn's own tools would never hit the limn auto-allow. */
+function isMcpToolApproval(req: RequestPermissionRequest): boolean {
+  const metas: unknown[] = [req._meta, (req.toolCall as { _meta?: unknown })._meta]
+  return metas.some((m) => Boolean(m && typeof m === 'object' && (m as Record<string, unknown>).is_mcp_tool_approval === true))
+}
+
 /** Normalize an ACP `session/request_permission` payload to Limn's engine-
  *  agnostic `ApprovalRequest` (spec.md §D3 first bullet) — replaced
  *  `toApprovalRequest` (claude.ts) and the app-server's `approvalRequestFromParams`
  *  (now deleted). `id` is the request's `toolCall.toolCallId` —
  *  `RequestPermissionRequest` carries no separate top-level correlation id, and
- *  the AcpEngine pairs the reviewer's decision back to the same tool call. */
-export function acpPermissionToRequest(req: RequestPermissionRequest, engine: EngineId): ApprovalRequest {
+ *  the AcpEngine pairs the reviewer's decision back to the same tool call.
+ *  `toolTitles` (toolCallId -> title of previously seen tool_call updates) lets an
+ *  MCP-tool approval that arrives with no title recover the tool name. */
+export function acpPermissionToRequest(req: RequestPermissionRequest, engine: EngineId, toolTitles?: ReadonlyMap<string, string>): ApprovalRequest {
   const tc = req.toolCall
   const title = tc.title ?? ''
-  const hasDiff = (tc.content ?? []).some((b) => b.type === 'diff')
+  const hasDiff = diffBlocks(tc.content).length > 0
   const detail: ApprovalRequest['detail'] = {}
   let kind: ApprovalKind
   let summary: string
 
-  if (tc.kind === 'execute') {
+  if (isMcpToolApproval(req)) {
+    // An MCP tool approval is a tool_use whatever its nominal `kind` says
+    // (codex-acp stamps 'execute'). Recover the tool name from the initiating
+    // tool_call (correlated shape: `mcp.<server>.<tool>`), else fall back to the
+    // uncorrelated shape's rawInput.serverName — either spelling satisfies
+    // `isLimnTool` for Limn's own server, and a non-limn MCP tool still gets a
+    // meaningful ask summary instead of "Run ``".
+    const input = tc.rawInput && typeof tc.rawInput === 'object' ? (tc.rawInput as Record<string, unknown>) : undefined
+    const server = typeof input?.serverName === 'string' ? input.serverName : undefined
+    const toolName = title || toolTitles?.get(tc.toolCallId) || server || ''
+    kind = 'tool_use'
+    detail.toolName = toolName
+    summary = `Use ${toolName || 'MCP tool'}`
+  } else if (tc.kind === 'execute') {
     kind = 'command'
     const input = tc.rawInput && typeof tc.rawInput === 'object' ? (tc.rawInput as Record<string, unknown>) : undefined
     const command =
@@ -211,7 +243,7 @@ export function acpPermissionToRequest(req: RequestPermissionRequest, engine: En
   } else if (tc.kind === 'edit' || tc.kind === 'delete' || tc.kind === 'move' || hasDiff) {
     kind = 'file_change'
     const locationPaths = (tc.locations ?? []).map((l) => l.path)
-    const diffPaths = (tc.content ?? []).filter((b): b is ToolCallContent & { type: 'diff'; path: string } => b.type === 'diff').map((b) => b.path)
+    const diffPaths = diffBlocks(tc.content).map((b) => b.path)
     const files = Array.from(new Set([...locationPaths, ...diffPaths]))
     detail.files = files
     summary = `Edit ${files[0] ?? title}`

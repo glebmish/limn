@@ -318,3 +318,87 @@ describe('acpPermissionToRequest', () => {
     })
   })
 })
+
+describe('acpPermissionToRequest — codex-acp MCP tool approvals (_meta.is_mcp_tool_approval)', () => {
+  // codex-acp forwards MCP-server tool approvals with kind 'execute' and NO
+  // title/command; without the _meta marker they would classify as an empty
+  // "Run ``" command and Limn's own tools would never auto-allow.
+
+  it('correlated shape: no title/rawInput — recovers the tool name from the seen tool_call', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'mcp1', kind: 'execute', status: 'pending' },
+      _meta: { is_mcp_tool_approval: true },
+      options: []
+    }
+    const titles = new Map([['mcp1', 'mcp.limn.add_comment']])
+    const result = acpPermissionToRequest(req, 'codex', titles)
+    expect(result).toEqual({
+      id: 'mcp1',
+      engine: 'codex',
+      kind: 'tool_use',
+      summary: 'Use mcp.limn.add_comment',
+      detail: { toolName: 'mcp.limn.add_comment' }
+    })
+  })
+
+  it('uncorrelated fallback shape: falls back to rawInput.serverName', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: {
+        toolCallId: 'elicitation-limn',
+        kind: 'execute',
+        status: 'pending',
+        content: [{ type: 'content', content: { type: 'text', text: 'Allow tool?' } }],
+        rawInput: { serverName: 'limn', schema: {} }
+      },
+      _meta: { is_mcp_tool_approval: true },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result).toEqual({
+      id: 'elicitation-limn',
+      engine: 'codex',
+      kind: 'tool_use',
+      summary: 'Use limn',
+      detail: { toolName: 'limn' }
+    })
+  })
+
+  it('non-limn MCP tool still gets a meaningful tool_use summary (not "Run ``")', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'mcp2', kind: 'execute', status: 'pending' },
+      _meta: { is_mcp_tool_approval: true },
+      options: []
+    }
+    const titles = new Map([['mcp2', 'mcp.github.create_issue']])
+    const result = acpPermissionToRequest(req, 'codex', titles)
+    expect(result.kind).toBe('tool_use')
+    expect(result.summary).toBe('Use mcp.github.create_issue')
+    expect(result.detail).toEqual({ toolName: 'mcp.github.create_issue' })
+  })
+
+  it('an MCP approval with no recoverable name still summarizes as an MCP tool', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'mystery', kind: 'execute', status: 'pending' },
+      _meta: { is_mcp_tool_approval: true },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.kind).toBe('tool_use')
+    expect(result.summary).toBe('Use MCP tool')
+  })
+
+  it('a plain execute request WITHOUT the marker still classifies as a command', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'sh1', kind: 'execute', status: 'pending', rawInput: { command: 'ls' } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex', new Map([['sh1', 'ls']]))
+    expect(result.kind).toBe('command')
+    expect(result.detail).toEqual({ command: 'ls' })
+  })
+})

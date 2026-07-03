@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ladderPolicy, readOnlyLadder, isSafeCommand, isLimnTool, SAFE_COMMAND_ALLOWLIST } from '../src/shared/approvalPolicy.js'
+import { ladderPolicy, readOnlyLadder, generationLadder, isSafeCommand, isLimnTool, SAFE_COMMAND_ALLOWLIST } from '../src/shared/approvalPolicy.js'
 import type { ApprovalRequest, ExecutionMode } from '../src/shared/types.js'
 
 function req(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
@@ -27,12 +27,36 @@ describe('readOnlyLadder (shared-lane read-only turn)', () => {
   })
 })
 
+describe('generationLadder (structured generation turn)', () => {
+  it('allows Limn tools', () => {
+    expect(generationLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp__limn__focus' } }))).toBe('allow')
+    expect(generationLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp.limn.add_comment' } }))).toBe('allow')
+  })
+  it('allows commands whether safe or unsafe (never asks — no opId to park on)', () => {
+    expect(generationLadder(req({ kind: 'command', detail: { command: 'git log --oneline' } }))).toBe('allow')
+    expect(generationLadder(req({ kind: 'command', detail: { command: 'npm install left-pad' } }))).toBe('allow')
+  })
+  it('denies file_change (generation explores, it does not edit the tree)', () => {
+    expect(generationLadder(req({ kind: 'file_change', detail: { files: ['a.ts'] } }))).toBe('deny')
+  })
+  it('denies non-Limn tool_use', () => {
+    expect(generationLadder(req({ kind: 'tool_use', detail: { toolName: 'WebFetch' } }))).toBe('deny')
+  })
+})
+
 describe('isLimnTool', () => {
   it('recognizes mcp__limn__ prefixed tool names', () => {
     expect(isLimnTool('mcp__limn__focus')).toBe(true)
   })
   it('recognizes limn. prefixed tool names', () => {
     expect(isLimnTool('limn.read')).toBe(true)
+  })
+  it('recognizes codex-acp mcp.limn.<tool> titles and the bare limn server name', () => {
+    expect(isLimnTool('mcp.limn.add_comment')).toBe(true)
+    expect(isLimnTool('limn')).toBe(true)
+  })
+  it('rejects non-limn MCP tool names', () => {
+    expect(isLimnTool('mcp.github.create_issue')).toBe(false)
   })
   it('rejects non-limn tool names', () => {
     expect(isLimnTool('Bash')).toBe(false)

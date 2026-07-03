@@ -100,6 +100,44 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(value.sections[0].id).toBe('a')
   })
 
+  it('2b. generation turn auto-allows a command permission (even an unsafe one), without parking', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'rev-gen-cmd',
+      turns: [{
+        permission: { toolCallId: 'gc1', title: 'run', kind: 'execute', rawInput: { command: 'npm install left-pad' } },
+        text: JSON.stringify(validReview),
+        rejectedText: 'denied — would fail parsing'
+      }]
+    })
+    const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'approval_request')).toBe(false) // no parking — generation has no opId
+    const { value } = await run.result
+    expect(value.title).toBe('T') // allow branch taken
+    const records = readRecords()
+    expect((records.find((r) => r.event === 'permissionOutcome')?.outcome as { optionId?: string })?.optionId).toBe('allow')
+    // the session mode is the non-write one, so edits ask instead of auto-applying
+    expect(records.find((r) => r.event === 'setSessionMode')?.modeId).toBe('default')
+  })
+
+  it('2c. generation turn auto-DENIES a file_change permission', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'rev-gen-edit',
+      turns: [{
+        permission: { toolCallId: 'ge1', title: 'Edit file', kind: 'edit', rawInput: { path: '/r/a.ts' } },
+        text: 'allowed — would fail parsing',
+        rejectedText: JSON.stringify(validReview)
+      }]
+    })
+    const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'approval_request')).toBe(false) // denied outright, never parked
+    const { value } = await run.result
+    expect(value.title).toBe('T') // reject branch taken
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
+  })
+
   it('3a. repair turn: invalid JSON then valid → second prompt repairs', async () => {
     const { engine } = fakeEngine({
       sessionId: 'rev-2',
@@ -168,6 +206,30 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(events.some((e) => e.type === 'approval_request')).toBe(false)
     const { value } = await run.result
     expect(value).toBe('focused')
+  })
+
+  it('4d. codex-style correlated MCP limn-tool approval (no title, _meta flag) auto-allows', async () => {
+    // codex-acp sends MCP tool approvals as kind 'execute' with title/rawInput
+    // omitted, flagged via _meta — the tool name must be recovered from the
+    // initiating tool_call so the limn auto-allow fires (not a blank "Run ``" ask).
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4d',
+      turns: [{
+        updates: [
+          { sessionUpdate: 'tool_call', toolCallId: 'mcp9', title: 'mcp.limn.add_comment', kind: 'other', status: 'pending' }
+        ],
+        permission: { toolCallId: 'mcp9', kind: 'execute', meta: { is_mcp_tool_approval: true } },
+        text: 'noted',
+        rejectedText: 'refused'
+      }]
+    }, CODEX_ACP_CONFIG)
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4d', message: 'go', opId: 'op4d', executionMode: 'ask' })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'approval_request')).toBe(false) // auto-allowed, never parked
+    const { value } = await run.result
+    expect(value).toBe('noted') // allow branch taken
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('allow')
   })
 
   it('4c. readOnly turn denies a command WITHOUT parking, even at the full tier', async () => {

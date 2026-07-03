@@ -1,11 +1,14 @@
 import type { ApprovalRequest, ExecutionMode } from './types.js'
 
 /** True when a tool name is one of Limn's own MCP tools (read/annotation only).
- *  These are always allowed regardless of tier — row 1 of the D3 ladder table. */
+ *  These are always allowed regardless of tier — row 1 of the D3 ladder table.
+ *  Adapters spell the name differently: claude-agent-acp uses `mcp__limn__<tool>`,
+ *  codex-acp titles MCP calls `mcp.limn.<tool>` (and its uncorrelated approval
+ *  fallback surfaces only the server name, `limn`). */
 export function isLimnTool(name?: string): boolean {
   if (!name) return false
   const lower = name.toLowerCase()
-  return lower.startsWith('limn') || lower.includes('__limn__') || lower.startsWith('mcp__limn')
+  return lower.startsWith('limn') || lower.includes('__limn__') || lower.startsWith('mcp__limn') || lower.startsWith('mcp.limn.')
 }
 
 /** Read/inspect/build/test leading verbs that are safe on their own. */
@@ -124,6 +127,21 @@ const TIER_TABLE: Record<ExecutionMode, { file_change: LadderDecision; commandSa
  *  must never edit, run a command, or block waiting for an approval. */
 export function readOnlyLadder(req: ApprovalRequest): 'allow' | 'deny' {
   return req.kind === 'tool_use' && isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
+}
+
+/** Structured-generation turn (review / scoped update): its own explicit policy,
+ *  NOT a chat tier — a generation turn has no opId, so an 'ask' could never park
+ *  and would silently degrade to deny. Commands are allowed whether or not
+ *  `isSafeCommand` likes them (parity with the pre-ACP engines, where generation
+ *  ran Read/Grep/Glob/Bash under the SDK's permissive mode: the reviewer asked
+ *  for this run, and it holds the exclusive lane); `file_change` is denied (the
+ *  old engines disallowed Edit/Write during generation — the model explores and
+ *  emits JSON, it does not edit the tree); non-Limn tool_use is denied (those
+ *  tools simply weren't mounted before). Never 'ask' — there is nobody to ask. */
+export function generationLadder(req: ApprovalRequest): 'allow' | 'deny' {
+  if (req.kind === 'command') return 'allow'
+  if (req.kind === 'file_change') return 'deny'
+  return isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
 }
 
 /** The one shared decision function that runs on every incoming ACP
