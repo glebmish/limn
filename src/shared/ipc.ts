@@ -126,7 +126,14 @@ export interface Api {
   takeCliOpen(): Promise<CliOpenMsg | null>
 }
 
-export interface OpEventMsg { opId: string; event: EngineEvent }
+export interface OpEventMsg {
+  opId: string
+  event: EngineEvent
+  /** The lane main ACTUALLY chose for this op (true = exclusive, false = shared
+   *  read-only). Present once the turn is running; the renderer corrects its
+   *  startOp-time lane prediction from it (concurrent-chat §4 / OQ7). */
+  exclusive?: boolean
+}
 export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
 /** Stable, engine-agnostic classification of an op failure. Set when the failure has
  *  a distinct, actionable remedy the renderer surfaces specially (vs. a generic error). */
@@ -140,6 +147,10 @@ export interface OpResultMsg {
   /** Present when `error` is a classified failure (see OpErrorCode) so the renderer
    *  can render a distinct state instead of the generic error strip. */
   errorCode?: OpErrorCode
+  /** The lane this op actually ran on (see OpEventMsg.exclusive) — the terminal
+   *  correction for the renderer's lane prediction. Absent when no lane was ever
+   *  taken (e.g. a thread-busy rejection). */
+  exclusive?: boolean
 }
 
 export interface RepoChangedMsg {

@@ -15,6 +15,7 @@ import { ZodError } from 'zod'
 import type { ReasoningEffort, ReviewAnnotations, ExecutionMode } from '../../shared/types.js'
 import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
+import { CancelledError, EngineSessionLostError } from './errors.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
 import { engineBinaryStatus } from './binaries.js'
@@ -31,10 +32,6 @@ import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type Revi
 import type { AgentToolHost } from './tools.js'
 import type { AcpEngineConfig } from './adapters.js'
 import { spawnAdapter } from './adapters.js'
-
-/** A thrown error whose message contains "cancelled" so `ipc.ts`'s
- *  `isCancellation` classifies it as a user cancel (no error strip). */
-const CANCELLED = 'cancelled'
 
 /** Compact one-line-per-issue ZodError formatting for the repair prompt. */
 function formatZodIssues(err: ZodError): string {
@@ -261,16 +258,22 @@ export class AcpEngine implements ReviewEngine {
         const canResume = Boolean((init.agentCapabilities?.sessionCapabilities as { resume?: unknown } | undefined)?.resume)
 
         // (e) session: `newSession` ONLY when there is no id to resume. When an id is
-        // set, a `resume`/`load` failure REJECTS the turn (before any text/tool event) —
-        // ipc.ts's `isLostEngineSession` → `ENGINE_SESSION_LOST` "start a new chat"
-        // affordance handles it exactly as for the old engines (spec §D6). We never
-        // silently mint an UNseeded fresh session for a failed resume: chat() already
-        // built a non-seeded prompt (engineSessionId was truthy) and ipc passes no
-        // context, so a fresh session would answer with no review/diff context.
+        // set, a `resume`/`load` REJECTION is the one place a session is GENUINELY
+        // lost — it throws the typed `EngineSessionLostError` so ipc.ts's
+        // `ENGINE_SESSION_LOST` "start a new chat" affordance fires (spec §D6). A
+        // missing `loadSession` capability is a systemic adapter problem, not a lost
+        // session — it keeps a generic error. We never silently mint an UNseeded
+        // fresh session for a failed resume: chat() already built a non-seeded prompt
+        // (engineSessionId was truthy) and ipc passes no context, so a fresh session
+        // would answer with no review/diff context.
         if (opts.engineSessionId) {
-          if (canResume) await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
-          else if (canLoad) await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
-          else throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
+          if (!canResume && !canLoad) throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
+          try {
+            if (canResume) await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
+            else await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
+          } catch (err) {
+            throw new EngineSessionLostError(opts.engineSessionId, err)
+          }
           sessionId = opts.engineSessionId
         } else {
           const fresh = await conn.newSession({ cwd: opts.repo, mcpServers })
@@ -293,7 +296,7 @@ export class AcpEngine implements ReviewEngine {
           finalText = ''
           const res = await conn!.prompt({ sessionId, prompt: [{ type: 'text', text }] })
           if (res.stopReason === 'end_turn') return finalText
-          if (res.stopReason === 'cancelled') throw new Error(CANCELLED)
+          if (res.stopReason === 'cancelled') throw new CancelledError()
           throw new Error(`ACP turn stopped: ${res.stopReason}`) // refusal / max_tokens / max_turn_requests
         }
 
@@ -321,14 +324,20 @@ export class AcpEngine implements ReviewEngine {
         return { value, sessionId }
       } catch (err) {
         // A cancel kills the child mid-turn, so the prompt/init promise rejects with
-        // an opaque transport error — reclassify it as the quiet cancelled sentinel.
-        if (aborted || (err instanceof Error && err.message === CANCELLED)) {
-          throw new Error(CANCELLED, { cause: err }) // quiet settle — no error strip
+        // an opaque transport error — reclassify it as the typed quiet cancel.
+        if (aborted || err instanceof CancelledError) {
+          throw new CancelledError(err) // quiet settle — no error strip
         }
         // A structured-parse failure (D5): surface it as the raw parse error so
         // ipc.ts renders its friendly copy — do NOT wrap (loses ZodError.name) and do
         // NOT push a raw {type:'error'} event.
         if (isStructuredParse(err)) throw err
+        // A lost session must keep its type across this boundary — surface the error
+        // event for the live log but re-throw the error itself (no stderr-tail wrap).
+        if (err instanceof EngineSessionLostError) {
+          q.push({ type: 'error', message: err.message })
+          throw err
+        }
         const tail = stderrTail.trim()
         const message = (err instanceof Error ? err.message : String(err)) + (tail ? `\n${tail.split('\n').slice(-4).join('\n')}` : '')
         q.push({ type: 'error', message })

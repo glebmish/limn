@@ -191,8 +191,9 @@ export interface GenState {
   answeredApprovals: Set<string>
   /** Whether this op holds/needs the EXCLUSIVE lane (generate, batch, or a chat that
    *  started on an idle repo). A read-only shared chat is `false`. Drives the "disable
-   *  Generate/batch" gates and the watcher. Predicted at start from `anyExclusiveRunning`
-   *  and corrected by the terminal result's `lane` (concurrent-chat §4 / OQ7). */
+   *  Generate/batch" gates and the watcher. Predicted at `startOp` from
+   *  `anyExclusiveRunning`, then corrected by main's authoritative `exclusive` flag on
+   *  op:event / op:result envelopes via `setOpLane` (concurrent-chat §4 / OQ7). */
   exclusive: boolean
 }
 

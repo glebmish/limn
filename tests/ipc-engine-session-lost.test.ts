@@ -52,8 +52,8 @@ function thread(h: Harness, engineSessionId?: string): number {
 beforeEach(() => { process.env.LIMN_DEMO = '1' })
 afterEach(() => { delete process.env.LIMN_DEMO })
 
-describe('ENGINE_SESSION_LOST classification (item 7)', () => {
-  it('(a) resume fails with zero text/tool events → ENGINE_SESSION_LOST, thread untouched', async () => {
+describe('ENGINE_SESSION_LOST classification (typed EngineSessionLostError)', () => {
+  it('(a) resume fails (typed lost-session error) → ENGINE_SESSION_LOST, thread untouched', async () => {
     const h = await setup()
     const id = thread(h, 'stale-session-42')
     await h.handlers.get('sendChat')!(id, '[fail-immediately] why did this change?', 'op-a')
@@ -104,6 +104,23 @@ describe('ENGINE_SESSION_LOST classification (item 7)', () => {
     expect(res.status).toBe('failed')
     expect(res.errorCode).toBeUndefined()
     expect(getChatThread(h.db, id)!.messages.map((m) => m.role)).toEqual(['user', 'agent'])
+  })
+
+  it("(h) a genuine failure whose message mentions 'aborted' is a FAILURE, not a quiet cancel", async () => {
+    // classification is typed (CancelledError / AbortError instances) — an engine
+    // error like "request aborted by server" must keep its error strip + agent note.
+    const h = await setup()
+    const id = thread(h, 'live-session-1')
+    await h.handlers.get('sendChat')!(id, '[fail-abortish] flaky upstream', 'op-h')
+
+    const res = h.results.find((r) => r.opId === 'op-h')!
+    expect(res.status).toBe('failed')
+    expect(res.error).toContain('request aborted by server')
+    expect(res.errorCode).toBeUndefined()
+    // the generic failure path records the agent note — the turn doesn't vanish
+    const msgs = getChatThread(h.db, id)!.messages
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'agent'])
+    expect(msgs[1].text).toContain('Turn failed:')
   })
 
   it('(e) the user message is persisted exactly once on the lost-session path', async () => {

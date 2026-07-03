@@ -4,6 +4,7 @@ import type { ApprovalRequest, EngineId, ReviewAnnotations, Section } from '../.
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
 import type { ScopedReviewPatch, WireSection } from './schema.js'
 import { awaitDecision } from './approvals.js'
+import { EngineSessionLostError } from './errors.js'
 import { execGit } from '../exec.js'
 
 /** Top-level directory of a repo path — the ownership key FakeEngine sections by
@@ -102,14 +103,15 @@ export class FakeEngine implements ReviewEngine {
         throw new Error(message)
       }
       // [scoped-resume-fail] / LIMN_SCOPED_RESUME_FAIL=1 — the engine session could
-      // not be resumed (pruned/expired): throw at run START with NO text/tool events,
-      // exactly like a lost resume, but ONLY when resuming. Run fresh (no
-      // priorEngineSessionId) and it proceeds to the well-formed patch below — this
-      // models ladder step 2 (resume-fail → same scoped turn retried fresh).
+      // not be resumed (pruned/expired): throw the typed EngineSessionLostError, as
+      // the real engine does when its session resume/load rejects — but ONLY when
+      // resuming. Run fresh (no priorEngineSessionId) and it proceeds to the
+      // well-formed patch below — this models ladder step 2 (resume-fail → same
+      // scoped turn retried fresh).
       if ((steer.includes('[scoped-resume-fail]') || process.env.LIMN_SCOPED_RESUME_FAIL === '1') && req.priorEngineSessionId) {
-        q.push({ type: 'status', text: 'Resuming the previous session…' }) // status doesn't count as work
+        q.push({ type: 'status', text: 'Resuming the previous session…' })
         q.close()
-        throw new Error('engine resume failed: session not found (fake)')
+        throw new EngineSessionLostError(req.priorEngineSessionId, new Error('session not found (fake)'))
       }
       q.push({ type: 'status', text: 'Reviewing the drift…' })
       q.push({ type: 'tool', call: { id: 'u1', verb: 'bash', name: 'git', arg: `git diff ${req.sinceSha}..${req.branch}`, state: 'run' } })
@@ -236,16 +238,23 @@ export class FakeEngine implements ReviewEngine {
     const refineText = 'Recorded your decision, updated the guided review narration, and resolved the open question.'
     const text = refine ? refineText : batch ? batchText : chatText
     const result = (async () => {
-      // test/demo affordances for the lost-session classifier (item 7): force a
-      // controlled failure whose event shape matches each classification branch.
-      // These run before any text/tool event so the "zero work" gate can trigger.
+      // test/demo affordances for the typed lost-session/cancel classification (item
+      // 7): force a controlled failure of each class. A resume failure is the typed
+      // EngineSessionLostError, exactly (and only) when there is a session to resume.
       if (turn.message.includes('[fail-immediately]')) {
-        q.push({ type: 'status', text: 'Resuming the previous session…' }) // status doesn't count as work
-        throw new Error('engine resume failed: session not found (fake)')
+        q.push({ type: 'status', text: 'Resuming the previous session…' })
+        if (turn.engineSessionId) throw new EngineSessionLostError(turn.engineSessionId, new Error('session not found (fake)'))
+        throw new Error('engine turn failed before any work (fake)')
       }
       if (turn.message.includes('[fail-after-tool]')) {
         q.push({ type: 'tool', call: { id: 't1', verb: 'grep', name: 'Grep', arg: 'x', state: 'ok', meta: '1 hit' } })
         throw new Error('engine crashed mid-turn (fake)')
+      }
+      if (turn.message.includes('[fail-abortish]')) {
+        // a GENUINE failure whose message merely mentions "aborted": classification is
+        // typed (CancelledError/AbortError), so this must surface as a failure, not
+        // vanish as a quiet user cancel.
+        throw new Error('request aborted by server (fake)')
       }
       if (turn.message.includes('[cancel]')) {
         throw new DOMException('cancelled', 'AbortError')

@@ -169,6 +169,36 @@ describe('op:event / op:result bridge handlers (store/bridge.ts)', () => {
     useStore.setState({ ops: {}, sessionId: 1, loaded: makeLoaded() })
   })
 
+  it('corrects the predicted lane from the op:event envelope (main is authoritative, OQ7)', () => {
+    // renderer predicted exclusive (idle ops map) but main routed the turn shared —
+    // e.g. another CLIENT's generation holds the exclusive lane.
+    useStore.getState().startOp('chat', 'op-lane', 1)
+    expect(op('op-lane').exclusive).toBe(true) // the prediction
+    handleOpEvent({ opId: 'op-lane', event: ev(1), exclusive: false })
+    expect(op('op-lane').exclusive).toBe(false) // corrected by the first event
+    expect(op('op-lane').log).toHaveLength(1)
+    // an envelope with no lane leaves the corrected value alone
+    handleOpEvent({ opId: 'op-lane', event: ev(2) })
+    expect(op('op-lane').exclusive).toBe(false)
+  })
+
+  it('corrects the lane from the terminal op:result when no event carried it', async () => {
+    useStore.getState().startOp('chat', 'op-lane2', 1, false) // predicted shared
+    handleOpResult({ opId: 'op-lane2', kind: 'chat', status: 'succeeded', exclusive: true })
+    await flush()
+    expect(op('op-lane2').exclusive).toBe(true)
+    expect(op('op-lane2').outcome).toBe('succeeded')
+  })
+
+  it('setOpLane is a no-op for an unknown op or an already-correct lane', () => {
+    useStore.getState().setOpLane('ghost', true) // must not mint an entry
+    expect(op('ghost')).toBeUndefined()
+    useStore.getState().startOp('chat', 'op-same', 1, true)
+    const before = op('op-same')
+    useStore.getState().setOpLane('op-same', true)
+    expect(op('op-same')).toBe(before) // identical state object — no churn
+  })
+
   it('drops an op:event whose opId is not a known op', () => {
     useStore.getState().startOp('chat', 'op-A', 1)
     handleOpEvent({ opId: 'op-DIFFERENT', event: ev(1) })

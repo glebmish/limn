@@ -184,6 +184,31 @@ describe('generate — scoped update path (IPC integration)', () => {
     expect(it7.scope).toBe('full') // chain cap re-grounded to a full pass
   })
 
+  it('a scoped-output PARSE failure on a resumed turn → full fallback, NOT a fresh-scoped resume retry', async () => {
+    // the resume-fail discriminator is TYPED (EngineSessionLostError): a turn whose
+    // output fails to parse — even one that streamed no text/tool events, as a
+    // structured turn suppresses text — must not be misread as a dead resume and
+    // burn a fresh scoped turn before the intended full-pass fallback.
+    const h = await setup()
+    await generate(h, 'op-full', false)
+
+    fixtureWrite(h.repo, 'src/a.ts', 'export function a() {\n  return 9\n}\n')
+    fixtureGit(h.repo, 'add', '-A')
+    fixtureGit(h.repo, 'commit', '-m', 'drift for fulldoc')
+
+    // [scoped-fulldoc] throws a plain parse error on EVERY scoped attempt (resumed or
+    // fresh); the prior iteration's engine session makes this a resumed attempt.
+    await generate(h, 'op-fulldoc', true, '[scoped-fulldoc]')
+
+    const st = loadReviewState(h.db, h.sessionId)
+    expect(st.iterations.map((i) => i.n)).toEqual([1, 2])
+    expect(st.latestIteration!.scope).toBe('full') // fell back to ONE full pass
+    const ns = notes(h, 'op-fulldoc')
+    expect(ns.some((n) => /could not resume prior session/.test(n))).toBe(false) // no misclassified retry
+    expect(ns.some((n) => /scoped update failed .* running a full update/.test(n))).toBe(true)
+    expect(h.results.find((r) => r.opId === 'op-fulldoc')!.status).toBe('succeeded')
+  })
+
   it('resume failure → ONE fresh-scoped retry (still scoped, not a full fallback)', async () => {
     const h = await setup()
     await generate(h, 'op-full', false)

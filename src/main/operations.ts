@@ -1,4 +1,5 @@
 import { clearPending } from './engines/approvals.js'
+import { isCancellation } from './engines/errors.js'
 import type { OperationStatus } from '../shared/ipc.js'
 
 export type OperationOutcome<T> =
@@ -21,16 +22,22 @@ export class RepoBusyError extends Error {
   }
 }
 
+/** A send targeted a chat thread that already has a turn in flight (a second client —
+ *  web serve / second window — racing the first). Rejected fast, per thread, so two
+ *  turns can never interleave persisted messages or race the thread's engine-session
+ *  binding. Distinct from RepoBusyError: no shared-lane retry applies. */
+export class ThreadBusyError extends Error {
+  constructor() {
+    super('A turn is already running in this chat — wait for it to finish')
+    this.name = 'ThreadBusyError'
+  }
+}
+
 interface RepoLanes { exclusive?: string; shared?: string }
 
 interface ActiveOperation {
   repo: string
   cancel?: () => void
-}
-
-function isAbortError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  return error.name === 'AbortError' || /\b(?:abort(?:ed)?|cancelled)\b/i.test(error.message)
 }
 
 /** Owns operation locking, pre-start cancellation, engine cancellation, and cleanup. */
@@ -109,7 +116,7 @@ export class OperationCoordinator {
       this.throwIfCancelled(opId)
       return { status: 'succeeded', value: await work() }
     } catch (error) {
-      return { status: this.cancelled.has(opId) || isAbortError(error) ? 'cancelled' : 'failed', error }
+      return { status: this.cancelled.has(opId) || isCancellation(error) ? 'cancelled' : 'failed', error }
     } finally {
       this.releaseLane(repo, lane)
       this.active.delete(opId)

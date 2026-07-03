@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { OperationCoordinator, RepoBusyError } from '../src/main/operations'
+import { CancelledError } from '../src/main/engines/errors'
 
 describe('OperationCoordinator', () => {
   it('serializes operations per repository and releases the lock', async () => {
@@ -29,6 +30,17 @@ describe('OperationCoordinator', () => {
     ops.cancel('active')
     expect((await running).status).toBe('cancelled')
     expect(cancelled).toBe(true)
+  })
+
+  it('classifies cancellation by TYPE, never by message text', async () => {
+    const ops = new OperationCoordinator()
+    // the typed engine cancel and a genuine AbortError both settle as cancelled…
+    expect((await ops.run('c1', '/a', async () => { throw new CancelledError() })).status).toBe('cancelled')
+    expect((await ops.run('c2', '/a', async () => { throw new DOMException('cancelled', 'AbortError') })).status).toBe('cancelled')
+    // …but a genuine failure whose MESSAGE merely contains "aborted"/"cancelled"
+    // (e.g. an adapter's stderr tail) stays a failure — no silent turn-vanishing.
+    expect((await ops.run('f1', '/a', async () => { throw new Error('request aborted by server') })).status).toBe('failed')
+    expect((await ops.run('f2', '/a', async () => { throw new Error('upstream job was cancelled by the scheduler') })).status).toBe('failed')
   })
 
   it('runs a shared op alongside an exclusive one, but caps the shared lane at one', async () => {

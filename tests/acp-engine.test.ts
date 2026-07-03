@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AcpEngine } from '../src/main/engines/acp'
+import { CancelledError, EngineSessionLostError } from '../src/main/engines/errors'
 import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/main/engines/adapters'
 import { resolveDecision, pendingCount } from '../src/main/engines/approvals'
 import { setEngineBinaryPrefs } from '../src/main/engines/binaries'
@@ -268,20 +269,50 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(pendingCount('op5')).toBe(0)
   })
 
-  it('6. session/load failure REJECTS the turn cleanly (lost-session path, no unseeded fresh)', async () => {
+  it('6. session/load failure rejects with the TYPED EngineSessionLostError (no unseeded fresh)', async () => {
     // A failed resume must NOT silently mint an unseeded fresh session (chat built a
-    // non-seeded prompt) — it must reject BEFORE any text/tool event so ipc.ts's
-    // isLostEngineSession → ENGINE_SESSION_LOST affordance fires, as for the old engines.
+    // non-seeded prompt) — it must reject with EngineSessionLostError so ipc.ts's
+    // ENGINE_SESSION_LOST "start a new chat" affordance fires.
     const { engine } = fakeEngine({
       sessionId: 'should-not-be-used',
       failLoad: true,
       turns: [{ text: 'should never run' }]
     })
     const run = engine.chat({ repo: '/r', engineSessionId: 'stale-id', message: 'hi' })
-    const events = await drain(run.events)
-    // no model work happened before the rejection — the shape isLostEngineSession keys on.
-    expect(events.some((e) => e.type === 'text' || e.type === 'tool')).toBe(false)
-    await expect(run.result).rejects.toThrow()
+    await drain(run.events)
+    const err = await run.result.then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(EngineSessionLostError)
+    expect((err as EngineSessionLostError).engineSessionId).toBe('stale-id')
+  })
+
+  it('6b. a MISSING loadSession capability is a systemic failure, NOT a lost session', async () => {
+    // The adapter can't resume anything — the wrong remedy would be "start a new
+    // chat"; this must stay a generic error (finding: no capability ≠ pruned session).
+    const { engine } = fakeEngine({
+      sessionId: 'unused',
+      loadSession: false,
+      turns: [{ text: 'should never run' }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'some-id', message: 'hi' })
+    await drain(run.events)
+    const err = await run.result.then(() => null, (e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(EngineSessionLostError)
+    expect((err as Error).message).toMatch(/cannot resume session/i)
+  })
+
+  it('5b. cancel rejects with the typed CancelledError (quiet settle)', async () => {
+    const { engine } = fakeEngine({
+      sessionId: 'ch-5b',
+      turns: [{ delayMs: 30000, text: 'never' }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-5b', message: 'go' })
+    const resultErr = run.result.then(() => null, (e: unknown) => e)
+    const reader = drain(run.events)
+    await new Promise((r) => setTimeout(r, 50)) // let the turn get in flight
+    run.cancel()
+    expect(await resultErr).toBeInstanceOf(CancelledError)
+    await reader
   })
 
   it('7. MCP url present: tools turn passes an http mcpServers entry to session/new', async () => {

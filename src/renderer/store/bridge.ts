@@ -6,16 +6,22 @@ import { anyExclusiveRunning } from './derive'
 // today's guard + dispatch (opId equality, screen/gen.running checks, finishOp →
 // conditional reload ordering); App.tsx now only subscribes/unsubscribes these.
 
-export function handleOpEvent({ opId, event }: OpEventMsg): void {
+export function handleOpEvent({ opId, event, exclusive }: OpEventMsg): void {
   // route by opId into the op's own log; unknown opIds (e.g. a second window's op we
   // never started) are dropped, exactly as the single-`gen` demux did.
-  if (!useStore.getState().ops[opId]) return
+  const st = useStore.getState()
+  if (!st.ops[opId]) return
+  // main announces the lane it actually chose on the event envelope — correct the
+  // startOp-time prediction as soon as the first event lands (concurrent-chat OQ7).
+  if (exclusive !== undefined) st.setOpLane(opId, exclusive)
   useStore.getState().pushOpEvent(opId, event)
 }
 
-export function handleOpResult({ opId, status, error, reload, errorCode }: OpResultMsg): void {
+export function handleOpResult({ opId, status, error, reload, errorCode, exclusive }: OpResultMsg): void {
   const st = useStore.getState()
   if (!st.ops[opId]) return
+  // terminal lane correction — covers ops that emitted no events before finishing.
+  if (exclusive !== undefined) st.setOpLane(opId, exclusive)
   st.finishOp(opId, status, error, errorCode)
   if (status === 'succeeded' || reload) void st.reload()
 }

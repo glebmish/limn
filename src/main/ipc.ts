@@ -32,11 +32,31 @@ import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
-import { OperationCoordinator, RepoBusyError } from './operations.js'
+import { OperationCoordinator, RepoBusyError, ThreadBusyError, type OperationOutcome } from './operations.js'
+import { EngineSessionLostError, isCancellation } from './engines/errors.js'
 import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 import { createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
+
+// Thread ids with a chat/batch turn in flight. The lane locks are per REPO; this is
+// the per-THREAD guard on top, so a second client (web serve / second window) can't
+// send into a thread mid-turn — which would interleave persisted messages and race
+// the thread's engine-session binding (last writer wins, one session orphaned).
+const busyThreads = new Set<number>()
+
+/** Run a turn holding the per-thread guard: a send to a thread that already has a
+ *  turn in flight fails fast with the typed `ThreadBusyError` (no lane is taken, no
+ *  shared-lane retry — that retry is for DIFFERENT-thread sends hitting RepoBusy). */
+async function withBusyThread<T>(threadId: number, run: () => Promise<OperationOutcome<T>>): Promise<OperationOutcome<T>> {
+  if (busyThreads.has(threadId)) return { status: 'failed', error: new ThreadBusyError() }
+  busyThreads.add(threadId)
+  try {
+    return await run()
+  } finally {
+    busyThreads.delete(threadId)
+  }
+}
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
 // module is identical whether it's carried by Electron IPC or the web server.
@@ -166,41 +186,20 @@ function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMs
   transport.broadcast(channel, msg)
 }
 
-function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean, errorCode?: OpErrorCode): void {
-  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}), ...(errorCode ? { errorCode } : {}) })
+function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean, errorCode?: OpErrorCode, exclusive?: boolean): void {
+  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}), ...(errorCode ? { errorCode } : {}), ...(exclusive === undefined ? {} : { exclusive }) })
 }
 
 /** Human message for a chat/batch turn that failed because the CLI pruned the thread's
- *  engine session. No auto-retry: the thread is left untouched so its visible history
- *  stays intact and the reviewer can start a new chat. The raw engine error is appended. */
+ *  engine session (the typed `EngineSessionLostError`, thrown by the engine exactly
+ *  when its `session/resume`/`session/load` rejects). No auto-retry: the thread is
+ *  left untouched so its visible history stays intact and the reviewer can start a
+ *  new chat. The raw engine error is appended. */
 const ENGINE_SESSION_LOST_MESSAGE =
   "This conversation's agent session is no longer available. Start a new chat to continue; the previous messages remain visible here."
 
-/** Classify a failed turn as a lost engine session by its *observable shape* — a resume
- *  that lost its session aborts before the model does any work. Never matches engine
- *  error strings (unstable across CLI versions). True iff the engine turn was actually
- *  invoked (`engineInvoked` — so a pre-model app throw like a dirty-tree precondition or
- *  RepoBusyError stays generic), a resume was attempted (`engineSessionId` was set), the
- *  turn produced no text/tool events (status/error events don't count), and it failed
- *  rather than being cancelled. The resume happens inside the engine turn (claude
- *  `resume:` in the SDK query; codex `thread/resume`), so a genuine pruned-session
- *  failure occurs with `engineInvoked` already true. */
-function isLostEngineSession(engineInvoked: boolean, hadEngineSession: boolean, events: EngineEvent[], status: OperationStatus): boolean {
-  return status === 'failed'
-    && engineInvoked
-    && hadEngineSession
-    && !events.some((e) => e.type === 'text' || e.type === 'tool')
-}
-
 function errorMessage(error: unknown): string {
   return String(error instanceof Error ? error.message : error)
-}
-
-/** A cancellation surfaced as a thrown error (AbortError / "cancelled"). The scoped
- *  fallback ladder must re-throw these rather than treat them as a bad scoped output
- *  and spend a full pass. Mirrors OperationCoordinator's own abort classification. */
-function isCancellation(error: unknown): boolean {
-  return error instanceof Error && (error.name === 'AbortError' || /\b(?:abort(?:ed)?|cancelled)\b/i.test(error.message))
 }
 
 /** The converged product of the generate ladder — full or scoped — that the shared
@@ -222,6 +221,43 @@ function notifyIfUnfocused(title: string, body: string): void {
   transport.notify(title, body)
 }
 
+/** Shared failure reporting for chat/batch turns (sendChat/sendBatch). Classification
+ *  is typed, never message-matched: a user cancel stays quiet; a lost engine session
+ *  (`EngineSessionLostError`) gets its distinct "start a new chat" affordance with the
+ *  thread untouched — no agent note, no rebind; a thread-busy rejection is result-only
+ *  (an agent note would interleave into the OTHER turn's live stream, and no lane was
+ *  ever taken); anything else records an agent note so the thread shows what happened. */
+function reportTurnFailure(opts: {
+  db: DatabaseSync
+  threadId: number
+  opId: string
+  outcome: { status: 'cancelled' | 'failed'; error: unknown }
+  /** the persisted note's prefix ("Turn failed:" / "Batch failed:"). */
+  label: 'Turn' | 'Batch'
+  /** the lane the op actually ran on, when one was taken (see OpRecorder.exclusive). */
+  exclusive?: boolean
+  /** batch turns notify on genuine failure; plain chat turns don't. */
+  notify?: boolean
+}): void {
+  const { db, threadId, opId, outcome, label, exclusive } = opts
+  const cancelled = outcome.status === 'cancelled'
+  const msg = errorMessage(outcome.error)
+  if (!cancelled && outcome.error instanceof EngineSessionLostError) {
+    sendOpResult(opId, 'chat', outcome.status, `${ENGINE_SESSION_LOST_MESSAGE}\n\n${msg}`, true, 'ENGINE_SESSION_LOST', exclusive)
+    return
+  }
+  if (!cancelled && outcome.error instanceof ThreadBusyError) {
+    sendOpResult(opId, 'chat', 'failed', msg)
+    return
+  }
+  // the user turn is already persisted; on a genuine failure record an agent note so
+  // the thread shows what happened (a user cancel stays quiet), and reload so the
+  // user message (and any note) surface in the drawer.
+  if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `${label} failed: ${msg}`, at: new Date().toISOString() })
+  sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true, undefined, exclusive)
+  if (!cancelled && opts.notify) notifyIfUnfocused(`Agent ${label.toLowerCase()} run failed`, msg.slice(0, 120))
+}
+
 function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.loadReviewState>, refine?: boolean, steer?: string): string {
   if (refine) {
     const byId = new Map((state.annotations?.questions ?? []).map((q) => [q.id, q]))
@@ -236,16 +272,27 @@ function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.load
   return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
 
+interface OpRecorder {
+  events: EngineEvent[]
+  emit: (event: EngineEvent) => void
+  /** The lane this op actually runs on (true = exclusive, false = shared). Set the
+   *  moment main decides it; every subsequent event envelope carries it so the
+   *  renderer corrects its startOp-time prediction promptly (concurrent-chat OQ7). */
+  exclusive?: boolean
+}
+
 /** Forward operation events to the renderer and collect them, so the caller can fold
  *  the tool-call/action lifecycle into the persisted ChatMessage. Tool-host actions
  *  use the same recorder as engine events so segments preserve true stream order. */
-function opRecorder(opId: string): { events: EngineEvent[]; emit: (event: EngineEvent) => void } {
-  const events: EngineEvent[] = []
-  const emit = (event: EngineEvent): void => {
-    events.push(event)
-    send('op:event', { opId, event })
+function opRecorder(opId: string): OpRecorder {
+  const recorder: OpRecorder = {
+    events: [],
+    emit(event: EngineEvent): void {
+      recorder.events.push(event)
+      send('op:event', { opId, event, ...(recorder.exclusive === undefined ? {} : { exclusive: recorder.exclusive }) })
+    }
   }
-  return { events, emit }
+  return recorder
 }
 
 async function pumpEvents(events: AsyncIterable<EngineEvent>, emit: (event: EngineEvent) => void): Promise<void> {
@@ -491,6 +538,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         : undefined
       const engine = makeEngine(agent.engine)
       const recorder = opRecorder(opId)
+      recorder.exclusive = true // generation always holds the exclusive lane
 
       // ── Decide scoped vs full (spec §1). Scoped only when: this is an update, a
       //    prior review + iteration exist, that iteration's endSha is still reachable
@@ -576,19 +624,19 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         recorder.emit({ type: 'status', text: `note: scoped update — ${plan.since.length} file${plan.since.length === 1 ? '' : 's'} changed since ${plan.sinceBase.slice(0, 7)}` })
         let patch: ScopedReviewPatch
         let engineSession: string
-        const mark = recorder.events.length
         try {
           ({ value: patch, engineSession } = await runScopedTurn(plan.resume))
         } catch (err) {
-          // ladder step 2 (resume-fail) vs step 3 (bad output): a lost resume aborts at
-          // run START with zero text/tool work (isLostEngineSession's shape). A bad
-          // output rejects only AFTER the model explored (text/tool events present).
-          const producedWork = recorder.events.slice(mark).some((e) => e.type === 'text' || e.type === 'tool')
-          if (plan.resume && !producedWork && !isCancellation(err)) {
+          // ladder step 2 (resume-fail) vs step 3 (bad output): the engine says the
+          // resume was genuinely dead with a typed EngineSessionLostError (thrown
+          // exactly when session resume/load rejects) — retry the same scoped turn
+          // fresh. Anything else (bad output, a ZodError after the repair turn, a
+          // cancel) propagates to ladder step 3 / the cancel path.
+          if (plan.resume && err instanceof EngineSessionLostError) {
             recorder.emit({ type: 'status', text: 'note: could not resume prior session — retrying scoped update fresh' })
             ;({ value: patch, engineSession } = await runScopedTurn(undefined))
           } else {
-            throw err // bad output / cancellation → propagate (ladder step 3 or cancel)
+            throw err
           }
         }
         const spliced = spliceScopedUpdate(priorAnnotations!, patch, skeleton, untrackedPaths, plan.sinceAddedPaths)
@@ -611,7 +659,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           result = await runScopedPass(scopedPlan)
         } catch (err) {
           if (isCancellation(err)) throw err
-          const reason = err instanceof SpliceError ? err.message : errorMessage(err)
+          // a ZodError's issue dump is unreadable in a one-line status note — the raw
+          // error still reaches the log if the FULL pass below also fails (its
+          // friendly-copy gate in the outcome handler keys on ZodError.name).
+          const reason = err instanceof SpliceError ? err.message
+            : err instanceof Error && err.name === 'ZodError' ? 'the agent returned an unexpected patch format'
+              : errorMessage(err)
           recorder.emit({ type: 'status', text: `note: scoped update failed (${reason}) — running a full update` })
           result = await runFullPass()
         }
@@ -681,7 +734,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     })
 
     if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'review', 'succeeded', undefined, true)
+      sendOpResult(opId, 'review', 'succeeded', undefined, true, undefined, true)
       // scoped runs mirror the persisted turn ("Updated N of M sections…", spec §8/Q10);
       // a full run keeps today's "N sections — <compare>" summary.
       notifyIfUnfocused('Guided review ready', outcome.value.scope === 'scoped'
@@ -705,7 +758,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
         })
       }
-      sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true)
+      sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true, undefined, true)
       if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
     }
     operations.unmarkReviewThread(reviewThreadId)
@@ -751,15 +804,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    // hoisted so the failure classifier below can read the turn's event shape (a lost
-    // engine session aborts before any text/tool event — see isLostEngineSession).
+    // hoisted above doTurn so the second (shared-lane retry) invocation reuses it and
+    // the persisted ChatMessage folds in every event either attempt streamed.
     const recorder = opRecorder(opId)
-    // flips true the instant the engine turn is invoked; the classifier requires it so a
-    // pre-model app throw (bad workdir, RepoBusyError) can't masquerade as a lost session.
-    let engineInvoked = false
     // A read-only turn runs on the SHARED lane, alongside a generation/batch holding
     // the exclusive lane. `readOnly` forces the engine read-only regardless of tier.
     const doTurn = async (readOnly: boolean): Promise<void> => {
+      recorder.exclusive = !readOnly // announce the lane main actually chose (OQ7)
       // leading status so the stream (and persisted history) explains the coercion.
       if (readOnly) recorder.emit({ type: 'status', text: 'Read-only turn — a review is generating' })
       const workdir = await resolveWorkdir(repo, session.pair)
@@ -776,9 +827,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       operations.throwIfCancelled(opId)
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
-      // has nothing to resume). The resume happens inside this call, so a genuine
-      // pruned-session failure surfaces with engineInvoked already true.
-      engineInvoked = true
+      // has nothing to resume). A pruned session rejects this run with the typed
+      // EngineSessionLostError (see reportTurnFailure).
       const run = engine.chat({
         repo: workdir,
         engineSessionId: thread.engineSessionId,
@@ -816,33 +866,25 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
     }
-    // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
-    // shared lane forced read-only; otherwise take the exclusive lane at full tier.
-    // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
-    // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
-    let outcome = operations.repoBusy(repo)
-      ? await operations.runShared(opId, repo, () => doTurn(true))
-      : await operations.run(opId, repo, () => doTurn(false))
-    if (outcome.status === 'failed' && outcome.error instanceof RepoBusyError && outcome.error.lane === 'exclusive') {
-      outcome = await operations.runShared(opId, repo, () => doTurn(true))
-    }
-    if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'chat', 'succeeded')
-    } else {
-      const cancelled = outcome.status === 'cancelled'
-      const msg = errorMessage(outcome.error)
-      if (isLostEngineSession(engineInvoked, Boolean(thread.engineSessionId), recorder.events, outcome.status)) {
-        // the CLI pruned this thread's engine session: surface a distinct, actionable
-        // error and leave the thread untouched — no agent note, no rebind — so the
-        // visible history stays intact and the reviewer can start a fresh chat.
-        sendOpResult(opId, 'chat', outcome.status, `${ENGINE_SESSION_LOST_MESSAGE}\n\n${msg}`, true, 'ENGINE_SESSION_LOST')
-      } else {
-        // the user turn is already persisted; on a genuine failure record an agent note
-        // so the thread shows what happened (a user cancel stays quiet), and reload so the
-        // user message (and any note) surface in the drawer.
-        if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
-        sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
+    // Per-thread guard: a thread can host at most one in-flight turn, whatever lane it
+    // would take — a concurrent send (second client) fails fast (ThreadBusyError).
+    const outcome = await withBusyThread(threadId, async () => {
+      // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
+      // shared lane forced read-only; otherwise take the exclusive lane at full tier.
+      // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
+      // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
+      const first = operations.repoBusy(repo)
+        ? await operations.runShared(opId, repo, () => doTurn(true))
+        : await operations.run(opId, repo, () => doTurn(false))
+      if (first.status === 'failed' && first.error instanceof RepoBusyError && first.error.lane === 'exclusive') {
+        return operations.runShared(opId, repo, () => doTurn(true))
       }
+      return first
+    })
+    if (outcome.status === 'succeeded') {
+      sendOpResult(opId, 'chat', 'succeeded', undefined, undefined, undefined, recorder.exclusive)
+    } else {
+      reportTurnFailure({ db, threadId, opId, outcome, label: 'Turn', exclusive: recorder.exclusive })
     }
   })
 
@@ -889,13 +931,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    // hoisted so the failure classifier below can read the turn's event shape (a lost
-    // engine session aborts before any text/tool event — see isLostEngineSession).
     const recorder = opRecorder(opId)
-    // flips true the instant the engine turn is invoked; the classifier requires it so a
-    // pre-model app throw (dirty tree, "Nothing to send", RepoBusyError) stays generic.
-    let engineInvoked = false
-    const outcome = await operations.run(opId, repo, async () => {
+    recorder.exclusive = true // a batch turn is write-capable → always the exclusive lane
+    // Per-thread guard, as in sendChat: one in-flight turn per thread, fail fast.
+    const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
       // Write guards are computed from the same capability object the renderer
       // consumes. A refine turn (answering an intent question) stays read-only.
       const capability = await writeCapabilityFor(repo, session.pair.compare)
@@ -929,9 +968,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // cancel during setup → bail before the (write-enabled) engine launches, so a
       // stopped batch can't still edit/commit the worktree.
       operations.throwIfCancelled(opId)
-      // the resume happens inside this call, so a genuine pruned-session failure
-      // surfaces with engineInvoked already true.
-      engineInvoked = true
+      // a pruned session rejects this run with the typed EngineSessionLostError.
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: refine
@@ -958,9 +995,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
       const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
       return resolved
-    })
+    }))
     if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'chat', 'succeeded', undefined, true)
+      sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
       notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
     } else {
       // roll back "sent" so comments aren't stuck
@@ -968,20 +1005,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       for (const c of st.comments) {
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
-      const cancelled = outcome.status === 'cancelled'
-      const msg = errorMessage(outcome.error)
-      if (isLostEngineSession(engineInvoked, Boolean(thread.engineSessionId), recorder.events, outcome.status)) {
-        // the CLI pruned this thread's engine session: surface a distinct, actionable
-        // error and leave the thread untouched — no agent note, no rebind (the comment
-        // rollback above only restores pre-turn state) — so the reviewer can start fresh.
-        sendOpResult(opId, 'chat', outcome.status, `${ENGINE_SESSION_LOST_MESSAGE}\n\n${msg}`, true, 'ENGINE_SESSION_LOST')
-      } else {
-        // on a genuine failure record an agent note so the thread shows what happened (a
-        // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
-        if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
-        sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
-        if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
-      }
+      reportTurnFailure({ db, threadId, opId, outcome, label: 'Batch', exclusive: true, notify: true })
     }
   })
 

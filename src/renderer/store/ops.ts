@@ -35,12 +35,16 @@ function appendCapped(log: EngineEvent[], ev: EngineEvent, answered: Set<string>
  *  Actions take an explicit opId so two live streams never cross-contaminate. */
 export interface OpsSlice {
   ops: Record<string, OpState>
-  /** start an op. `exclusive` defaults to whether the exclusive lane is currently free
-   *  (a chat started on an idle repo takes the exclusive lane; one started under a
-   *  running exclusive op is the shared read-only lane). Evicts any prior FINISHED op
-   *  on `threadId`; a still-running one is kept so its stream/result keep landing. */
+  /** start an op. `exclusive` defaults to a PREDICTION — whether the exclusive lane is
+   *  currently free (a chat started on an idle repo takes the exclusive lane; one
+   *  started under a running exclusive op is the shared read-only lane). Main
+   *  announces the lane it actually chose on every op:event / op:result envelope,
+   *  and `setOpLane` applies the correction. Evicts any prior FINISHED op on
+   *  `threadId`; a still-running one is kept so its stream/result keep landing. */
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number, exclusive?: boolean): void
   pushOpEvent(opId: string, ev: EngineEvent): void
+  /** correct the op's lane from main's authoritative announcement (OQ7). */
+  setOpLane(opId: string, exclusive: boolean): void
   finishOp(opId: string, status: OperationStatus, error?: string, errorCode?: OpErrorCode): void
   /** answer a pending approval for a specific op. */
   respondApproval(opId: string, requestId: string, decision: ApprovalDecision): void
@@ -68,6 +72,12 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     const op = get().ops[opId]
     if (!op || !op.running) return
     set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals) } } })
+  },
+
+  setOpLane(opId, exclusive) {
+    const op = get().ops[opId]
+    if (!op || op.exclusive === exclusive) return
+    set({ ops: { ...get().ops, [opId]: { ...op, exclusive } } })
   },
 
   finishOp(opId, status, error, errorCode) {
