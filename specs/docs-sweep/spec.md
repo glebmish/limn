@@ -1,6 +1,14 @@
 # Docs sweep — close the gap between shipped features and documentation
 
-## Status: Draft — awaiting answers to open questions
+## Status: DONE — implemented on branch `08-docs-sweep`
+
+Open questions resolved as recommended: README H3 `### The limn command` at the end of
+"Using it" (Q1) with a link to the new doc (Q5); one `docs/using-limn.md` with all three
+sections, 2c held to model-only (Q2); the `> **Audience:**` callout kept (Q3); F1–F4
+fixed in this pass, F5/F6 left untouched (Q4); no `--base=` note (Q6); text-only, no
+screenshots (Q7). Facts were re-grounded against the code after `06-acp-migration` and
+`07-concurrent-chat` landed — the store split into slices, `codex-app-server.md` was
+retired for `acp-adapters.md` (F6 moot), and migrations grew to v7.
 
 ## Problem
 

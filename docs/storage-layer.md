@@ -44,22 +44,23 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 ## Schema
 
-One migration (v1) creates the whole schema. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
+Migration v1 creates the bulk of the schema; later migrations extend it (v2 chat-message segments, v3/v4 `session_approvals` and its surface-hash re-key, v5 `chat_messages.comment_refs_json`, v6 `excluded_files`, v7 `iterations.scope`). `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
 
 ### Core entity graph
 
 ```text
 repos ──1:N──> sessions ──1:N──> comments
-                        ├──1:N──> chat_messages
+                        ├──1:N──> chat_threads ──1:N──> chat_messages
                         ├──1:N──> iterations
                         ├──1:N──> viewed_files
                         ├──1:N──> reviewed_sections
                         ├──1:N──> artifacts
                         ├──1:N──> artifact_approvals
-                        └──1:N──> session_approvals
+                        ├──1:N──> session_approvals
+                        └──1:N──> excluded_files
 ```
 
-Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat, iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals, session_approvals — in one statement.
+Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat_threads (and their chat_messages), iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals, session_approvals, excluded_files — in one statement.
 
 ### Tables
 
@@ -70,13 +71,15 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 | `repos` | `path UNIQUE`, `last_opened_at` (drives recents), `first_commit_sha` (identity hint). |
 | `sessions` | The core table — see below. |
 | `comments` | PK `(session_id, id)`; full `Comment` in the `json` blob; `status` duplicated as a column for `unresolvedCount`. |
-| `chat_messages` | Autoincrement id (read order), `role`, `text`, optional `anchor_json`. |
-| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`. |
+| `chat_threads` | Autoincrement id; parent of `chat_messages`. `kind IN ('review','user')`, `engine`/`model`/`reasoning_effort`/`execution_mode`, `engine_session_id` (resume key), `title`. |
+| `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v2 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v5), `actions_json`, `tools_json`. |
+| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`, `scope` (v7 — `full` \| `scoped`). |
 | `viewed_files` | PK `(session_id, file)`; per-file "viewed at SHA" markers. |
 | `reviewed_sections` | PK `(session_id, section_id)`; set membership. |
 | `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
 | `session_approvals` | PK `(session_id, hash)`; every branch surface explicitly approved for the session. Clean surfaces use `hash = sha`; dirty surfaces use a hash of the commit plus uncommitted working-tree content/status. |
+| `excluded_files` | PK `(session_id, file)`; per-file exclude override for untracked files. `excluded` 1 = hidden from the review, 0 = an explicit keep overriding the auto "orphan untracked file in a narrated review is excluded" default; absent rows fall back to that default. |
 
 JSON-blob columns: `sessions.annotations_json` (the full `ReviewAnnotations`), `comments.json` (the full `Comment`), `chat_messages.anchor_json` (a `CommentAnchor`).
 

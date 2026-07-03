@@ -10,7 +10,7 @@ grounded against the code as of `d896f37` and ends with numbered open questions
 | --- | --- |
 | [robustness-sweep](robustness-sweep/spec.md) | busy_timeout, guarded JSON loads, DB entrypoint guard, identity property test, title/summary sync, watcher error surfacing, engine-session resume fallback, auto-accept tool allowlist, prompt delimiters, CLI version probe |
 | [ux-a11y-sweep](ux-a11y-sweep/spec.md) | persistent line-comment affordance, checkbox/disclosure ARIA, approval-waiting visibility, chat windowing, honest "Update review" copy |
-| [docs-sweep](docs-sweep/spec.md) | README section for the `limn` CLI, `docs/using-limn.md` for in-flow features, stale-doc flags |
+| [docs-sweep](docs-sweep/spec.md) | README section for the `limn` CLI, `docs/using-limn.md` for in-flow features, stale-doc flags — DONE on branch `08-docs-sweep` |
 
 ## Large changes (one spec each)
 
@@ -26,9 +26,10 @@ grounded against the code as of `d896f37` and ends with numbered open questions
 
 1. **robustness-sweep** first — no dependencies, and its `busy_timeout` item is a
    prerequisite for concurrent-chat.
-2. **ux-a11y-sweep** and **docs-sweep** any time (docs-sweep's stale-doc flags
-   for `storage-layer.md` / `codex-app-server.md` should be re-checked after
-   robustness-sweep and acp-migration land).
+2. **ux-a11y-sweep** and **docs-sweep** any time. — docs-sweep DONE last, on branch
+   `08-docs-sweep` (stacked on `07-concurrent-chat`): its stale-doc flags were
+   re-grounded after robustness-sweep and acp-migration landed (`codex-app-server.md`
+   was retired for `acp-adapters.md`, so its F6 flag is moot).
 3. **renderer-state-refactor** before **concurrent-chat** — the ops-slice work
    there is where concurrent-chat's `ops: Record<opId, OpState>` map naturally
    lands.

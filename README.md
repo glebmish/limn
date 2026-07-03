@@ -128,6 +128,36 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. You also get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
 
+### The `limn` command
+
+Install it once from the app menu — **Limn → Install Command-Line Tool…** — and open
+reviews straight from a terminal. The command installs to `~/.local/bin` (or
+`/usr/local/bin`); the confirmation dialog tells you if that directory is not on your
+`PATH`. If you move the app, reinstall from the same menu item.
+
+```bash
+limn                                 # review the current branch of the repo you're in
+limn ~/code/myrepo                   # same, for another repo (any path inside it works)
+limn --base main --branch feature/x  # review a specific pair
+limn --new                           # start a fresh review instead of resuming
+limn --hub                           # open the repo's saved-review list
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `DIR` (positional) | A path inside the repo to review — defaults to the current directory. |
+| `--base REF` | The base ref (branch, tag, SHA) — defaults to the repo's default base. |
+| `--branch BRANCH` | The branch to review — defaults to the current branch. |
+| `--new` | Force a fresh review rather than resuming the latest one for the pair. |
+| `--hub` | Open the repo hub (every saved review) instead of a review. |
+
+Bare `limn` behaves exactly like opening the repo from the Dashboard: it resumes the
+most recent review for the current branch, or shows a draft review if there is none. If
+the app is already running, the command hands the request to the running window.
+
+More in-flow details — excluding untracked files, multiple reviews per branch, and
+dirty-worktree review — are in [docs/using-limn.md](docs/using-limn.md).
+
 ## Limitations
 
 - **macOS, Apple Silicon (arm64) only** — the build target is arm64; there is no Intel or non-macOS build.
