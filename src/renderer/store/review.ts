@@ -205,13 +205,9 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
   async setSessionBase(ref) {
     const r = ref.trim()
     if (!r) return
-    const { sessionId, loaded, repo } = get()
+    const { loaded, repo } = get()
     const compare = loaded?.session.pair.compare.symbol
-    if (sessionId == null) {
-      // transient: rebuild the preview with the new base, keeping the compare side
-      if (repo) await get().openReview(repo, { base: r, compare })
-      return
-    }
+    // rebuild the review with the new base, keeping the compare side
     if (repo) await get().openReview(repo, { base: r, compare })
   },
 
