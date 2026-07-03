@@ -4,13 +4,9 @@ import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
 import { focusAnchor } from '../lib/focus'
 import { agentLabel } from '../../shared/agents'
+import { splitPath } from './FileHeader'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
-
-function base(path: string): string {
-  const i = path.lastIndexOf('/')
-  return i < 0 ? path : path.slice(i + 1)
-}
 
 /** Tour notes sometimes begin with a circled index (①②③…) that just duplicates the
  *  stop's number badge — strip a leading circled number and any separator/space. */
@@ -34,18 +30,18 @@ function focusTarget(a: FocusTarget): { text: string; mono: boolean } {
       const sec = effectiveSections(useStore.getState().loaded).find((s) => s.id === a.sectionId)
       return { text: sec?.name ?? 'Review section', mono: false }
     }
-    case 'file': return { text: base(a.file), mono: true }
-    case 'diff': return { text: `${base(a.file)}:${a.line}`, mono: true }
+    case 'file': return { text: splitPath(a.file).name, mono: true }
+    case 'diff': return { text: `${splitPath(a.file).name}:${a.line}`, mono: true }
   }
 }
 
 function anchorShort(a: CommentAnchor): string {
   switch (a.kind) {
-    case 'diff': return `${base(a.file)}:${a.line}`
-    case 'file': return base(a.file)
+    case 'diff': return `${splitPath(a.file).name}:${a.line}`
+    case 'file': return splitPath(a.file).name
     case 'section': return 'a section'
     case 'summary': return 'the summary'
-    case 'artifact': return `${base(a.path)}:${a.line}`
+    case 'artifact': return `${splitPath(a.path).name}:${a.line}`
     case 'plan-step': return `plan step ${a.stepN}`
     case 'question': return 'a question'
     case 'title': return 'the title'
@@ -222,7 +218,7 @@ function SuggestCard({ action, threadId }: { action: Extract<AgentAction, { kind
     const files = action.files ?? []
     const sectionIds = action.sectionIds ?? []
     return [
-      ...files.map((path) => ({ key: `file:${path}`, kind: 'file' as const, id: path, name: base(path) })),
+      ...files.map((path) => ({ key: `file:${path}`, kind: 'file' as const, id: path, name: splitPath(path).name })),
       ...sectionIds.map((id) => ({ key: `section:${id}`, kind: 'section' as const, id, name: sections.find((s) => s.id === id)?.name ?? 'section' }))
     ]
   }, [action.files, action.sectionIds, sections])

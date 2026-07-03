@@ -3,12 +3,8 @@ import type { FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { useStore } from '../store'
 import { FileGlyph } from './FileGlyph'
+import { splitPath } from './FileHeader'
 import { highlightLine, langForPath } from '../lib/highlight'
-
-function splitPath(path: string): { dir: string; name: string } {
-  const i = path.lastIndexOf('/')
-  return i < 0 ? { dir: '', name: path } : { dir: path.slice(0, i + 1), name: path.slice(i + 1) }
-}
 
 /** staged → solid rail, unstaged → dotted rail (untracked files are always unstaged). */
 function originCls(origin: string | undefined): string {

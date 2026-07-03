@@ -210,23 +210,40 @@ export function genCancelled(gen: GenState): boolean {
   return gen.outcome === 'cancelled'
 }
 
+/** Op preference for the per-thread / per-review selectors below: a RUNNING op always
+ *  beats a finished one (a live stream must never be shadowed by a stale entry — finished
+ *  ops linger in `ops` until the next startOp on their thread or a session switch); among
+ *  equals, the most recently started wins. */
+function betterOp(op: OpState, best: OpState | null): boolean {
+  if (!best) return true
+  if (op.running !== best.running) return op.running
+  return (op.startedAt ?? 0) > (best.startedAt ?? 0)
+}
+
 /** The op (running or last-finished) streaming into a given thread, or an idle state.
- *  Per-thread there is at most one op (`startOp` evicts a prior op on the same thread),
- *  so this is unambiguous. Replaces the single-`gen` thread check. */
+ *  A thread normally holds one op (`startOp` evicts a prior finished op on the same
+ *  thread), but a still-running op survives a new startOp there (e.g. an update-
+ *  generation reusing the review thread under a streaming shared chat) — so prefer the
+ *  RUNNING op, falling back to the most recently started. */
 export function opForThread(ops: Record<string, OpState>, threadId: number | null | undefined): OpState {
   if (threadId == null) return IDLE_GEN
-  for (const op of Object.values(ops)) if (op.threadId === threadId) return op
-  return IDLE_GEN
+  let best: OpState | null = null
+  for (const op of Object.values(ops)) if (op.threadId === threadId && betterOp(op, best)) best = op
+  return best ?? IDLE_GEN
 }
 
 /** The review-generation op for the loaded review: the `review`-kind op whose thread
  *  belongs to this review's chats. Scoped to `loaded` so an op on a *different* session
- *  can't paint its progress/cancel state onto the one you're viewing. */
+ *  can't paint its progress/cancel state onto the one you're viewing. Old review threads
+ *  persist and finished ops are never pruned, so prefer the RUNNING op (then the most
+ *  recently started) — a stale finished generation must not shadow a fresh regenerate. */
 export function reviewOp(ops: Record<string, OpState>, loaded: LoadedReview | null): OpState {
+  let best: OpState | null = null
   for (const op of Object.values(ops)) {
-    if (op.kind === 'review' && op.threadId != null && loaded?.state.chats?.some((c) => c.id === op.threadId)) return op
+    if (op.kind !== 'review' || op.threadId == null || !loaded?.state.chats?.some((c) => c.id === op.threadId)) continue
+    if (betterOp(op, best)) best = op
   }
-  return IDLE_GEN
+  return best ?? IDLE_GEN
 }
 
 /** True while any EXCLUSIVE op is running (generate / batch / an exclusive chat) — the
@@ -255,10 +272,19 @@ export function chatSendBlocked(ops: Record<string, OpState>, threadId: number |
   return anySharedRunning(ops)                             // else it must fit the (single) shared lane
 }
 
+/** Whether a chat send to `threadId` would be lane-coerced to READ-ONLY right now: the
+ *  send isn't blocked, but an exclusive op (generate/batch) holds the repo, so main
+ *  routes the turn through the shared lane with a forced read-only profile
+ *  (concurrent-chat §2 / OQ4). Drives the composer badge + tier-selector disable. */
+export function willRunReadOnly(ops: Record<string, OpState>, threadId: number | null | undefined): boolean {
+  return !chatSendBlocked(ops, threadId) && anyExclusiveRunning(ops)
+}
+
 /** Approval requests still awaiting the reviewer: derived from the running op's log,
  *  minus any id already recorded in `answeredApprovals` (the single source of truth).
- *  Empty when no op is running. Requests park the engine, so the log can't advance
- *  past a pending request and evict it — this is safe against the 200-event cap. */
+ *  Empty when no op is running. Safe against the log cap: status events keep streaming
+ *  while a request is parked, so the log DOES advance past it — but `pushOpEvent`'s cap
+ *  carries every unanswered approval_request forward when it trims the window. */
 export function pendingApprovals(gen: GenState): ApprovalRequest[] {
   if (!gen.running) return []
   return gen.log

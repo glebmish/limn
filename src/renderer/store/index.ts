@@ -41,6 +41,7 @@ export {
   anyRunning,
   anySharedRunning,
   chatSendBlocked,
+  willRunReadOnly,
   pendingApprovals,
   activeChat,
   chatsWithDraft

@@ -1,21 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { makeLoaded } from './helpers/loaded'
-import type { EngineEvent } from '../src/shared/types'
+import type { ApprovalRequest, EngineEvent } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 
 const cancel = vi.fn(async () => {})
+const respondApprovalApi = vi.fn(async () => {})
 const loadSession = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
 const repoState = vi.fn(async () => ({}))
 const listRepoSessions = vi.fn(async () => [])
-;(globalThis as unknown as { window: unknown }).window = { api: { cancel, loadSession, repoState, listRepoSessions } }
+;(globalThis as unknown as { window: unknown }).window = { api: { cancel, respondApproval: respondApprovalApi, loadSession, repoState, listRepoSessions } }
 
-import { useStore } from '../src/renderer/store'
+import { pendingApprovals, useStore } from '../src/renderer/store'
 // Exercise the REAL App.tsx push-event bridge handlers (step 4 extracted them from
 // App.tsx's useEffect into store/bridge.ts), so the safety net covers the live wiring.
 import { handleOpEvent, handleOpResult } from '../src/renderer/store/bridge'
 
 const flush = () => new Promise((r) => setTimeout(r))
 const ev = (n: number): EngineEvent => ({ type: 'token', text: `t${n}` } as unknown as EngineEvent)
+const approvalEv = (id: string): EngineEvent => ({ type: 'approval_request', request: { id, engine: 'claude', kind: 'command', summary: `run ${id}` } as ApprovalRequest })
 const op = (id: string) => useStore.getState().ops[id]
 
 describe('op lifecycle', () => {
@@ -46,6 +48,23 @@ describe('op lifecycle', () => {
     expect(op('op-new').running).toBe(true)
   })
 
+  it('startOp does NOT evict a still-RUNNING op on the same thread — its events and result still land', async () => {
+    // reachable: beginReview(update) reuses the review thread while a shared chat
+    // turn is still streaming into it. Evicting the chat op would freeze its stream
+    // and drop its terminal result (the bridge ignores unknown opIds).
+    useStore.getState().startOp('chat', 'op-chat', 7, false)
+    useStore.getState().startOp('review', 'op-review', 7, true)
+    expect(op('op-chat')).toBeDefined()
+    expect(op('op-chat').running).toBe(true)
+    handleOpEvent({ opId: 'op-chat', event: ev(1) })
+    expect(op('op-chat').log).toHaveLength(1)
+    handleOpResult({ opId: 'op-chat', kind: 'chat', status: 'succeeded' })
+    await flush()
+    expect(op('op-chat').running).toBe(false)
+    expect(op('op-chat').outcome).toBe('succeeded')
+    expect(op('op-review').running).toBe(true) // the new generation is untouched
+  })
+
   it('startOp defaults exclusive from whether an exclusive op is already running', () => {
     useStore.getState().startOp('review', 'op-excl', 1) // no exclusive running → exclusive
     expect(op('op-excl').exclusive).toBe(true)
@@ -62,14 +81,36 @@ describe('op lifecycle', () => {
     expect(op('op-f').log).toEqual([])
   })
 
-  it('pushOpEvent retains at most 201 events (slice(-200) then append)', () => {
+  it('pushOpEvent retains at most 200 events (trailing window)', () => {
     useStore.getState().startOp('chat', 'op-2', 1)
     for (let i = 0; i < 250; i++) useStore.getState().pushOpEvent('op-2', ev(i))
     const log = op('op-2').log
-    // reality: `[...log.slice(-200), ev]` keeps the last 200 THEN appends one → 201.
-    expect(log.length).toBe(201)
+    expect(log.length).toBe(200)
     expect((log[log.length - 1] as { text: string }).text).toBe('t249')
-    expect((log[0] as { text: string }).text).toBe('t49')
+    expect((log[0] as { text: string }).text).toBe('t50')
+  })
+
+  it('the log cap carries an UNANSWERED approval_request forward (a parked turn keeps its card)', () => {
+    useStore.getState().startOp('chat', 'op-appr', 1)
+    useStore.getState().pushOpEvent('op-appr', approvalEv('req-1'))
+    // status events keep streaming while the request is parked — enough to slide
+    // the request out of a plain trailing window.
+    for (let i = 0; i < 250; i++) useStore.getState().pushOpEvent('op-appr', ev(i))
+    const g = op('op-appr')
+    expect(g.log.length).toBe(201) // 200-event window + the carried request
+    expect(g.log[0]).toEqual(approvalEv('req-1'))
+    expect(pendingApprovals(g).map((r) => r.id)).toEqual(['req-1'])
+  })
+
+  it('the log cap drops an ANSWERED approval_request once it leaves the window', () => {
+    useStore.getState().startOp('chat', 'op-appr2', 1)
+    useStore.getState().pushOpEvent('op-appr2', approvalEv('req-1'))
+    useStore.getState().respondApproval('op-appr2', 'req-1', 'allow')
+    for (let i = 0; i < 250; i++) useStore.getState().pushOpEvent('op-appr2', ev(i))
+    const g = op('op-appr2')
+    expect(g.log.length).toBe(200)
+    expect(g.log.some((e) => e.type === 'approval_request')).toBe(false)
+    expect(pendingApprovals(g)).toEqual([])
   })
 
   it('two ops stream independently — one finishing leaves the other running', () => {

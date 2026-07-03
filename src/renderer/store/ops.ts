@@ -15,6 +15,21 @@ export function newOpId(): string {
 /** A neutral op state — the effective op for a thread/review that owns no in-flight op. */
 export const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: false }
 
+/** How many trailing events an op's log retains — bounds per-event re-render cost. */
+const LOG_CAP = 200
+
+/** Append `ev` and trim the log to the trailing `LOG_CAP` events, carrying forward any
+ *  approval_request the reviewer hasn't answered yet. `pendingApprovals` derives solely
+ *  from the log, and status events keep streaming while a request is parked — so a
+ *  plainly-trimmed window could evict a pending request and orphan the parked turn. */
+function appendCapped(log: EngineEvent[], ev: EngineEvent, answered: Set<string>): EngineEvent[] {
+  const grown = [...log, ev]
+  if (grown.length <= LOG_CAP) return grown
+  const dropped = grown.slice(0, grown.length - LOG_CAP)
+  const carried = dropped.filter((e) => e.type === 'approval_request' && !answered.has(e.request.id))
+  return [...carried, ...grown.slice(-LOG_CAP)]
+}
+
 /** Operation lifecycle: the renderer runs up to two concurrent ops per repo (one
  *  exclusive generate/batch/chat + one read-only shared chat), keyed by opId in `ops`.
  *  Actions take an explicit opId so two live streams never cross-contaminate. */
@@ -22,7 +37,8 @@ export interface OpsSlice {
   ops: Record<string, OpState>
   /** start an op. `exclusive` defaults to whether the exclusive lane is currently free
    *  (a chat started on an idle repo takes the exclusive lane; one started under a
-   *  running exclusive op is the shared read-only lane). Evicts any prior op on `threadId`. */
+   *  running exclusive op is the shared read-only lane). Evicts any prior FINISHED op
+   *  on `threadId`; a still-running one is kept so its stream/result keep landing. */
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number, exclusive?: boolean): void
   pushOpEvent(opId: string, ev: EngineEvent): void
   finishOp(opId: string, status: OperationStatus, error?: string, errorCode?: OpErrorCode): void
@@ -37,9 +53,13 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
 
   startOp(kind, opId, threadId, exclusive) {
     const isExclusive = exclusive ?? !anyExclusiveRunning(get().ops)
-    // per-thread uniqueness: drop any prior (finished) op streaming into this thread.
+    // per-thread cleanup: drop any prior FINISHED op streaming into this thread. A
+    // still-RUNNING op must survive — evicting it would freeze its stream and drop its
+    // terminal result (the bridge ignores unknown opIds), and it is reachable: an
+    // update-generation reuses the review thread while a shared chat turn streams into
+    // it. Per-thread selectors (opForThread) prefer the running op to disambiguate.
     const next: Record<string, OpState> = {}
-    for (const [id, op] of Object.entries(get().ops)) if (op.threadId !== (threadId ?? null)) next[id] = op
+    for (const [id, op] of Object.entries(get().ops)) if (op.running || op.threadId !== (threadId ?? null)) next[id] = op
     next[opId] = { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: isExclusive }
     set({ ops: next })
   },
@@ -47,7 +67,7 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
   pushOpEvent(opId, ev) {
     const op = get().ops[opId]
     if (!op || !op.running) return
-    set({ ops: { ...get().ops, [opId]: { ...op, log: [...op.log.slice(-200), ev] } } })
+    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals) } } })
   },
 
   finishOp(opId, status, error, errorCode) {

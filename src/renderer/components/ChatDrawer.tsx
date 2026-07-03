@@ -1,11 +1,12 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, opForThread, anyExclusiveRunning, chatSendBlocked, genSessionLost, pendingApprovals, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, willRunReadOnly, genSessionLost, pendingApprovals, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
+import { splitPath } from './FileHeader'
 import { ToolCallLog } from './ToolCallLog'
 import { ModeSelector } from './ModeSelector'
 import { ApprovalCard } from './ApprovalCard'
@@ -141,10 +142,11 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const otherApprovalThread = chats.find((c) => c.id !== active?.id && pendingApprovals(opForThread(ops, c.id)).length > 0)?.id ?? null
   // Composer feedback (concurrent-chat §UI copy / OQ4/OQ8): never a silent no-op.
   // `sendBlocked` covers "this thread is already streaming" OR "the single shared lane
-  // is full". `willRunReadOnly` is the coerce case — a send lands read-only alongside a
-  // running generation. `sharedFull` distinguishes the disabled-because-another-chat case.
+  // is full". `readOnlyTurn` (store selector willRunReadOnly) is the coerce case — a send
+  // lands read-only alongside a running generation. `sharedFull` distinguishes the
+  // disabled-because-another-chat case.
   const sendBlocked = chatSendBlocked(ops, active?.id)
-  const willRunReadOnly = !streaming && !sendBlocked && anyExclusiveRunning(ops)
+  const readOnlyTurn = willRunReadOnly(ops, active?.id)
   const sharedFull = sendBlocked && !streaming
 
   // follow the stream only while parked at the bottom, so a burst of tool calls
@@ -350,7 +352,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
           {/* a review is generating: replies to an idle thread run read-only (coerced,
               no confirm — OQ4); the shared lane being full disables the send (OQ8). */}
-          {active && willRunReadOnly && (
+          {active && readOnlyTurn && (
             <div className="chat-gate chat-readonly-badge" role="status">
               <I.info style={{ width: 12, height: 12 }} />
               <span>Review is generating — replies run read-only until it finishes.</span>
@@ -392,7 +394,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
               <ModeSelector
                 mode={active.executionMode}
-                disabled={streaming || willRunReadOnly}
+                disabled={streaming || readOnlyTurn}
                 onChange={(m) => void store.setChatMode(active.id, m)}
               />
             </div>
@@ -501,19 +503,14 @@ export function SegmentBody({ segments, calls, actions, engine, threadId }: {
   )
 }
 
-function base(path: string): string {
-  const i = path.lastIndexOf('/')
-  return i < 0 ? path : path.slice(i + 1)
-}
-
 function commentRefLabel(c: Comment): string {
   const a = c.anchor
   switch (a.kind) {
-    case 'diff': return `${base(a.file)}:${a.line}`
-    case 'file': return base(a.file)
+    case 'diff': return `${splitPath(a.file).name}:${a.line}`
+    case 'file': return splitPath(a.file).name
     case 'section': return 'section'
     case 'summary': return 'summary'
-    case 'artifact': return `${base(a.path)}:${a.line}`
+    case 'artifact': return `${splitPath(a.path).name}:${a.line}`
     case 'plan-step': return `plan ${a.stepN}`
     case 'question': return 'question'
     case 'title': return 'title'
