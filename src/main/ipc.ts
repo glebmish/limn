@@ -34,7 +34,7 @@ import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator, RepoBusyError } from './operations.js'
 import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
-import { decideWatch, initialWatchDecision } from './watch-decision.js'
+import { createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
 
@@ -49,10 +49,17 @@ let transport: Transport
 let watcher: {
   timer: NodeJS.Timeout; repo: string; branch: string; workdir: string | null
   loadedSha: string; loadSig: string; lastSig: string
+  // the watchEpoch generation this watcher was armed under; a poll that finds it
+  // no longer current has outlived its watcher and must abandon (see watch-decision.ts).
+  epoch: number
   // transient-tolerance + self-heal decision state (see watch-decision.ts) plus the
   // last-known head/capability used to fill a `watchStopped` broadcast.
   failures: number; stopped: boolean; lastHead: string; lastCapability: AgentWriteCapability
 } | null = null
+
+// Bumped by every stopWatch (and thus every startWatch): strands mid-await startWatch
+// calls and in-flight polls from replaced watchers so they can't arm ghost timers.
+const watchEpoch = createWatchEpoch()
 
 /** Change detector + current head. For dirty worktrees this hashes actual diff
  *  content, not just porcelain shape, so editing an already-dirty file emits a new
@@ -74,6 +81,7 @@ async function watchState(repo: string, branch: string, workdir: string | null):
 
 async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
   stopWatch()
+  const epoch = watchEpoch.current()
   const workdir = await branchCheckedOutAt(repo, branch)
   const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
   // seed last-known: the load-time head, and the write capability computed once here
@@ -81,33 +89,34 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
   // real poll is the one that fails).
   const seedCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: loadedSha })
     .catch((): AgentWriteCapability => ({ enabled: false, reason: 'not-branch', branch, workdir: null }))
+  // a stopWatch or a newer startWatch landed during the awaits above — abandon
+  // quietly so exactly one watcher (the newest, or none) ends up armed.
+  if (!watchEpoch.isCurrent(epoch)) return
   const w = {
-    repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig,
+    repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, epoch,
     ...initialWatchDecision, lastHead: loadedSha, lastCapability: seedCapability,
-    timer: setInterval(() => void poll(), 500)
+    timer: setInterval(() => void poll(), LIVE_INTERVAL_MS)
   }
   watcher = w
   async function poll(): Promise<void> {
     if (operations.repoBusy(repo)) return // our own agent op — reload arrives via op:result
-    let result: Parameters<typeof decideWatch>[1]
-    // on success: the fresh head/sig plus, when we mean to broadcast, the computed
-    // drift/capability payload. A success while stopped is a recovery — broadcast even
-    // if nothing moved so the paused pill clears.
-    let payload:
-      | { head: string; sig: string; broadcast: boolean; drift: DriftSummary | null; writeCapability: AgentWriteCapability }
-      | null = null
+    let result: PollResult
+    /** the fresh head/sig on success — folded into lastHead/lastSig even when quiet. */
+    let state: { head: string; sig: string } | null = null
+    /** set only when this poll means to broadcast: the signature moved, or a success
+     *  while stopped (recovery — broadcast even if nothing moved so the paused pill
+     *  clears). Quiet successes carry no drift/capability at all. */
+    let broadcast: { drift: DriftSummary | null; writeCapability: AgentWriteCapability } | null = null
     try {
       const { head, sig } = await watchState(repo, branch, w.workdir)
-      const broadcast = sig !== w.lastSig || w.stopped
-      if (broadcast) {
+      state = { head, sig }
+      if (sig !== w.lastSig || w.stopped) {
         // drift is measured against the LOAD-time state: null when the tree returns
         // to it; dirty-only changes still broadcast so worktree indicators stay live.
         const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
         const drift = driftHasChanges(d) ? d : null
         const writeCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: head })
-        payload = { head, sig, broadcast, drift, writeCapability }
-      } else {
-        payload = { head, sig, broadcast, drift: null, writeCapability: w.lastCapability }
+        broadcast = { drift, writeCapability }
       }
       result = { ok: true }
     } catch (err) {
@@ -116,6 +125,10 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
       // failures. All git reads above share this counter.
       result = { ok: false, reason: errorMessage(err).split('\n')[0].trim() || 'unknown error' }
     }
+    // this poll awaited across a session switch and its watcher was stopped or
+    // replaced: it must neither mutate state, nor re-arm its (dead) timer, nor
+    // broadcast against the old loadedSha.
+    if (!watchEpoch.isCurrent(w.epoch)) return
     const decision = decideWatch({ failures: w.failures, stopped: w.stopped }, result)
     w.failures = decision.next.failures
     w.stopped = decision.next.stopped
@@ -132,17 +145,20 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
       })
       return
     }
-    if (!payload) return // a tolerated (pre-threshold) failure — nothing to broadcast yet
-    w.lastHead = payload.head
-    w.lastSig = payload.sig
-    if (payload.broadcast) {
-      w.lastCapability = payload.writeCapability
-      send('repo:changed', { repo, branch, headSha: payload.head, drift: payload.drift, writeCapability: payload.writeCapability })
+    if (!state) return // a tolerated (pre-threshold) failure — nothing to record yet
+    w.lastHead = state.head
+    w.lastSig = state.sig
+    if (broadcast) {
+      w.lastCapability = broadcast.writeCapability
+      send('repo:changed', { repo, branch, headSha: state.head, drift: broadcast.drift, writeCapability: broadcast.writeCapability })
     }
   }
 }
 
 function stopWatch(): void {
+  // bump FIRST: strands any in-flight poll of the current watcher and any
+  // mid-await startWatch, whether or not a watcher is armed right now.
+  watchEpoch.bump()
   if (watcher) { clearInterval(watcher.timer); watcher = null }
 }
 

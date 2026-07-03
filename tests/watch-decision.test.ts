@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, PROBE_INTERVAL_MS, FAILURE_THRESHOLD
+  createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, PROBE_INTERVAL_MS, FAILURE_THRESHOLD
 } from '../src/main/watch-decision'
 
 const fail = (reason = 'boom') => ({ ok: false as const, reason })
@@ -51,5 +51,46 @@ describe('decideWatch (branch-watcher failure/self-heal state machine)', () => {
     expect(d.next).toEqual({ failures: 0, stopped: false })
     expect(d.emit).toBe('recovered')
     expect(d.retuneTo).toBe(LIVE_INTERVAL_MS)
+  })
+})
+
+// Models the ipc.ts wiring: every stopWatch bumps; startWatch calls stopWatch then
+// captures current() at entry, re-checking isCurrent before arming; each poll carries
+// its watcher's capture, re-checking isCurrent after its awaits.
+describe('createWatchEpoch (watcher lifecycle generation guard)', () => {
+  it('a capture stays current until the next bump', () => {
+    const e = createWatchEpoch()
+    const a = e.current()
+    expect(e.isCurrent(a)).toBe(true)
+    e.bump()
+    expect(e.isCurrent(a)).toBe(false)
+  })
+
+  it('overlapping startWatch calls: the earlier arm goes stale, only the later arms', () => {
+    const e = createWatchEpoch()
+    e.bump(); const a = e.current() // startWatch A: stopWatch bump + capture, then awaits...
+    e.bump(); const b = e.current() // startWatch B enters during A's awaits
+    expect(e.isCurrent(a)).toBe(false) // A resumes: abandon — its timer is never armed
+    expect(e.isCurrent(b)).toBe(true) // B arms — exactly one live watcher
+  })
+
+  it('stopWatch during startWatch awaits strands it: no watcher revives after the stop', () => {
+    const e = createWatchEpoch()
+    e.bump(); const a = e.current() // startWatch A entry, then awaits...
+    e.bump() // bare stopWatch (e.g. archiveSession) while A is suspended
+    expect(e.isCurrent(a)).toBe(false) // A abandons — zero live watchers
+  })
+
+  it('an in-flight poll of a replaced watcher is stale: must not re-arm or broadcast', () => {
+    const e = createWatchEpoch()
+    e.bump(); const pollEpoch = e.current() // watcher armed; a poll captures its epoch, awaits...
+    e.bump(); void e.current() // session switch: stopWatch + a new startWatch arms
+    expect(e.isCurrent(pollEpoch)).toBe(false) // old poll resumes mid-retune: dropped
+  })
+
+  it('a poll of the still-current watcher proceeds', () => {
+    const e = createWatchEpoch()
+    e.bump(); const pollEpoch = e.current()
+    expect(e.isCurrent(pollEpoch)).toBe(true)
   })
 })

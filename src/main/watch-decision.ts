@@ -42,6 +42,31 @@ export interface WatchDecision {
  *  - failure while live: count it; only the Nth consecutive failure enters stopped,
  *    broadcasts the paused state (with reason), and retunes to the probe cadence.
  *  - failure while stopped: stay down and keep probing — no re-broadcast/retune. */
+/** Generation guard for the watcher's async gaps. Both startWatch (three awaits
+ *  before it arms its timer) and poll (awaits git reads mid-flight) can outlive the
+ *  watcher they were started for: a stopWatch or a newer startWatch may land while
+ *  they're suspended. Every stop/start bumps the epoch; a closure captures the epoch
+ *  at its start and re-checks it after its awaits — if it's no longer current it must
+ *  abandon quietly (no timer arming, no state mutation, no broadcast). This is what
+ *  guarantees "exactly one live watcher" across overlapping start/stop calls. */
+export interface WatchEpoch {
+  /** invalidate every previously captured epoch (call on each stop/start). */
+  bump(): void
+  /** capture the current generation. */
+  current(): number
+  /** true iff no bump happened since `captured` was taken. */
+  isCurrent(captured: number): boolean
+}
+
+export function createWatchEpoch(): WatchEpoch {
+  let epoch = 0
+  return {
+    bump: () => { epoch++ },
+    current: () => epoch,
+    isCurrent: (captured) => captured === epoch
+  }
+}
+
 export function decideWatch(state: WatchDecisionState, result: PollResult): WatchDecision {
   if (result.ok) {
     if (state.stopped) {
