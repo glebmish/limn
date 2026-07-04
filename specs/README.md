@@ -22,6 +22,12 @@ grounded against the code as of `d896f37` and ends with numbered open questions
 | [scoped-update-generation](scoped-update-generation/spec.md) | Patch-shaped update turn over the since-diff for small drift; stable section ids; splice + existing validation |
 | [concurrent-chat](concurrent-chat/spec.md) | Two-lane op model: read-only chat lane alongside exclusive generate/batch; renderer multi-op support |
 
+## Later additions
+
+| Spec | Scope |
+| --- | --- |
+| [educational-review](educational-review/spec.md) | From the 2026-07-04 agentic-workflow analysis, decided + re-grounded against the stack tip (`7536961`): anchored narration blocks replace `what`/`desc`/`plainNotes`/`insight` (flat wire anchor → `FocusTarget`, stamped via comment-anchoring); diagrams typed/edged/anchored; hotspots as queueable agent comments; `contrast`/`verify`/planMap grounding; `order` → `afterSectionId` on the scoped patch; `focus`+`tour` → `point`; `get_review_progress`; one-turn-one-channel discipline. Staged: structure first, behavioral enforcement gated on post-ACP measurement |
+
 ## Ordering and dependencies
 
 1. **robustness-sweep** first — no dependencies, and its `busy_timeout` item is a
@@ -40,3 +46,7 @@ grounded against the code as of `d896f37` and ends with numbered open questions
    adopts the other's mechanism.
 5. **concurrent-chat** last. — DONE on branch `07-concurrent-chat` (stacked on
    `06-acp-migration`); adopted acp-migration's schema-in-prompt structured output.
+6. **educational-review** after the stack above merges — it rewrites `wireSection`
+   (shared with scoped-update-generation's patch schema, whose splice/prompt updates
+   it owns) and is re-grounded against the stack tip `7536961`; Stage 2 (behavioral
+   enforcement) additionally waits on the post-ACP measurement gate.
