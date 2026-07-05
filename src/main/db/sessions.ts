@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,
-  MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
+  MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
@@ -248,6 +248,40 @@ export function retargetSession(db: DatabaseSync, id: number, which: 'base' | 'c
   assertResolved(side)
   db.prepare(`UPDATE sessions SET ${which}_kind = ?, ${which}_symbol = ?, ${which}_anchor_sha = ?, updated_at = ?
     WHERE id = ?`).run(side.kind, side.symbol, side.anchorSha, now(), id)
+}
+
+/** Stamp the terminal merge record (spec merge-into-main §2). merged_at mirrors the
+ *  record's own timestamp; the blob is the single source of truth. One UPDATE —
+ *  atomic on its own and composable inside the merge op's wider transaction
+ *  (markSessionMerged + compare retarget commit together, spec §4 step 3). */
+export function markSessionMerged(db: DatabaseSync, sessionId: number, record: MergeRecord): void {
+  db.prepare('UPDATE sessions SET merged_at = ?, merge_json = ?, updated_at = ? WHERE id = ?')
+    .run(record.mergedAt, JSON.stringify(record), now(), sessionId)
+}
+
+/** The ONLY writer allowed to change a session base — the dependent-review retarget
+ *  after its branch was rebased onto the new base head (spec §6b step 4). The public
+ *  retargetSession keeps throwing for 'base'; base immutability stays the rule and
+ *  this is its one audited exception. The STORED base_ident generated column
+ *  recomputes on UPDATE, and findSession pins base identity by base_anchor_sha, so
+ *  after this the session resolves under the new anchor only. */
+export function retargetSessionBase(db: DatabaseSync, sessionId: number, base: RefSide): void {
+  assertResolved(base)
+  db.prepare(`UPDATE sessions SET base_kind = ?, base_symbol = ?, base_anchor_sha = ?, updated_at = ?
+    WHERE id = ?`).run(base.kind, base.symbol, base.anchorSha, now(), sessionId)
+}
+
+/** Live stacked reviews whose base is the branch about to be merged away: not
+ *  archived, not merged, branch-kind base matching `branch`, branch-kind compare
+ *  (a commit-kind compare has nothing to rebase). Feeds the merge sheet's
+ *  "Retarget dependent review" rows (spec §3) and the §4 branch-delete guard. */
+export function dependentSessions(db: DatabaseSync, repoPath: string, branch: string): { sessionId: number; branch: string }[] {
+  return db.prepare(`SELECT s.id AS sessionId, s.compare_symbol AS branch
+    FROM sessions s JOIN repos r ON r.id = s.repo_id
+    WHERE r.path = ? AND s.archived_at IS NULL AND s.merged_at IS NULL
+      AND s.base_kind = 'branch' AND s.base_symbol = ?
+      AND s.compare_kind = 'branch'
+    ORDER BY s.updated_at DESC, s.id DESC`).all(repoPath, branch) as { sessionId: number; branch: string }[]
 }
 
 export interface SessionMetaPatch {
