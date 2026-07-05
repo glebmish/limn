@@ -82,3 +82,47 @@ export function mergeOk(gates: MergeGate[], overrides: MergeGateId[]): boolean {
   return gates.every((g) =>
     g.severity === 'info' || (g.severity === 'amber' && overrides.includes(g.id)))
 }
+
+/** MECHANICAL availability only (what the picker can offer): ff iff the base head is
+ *  an ancestor of the tip; squash/merge iff the probe did not find conflicts (an
+ *  unavailable probe keeps them offered — conflicts surface at confirm on old git).
+ *  Whether the CTA is enabled is `mergeOk`'s call, never this matrix's. */
+export function strategyAvailability(i: MergeGateInputs): Record<MergeStrategy, boolean> {
+  const mergeable = i.probe.status !== 'conflict'
+  return { ff: i.ffPossible, squash: mergeable, merge: mergeable }
+}
+
+const WRAP_COL = 72
+
+/** Greedy word-wrap at 72 columns, per line. Words longer than the column stand alone. */
+function wrap72(text: string): string {
+  return text.split('\n').map((line) => {
+    if (line.length <= WRAP_COL) return line
+    const out: string[] = []
+    let cur = ''
+    for (const word of line.split(' ')) {
+      if (cur && cur.length + 1 + word.length > WRAP_COL) {
+        out.push(cur)
+        cur = word
+      } else {
+        cur = cur ? `${cur} ${word}` : word
+      }
+    }
+    if (cur) out.push(cur)
+    return out.join('\n')
+  }).join('\n')
+}
+
+/** The spec §3 draft template — a template over the existing narration, no model call:
+ *
+ *      <title>
+ *
+ *      <summary, wrapped at 72>
+ *
+ *      Reviewed-with: Limn (approved <tip7>, base <baseSymbol> @ <baseAnchor7>)
+ */
+export function draftMergeMessage(title: string, summary: string, tip7: string, baseSymbol: string, baseAnchor7: string): string {
+  const trailer = `Reviewed-with: Limn (approved ${tip7}, base ${baseSymbol} @ ${baseAnchor7})`
+  const body = summary.trim() ? `${wrap72(summary.trim())}\n\n` : ''
+  return `${title.trim()}\n\n${body}${trailer}`
+}

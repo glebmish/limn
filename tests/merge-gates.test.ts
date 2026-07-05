@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateMergeGates, mergeOk, type MergeGateInputs } from '../src/main/merge'
+import { draftMergeMessage, evaluateMergeGates, mergeOk, strategyAvailability, type MergeGateInputs } from '../src/main/merge'
 import type { MergeProbe } from '../src/main/git'
 
 const cleanProbe: MergeProbe = { status: 'clean', treeOid: 'tree000', conflictFiles: [] }
@@ -122,5 +122,50 @@ describe('mergeOk', () => {
   it('info gates never block', () => {
     const gates = evaluateMergeGates(inputs({ probe: unavailableProbe }))
     expect(mergeOk(gates, [])).toBe(true)
+  })
+})
+
+describe('strategyAvailability', () => {
+  it('everything available: ancestor base + clean probe', () => {
+    expect(strategyAvailability(inputs())).toEqual({ ff: true, squash: true, merge: true })
+  })
+
+  it('ff unavailable when the base is not an ancestor of the tip', () => {
+    expect(strategyAvailability(inputs({ ffPossible: false })))
+      .toEqual({ ff: false, squash: true, merge: true })
+  })
+
+  it('squash/merge mechanically unavailable on a conflicting probe (gating red is mergeOk, not this)', () => {
+    expect(strategyAvailability(inputs({ probe: conflictProbe, ffPossible: false })))
+      .toEqual({ ff: false, squash: false, merge: false })
+  })
+
+  it('squash/merge stay available on an UNAVAILABLE probe — conflicts are checked at confirm', () => {
+    expect(strategyAvailability(inputs({ probe: unavailableProbe })))
+      .toEqual({ ff: true, squash: true, merge: true })
+  })
+})
+
+describe('draftMergeMessage', () => {
+  it('renders the spec §3 template: title, wrapped summary, Reviewed-with trailer', () => {
+    const msg = draftMergeMessage('Add rate limiting', 'Protects the API.', 'abc1234', 'main', 'def5678')
+    expect(msg).toBe(
+      'Add rate limiting\n\nProtects the API.\n\nReviewed-with: Limn (approved abc1234, base main @ def5678)'
+    )
+  })
+
+  it('wraps the summary at 72 columns', () => {
+    const summary = Array.from({ length: 30 }, (_, k) => `word${k}`).join(' ')
+    const msg = draftMergeMessage('Add rate limiting', summary, 'abc1234', 'main', 'def5678')
+    const lines = msg.split('\n')
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(72)
+    expect(lines.length).toBeGreaterThan(5) // title, blank, ≥2 wrapped lines, blank, trailer
+    // nothing lost in the wrap
+    expect(msg.split('\n\n')[1].replace(/\n/g, ' ')).toBe(summary)
+  })
+
+  it('omits the summary paragraph entirely when the summary is empty', () => {
+    expect(draftMergeMessage('Title only', '', 'abc1234', 'main', 'def5678'))
+      .toBe('Title only\n\nReviewed-with: Limn (approved abc1234, base main @ def5678)')
   })
 })
