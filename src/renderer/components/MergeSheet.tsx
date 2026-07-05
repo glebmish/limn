@@ -26,6 +26,20 @@ export function ctaLabel(strategy: MergeStrategy, base: string): string {
     : `Merge into ${base}`
 }
 
+/** The strategy option's sub-label (design boards C1/G2): the static description when
+ *  available, else the reason it isn't — a disabled control must carry its reason.
+ *  ff is unavailable when the base diverged; squash/merge are unavailable exactly when
+ *  the conflict probe tripped (see `strategyAvailability` in src/main/merge.ts). */
+export function strategySubLabel(
+  s: MergeStrategy, strategies: Record<MergeStrategy, boolean>, base: string
+): string {
+  if (strategies[s]) {
+    return s === 'ff' ? 'History exactly as reviewed'
+      : s === 'squash' ? 'Flatten the branch' : 'Keeps the branch shape'
+  }
+  return s === 'ff' ? `Not possible — ${base} diverged` : 'Not possible — merging would conflict'
+}
+
 /** Red gates always block; amber gates block until explicitly acked ("Merge anyway");
  *  info gates never block. Mirrors main's `mergeOk` so the CTA and the authoritative
  *  re-check agree. */
@@ -233,11 +247,7 @@ export function MergeSheetPanel({ pf, repo, busy, executing, initialStrategy, ac
               className={'msh-opt' + (strategy === s ? ' on' : '')} aria-pressed={strategy === s}
               onClick={() => setStrategy(s)}>
               <span className="mo-t">{s === 'ff' ? 'Fast-forward' : s === 'squash' ? 'Squash' : 'Merge commit'}</span>
-              <span className="mo-d">
-                {s === 'ff'
-                  ? (pf.strategies.ff ? 'History exactly as reviewed' : `Not possible — ${base} diverged`)
-                  : s === 'squash' ? 'Flatten the branch' : 'Keeps the branch shape'}
-              </span>
+              <span className="mo-d">{strategySubLabel(s, pf.strategies, base)}</span>
             </button>
           ))}
         </div>

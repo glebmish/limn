@@ -137,6 +137,13 @@ describe('MergeSheetPanel — green board (design 08 board 1)', () => {
     const out = panel(makePreflight({ cleanup: { dependents: [] } }))
     expect(out).not.toContain('Remove worktree')
   })
+  it('all strategies available: static descriptions render, not disabled reasons', () => {
+    const out = panel(makePreflight())
+    expect(out).toContain('History exactly as reviewed')
+    expect(out).toContain('Flatten the branch')
+    expect(out).toContain('Keeps the branch shape')
+    expect(out).not.toContain('Not possible')
+  })
 })
 
 describe('MergeSheetPanel — G1 stale approval (amber)', () => {
@@ -203,6 +210,12 @@ describe('MergeSheetPanel — C1 conflicts (red)', () => {
     const out = panel(pf)
     expect(foot(out)).toContain('disabled')
     expect(out).toContain('Gated until the probe is clean.')
+  })
+  it('squash and merge sub-labels carry the disabled reason, not the static description', () => {
+    const out = panel(pf)
+    expect(out).not.toContain('Flatten the branch')
+    expect(out).not.toContain('Keeps the branch shape')
+    expect(out.match(/Not possible — merging would conflict/g)?.length).toBe(2)
   })
 })
 
