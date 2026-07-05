@@ -1,6 +1,6 @@
 import type {
   AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
+  ExecutionMode, FileDiff, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -120,6 +120,10 @@ export interface Api {
   /** Read-only merge preflight (spec §3): gates, strategy matrix, commit list, draft
    *  message, CAS expectations. Takes no lane — callable anytime, like loadSession. */
   mergePreflight(sessionId: number): Promise<MergePreflight>
+  /** Land the approved branch (spec §4) on the exclusive lane. Re-checks the
+   *  preflight authoritatively inside the lock; a mismatch (moved base, new gate,
+   *  un-acked amber) returns `preflight-changed` with nothing written. */
+  mergeExecute(sessionId: number, req: MergeExecuteRequest): Promise<MergeExecuteResult>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   unapproveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
@@ -183,7 +187,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

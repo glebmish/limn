@@ -1,10 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  DependentReview, MergeGate, MergeGateId, MergePreflight, MergeStrategy, ReviewState, SessionMeta
+  DependentReview, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergeGate,
+  MergeGateId, MergeOverride, MergePreflight, MergeRecord, MergeStrategy, ReviewState, SessionMeta
 } from '../shared/types.js'
 import {
-  aheadCount, branchCheckedOutAt, dirtyCount, driftSummary, EMPTY_TREE, headSha,
-  isAncestor, isDirty, log, mergeBase, mergeTreeProbe, type MergeProbe
+  aheadCount, branchCheckedOutAt, commitTree, deleteBranch, dirtyCount, driftSummary,
+  EMPTY_TREE, headSha, isAncestor, isDirty, log, mergeBase, mergeInWorktree, mergeTreeProbe,
+  rebaseOnto, removeWorktree, setRef, updateRefCas, type MergeProbe
 } from './git.js'
 import * as dao from './db/sessions.js'
 
@@ -252,4 +254,177 @@ function toPreflight(ctx: MergeContext, gates: MergeGate[]): MergePreflight {
 export async function gatherMergePreflight(db: DatabaseSync, sessionId: number): Promise<MergePreflight> {
   const ctx = await gatherContext(db, sessionId)
   return toPreflight(ctx, evaluateMergeGates(ctx.inputs))
+}
+
+function errorMessage(error: unknown): string {
+  return String(error instanceof Error ? error.message : error)
+}
+
+/** Run writes in one transaction (mirrors ipc.ts's inTx — node:sqlite has no
+ *  db.transaction()). Not re-entrant: `fn` must not open its own transaction. */
+function inTx(db: DatabaseSync, fn: () => void): void {
+  db.exec('BEGIN')
+  try {
+    fn()
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
+function emptyCleanup(): MergeRecord['cleanup'] {
+  return { archived: false, branchDeleted: false, worktreeRemoved: false, retargeted: [], failures: [] }
+}
+
+/** Post-land cleanup + dependent retargets (spec §4 steps 4-5, §6b). Mutates
+ *  `record.cleanup` in place; every failure is collected, never thrown — the merge
+ *  record is already durable. Order matters: dependents first (branch-deletion skip
+ *  reads who still bases on the branch), worktree removal before branch deletion
+ *  (git refuses -D on a checked-out branch). */
+async function runCleanupAndRetargets(
+  db: DatabaseSync, ctx: MergeContext, record: MergeRecord,
+  cleanup: MergeCleanupRequest, newBaseHead: string
+): Promise<void> {
+  for (const depId of cleanup.retarget) {
+    const dep = ctx.dependents.find((d) => d.sessionId === depId)
+    if (!dep) {
+      record.cleanup.failures.push(`retarget ${depId}: no longer a dependent of ${ctx.branch}`)
+      continue
+    }
+    try {
+      // re-verify rebasability — the sheet may have sat open (spec §6b step 1)
+      const wt = await branchCheckedOutAt(ctx.repo, dep.branch)
+      if (!wt) { record.cleanup.failures.push(`retarget ${dep.branch}: not checked out`); continue }
+      if (await isDirty(wt)) { record.cleanup.failures.push(`retarget ${dep.branch}: dirty worktree`); continue }
+      // only the dependent's own commits replay: old stack point = the reviewed tip
+      const res = await rebaseOnto(wt, newBaseHead, ctx.tipSha, dep.branch)
+      if (!res.ok) { record.cleanup.failures.push(`retarget ${dep.branch}: ${res.error}`); continue }
+      // rebase succeeded — only now repoint the session base (the one audited
+      // exception to base immutability; public retargetSession keeps throwing)
+      dao.retargetSessionBase(db, depId, { kind: 'branch', symbol: ctx.baseSymbol, anchorSha: newBaseHead })
+      record.cleanup.retargeted.push(dep.branch)
+    } catch (err) {
+      record.cleanup.failures.push(`retarget ${dep.branch}: ${errorMessage(err)}`)
+    }
+  }
+  if (cleanup.removeWorktree && ctx.worktreePath) {
+    try {
+      await removeWorktree(ctx.repo, ctx.worktreePath)
+      record.cleanup.worktreeRemoved = ctx.worktreePath
+    } catch (err) {
+      record.cleanup.failures.push(`remove worktree: ${errorMessage(err)}`)
+    }
+  }
+  if (cleanup.deleteBranch) {
+    // refuse while any LIVE session still bases on the branch (dependents not
+    // selected, not rebasable, or whose rebase failed) — deleting it would
+    // refMissing every stacked review (spec §4 step 5).
+    const stillBased = dao.dependentSessions(db, ctx.repo, ctx.branch)
+    if (stillBased.length > 0) {
+      record.cleanup.failures.push(
+        `delete branch skipped: ${stillBased.map((d) => d.branch).join(', ')} still base${stillBased.length === 1 ? 's' : ''} on ${ctx.branch}`)
+    } else {
+      try {
+        await deleteBranch(ctx.repo, ctx.branch)
+        record.cleanup.branchDeleted = true
+      } catch (err) {
+        record.cleanup.failures.push(`delete branch: ${errorMessage(err)}`)
+      }
+    }
+  }
+  if (cleanup.archiveSession) {
+    try {
+      dao.archiveSession(db, ctx.session.id)
+      record.cleanup.archived = true
+    } catch (err) {
+      record.cleanup.failures.push(`archive: ${errorMessage(err)}`)
+    }
+  }
+}
+
+/** Plant the keep-ref and write record + compare retarget atomically — BEFORE any
+ *  cleanup can delete the branch (spec §2 record durability). */
+async function persistMergeRecord(db: DatabaseSync, ctx: MergeContext, record: MergeRecord): Promise<void> {
+  await setRef(ctx.repo, `refs/limn/keep/${ctx.session.id}`, ctx.tipSha)
+  inTx(db, () => {
+    dao.markSessionMerged(db, ctx.session.id, record)
+    // symbol keeps the BRANCH NAME (display-only for commit-kind sides; identity is
+    // anchorSha) — the merged record's summary sentence and the refpicker's
+    // "deleted" chip render the branch name from compare.symbol (Tasks 16–17).
+    dao.retargetSession(db, ctx.session.id, 'compare',
+      { kind: 'commit', symbol: ctx.branch, anchorSha: ctx.tipSha })
+  })
+}
+
+/** Spec §4: land the approved branch. Called INSIDE operations.run by the IPC
+ *  handler. Re-gathers preflight authoritatively; any mismatch with what the sheet
+ *  showed returns `preflight-changed` with nothing written. */
+export async function executeMerge(db: DatabaseSync, sessionId: number, req: MergeExecuteRequest): Promise<MergeExecuteResult> {
+  const ctx = await gatherContext(db, sessionId)
+  const gates = evaluateMergeGates(ctx.inputs)
+  if (
+    !mergeOk(gates, req.overrides) ||
+    ctx.baseHead !== req.expect.baseHead ||
+    ctx.tipSha !== req.expect.tipSha ||
+    !strategyAvailability(ctx.inputs)[req.strategy]
+  ) {
+    return { status: 'preflight-changed', preflight: toPreflight(ctx, gates) }
+  }
+
+  const message = req.message?.trim() || ctx.draftMessage
+  const baseRef = `refs/heads/${ctx.baseSymbol}`
+  let mergedSha: string
+  try {
+    if (ctx.baseWorkdir) {
+      // base checked out (worktree verified clean by the gates): advance it through a
+      // real merge so it doesn't go stale. mergeInWorktree aborts + throws on failure.
+      mergedSha = await mergeInWorktree(ctx.baseWorkdir, ctx.branch, req.strategy, req.strategy === 'ff' ? undefined : message)
+    } else if (req.strategy === 'ff') {
+      await updateRefCas(ctx.repo, baseRef, ctx.tipSha, req.expect.baseHead)
+      mergedSha = ctx.tipSha
+    } else {
+      // plumbing: the probe's treeOid IS the exact three-way result; on an
+      // unavailable probe (git < 2.38) an ff-possible tip's own tree is identical.
+      const treeOid = ctx.inputs.probe.treeOid
+        ?? (ctx.inputs.ffPossible ? await headSha(ctx.repo, `${ctx.tipSha}^{tree}`) : null)
+      if (!treeOid) {
+        throw new Error('git merge-tree is unavailable (git < 2.38) and the base has moved — fast-forward, or check out the base branch and retry')
+      }
+      const parents = req.strategy === 'squash' ? [ctx.baseHead] : [ctx.baseHead, ctx.tipSha]
+      const sha = await commitTree(ctx.repo, treeOid, parents, message)
+      await updateRefCas(ctx.repo, baseRef, sha, req.expect.baseHead)
+      mergedSha = sha
+    }
+  } catch (err) {
+    // fails closed (Seq C): if the base moved between the re-check and the ref move,
+    // the CAS/merge refused and nothing landed — report the fresh truth. Any other
+    // failure propagates with git's stderr (still nothing recorded).
+    const fresh = await gatherContext(db, sessionId)
+    if (fresh.baseHead !== req.expect.baseHead) {
+      return { status: 'preflight-changed', preflight: toPreflight(fresh, evaluateMergeGates(fresh.inputs)) }
+    }
+    throw err
+  }
+
+  const overrides: MergeOverride[] = req.overrides
+    .map((id) => gates.find((g) => g.id === id && g.severity === 'amber'))
+    .filter((g): g is MergeGate => Boolean(g))
+    .map((g) => ({ gate: g.id, detail: g.detail }))
+  const record: MergeRecord = {
+    strategy: req.strategy,
+    mergedSha,
+    reviewedTipSha: ctx.tipSha,
+    baseSymbol: ctx.baseSymbol,
+    baseShaBefore: ctx.baseHead,
+    mergedAt: new Date().toISOString(),
+    ...(req.strategy === 'ff' ? {} : { message }),
+    overrides,
+    cleanup: emptyCleanup(),
+    dependents: ctx.dependents.map((d) => d.branch)
+  }
+  await persistMergeRecord(db, ctx, record)
+  await runCleanupAndRetargets(db, ctx, record, req.cleanup, mergedSha)
+  dao.markSessionMerged(db, sessionId, record) // persist the final cleanup outcome
+  return { status: 'merged', record }
 }

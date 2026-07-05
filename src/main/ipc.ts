@@ -9,7 +9,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -18,7 +18,7 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
-import { gatherMergePreflight } from './merge.js'
+import { executeMerge, gatherMergePreflight } from './merge.js'
 import { stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
@@ -1025,6 +1025,26 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('mergePreflight', async (sessionId: number) => gatherMergePreflight(db, sessionId))
+
+  handle('mergeExecute', async (sessionId: number, req: MergeExecuteRequest) => {
+    const session = mustGetSession(db, sessionId)
+    // exclusive lane, same as generate/batch (S11): cannot interleave with an agent
+    // iteration; the watcher's poll skips while it holds the lane. A busy lane
+    // rejects with RepoBusyError — the renderer's CTA is already disabled while
+    // anyExclusiveRunning, so that rejection is the backstop, not the UX.
+    // Internal opId: the merge is fast + native, a plain request/response call —
+    // no renderer OpState, no streamed events (spec §4).
+    const opId = `merge-${sessionId}-${Date.now()}`
+    const outcome = await operations.run(opId, session.repo, () => executeMerge(db, sessionId, req))
+    if (outcome.status !== 'succeeded') throw outcome.error
+    if (outcome.value.status === 'merged') {
+      // settle: the session is a terminal record — nothing left to drift against.
+      // No repoState broadcast exists (switchBranch RETURNS fresh state); the
+      // renderer's store.reload() refetches after a merged result.
+      stopWatch()
+    }
+    return outcome.value
+  })
 
   handle('approveArtifact', async (sessionId: number, artifactPath: string) => {
     const session = mustGetSession(db, sessionId)
