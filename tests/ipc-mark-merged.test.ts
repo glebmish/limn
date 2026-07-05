@@ -97,3 +97,61 @@ describe('loadSession watcher gating for merged sessions', () => {
     expect(h.repoChanged.length).toBe(before)
   })
 })
+
+describe('markMerged (S12)', () => {
+  it('settles an externally merged branch: external record, same durability + cleanup path', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    fixtureGit(h.dir, 'update-ref', 'refs/heads/main', h.shas.head) // external ff
+    fixtureGit(h.dir, 'checkout', 'main') // frees feature for deletion
+
+    const res = await h.handlers.get('markMerged')!(h.sessionId, {
+      archiveSession: true, deleteBranch: true, removeWorktree: false, retarget: []
+    }) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+    expect(res.record.external).toBe(true)
+    expect(res.record.strategy).toBe('ff') // baseHead === tip → recorded as ff
+    expect(res.record.mergedSha).toBe(h.shas.head) // = base head (spec §8)
+    expect(res.record.reviewedTipSha).toBe(h.shas.head)
+    // same durability as a Limn merge: keep-ref + commit-kind compare retarget
+    expect(fixtureGit(h.dir, 'rev-parse', `refs/limn/keep/${h.sessionId}`)).toBe(h.shas.head)
+    const session = getSession(h.db, h.sessionId)!
+    // persistMergeRecord (shared with executeMerge) keeps compare.symbol as the
+    // BRANCH NAME on a commit-kind retarget — display-only, identity is anchorSha
+    // (merge.ts persistMergeRecord, Tasks 16-17 rely on this for rendering).
+    expect(session.pair.compare).toEqual(
+      { kind: 'commit', symbol: 'feature', anchorSha: h.shas.head })
+    // cleanup ran on the same shared path
+    expect(res.record.cleanup.branchDeleted).toBe(true)
+    expect(() => fixtureGit(h.dir, 'rev-parse', '--verify', 'refs/heads/feature')).toThrow()
+    expect(res.record.cleanup.archived).toBe(true)
+    expect(loadReviewState(h.db, h.sessionId).merged).toEqual(res.record)
+  })
+
+  it('records strategy merge when the base head is a descendant, not the tip itself', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const wtPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-mmwt-')), 'wt')
+    fixtureGit(h.dir, 'worktree', 'add', wtPath, 'main')
+    fixtureGit(wtPath, 'merge', '--no-ff', '-m', 'external merge', 'feature')
+    const mainHead = fixtureGit(h.dir, 'rev-parse', 'main')
+
+    const res = await h.handlers.get('markMerged')!(h.sessionId, {
+      archiveSession: false, deleteBranch: false, removeWorktree: false, retarget: []
+    }) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+    expect(res.record.strategy).toBe('merge')
+    expect(res.record.mergedSha).toBe(mainHead)
+    expect(res.record.external).toBe(true)
+  })
+
+  it('rejects when the branch is not actually merged into the base', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    await expect(h.handlers.get('markMerged')!(h.sessionId, {
+      archiveSession: false, deleteBranch: false, removeWorktree: false, retarget: []
+    })).rejects.toThrow(/not merged into/)
+  })
+})

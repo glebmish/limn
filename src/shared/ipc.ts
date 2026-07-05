@@ -1,6 +1,6 @@
 import type {
   AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
+  ExecutionMode, FileDiff, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -124,6 +124,9 @@ export interface Api {
    *  preflight authoritatively inside the lock; a mismatch (moved base, new gate,
    *  un-acked amber) returns `preflight-changed` with nothing written. */
   mergeExecute(sessionId: number, req: MergeExecuteRequest): Promise<MergeExecuteResult>
+  /** S12: settle a branch merged outside Limn — same record (external: true), same
+   *  keep-ref durability and cleanup path; no strategy/message (nothing is landed). */
+  markMerged(sessionId: number, cleanup: MergeCleanupRequest): Promise<MergeExecuteResult>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   unapproveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
@@ -187,7 +190,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

@@ -9,7 +9,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -18,7 +18,7 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
-import { executeMerge, gatherMergePreflight } from './merge.js'
+import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.js'
 import { stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
@@ -1046,6 +1046,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // renderer's store.reload() refetches after a merged result.
       stopWatch()
     }
+    return outcome.value
+  })
+
+  handle('markMerged', async (sessionId: number, cleanup: MergeCleanupRequest) => {
+    const session = mustGetSession(db, sessionId)
+    // exclusive lane like mergeExecute: cleanup moves worktrees/branches and may
+    // rebase dependents — it must not interleave with an agent iteration.
+    const opId = `mark-merged-${sessionId}-${Date.now()}`
+    const outcome = await operations.run(opId, session.repo, () => markMergedExternal(db, sessionId, cleanup))
+    if (outcome.status !== 'succeeded') throw outcome.error
+    stopWatch() // the open review just became a terminal record
     return outcome.value
   })
 

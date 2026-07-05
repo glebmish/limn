@@ -440,3 +440,39 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
   }
   return { status: 'merged', record }
 }
+
+/** S12 "Mark merged": the merge already happened outside Limn (the approved tip is
+ *  reachable from the base head) — write the same MergeRecord (external: true,
+ *  mergedSha = base head), same keep-ref + compare-retarget durability, same cleanup
+ *  path. No strategy/message input: nothing is landed here. */
+export async function markMergedExternal(db: DatabaseSync, sessionId: number, cleanup: MergeCleanupRequest): Promise<MergeExecuteResult> {
+  const ctx = await gatherContext(db, sessionId)
+  if (!(await isAncestor(ctx.repo, ctx.tipSha, ctx.baseHead))) {
+    throw new Error(`${ctx.branch} is not merged into ${ctx.baseSymbol}`)
+  }
+  const record: MergeRecord = {
+    // ancestry can't recover the real strategy; ff when the base head IS the tip,
+    // merge otherwise (external squash is undetectable and out of scope, spec §8).
+    strategy: ctx.baseHead === ctx.tipSha ? 'ff' : 'merge',
+    mergedSha: ctx.baseHead,
+    reviewedTipSha: ctx.tipSha,
+    baseSymbol: ctx.baseSymbol,
+    baseShaBefore: ctx.baseHead,
+    mergedAt: new Date().toISOString(),
+    overrides: [],
+    cleanup: emptyCleanup(),
+    dependents: ctx.dependents.map((d) => d.branch),
+    external: true
+  }
+  await persistMergeRecord(db, ctx, record)
+  await runCleanupAndRetargets(db, ctx, record, cleanup, ctx.baseHead)
+  try {
+    // same "cannot reject a landed merge" guard as executeMerge: the settle already
+    // durably recorded (persistMergeRecord); a failure here must only be reflected in
+    // the returned record's cleanup.failures, never thrown as a handler error.
+    dao.markSessionMerged(db, sessionId, record)
+  } catch (err) {
+    record.cleanup.failures.push(`persist cleanup outcome: ${errorMessage(err)}`)
+  }
+  return { status: 'merged', record }
+}
