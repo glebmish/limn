@@ -205,6 +205,18 @@ function addDependent(h: Harness, edit: { rel: string; content: string }): { dep
   return { depId, depSha, wt }
 }
 
+/** A LIVE session based on feature but with a commit-kind compare — it can never be
+ *  offered for retarget (nothing to rebase), but it still depends on the branch ref
+ *  existing until it degrades to refMissing. */
+function addCommitCompareDependent(h: Harness): { depId: number } {
+  const depPair: RefPair = {
+    base: { kind: 'branch', symbol: 'feature', anchorSha: h.shas.head },
+    compare: { kind: 'commit', symbol: h.shas.head, anchorSha: h.shas.head }
+  }
+  const depId = createSession(h.db, h.dir, depPair, agent).id
+  return { depId }
+}
+
 describe('mergeExecute — dependents + cleanup', () => {
   it('clean retarget: rebase lands before the base repoint; branch deletion then proceeds', async () => {
     const h = await setup()
@@ -299,5 +311,26 @@ describe('mergeExecute — dependents + cleanup', () => {
     expect(res.record.dependents).toEqual(['dep'])
     expect(res.record.cleanup.branchDeleted).toBe(false)
     expect(res.record.cleanup.failures.some((f) => f.startsWith('delete branch skipped'))).toBe(true)
+  })
+
+  it('a live commit-kind-compare session based on feature blocks branch deletion (unretargetable, but still refs the branch)', async () => {
+    const h = await setup()
+    fixtureGit(h.dir, 'checkout', 'main')
+    addCommitCompareDependent(h)
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId,
+      baseReq({ baseHead: h.shas.base, tipSha: h.shas.head }, {
+        cleanup: { archiveSession: false, deleteBranch: true, removeWorktree: false, retarget: [] }
+      })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+    // not offered as a retarget candidate (commit-kind compare — nothing to rebase)
+    expect(res.record.dependents).toEqual([])
+    // but it still blocks the delete: deleting the branch would refMissing it
+    expect(res.record.cleanup.branchDeleted).toBe(false)
+    expect(res.record.cleanup.failures.some((f) => f.startsWith('delete branch skipped'))).toBe(true)
+    expect(fixtureGit(h.dir, 'rev-parse', '--verify', 'refs/heads/feature')).toBe(h.shas.head)
   })
 })

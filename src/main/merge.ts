@@ -319,8 +319,11 @@ async function runCleanupAndRetargets(
   if (cleanup.deleteBranch) {
     // refuse while any LIVE session still bases on the branch (dependents not
     // selected, not rebasable, or whose rebase failed) — deleting it would
-    // refMissing every stacked review (spec §4 step 5).
-    const stillBased = dao.dependentSessions(db, ctx.repo, ctx.branch)
+    // refMissing every stacked review (spec §4 step 5). Any compare kind counts
+    // here (unlike the retarget list above, which only lists branch-compare
+    // dependents that can actually be rebased) — a commit-kind compare still
+    // depends on the base branch ref existing, it just can't be retargeted.
+    const stillBased = dao.sessionsBasedOn(db, ctx.repo, ctx.branch)
     if (stillBased.length > 0) {
       record.cleanup.failures.push(
         `delete branch skipped: ${stillBased.map((d) => d.branch).join(', ')} still base${stillBased.length === 1 ? 's' : ''} on ${ctx.branch}`)
@@ -425,6 +428,15 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
   }
   await persistMergeRecord(db, ctx, record)
   await runCleanupAndRetargets(db, ctx, record, req.cleanup, mergedSha)
-  dao.markSessionMerged(db, sessionId, record) // persist the final cleanup outcome
+  try {
+    // persist the final cleanup outcome — MUST NOT throw: the merge already landed
+    // and the initial record (from persistMergeRecord) is durable, so a failure here
+    // must not fail the whole handler and report a successful merge as an error to
+    // the renderer. Record the failure in the returned record instead; the DB keeps
+    // the initial (pre-cleanup) record, but the caller still sees the fuller truth.
+    dao.markSessionMerged(db, sessionId, record)
+  } catch (err) {
+    record.cleanup.failures.push(`persist cleanup outcome: ${errorMessage(err)}`)
+  }
   return { status: 'merged', record }
 }

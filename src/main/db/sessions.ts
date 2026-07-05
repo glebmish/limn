@@ -289,6 +289,20 @@ export function dependentSessions(db: DatabaseSync, repoPath: string, branch: st
     ORDER BY s.updated_at DESC, s.id DESC`).all(repoPath, branch) as { sessionId: number; branch: string }[]
 }
 
+/** Live sessions whose base is branch `branch` — ANY compare kind (unlike
+ *  `dependentSessions`, commit-kind compares count too: they can't be retargeted,
+ *  but they still depend on the branch ref existing). Feeds the merge sheet's §4
+ *  branch-delete guard — deleting the branch out from under one of these would
+ *  degrade it to refMissing. `branch` here is the compare_symbol, which for a
+ *  commit-kind compare is a display symbol/sha, not necessarily a branch name. */
+export function sessionsBasedOn(db: DatabaseSync, repoPath: string, branch: string): { sessionId: number; branch: string }[] {
+  return db.prepare(`SELECT s.id AS sessionId, s.compare_symbol AS branch
+    FROM sessions s JOIN repos r ON r.id = s.repo_id
+    WHERE r.path = ? AND s.archived_at IS NULL AND s.merged_at IS NULL
+      AND s.base_kind = 'branch' AND s.base_symbol = ?
+    ORDER BY s.updated_at DESC, s.id DESC`).all(repoPath, branch) as { sessionId: number; branch: string }[]
+}
+
 export interface SessionMetaPatch {
   engine?: EngineId
   model?: string | null
