@@ -1,6 +1,27 @@
 # Merge into main — land the approved branch
 
-## Status: Draft — awaiting answers to open questions
+## Status: Decided (2026-07-05) — all open questions resolved, ready for planning
+
+Resolutions (user-locked; original questions at the bottom):
+1. Record durability: **keep-ref + compare retarget** (recommended adopted).
+2. Merge mechanics: **plumbing path** (`commit-tree`/`update-ref` CAS) when the
+   base isn't checked out; G4's checkout requirement dropped.
+3. Archive checkbox: **kept, default ON** — per the design, the merged session
+   archives unless the user unticks it; the merged badge renders in both hub
+   groups.
+4. Dependent (stacked) reviews: **full retarget ships in v1** — checkbox in
+   the sheet; mechanics in §6b.
+5. Retarget mechanics: **plain git `rebase --onto`, abort on conflict** — no
+   agent on the happy path; conflicts fall back to "Resolve with agent" from
+   the dependent review.
+6. Default strategy: **squash, last choice remembered per repo**.
+7. Busy exclusive lane: **CTA disables with reason** — no queueing.
+8. "Mark merged" (S12): **included in v1**.
+9. Merged-record interactivity: mutations blocked, **read-only chat allowed**
+   (recommendation adopted).
+10. `sendRebase` is a **new channel** (not a `sendBatch` mode flag);
+    `merge-tree --write-tree` is **not a hard floor** (info gate + confirm-time
+    check on old git). (Recommendations adopted.)
 
 Implements design screens `08-merge.html` (4 boards) and the behavioral contract from
 `09-merge-scenarios.html` (scenario catalog S1–S13, sequences A–C) from the
@@ -64,9 +85,14 @@ contact, and the spec deviates deliberately:
 4. **"Retarget dependent review" (board 1, cleanup) assumes stacked-review
    linkage that doesn't exist.** Sessions have no parent link and a session's
    base is immutable by design (`retargetSession` throws for base,
-   `src/main/db/sessions.ts:243`). V1 detects dependents by matching
-   `base_symbol` to the merged branch and *names* them in the sheet and the
-   merged record; automatic retarget-and-rebase is out (open question 4).
+   `src/main/db/sessions.ts:243`). Detection is implicit — live sessions
+   whose `base_symbol` matches the merged branch — and the retarget needs a
+   deliberate base-immutability exception plus a native rebase with a
+   conflict-abort path (§6b). Decided: ships in v1 anyway, as a checkbox.
+   Two safety rules the design omits: the dependent's rebase must succeed
+   *before* its base is repointed (atomic, no half-retargeted review), and
+   **branch deletion is refused while any live dependent still bases on the
+   merged branch** — deleting it would `refMissing` every stacked review.
 
 Two design details that looked like model calls are not: the squash/merge
 message is a **template** over the existing narration (title + summary +
@@ -134,8 +160,10 @@ interface MergeRecord {
   mergedAt: string;             // ISO
   message?: string;             // squash/merge commit message as landed
   overrides: MergeOverride[];   // e.g. [{ gate: 'stale-approval', detail: '2 commits after c7e0d44' }]
-  cleanup: { branchDeleted: boolean; worktreeRemoved: string | false;
-             failures: string[] };   // partial cleanup failures, verbatim
+  cleanup: { archived: boolean; branchDeleted: boolean;
+             worktreeRemoved: string | false;
+             retargeted: string[];        // dependent branches rebased + repointed
+             failures: string[] };        // partial cleanup failures, verbatim
   dependents: string[];         // branch names of detected stacked reviews
   external?: boolean;           // true when settled via "Mark merged" (S12)
 }
@@ -180,7 +208,18 @@ interface MergePreflight {
   draftMessage: string;              // template over title/summary (below)
   counts: { commits: number; files: number; add: number; del: number };
   baseHead: string; tipSha: string;  // the CAS expectations for execute
-  cleanup: { worktreePath?: string; dependents: string[] };
+  cleanup: {
+    worktreePath?: string;                    // compare branch's linked worktree
+    dependents: DependentReview[];            // stacked reviews on this branch
+  };
+}
+
+interface DependentReview {
+  sessionId: number;
+  branch: string;                             // its compare branch
+  commits: number;                            // aheadCount(mergedBranch..branch)
+  rebasable: boolean;                         // checked out somewhere + that worktree clean
+  blockedReason?: string;                     // when !rebasable: 'not checked out' | 'dirty worktree'
 }
 ```
 
@@ -190,7 +229,8 @@ tree for the approval gate (`src/shared/types.ts:376`), `mergeBase`/`headSha`/
 `branchCheckedOutAt` + `isDirty` for both tree gates (`git.ts:91,33`),
 `aheadCount`/`log` for counts and the commit list (`git.ts:582,325`).
 Dependents = live sessions in this repo whose `base_symbol` equals the merged
-branch (one SQL query beside `findSession`).
+branch (one SQL query beside `findSession`), each annotated with its
+rebasability (`branchCheckedOutAt` + `isDirty` on its worktree).
 
 The **Merge button never renders** when `pair.base.kind !== 'branch'` or
 `pair.compare.kind !== 'branch'` (S9 — merges land branches on branches), or
@@ -219,7 +259,9 @@ mergeExecute(sessionId, req: {
   strategy: 'ff' | 'squash' | 'merge';
   message?: string;                          // edited draft, squash/merge only
   overrides: MergeGateId[];                  // amber gates the user acked
-  cleanup: { deleteBranch: boolean; removeWorktree: boolean };
+  cleanup: { archiveSession: boolean;        // default on (design board 1)
+             deleteBranch: boolean; removeWorktree: boolean;
+             retarget: number[] };           // dependent sessionIds to retarget
   expect: { baseHead: string; tipSha: string };   // what the sheet showed
 }): MergeRecord
 ```
@@ -244,11 +286,19 @@ Inside the lock, in order (Seq A/C):
 3. **Record**: keep-ref, then `markSessionMerged` + compare retarget in one DB
    transaction (§2) — all before cleanup, so a cleanup failure can't lose the
    merge record or the reviewed tip.
-4. **Cleanup** (each independently, failures collected into
-   `record.cleanup.failures`): delete branch, remove worktree. The op result
-   reports exactly what happened (design 09: "either both happen with the
-   merge or the whole thing reports precisely what did").
-5. **Settle**: `stopWatch()` (nothing left to drift against), broadcast fresh
+4. **Retarget dependents** (§6b), for each selected id, each independently:
+   rebase its branch onto the new base head, and only on success repoint its
+   session base. A conflict aborts that one dependent's rebase cleanly and is
+   collected into `record.cleanup.failures`.
+5. **Cleanup** (each independently, failures collected into
+   `record.cleanup.failures`): delete branch, remove worktree, archive the
+   session when requested. **Branch deletion is skipped (with a recorded
+   reason) while any live session still bases on the merged branch** — i.e.
+   dependents that weren't selected, weren't rebasable, or whose rebase
+   failed. The op result reports exactly what happened (design 09: "either
+   both happen with the merge or the whole thing reports precisely what
+   did").
+6. **Settle**: `stopWatch()` (nothing left to drift against), broadcast fresh
    `repoState`, return the record. The renderer reloads the session, which now
    assembles as a merged read-only record.
 
@@ -293,10 +343,14 @@ Contents, top to bottom (board 1):
   label — same live behavior as the design board.
 - **Message editor**: plain `<textarea>` seeded with `draftMessage`,
   monospace, "Drafted from the review summary — click to edit" meta line.
-- **After the merge**: checkboxes for delete branch and remove worktree
-  (both default on; worktree row hidden when the branch has no linked
-  worktree). Dependent reviews, when detected, render as an info row naming
-  the stacked branch — not a checkbox (v1 doesn't auto-retarget).
+- **After the merge**: checkboxes, all default on — archive this review
+  session, delete branch, remove worktree (worktree row hidden when the
+  branch has no linked worktree). Each detected dependent review renders as
+  the design's highlighted **Retarget dependent review** checkbox ("<branch>
+  is stacked on this branch. Repoint its base to <base> and rebase its N
+  commits — comes back as amber drift to skim"); a non-rebasable dependent
+  renders unchecked + disabled with its reason, and the delete-branch row
+  auto-unchecks with a note while any dependent won't be retargeted (§4 rule).
 - **Footer CTA**: label follows strategy (Fast-forward `<base>` / Squash &
   merge / Merge into `<base>`); disabled while gates block, while
   `anyExclusiveRunning`, or while executing.
@@ -332,6 +386,37 @@ IPC: one new `Api` method `sendRebase(sessionId, opts)` (thin wrapper; reuses
 the batch handler's shape rather than overloading `sendBatch`'s
 comment-reconciliation logic).
 
+## 6b. Dependent-review retarget (inside the merge op)
+
+For each dependent the user ticked (`cleanup.retarget`), executed inside the
+same exclusive-lane op, after the merge record is durable:
+
+1. **Re-verify rebasability** (worktree still holds the branch, still clean —
+   the sheet may have sat open). Failed re-check → collected failure, skip.
+2. **Rebase natively**: `git -C <depWorktree> rebase --onto <newBaseHead>
+   <reviewedTipSha> <depBranch>`. `reviewedTipSha` is the old stack point, so
+   only the dependent's own commits replay — correct for all three merge
+   strategies, including squash (where the old commits are otherwise
+   unreachable but the keep-ref and the recorded SHA keep the boundary
+   stable).
+3. **On conflict**: `git rebase --abort`, restore untouched state, collect the
+   failure. The dependent review is left exactly as it was; opening it later
+   offers the ordinary "Resolve with agent" path (§6) which performs the same
+   rebase agentically. Because the merged branch was *not* deleted (§4 rule),
+   nothing `refMissing`s.
+4. **On success, repoint the base** in one DB transaction:
+   `retargetSessionBase(db, depId, { kind:'branch', symbol:<base>, anchorSha:
+   <newBaseHead> })` — a new DAO function that is the *only* writer allowed to
+   touch a session base (the public `retargetSession` keeps throwing;
+   base immutability stays the rule, this is its one audited exception).
+5. The dependent review's next load shows the rebase as ordinary
+   since-approved amber drift over the new base — the design's promised
+   "comes back as amber drift to skim", with zero new review UI.
+
+The dependent's own HEAD watcher (if that review is open in another window)
+is quiet during the op — the poll skips while the exclusive lane is held
+(`src/main/ipc.ts:122`) — and re-baselines on its next reload.
+
 ## 7. The merged record (renderer)
 
 When `merged_at` is set, the session is terminal and read-only:
@@ -359,9 +444,10 @@ When `merged_at` is set, the session is terminal and read-only:
   renderer affordances). Read-only chat on the shared lane stays available —
   asking questions about a landed review is legitimate (open question 7).
 - **Hub** (`SessionRow.tsx:21`, `RepoHub.tsx:122`): `merged` becomes the
-  first-checked status → green **Merged · <sha7>** badge; merged rows sort
-  below live unmerged rows, above archived; they stay in the live list (no
-  auto-archive — open question 3). Rows open the read-only record as usual.
+  first-checked status → green **Merged · <sha7>** badge, rendered in both
+  the live and archived groups. With the archive checkbox on (the default)
+  the record lands in the archived group; when unticked it stays in the live
+  list, sorted below unmerged rows. Rows open the read-only record as usual.
 
 ## 8. Merged outside Limn (S12 — "Mark merged")
 
@@ -392,7 +478,9 @@ and components via vitest + testing-library.
 - `ipc-merge.test.ts` — preflight/execute handlers over a fixture repo:
   authoritative re-check aborts on moved base (S10), exclusive-lane exclusion
   (S11), record written before cleanup, partial cleanup failure reporting,
-  compare retarget + record renders after branch deletion.
+  compare retarget + record renders after branch deletion; dependent
+  retarget: clean rebase repoints base, conflicted rebase aborts + preserves
+  the dependent untouched + blocks branch deletion.
 - `merge-record.test.ts` — DAO + `toListItem` merged status; migration v8.
 - `merge-sheet.test.tsx` — sheet rendering per gate fixture, strategy
   switching, CTA labels/disabling, override flow.
@@ -401,7 +489,7 @@ and components via vitest + testing-library.
   (b) amber stale-approval gate, (c) conflict gate, (d) merged record header +
   hub badge, staged via the FakeEngine fixture path.
 
-## Open questions (numbered, each with a recommendation)
+## Original open questions (all resolved — see Status block at the top)
 
 1. **Record durability mechanism.** Keep-ref + compare-retarget (§2) keeps
    diffs live from git with zero snapshot machinery, at the cost of a hidden
