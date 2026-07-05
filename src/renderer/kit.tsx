@@ -49,7 +49,9 @@ export const I = {
   lock: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><rect x="2.7" y="6.2" width="8.6" height="5.6" rx="1.2" /><path d="M4.4 6.2V4.6a2.6 2.6 0 0 1 5.2 0v1.6" /></svg>,
   unlock: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><rect x="2.7" y="6.2" width="8.6" height="5.6" rx="1.2" /><path d="M4.4 6.2V4.6a2.6 2.6 0 0 1 5.1-.6" /></svg>,
   // frozen-commit marker — a thumbtack ("pinned to this exact commit")
-  pin: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4.5 2h5M6 2.2 5 6M8 2.2 9 6M3.8 6h6.4M7 6v5.6" /></svg>
+  pin: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4.5 2h5M6 2.2 5 6M8 2.2 9 6M3.8 6h6.4M7 6v5.6" /></svg>,
+  // merge — branch graph folding into the base (design 08 ic-merge)
+  merge: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="3.5" cy="3" r="1.5" /><circle cx="3.5" cy="11" r="1.5" /><circle cx="10.5" cy="8.5" r="1.5" /><path d="M3.5 4.5v5M3.5 5c0 3.2 7 1 7 2" /></svg>,
 }
 
 export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {
