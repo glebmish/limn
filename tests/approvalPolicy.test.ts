@@ -194,3 +194,15 @@ describe('ladderPolicy — unknown/undefined ExecutionMode falls back to ask tie
     expect(ladderPolicy('bogus' as ExecutionMode, r, true)).toBe('ask')
   })
 })
+
+describe('rebase turn stays on the ask ladder (merge §6 — no policy change)', () => {
+  it('git rebase is an unsafe command', () => {
+    expect(isSafeCommand('git rebase main')).toBe(false)
+    expect(isSafeCommand('git rebase --continue')).toBe(false)
+  })
+  it('ask tier parks a git-rebase command approval; full runs it unattended', () => {
+    const r = req({ detail: { command: 'git rebase main' } })
+    expect(ladderPolicy('ask', r, true)).toBe('ask')
+    expect(ladderPolicy('full', r, true)).toBe('allow')
+  })
+})

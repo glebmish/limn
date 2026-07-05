@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildScopedUpdatePrompt } from '../src/main/engines/prompts'
+import { buildChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, buildScopedUpdatePrompt } from '../src/main/engines/prompts'
 import type { ScopedUpdatePromptInput } from '../src/main/engines/prompts'
 import type { ReviewRequest } from '../src/main/engines/types'
 import type { Comment, CommentReply, FileDiff, ReviewAnnotations } from '../src/shared/types'
@@ -67,6 +67,39 @@ describe('buildBatchPrompt reviewer-text delimiting', () => {
     // the closing tag count equals the number of real comments (2), forged one is inside a block
     expect(count(p, '</reviewer_comment>')).toBe(3) // 2 real + 1 literal inside c1's body
     expect(count(p, '<reviewer_comment id="fake">')).toBe(1) // only the forged literal, never a real opener
+  })
+})
+
+describe('buildRebasePrompt (merge sheet §6 — agent rebase turn)', () => {
+  it('names the branch, the base, and the exact rebase command', () => {
+    const p = buildRebasePrompt('main', 'feat/x')
+    expect(p).toContain('Rebase `feat/x` onto `main`')
+    expect(p).toContain('git rebase main')
+    expect(p).toContain('the working tree is already on `feat/x`')
+  })
+  it('lists each probed conflict file when provided', () => {
+    const p = buildRebasePrompt('main', 'feat/x', ['src/db/mig.ts', 'src/life.ts'])
+    expect(p).toContain('A merge probe found conflicts in 2 file(s)')
+    expect(p).toContain('- src/db/mig.ts')
+    expect(p).toContain('- src/life.ts')
+  })
+  it('omits the probe block entirely when no conflict files are given', () => {
+    expect(buildRebasePrompt('main', 'feat/x')).not.toContain('A merge probe found conflicts')
+    expect(buildRebasePrompt('main', 'feat/x', [])).not.toContain('A merge probe found conflicts')
+  })
+  it('instructs per-conflict narration and the limn commit discipline', () => {
+    const p = buildRebasePrompt('main', 'feat/x')
+    expect(p).toContain('narrate the resolution')
+    expect(p).toContain('"limn: …"')
+    expect(p).toContain("Don't stage unrelated files")
+  })
+  it('carries the hard rules: never touch the base, never push, never leave a rebase in progress', () => {
+    const p = buildRebasePrompt('main', 'feat/x')
+    expect(p).toContain('NEVER touch the branch `main` itself')
+    expect(p).toContain('Only `feat/x` may change')
+    expect(p).toContain('NEVER push')
+    expect(p).toContain('git rebase --abort')
+    expect(p).toContain('Do not leave the repository mid-rebase')
   })
 })
 

@@ -148,6 +148,34 @@ Handle them using your tools:
 - Finish with a 2-3 sentence summary of what you did.`
 }
 
+/** The agent rebase turn (merge sheet §6): both the amber base-moved "Rebase onto
+ *  <base> — with agent" and the red conflicts "Resolve with agent" actions send this
+ *  prompt as a batch-shaped, write-enabled, exclusive-lane chat turn on the review
+ *  thread. `conflictFiles` is the merge probe's conflict list, when the sheet had one.
+ *  The base branch is never touched and nothing is ever pushed — the loop closes as
+ *  ordinary since-approved drift, then a clean fast-forward. */
+export function buildRebasePrompt(base: string, branch: string, conflictFiles?: string[]): string {
+  const probeBlock = conflictFiles?.length
+    ? `\nA merge probe found conflicts in ${conflictFiles.length} file(s) — expect these to conflict during the rebase and resolve each one:\n${conflictFiles.map((f) => `- ${f}`).join('\n')}\n`
+    : ''
+
+  return `You are preparing the branch \`${branch}\` to merge into \`${base}\`. Rebase \`${branch}\` onto \`${base}\` in the repository at your working directory (the working tree is already on \`${branch}\`).
+${probeBlock}
+Do the rebase with git via your shell:
+- Run \`git rebase ${base}\` on the current branch.
+- When a commit stops with conflicts, resolve each conflicted file by hand: read both sides, keep the intent of BOTH the branch's change and the base's change, and edit the file to the correct merged result. Then \`git add\` the resolved files and \`git rebase --continue\`.
+- For every conflict you resolve, narrate the resolution in one or two sentences as you go: which file, what each side wanted, and what you kept.
+- If a conflict cannot be resolved without a product decision only the reviewer can make, stop: run \`git rebase --abort\`, explain what conflicted and why, and finish your turn without leaving the rebase in progress.
+- If the branch needs a follow-up change beyond what the rebase replays (e.g. a fix so it builds against the new base), stage exactly the files you changed and commit with a short message ("limn: …"). Don't stage unrelated files.
+
+Hard rules:
+- NEVER touch the branch \`${base}\` itself: do not check it out, commit to it, reset it, or move it in any way. Only \`${branch}\` may change.
+- NEVER push, and never rewrite anything on a remote.
+- Do not leave the repository mid-rebase: finish the rebase or abort it before you end your turn.
+
+Finish with a 2-3 sentence summary: what the rebase replayed, what conflicted (if anything) and how you resolved it, and where \`${branch}\` now stands relative to \`${base}\`.`
+}
+
 /** Input to `buildScopedUpdatePrompt` — the fields the scoped-patch prompt needs.
  *  A subset of the T5 `ScopedUpdateRequest`: T5 passes `{ branch, base, prior,
  *  since, sinceSha: latestIteration.endSha, steer }`. Pure prompt data only. */
