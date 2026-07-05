@@ -308,7 +308,7 @@ export default function Review() {
                 </>
               )}
 
-              {annotations && <Questions />}
+              {annotations && !merged && <Questions />}
 
               {sections.map((s, i) => (
                 <SectionView

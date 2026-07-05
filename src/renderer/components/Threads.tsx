@@ -30,6 +30,8 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? []))
   const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
+  // terminal merged record (spec §7): comments are read-only — no send/edit/delete
+  const merged = useStore((s) => Boolean(s.loaded?.state.merged))
 
   // delete is destructive with no undo, so confirm inline before removing
   const deleteControl = confirmDel ? (
@@ -50,10 +52,12 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           <span className="dim">{locLabel}</span>
           {!isAgent && c.status === 'queued' && (
             <>
-              <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />queued for agent</span>
-              <button className="send-now" onClick={() => sendComments([c.id])}>
-                <I.send style={{ width: 11, height: 11 }} />Send now
-              </button>
+              <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />{merged ? 'never sent' : 'queued for agent'}</span>
+              {!merged && (
+                <button className="send-now" onClick={() => sendComments([c.id])}>
+                  <I.send style={{ width: 11, height: 11 }} />Send now
+                </button>
+              )}
             </>
           )}
           {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (() => {
@@ -112,13 +116,13 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             <div className="bb">{r.text}</div>
           </div>
         ))}
-        {!editing && !isAgent && c.status !== 'sent' && (
+        {!merged && !editing && !isAgent && c.status !== 'sent' && (
           <div className="bf">
             {c.status !== 'resolved' && !confirmDel && <button onClick={() => setEditing(true)}>Edit</button>}
             {deleteControl}
           </div>
         )}
-        {!editing && isAgent && (
+        {!merged && !editing && isAgent && (
           <div className="bf">{deleteControl}</div>
         )}
       </div>
