@@ -200,4 +200,27 @@ describe('merged sessions are read-only (main-process guards)', () => {
       .rejects.toThrow('This review is merged and read-only')
     expect(loadReviewState(h.db, h.sessionId).chats.find((c) => c.id === t)!.messages).toEqual([])
   })
+
+  it('unapprove rejects (§7 names unapprove explicitly)', async () => {
+    const h = await mergedHarness()
+    await expect(h.handlers.get('unapprove')!(h.sessionId))
+      .rejects.toThrow('This review is merged and read-only')
+  })
+
+  it('comment composition rejects — upsert and delete leave the record untouched', async () => {
+    const h = await mergedHarness()
+    const comment = {
+      id: 'c1', anchor: { kind: 'summary' }, author: 'user', text: 'late note',
+      status: 'queued', replies: [], createdAt: new Date().toISOString(), iteration: 1
+    }
+    await expect(h.handlers.get('upsertComment')!(h.sessionId, comment))
+      .rejects.toThrow('This review is merged and read-only')
+    await expect(h.handlers.get('deleteComment')!(h.sessionId, 'c1'))
+      .rejects.toThrow('This review is merged and read-only')
+    expect(loadReviewState(h.db, h.sessionId).comments).toEqual([])
+  })
+
+  // Note: sendChat is intentionally NOT guarded — read-only chat about a landed
+  // review is allowed (§7 / open question 7). It has no assertNotMerged call, so
+  // there is nothing to assert here without driving a real engine turn.
 })

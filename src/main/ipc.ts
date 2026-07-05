@@ -810,6 +810,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('upsertComment', async (sessionId: number, comment: Comment) => {
     const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)  // comment composition is blocked on a terminal record (§7)
     try {
       const workdir = await resolveWorkdir(session.repo, session.pair)
       comment = { ...comment, anchor: await stampAnchor(workdir, session, comment.anchor) }
@@ -819,6 +820,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('deleteComment', async (sessionId: number, id: string) => {
+    assertNotMerged(db, sessionId)  // terminal record: no comment mutation (§7)
     dao.deleteComment(db, sessionId, id)
     return dao.loadReviewState(db, sessionId)
   })
@@ -1115,6 +1117,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('unapprove', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
     dao.unapproveSessionSurface(db, sessionId, loaded.branchHash)
     return dao.loadReviewState(db, sessionId)
