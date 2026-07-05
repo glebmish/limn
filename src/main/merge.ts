@@ -350,6 +350,7 @@ async function runCleanupAndRetargets(
  *  cleanup can delete the branch (spec §2 record durability). */
 async function persistMergeRecord(db: DatabaseSync, ctx: MergeContext, record: MergeRecord): Promise<void> {
   await setRef(ctx.repo, `refs/limn/keep/${ctx.session.id}`, ctx.tipSha)
+  const base = ctx.session.pair.base
   inTx(db, () => {
     dao.markSessionMerged(db, ctx.session.id, record)
     // symbol keeps the BRANCH NAME (display-only for commit-kind sides; identity is
@@ -357,6 +358,15 @@ async function persistMergeRecord(db: DatabaseSync, ctx: MergeContext, record: M
     // "deleted" chip render the branch name from compare.symbol (Tasks 16–17).
     dao.retargetSession(db, ctx.session.id, 'compare',
       { kind: 'commit', symbol: ctx.branch, anchorSha: ctx.tipSha })
+    // Pin the BASE side too (§2 durability). Left as a live branch, the base symbol
+    // resolves to the post-merge head, so getDiff collapses merge-base onto the tip
+    // and the record renders an EMPTY diff for ff / merge / external merges (squash
+    // survives only because its commit is a sibling of the tip). Freezing base at its
+    // reviewed anchor makes getDiff(baseAnchor..tip) the exact reviewed diff for every
+    // strategy — and keeps section/comment anchors resolving. retargetSessionBase is
+    // the one audited writer allowed to touch a session base (retargetSession throws).
+    dao.retargetSessionBase(db, ctx.session.id,
+      { kind: 'commit', symbol: base.symbol, anchorSha: base.anchorSha })
   })
 }
 

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/main/db/db'
 import { approveSessionSha, createSession, getSession, listRepoSessions, loadReviewState } from '../src/main/db/sessions'
+import { buildLoadedReview } from '../src/main/review'
 import { registerIpc } from '../src/main/ipc'
 import { resolveRefInput } from '../src/main/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite, type FixtureRepo } from './helpers/fixtureRepo'
@@ -127,6 +128,30 @@ describe('mergeExecute — landing', () => {
     // the base worktree advanced through a real merge — its files are current
     expect(fs.readFileSync(path.join(h.dir, 'src/c.ts'), 'utf8')).toBe('export const c = 3\n')
   })
+})
+
+describe('mergeExecute — merged record renders the reviewed diff (§2 durability)', () => {
+  // The record must render the reviewed file diff even after the branch (compare) is
+  // gone and the base branch advanced past the tip. Regression: pinning only the
+  // compare side left base a live branch, so getDiff collapsed merge-base onto the
+  // tip → an empty diff for every strategy except squash.
+  for (const strategy of ['ff', 'merge', 'squash'] as const) {
+    it(`${strategy}: non-empty diff after landing`, async () => {
+      const h = await setup()
+      approveSessionSha(h.db, h.sessionId, h.shas.head)
+      const res = await h.handlers.get('mergeExecute')!(
+        h.sessionId,
+        baseReq({ baseHead: h.shas.base, tipSha: h.shas.head },
+          { strategy, ...(strategy === 'ff' ? {} : { message: 'Land feature' }) })
+      ) as MergeExecuteResult
+      expect(res.status).toBe('merged')
+      const loaded = await buildLoadedReview(h.db, getSession(h.db, h.sessionId)!)
+      expect(loaded.state.merged?.strategy).toBe(strategy)
+      // the reviewed change (feature edits a.ts, adds b.ts, deletes old.ts, …) renders
+      expect(loaded.skeleton.files.length).toBeGreaterThan(0)
+      expect(loaded.refMissing).toBeUndefined()
+    })
+  }
 })
 
 describe('mergeExecute — authoritative re-check (S10 / Seq C)', () => {

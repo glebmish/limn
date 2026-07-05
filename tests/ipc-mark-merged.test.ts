@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/main/db/db'
 import { approveSessionSha, createChatThread, createSession, getSession, loadReviewState, markSessionMerged, retargetSession } from '../src/main/db/sessions'
+import { buildLoadedReview } from '../src/main/review'
 import { registerIpc } from '../src/main/ipc'
 import { resolveRefInput } from '../src/main/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite, type FixtureRepo } from './helpers/fixtureRepo'
@@ -127,6 +128,12 @@ describe('markMerged (S12)', () => {
     expect(() => fixtureGit(h.dir, 'rev-parse', '--verify', 'refs/heads/feature')).toThrow()
     expect(res.record.cleanup.archived).toBe(true)
     expect(loadReviewState(h.db, h.sessionId).merged).toEqual(res.record)
+    // base pinned to its reviewed anchor too (§2) — so the record still renders the
+    // reviewed diff after feature is deleted and main advanced past the tip
+    expect(session.pair.base).toEqual({ kind: 'commit', symbol: 'main', anchorSha: h.shas.base })
+    const loaded = await buildLoadedReview(h.db, session)
+    expect(loaded.skeleton.files.length).toBeGreaterThan(0)
+    expect(loaded.refMissing).toBeUndefined()
   })
 
   it('records strategy merge when the base head is a descendant, not the tip itself', async () => {
