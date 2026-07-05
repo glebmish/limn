@@ -1,12 +1,31 @@
 # Merge into main — land the approved branch
 
-## Status: DONE (2026-07-05) — implemented on branch `10-merge-into-main`
+## Status: DONE (2026-07-05) — implemented + reviewed + GUI-verified on `10-merge-into-main`
 
-§1–§8 built and committed; §9 automated coverage green (947 tests, typecheck,
-lint all pass). Remaining before the stack merges to `main`: the §9
-manual/screenshot GUI smoke (green sheet, amber stale-approval gate, conflict
-gate, merged record header + hub badge) — needs a live GUI session, see
-.
+§1–§8 built; §9 automated coverage green (962 tests, typecheck, lint all pass).
+
+A post-build deep review + live GUI drive (via the web-serve build in Chrome)
+found and fixed 6 real gaps before this could be called done:
+1. **(critical)** the merged record rendered an EMPTY diff for ff / merge /
+   external merges — the base side wasn't pinned, so `getDiff` collapsed
+   merge-base onto the tip (only squash survived). Fixed by freezing base at its
+   reviewed anchor in `persistMergeRecord`.
+2. **(high)** the entire §7 renderer surface was unbuilt — the verdict button,
+   hub badge, summary band, and read-only affordance gating did not exist; a
+   merged session still showed "Approved" and every write control. Now built
+   and GUI-verified.
+3. **(high)** two swallowed git-recovery failures (`rebase --abort`,
+   `merge --abort`/`reset`) could leave a worktree wedged silently.
+4. missing main-process guards on `unapprove` / comment composition.
+5. a landed-but-unrecorded merge reported as a generic failure (retry hazard).
+6. per-repo strategy memory was never wired; `mergeBase` fallback undocumented.
+
+GUI smoke DONE for: green sheet, strategy picker (ff/squash/merge), execute,
+merged record header + read-only banner + hub "Merged · sha7" badge (screenshots
+captured this session). Still owed before the stack merges to `main`: live drive
+of the **amber stale-approval** and **conflict** gate bands (both unit-tested via
+`merge-gates`/`merge-sheet`, not yet driven live) + the pre-existing 02/03/07 GUI
+debts.
 
 Original decision (2026-07-05) — all open questions resolved, ready for planning:
 
