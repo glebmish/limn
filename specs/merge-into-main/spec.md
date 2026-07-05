@@ -1,6 +1,14 @@
 # Merge into main — land the approved branch
 
-## Status: Decided (2026-07-05) — all open questions resolved, ready for planning
+## Status: DONE (2026-07-05) — implemented on branch `10-merge-into-main`
+
+§1–§8 built and committed; §9 automated coverage green (947 tests, typecheck,
+lint all pass). Remaining before the stack merges to `main`: the §9
+manual/screenshot GUI smoke (green sheet, amber stale-approval gate, conflict
+gate, merged record header + hub badge) — needs a live GUI session, see
+.
+
+Original decision (2026-07-05) — all open questions resolved, ready for planning:
 
 Resolutions (user-locked; original questions at the bottom):
 1. Record durability: **keep-ref + compare retarget** (recommended adopted).
