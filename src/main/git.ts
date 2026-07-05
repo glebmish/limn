@@ -656,3 +656,51 @@ export async function locateSide(dir: string, side: RefSide): Promise<RefLoc> {
     return { kind: 'commit', onBranch: null, behind: 0, sha }
   }
 }
+
+// ── merge landing (spec: merge-into-main §1) ──────────────────
+
+export interface MergeProbe {
+  status: 'clean' | 'conflict' | 'unavailable'
+  treeOid?: string                // set when clean: the exact 3-way merge tree
+  conflictFiles: string[]         // set when conflict
+}
+
+/** True when this git's merge-tree lacks --write-tree (git < 2.38): the option is
+ *  rejected (parse_options "unknown option") or the old positional command prints
+ *  usage. Matched against the failure message execGit throws (stderr embedded).
+ *  Real merge/repo errors must NOT match — they propagate to the caller. */
+export function isMergeTreeUnsupported(message: string): boolean {
+  return /unknown option|usage: git merge-tree/i.test(message)
+}
+
+/** Conflict probe: `git merge-tree --write-tree --name-only -z <base> <branch>`.
+ *  NUL-separated output: `<tree-oid> NUL [<conflicted-path> NUL]* NUL <messages…>`.
+ *  Exit 1 (tolerated via execGitDiff) covers BOTH the conflict outcome (oid + paths
+ *  on stdout) and "not something we can merge" (empty stdout, message on stderr) —
+ *  the leading-oid check tells them apart, so a bad ref throws instead of reading
+ *  as clean. On git without --write-tree the probe reports 'unavailable' and the
+ *  conflict gate degrades to confirm-time (spec Q9/10). */
+export async function mergeTreeProbe(dir: string, base: string, branch: string): Promise<MergeProbe> {
+  assertSafeRef(base)
+  assertSafeRef(branch)
+  let out: string
+  try {
+    out = await execGitDiff(dir, ['merge-tree', '--write-tree', '--name-only', '-z', base, branch])
+  } catch (e) {
+    if (isMergeTreeUnsupported((e as Error).message)) return { status: 'unavailable', conflictFiles: [] }
+    throw e
+  }
+  const parts = out.split('\0')
+  const treeOid = (parts[0] ?? '').trim()
+  if (!/^[0-9a-f]{40,64}$/.test(treeOid)) {
+    throw new Error(`git merge-tree ${base}..${branch} produced no tree: ${out.trim() || '(empty output)'}`)
+  }
+  const conflictFiles: string[] = []
+  for (let i = 1; i < parts.length; i++) {
+    if (parts[i] === '') break    // blank entry separates paths from informational messages
+    conflictFiles.push(parts[i])
+  }
+  return conflictFiles.length > 0
+    ? { status: 'conflict', conflictFiles }
+    : { status: 'clean', treeOid, conflictFiles: [] }
+}

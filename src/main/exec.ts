@@ -18,8 +18,9 @@ export function execGit(dir: string, args: string[]): Promise<string> {
 }
 
 /** Like execGit, but tolerates exit code 1 (git diff --no-index's "files differ"
- *  signal) as success. Exit codes ≥ 2 remain real failures. Used only by
- *  diffContents — do NOT loosen the general execGit wrapper (Q9). */
+ *  signal; git merge-tree --write-tree's "conflict" signal) as success. Exit codes
+ *  ≥ 2 remain real failures. Used only by diffContents and mergeTreeProbe — do NOT
+ *  loosen the general execGit wrapper (Q9). */
 export function execGitDiff(dir: string, args: string[]): Promise<string> {
   return runGit(dir, args, true)
 }
