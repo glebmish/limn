@@ -128,3 +128,64 @@ describe('mergeExecute — landing', () => {
     expect(fs.readFileSync(path.join(h.dir, 'src/c.ts'), 'utf8')).toBe('export const c = 3\n')
   })
 })
+
+describe('mergeExecute — authoritative re-check (S10 / Seq C)', () => {
+  it('base moved after the sheet was shown: preflight-changed, nothing written', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const pre = await h.handlers.get('mergePreflight')!(h.sessionId) as MergePreflight
+    expect(pre.ok).toBe(true)
+
+    // the race: base moves between preflight and confirm
+    const wt = externalWorktree(h.dir, 'main')
+    fixtureWrite(wt, 'docs/spec.md', '# Rate limiting spec v2\n')
+    fixtureGit(wt, 'add', '-A')
+    fixtureGit(wt, 'commit', '-m', 'raced base commit')
+    const movedMain = fixtureGit(h.dir, 'rev-parse', 'main')
+
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId, baseReq({ baseHead: pre.baseHead, tipSha: pre.tipSha })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('preflight-changed')
+    if (res.status !== 'preflight-changed') return
+    expect(res.preflight.gates.some((g) => g.id === 'base-moved')).toBe(true)
+    expect(res.preflight.baseHead).toBe(movedMain)
+
+    // nothing was written: no merge, no record, no keep-ref, no retarget
+    expect(fixtureGit(h.dir, 'rev-parse', 'main')).toBe(movedMain)
+    expect(fixtureGit(h.dir, 'merge-base', 'main', 'feature')).toBe(h.shas.base)
+    expect(loadReviewState(h.db, h.sessionId).merged).toBeUndefined()
+    expect(getSession(h.db, h.sessionId)!.pair.compare.kind).toBe('branch')
+    expect(() => fixtureGit(h.dir, 'rev-parse', '--verify', `refs/limn/keep/${h.sessionId}`)).toThrow()
+  })
+
+  it('requested strategy no longer available (ff after base moved): preflight-changed even with the amber acked', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const wt = externalWorktree(h.dir, 'main')
+    fixtureWrite(wt, 'docs/spec.md', '# Rate limiting spec v2\n')
+    fixtureGit(wt, 'add', '-A')
+    fixtureGit(wt, 'commit', '-m', 'base drift')
+    const pre = await h.handlers.get('mergePreflight')!(h.sessionId) as MergePreflight
+    expect(pre.strategies.ff).toBe(false)
+
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId,
+      baseReq({ baseHead: pre.baseHead, tipSha: pre.tipSha }, { strategy: 'ff', overrides: ['base-moved'] })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('preflight-changed')
+    expect(loadReviewState(h.db, h.sessionId).merged).toBeUndefined()
+  })
+
+  it('un-acked amber gate at confirm time: preflight-changed', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.firstFeature) // stale on purpose
+    const pre = await h.handlers.get('mergePreflight')!(h.sessionId) as MergePreflight
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId, baseReq({ baseHead: pre.baseHead, tipSha: pre.tipSha }) // overrides: []
+    ) as MergeExecuteResult
+    expect(res.status).toBe('preflight-changed')
+    if (res.status !== 'preflight-changed') return
+    expect(res.preflight.gates.map((g) => g.id)).toContain('stale-approval')
+  })
+})
