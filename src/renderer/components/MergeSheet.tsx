@@ -2,8 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type {
   DependentReview, MergeExecuteRequest, MergeGate, MergeGateId, MergePreflight, MergeStrategy
 } from '../../shared/types'
+import type { LoadedReview } from '../../shared/ipc'
 import { anyExclusiveRunning, useStore } from '../store'
 import { api } from '../lib/api'
+import { usePopover } from '../lib/usePopover'
 import { I, shortSha } from '../kit'
 
 /** Strategy preselection (spec resolution 6): the remembered per-repo choice while it
@@ -381,5 +383,35 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
     <MergeSheetPanel key={pf.baseHead + ':' + pf.tipSha}
       pf={pf} repo={repo} busy={busy} executing={false}
       initialStrategy={pickStrategy(undefined, pf.strategies)} actions={actions} />
+  )
+}
+
+/** The verdict-row trigger + its anchored sheet. Hidden unless both sides are
+ *  branches (S9 — merges land branches on branches) and the session isn't merged;
+ *  a branch that already landed outside Limn offers "Mark merged…" instead (S12).
+ *  Trigger and popover live together so usePopover owns both refs (DriftCommits idiom). */
+export function MergeButton({ loaded }: { loaded: LoadedReview }) {
+  const pop = usePopover<HTMLButtonElement, HTMLDivElement>({ side: 'bottom', align: 'end', gap: 8 })
+  const pair = loaded.session.pair
+  if (pair.base.kind !== 'branch' || pair.compare.kind !== 'branch') return null
+  if (loaded.state.merged) return null   // terminal — the verdict button takes over
+  const base = pair.base.symbol
+  const external = Boolean(loaded.mergedExternally)
+  return (
+    <>
+      <button className="btn btn-sm rv-land" ref={pop.anchorRef} aria-expanded={pop.open}
+        onClick={pop.toggle}
+        title={external
+          ? `${pair.compare.symbol} already landed on ${base} — record the merge`
+          : `Preflight and merge this branch into ${base} — local only, nothing is pushed`}>
+        <I.merge style={{ width: 13, height: 13 }} />
+        {external ? 'Mark merged…' : `Merge into ${base}…`}
+      </button>
+      {pop.open && (
+        <div className="msh-pop" ref={pop.floatingRef} style={pop.popStyle}>
+          <MergeSheet open onClose={pop.close} />
+        </div>
+      )}
+    </>
   )
 }

@@ -14,6 +14,7 @@ import { GenPanel } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { ArtifactDoc } from '../components/ArtifactDoc'
 import { ChatDrawer } from '../components/ChatDrawer'
+import { MergeButton } from '../components/MergeSheet'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
 import { api } from '../lib/api'
@@ -256,6 +257,7 @@ export default function Review() {
                     setGlobalDiffMode={setGlobalDiffMode}
                   />
                   {approveButton}
+                  <MergeButton loaded={loaded} />
                 </div>
               </div>
 
