@@ -326,3 +326,11 @@ export function batchUserPreview(comments: Comment[], loaded: LoadedReview | nul
   }
   return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
 }
+
+/** The optimistic user-turn label for a rebase turn — mirrors `rebaseUserMessage`
+ *  in main (src/main/ipc.ts) verbatim, the batchUserMessage/batchUserPreview pairing. */
+export function rebaseUserPreview(base: string, branch: string, conflictFiles?: string[]): string {
+  return conflictFiles?.length
+    ? `Rebase ${branch} onto ${base} — resolve ${conflictFiles.length} conflicted file${conflictFiles.length === 1 ? '' : 's'}.`
+    : `Rebase ${branch} onto ${base}.`
+}

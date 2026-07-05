@@ -7,7 +7,7 @@ import type { AppStore } from './index'
 import { useStore } from './index'
 import { newOpId } from './ops'
 import type { ChatDraft } from './derive'
-import { activeChat, anyRunning, batchUserPreview, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat } from './derive'
+import { activeChat, anyRunning, batchUserPreview, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat, rebaseUserPreview } from './derive'
 
 // ── promoted stateful helpers ────────────────────────────────
 // These were closures over set/get inside the store factory; they now reach the
@@ -85,6 +85,10 @@ export interface ChatSlice {
   followUp(text: string): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
   sendBatch(threadId: number, commentIds: string[], steer?: string, refine?: boolean): void
+  /** the agent rebase turn (merge sheet §6): rebase the compare branch onto the base
+   *  on the review thread — exclusive lane, no queueing. `conflictFiles` is the merge
+   *  probe's conflict list when the sheet had one. */
+  sendRebase(conflictFiles?: string[]): void
   /** send queued comments to the *active* chat's agent (minting a draft chat if
    *  the active one hasn't persisted yet) — the destination shown in the UI. */
   sendQueuedComments(commentIds: string[], steer?: string): void
@@ -245,6 +249,47 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     get().openChat(threadId)
     get().startOp('chat', opId, threadId, true) // batch is write-capable → exclusive lane
     void api().sendBatch(threadId, commentIds, trimmed, opId, refine)
+  },
+
+  sendRebase(conflictFiles) {
+    if (anyRunning(get().ops)) return // rebase needs the exclusive lane; no queueing (S11)
+    if (!get().loaded) return
+    void (async () => {
+      const current = get().loaded
+      if (!current) return
+      // same review-thread pick as followUp: the thread that authored the latest
+      // iteration, else the newest review thread, else mint one with the review agent.
+      const review = (current.state.latestIteration?.sessionId
+        ? current.state.chats.find((c) => c.kind === 'review' && c.engineSessionId === current.state.latestIteration?.sessionId)
+        : undefined)
+        ?? [...current.state.chats].reverse().find((c) => c.kind === 'review')
+      let targetId = review?.id
+      if (targetId == null) {
+        const sessionId = get().sessionId ?? await get().materialize()
+        if (sessionId == null) return
+        try {
+          const chats = await api().createChat(sessionId, current.state.agent ?? get().agent)
+          setChats(chats)
+          targetId = chats[chats.length - 1]?.id
+        } catch (err) {
+          set({ error: err instanceof Error ? err.message : String(err) })
+          return
+        }
+      }
+      if (targetId == null) return
+      const loaded = get().loaded
+      if (loaded) {
+        setChats(loaded.state.chats.map((c) => c.id === targetId
+          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: rebaseUserPreview(loaded.state.base, loaded.state.branch, conflictFiles), at: new Date().toISOString() }] }
+          : c))
+      }
+      const opId = newOpId()
+      // the rebase streams like a batch turn: open the drawer so its tool calls (and
+      // any parked git-rebase ApprovalCard under the ask tier) are visible as they run
+      get().openChat(targetId)
+      get().startOp('chat', opId, targetId, true) // rebase turn is write-capable → exclusive lane
+      void api().sendRebase(targetId, opId, conflictFiles)
+    })()
   },
 
   sendQueuedComments(commentIds, steer) {

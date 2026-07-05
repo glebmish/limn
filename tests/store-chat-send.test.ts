@@ -5,8 +5,9 @@ import type { ChatThread } from '../src/shared/types'
 
 const sendChat = vi.fn(async () => {})
 const sendBatch = vi.fn(async () => {})
+const sendRebase = vi.fn(async () => {})
 const createChat = vi.fn(async (): Promise<Partial<ChatThread>[]> => [])
-;(globalThis as unknown as { window: unknown }).window = { api: { sendChat, sendBatch, createChat } }
+;(globalThis as unknown as { window: unknown }).window = { api: { sendChat, sendBatch, sendRebase, createChat } }
 
 const flush = () => new Promise((r) => setTimeout(r))
 // a running exclusive op streaming into `threadId`, for the "target thread is busy" guards.
@@ -107,5 +108,42 @@ describe('sendBatch', () => {
     useStore.setState({ loaded: makeLoaded({ chats: [chat(5, 'user')] }) })
     useStore.getState().sendBatch(5, [])
     expect(sendBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('sendRebase', () => {
+  beforeEach(() => {
+    sendRebase.mockClear(); createChat.mockClear()
+    useStore.setState({ sessionId: 1, ops: {}, chatOpen: false, activeChatId: null, draftChat: null })
+  })
+
+  it('targets the latest review thread, writes the optimistic user label, and starts an exclusive op', async () => {
+    useStore.setState({ loaded: makeLoaded({ base: 'main', compare: 'feature', chats: [chat(1, 'review'), chat(2, 'user'), chat(3, 'review')] }) })
+    useStore.getState().sendRebase(['src/a.ts'])
+    await flush()
+    const review = chatsOf().find((c) => c.id === 3)
+    expect(review?.messages.at(-1)).toMatchObject({ role: 'user', text: 'Rebase feature onto main — resolve 1 conflicted file.' })
+    expect(sendRebase).toHaveBeenCalledWith(3, expect.any(String), ['src/a.ts'])
+    const op = Object.values(useStore.getState().ops).find((o) => o.running)!
+    expect(op).toMatchObject({ kind: 'chat', threadId: 3, exclusive: true })
+    expect(useStore.getState().chatOpen).toBe(true)
+  })
+
+  it('is a no-op while any op is running (exclusive lane, no queueing — S11)', async () => {
+    useStore.setState({ ops: runningOp(1) as never, loaded: makeLoaded({ chats: [chat(1, 'review')] }) })
+    useStore.getState().sendRebase()
+    await flush()
+    expect(sendRebase).not.toHaveBeenCalled()
+    expect(createChat).not.toHaveBeenCalled()
+  })
+
+  it('creates a chat with the review agent when no review thread exists, then sends there', async () => {
+    useStore.setState({ loaded: makeLoaded({ base: 'main', compare: 'feature', chats: [chat(1, 'user')] }) })
+    createChat.mockResolvedValueOnce([chat(1, 'user'), chat(99, 'user')])
+    useStore.getState().sendRebase()
+    await flush()
+    expect(createChat).toHaveBeenCalledWith(1, { engine: 'claude' })
+    expect(sendRebase).toHaveBeenCalledWith(99, expect.any(String), undefined)
+    expect(chatsOf().find((c) => c.id === 99)?.messages.at(-1)).toMatchObject({ role: 'user', text: 'Rebase feature onto main.' })
   })
 })
