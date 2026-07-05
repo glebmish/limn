@@ -1,5 +1,12 @@
-import type { MergeGate, MergeGateId, MergeStrategy } from '../shared/types.js'
-import type { MergeProbe } from './git.js'
+import type { DatabaseSync } from 'node:sqlite'
+import type {
+  DependentReview, MergeGate, MergeGateId, MergePreflight, MergeStrategy, ReviewState, SessionMeta
+} from '../shared/types.js'
+import {
+  aheadCount, branchCheckedOutAt, dirtyCount, driftSummary, EMPTY_TREE, headSha,
+  isAncestor, isDirty, log, mergeBase, mergeTreeProbe, type MergeProbe
+} from './git.js'
+import * as dao from './db/sessions.js'
 
 /** Inputs the gate evaluator is pure over — gathered from git + db by
  *  `gatherMergePreflight` (Task 8), synthesized directly in unit tests. */
@@ -125,4 +132,124 @@ export function draftMergeMessage(title: string, summary: string, tip7: string, 
   const trailer = `Reviewed-with: Limn (approved ${tip7}, base ${baseSymbol} @ ${baseAnchor7})`
   const body = summary.trim() ? `${wrap72(summary.trim())}\n\n` : ''
   return `${title.trim()}\n\n${body}${trailer}`
+}
+
+/** Everything one preflight/execute pass needs, gathered once from git + db. The
+ *  execute path re-gathers this inside the exclusive lane (authoritative re-check). */
+interface MergeContext {
+  session: SessionMeta
+  state: ReviewState
+  repo: string
+  baseSymbol: string
+  branch: string
+  baseHead: string
+  tipSha: string
+  inputs: MergeGateInputs
+  commits: { sha: string; subject: string }[]
+  counts: { commits: number; files: number; add: number; del: number }
+  /** the compare branch's worktree (primary or linked), if checked out anywhere */
+  worktreePath: string | null
+  /** the BASE branch's worktree — non-null selects the in-worktree strategy path */
+  baseWorkdir: string | null
+  dependents: DependentReview[]
+  draftMessage: string
+}
+
+async function gatherContext(db: DatabaseSync, sessionId: number): Promise<MergeContext> {
+  const session = dao.getSession(db, sessionId)
+  if (!session) throw new Error(`session ${sessionId} not found`)
+  const { repo, pair } = session
+  // S9: merges land branches on branches — every other pair never shows the button,
+  // and the handler backstops it here.
+  if (pair.base.kind !== 'branch' || pair.compare.kind !== 'branch') {
+    throw new Error('Merge requires a branch base and a branch compare')
+  }
+  const state = dao.loadReviewState(db, sessionId)
+  if (state.merged) throw new Error('This review is already merged')
+  const baseSymbol = pair.base.symbol
+  const branch = pair.compare.symbol
+  const baseHead = await headSha(repo, baseSymbol)
+  const tipSha = await headSha(repo, branch)
+  const mb = await mergeBase(repo, baseSymbol, branch).catch(() => EMPTY_TREE)
+
+  // approval gate: the committed tip must be explicitly approved. Dirty-surface
+  // approvals don't count here — a merge can only land commits (branch-dirty is
+  // its own red gate).
+  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const approvalCoversTip = approvedShas.includes(tipSha)
+  let staleInfo: MergeGateInputs['staleInfo']
+  if (!approvalCoversTip && state.approvedSha) {
+    try {
+      const d = await driftSummary(repo, branch, state.approvedSha, null) // committed-only
+      staleInfo = { commits: d.commits, add: d.add, del: d.del, sinceSha: state.approvedSha }
+    } catch { /* approved sha unreachable (rebase) — stale gate without counts */ }
+  }
+
+  const worktreePath = await branchCheckedOutAt(repo, branch)
+  const branchDirty = worktreePath && await isDirty(worktreePath)
+    ? { workdir: worktreePath, count: await dirtyCount(worktreePath) }
+    : undefined
+  const baseWorkdir = await branchCheckedOutAt(repo, baseSymbol)
+  const baseSiteDirty = baseWorkdir && await isDirty(baseWorkdir)
+    ? { workdir: baseWorkdir, count: await dirtyCount(baseWorkdir) }
+    : undefined
+  const baseMoved = baseHead !== mb
+    ? { commits: await aheadCount(repo, mb, baseSymbol), from: mb, to: baseHead }
+    : undefined
+  const probe = await mergeTreeProbe(repo, baseSymbol, branch)
+  const ffPossible = await isAncestor(repo, baseHead, tipSha)
+
+  const commitList = await log(repo, baseSymbol, branch) // base..tip, newest first
+  const range = await driftSummary(repo, branch, mb, null)
+  const counts = { commits: commitList.length, files: range.files, add: range.add, del: range.del }
+
+  const dependents: DependentReview[] = []
+  for (const dep of dao.dependentSessions(db, repo, branch)) {
+    const wt = await branchCheckedOutAt(repo, dep.branch)
+    const clean = wt ? !(await isDirty(wt)) : false
+    dependents.push({
+      sessionId: dep.sessionId,
+      branch: dep.branch,
+      commits: await aheadCount(repo, branch, dep.branch),
+      rebasable: Boolean(wt) && clean,
+      ...(wt ? (clean ? {} : { blockedReason: 'dirty worktree' }) : { blockedReason: 'not checked out' })
+    })
+  }
+
+  const title = state.annotations?.title?.trim() || `Merge ${branch} into ${baseSymbol}`
+  const draftMessage = draftMergeMessage(
+    title, state.annotations?.summary ?? '', tipSha.slice(0, 7), baseSymbol, baseHead.slice(0, 7))
+
+  return {
+    session, state, repo, baseSymbol, branch, baseHead, tipSha,
+    inputs: { approvalCoversTip, staleInfo, branchDirty, baseSiteDirty, baseMoved, probe, ffPossible },
+    commits: commitList.map((c) => ({ sha: c.sha, subject: c.subject })),
+    counts, worktreePath, baseWorkdir, dependents, draftMessage
+  }
+}
+
+function toPreflight(ctx: MergeContext, gates: MergeGate[]): MergePreflight {
+  return {
+    ok: mergeOk(gates, []),
+    gates,
+    strategies: strategyAvailability(ctx.inputs),
+    commits: ctx.commits,
+    draftMessage: ctx.draftMessage,
+    counts: ctx.counts,
+    baseHead: ctx.baseHead,
+    tipSha: ctx.tipSha,
+    baseSymbol: ctx.baseSymbol,
+    branch: ctx.branch,
+    cleanup: {
+      ...(ctx.worktreePath ? { worktreePath: ctx.worktreePath } : {}),
+      dependents: ctx.dependents
+    }
+  }
+}
+
+/** Spec §3: the read-only preflight — gates, strategy matrix, commit list, draft
+ *  message, CAS expectations. No lane, no writes; callable anytime like loadSession. */
+export async function gatherMergePreflight(db: DatabaseSync, sessionId: number): Promise<MergePreflight> {
+  const ctx = await gatherContext(db, sessionId)
+  return toPreflight(ctx, evaluateMergeGates(ctx.inputs))
 }
