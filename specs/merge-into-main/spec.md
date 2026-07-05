@@ -278,8 +278,9 @@ Inside the lock, in order (Seq A/C):
 
 1. **Authoritative re-check**: recompute the full preflight. Any red gate, any
    amber gate not in `overrides`, or `baseHead`/`tipSha` differing from
-   `expect` → typed `MergePreflightChangedError` carrying the fresh
-   `MergePreflight`; nothing was written; the sheet re-renders with the true
+   `expect` → return `{ status: 'preflight-changed', preflight }` (a result
+   union, not a thrown error — it's an expected outcome, and IPC returns
+   carry it cleanly); nothing was written; the sheet re-renders with the true
    gates (Seq C's contract).
 2. **Land** by the strategy table in §1. The `update-ref` CAS uses
    `expect.baseHead`, so even a race inside step 1→2 fails closed.
