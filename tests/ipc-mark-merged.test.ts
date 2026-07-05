@@ -185,4 +185,12 @@ describe('merged sessions are read-only (main-process guards)', () => {
       .rejects.toThrow('This review is merged and read-only')
     expect(loadReviewState(h.db, h.sessionId).chats.find((c) => c.id === t)!.messages).toEqual([])
   })
+
+  it('sendRebase rejects and persists nothing to the thread', async () => {
+    const h = await mergedHarness()
+    const t = createChatThread(h.db, h.sessionId, { kind: 'review', agent }).id
+    await expect(h.handlers.get('sendRebase')!(t, 'op-guard-3'))
+      .rejects.toThrow('This review is merged and read-only')
+    expect(loadReviewState(h.db, h.sessionId).chats.find((c) => c.id === t)!.messages).toEqual([])
+  })
 })

@@ -25,7 +25,7 @@ import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { resolveDecision } from './engines/approvals.js'
-import { buildBatchPrompt, buildAnswerPrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
+import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { scopedEligible, SCOPE_CHAIN_CAP } from './engines/scope.js'
@@ -233,8 +233,8 @@ function reportTurnFailure(opts: {
   threadId: number
   opId: string
   outcome: { status: 'cancelled' | 'failed'; error: unknown }
-  /** the persisted note's prefix ("Turn failed:" / "Batch failed:"). */
-  label: 'Turn' | 'Batch'
+  /** the persisted note's prefix ("Turn failed:" / "Batch failed:" / "Rebase failed:"). */
+  label: 'Turn' | 'Batch' | 'Rebase'
   /** the lane the op actually ran on, when one was taken (see OpRecorder.exclusive). */
   exclusive?: boolean
   /** batch turns notify on genuine failure; plain chat turns don't. */
@@ -271,6 +271,15 @@ function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.load
     return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
   }
   return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
+}
+
+/** The persisted user-turn label for a rebase turn — the full prompt is engine-only.
+ *  Mirrored verbatim by `rebaseUserPreview` (renderer, store/derive.ts), the same
+ *  main/renderer pairing as batchUserMessage/batchUserPreview. */
+function rebaseUserMessage(base: string, branch: string, conflictFiles?: string[]): string {
+  return conflictFiles?.length
+    ? `Rebase ${branch} onto ${base} — resolve ${conflictFiles.length} conflicted file${conflictFiles.length === 1 ? '' : 's'}.`
+    : `Rebase ${branch} onto ${base}.`
 }
 
 interface OpRecorder {
@@ -1023,6 +1032,76 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
       }
       reportTurnFailure({ db, threadId, opId, outcome, label: 'Batch', exclusive: true, notify: true })
+    }
+  })
+
+  // The agent rebase turn (merge sheet §6): rebase the compare branch onto the base in
+  // the review workdir — batch-shaped (write-enabled, exclusive lane, thread's tier),
+  // with none of sendBatch's comment reconciliation. `git rebase` is classified unsafe
+  // (approvalPolicy.ts:54), so under ask/edits/auto the command parks an ApprovalCard;
+  // 'full' runs it unattended — the design's "same approvals ladder as send comments".
+  handle('sendRebase', async (threadId: number, opId: string, conflictFiles?: string[]) => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    const thread = dao.getChatThread(db, threadId)
+    if (sid == null || !thread) throw new Error('chat thread not found')
+    const session = mustGetSession(db, sid)
+    assertNotMerged(db, sid)
+    const repo = session.repo
+    const recorder = opRecorder(opId)
+    recorder.exclusive = true // a rebase turn is write-capable → always the exclusive lane
+    // Per-thread guard, as in sendChat/sendBatch: one in-flight turn per thread, fail fast.
+    const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
+      // Same precheck as sendBatch: the agent can only rebase where it can write — the
+      // compare branch checked out somewhere with a clean tree (spec §6 / branch-dirty gate).
+      const capability = await writeCapabilityFor(repo, session.pair.compare)
+      const workdir = capability.workdir ?? repo
+      if (!capability.enabled) {
+        const reason = capability.reason === 'dirty'
+          ? 'the working tree has uncommitted changes'
+          : capability.reason === 'not-checked-out'
+            ? 'the compare branch is not checked out'
+            : 'the compare side is not a writable branch'
+        throw new Error(`Agent edits are unavailable because ${reason}`)
+      }
+      const state = dao.loadReviewState(db, sid)
+      dao.addChatMessage(db, threadId, {
+        role: 'user', at: new Date().toISOString(),
+        text: rebaseUserMessage(state.base, state.branch, conflictFiles)
+      })
+
+      const engine = makeEngine(thread.agent.engine)
+      const tools = createToolHost({
+        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
+        engineSessionId: thread.engineSessionId, emit: recorder.emit
+      })
+      // cancel during setup → bail before the (write-enabled) engine launches, so a
+      // stopped rebase can't still rewrite the branch.
+      operations.throwIfCancelled(opId)
+      // a pruned session rejects this run with the typed EngineSessionLostError.
+      const run = engine.chat({
+        repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+        message: buildRebasePrompt(state.base, state.branch, conflictFiles),
+        tools, writeEnabled: true, opId, executionMode: thread.executionMode
+      })
+      operations.registerCancel(opId, run.cancel)
+      const pump = pumpEvents(run.events, recorder.emit)
+      const { value, sessionId: engineSession } = await run.result
+      await pump
+
+      const at = new Date().toISOString()
+      const actions = tools.collected()
+      const toolCalls = reduceToolCalls(recorder.events)
+      const segments = reduceSegments(recorder.events)
+      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
+      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
+    }))
+    if (outcome.status === 'succeeded') {
+      // reload:true — the rebase rewrote the branch under the review; folding it in
+      // surfaces the rewrite as ordinary since-approved drift (spec §6, C2/Seq B).
+      sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
+      notifyIfUnfocused('Agent rebase finished', `Rebased onto the base branch — ${agentLabel(thread.agent)}`)
+    } else {
+      reportTurnFailure({ db, threadId, opId, outcome, label: 'Rebase', exclusive: true, notify: true })
     }
   })
 

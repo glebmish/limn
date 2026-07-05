@@ -39,6 +39,13 @@ export function releaseFakeHolds(): void {
   for (const r of pending) r()
 }
 
+/** Test affordance: the most recent chat turn ANY FakeEngine instance received, so
+ *  contract tests can assert the exact prompt a handler passed to engine.chat (a
+ *  write-enabled turn's message is never echoed in the fake's reply). Module-level,
+ *  like fakeHoldResolvers, so it survives per-op FakeEngine instances. */
+let lastChatTurn: ChatTurn | null = null
+export function lastFakeChatTurn(): ChatTurn | null { return lastChatTurn }
+
 /** Deterministic engine for contract tests and demo mode (LIMN_DEMO=1). */
 export class FakeEngine implements ReviewEngine {
   constructor(readonly id: EngineId = 'claude') {}
@@ -214,6 +221,7 @@ export class FakeEngine implements ReviewEngine {
   }
 
   chat(turn: ChatTurn): EngineRun<string> {
+    lastChatTurn = turn
     const q = new EventQueue()
     const refine = turn.message.includes('The reviewer answered')
     const batch = Boolean(turn.tools && (turn.writeEnabled || refine))

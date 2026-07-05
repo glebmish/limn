@@ -115,6 +115,11 @@ export interface Api {
   /** The unified batch turn: send queued comments to a chat thread's agent, which
    *  handles them with its tools (edit+commit code, resolve, or reply). */
   sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
+  /** The agent rebase turn (merge sheet §6): rebase the review's compare branch onto
+   *  its base in the review workdir — a batch-shaped, write-enabled, exclusive-lane
+   *  turn on the given thread. `conflictFiles` is the merge probe's conflict list,
+   *  passed through to the prompt so the agent knows what it will hit. */
+  sendRebase(threadId: number, opId: string, conflictFiles?: string[]): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
   unapprove(sessionId: number): Promise<ReviewState>
   /** Read-only merge preflight (spec §3): gates, strategy matrix, commit list, draft
@@ -190,7 +195,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'sendRebase', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]
