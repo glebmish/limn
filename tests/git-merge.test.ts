@@ -3,7 +3,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git, fixtureWrite as write } from './helpers/fixtureRepo'
-import { mergeTreeProbe, isMergeTreeUnsupported } from '../src/main/git'
+import {
+  mergeTreeProbe, isMergeTreeUnsupported,
+  updateRefCas, setRef, commitTree, mergeInWorktree, deleteBranch, removeWorktree, rebaseOnto,
+  isDirty, listBranches, listWorktrees, addWorktree
+} from '../src/main/git'
 
 /** Throwaway repo: main has f.txt + g.txt; feature branches off editing f.txt and
  *  adding h.txt; main stays at the merge base and is left checked out. */
@@ -91,5 +95,164 @@ describe('isMergeTreeUnsupported', () => {
     // pre-2.38 merge-tree took three positional trees and printed usage:
     expect(isMergeTreeUnsupported('git merge-tree --write-tree --name-only -z main feature failed: usage: git merge-tree <base-tree> <branch1> <branch2>')).toBe(true)
     expect(isMergeTreeUnsupported('git merge-tree --write-tree --name-only -z main feature failed: fatal: not a git repository')).toBe(false)
+  })
+})
+
+describe('updateRefCas / setRef', () => {
+  it('moves the ref when expectedOldSha matches', async () => {
+    const dir = makeMergeRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    await updateRefCas(dir, 'refs/heads/main', featureTip, mainHead)
+    expect(git(dir, 'rev-parse', 'main')).toBe(featureTip)
+  })
+
+  it('refuses a stale expectedOldSha and leaves the ref untouched', async () => {
+    const dir = makeMergeRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    // claim main already sits at featureTip (it does not) — git must fail closed
+    await expect(updateRefCas(dir, 'refs/heads/main', featureTip, featureTip)).rejects.toThrow(/update-ref/)
+    expect(git(dir, 'rev-parse', 'main')).toBe(mainHead)
+  })
+
+  it('setRef plants a keep-ref resolvable by rev-parse', async () => {
+    const dir = makeMergeRepo()
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    await setRef(dir, 'refs/limn/keep/42', featureTip)
+    expect(git(dir, 'rev-parse', 'refs/limn/keep/42')).toBe(featureTip)
+  })
+})
+
+describe('commitTree (plumbing squash/merge)', () => {
+  it('squash over the probe treeOid equals a real merge tree', async () => {
+    const dir = makeMergeRepo()
+    // move main without overlapping feature: probe stays clean but is a true 3-way
+    write(dir, 'other.txt', 'main moved\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'main moves')
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const probe = await mergeTreeProbe(dir, 'main', 'feature')
+    expect(probe.status).toBe('clean')
+    const sha = await commitTree(dir, probe.treeOid!, [mainHead], 'Squash: feature')
+    expect(git(dir, 'rev-parse', `${sha}^{tree}`)).toBe(probe.treeOid)
+    expect(git(dir, 'rev-parse', `${sha}^`)).toBe(mainHead)
+    // ground truth: a real checked-out merge produces the identical tree
+    git(dir, 'checkout', '-q', '-b', 'real', 'main')
+    git(dir, 'merge', '--no-ff', '-m', 'real merge', 'feature')
+    expect(git(dir, 'rev-parse', 'real^{tree}')).toBe(probe.treeOid)
+  })
+
+  it('two parents synthesize a merge commit', async () => {
+    const dir = makeMergeRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    const tree = git(dir, 'rev-parse', 'feature^{tree}')
+    const sha = await commitTree(dir, tree, [mainHead, featureTip], 'Merge feature')
+    const parents = git(dir, 'rev-list', '--parents', '-n1', sha).split(' ').slice(1)
+    expect(parents).toEqual([mainHead, featureTip])
+  })
+})
+
+describe('mergeInWorktree', () => {
+  it('ff advances the checked-out base to the branch tip', async () => {
+    const dir = makeMergeRepo()  // main checked out, feature strictly ahead
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    const newHead = await mergeInWorktree(dir, 'feature', 'ff')
+    expect(newHead).toBe(featureTip)
+    expect(git(dir, 'rev-parse', 'main')).toBe(featureTip)
+  })
+
+  it('squash lands one commit whose tree equals the branch tree', async () => {
+    const dir = makeMergeRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const newHead = await mergeInWorktree(dir, 'feature', 'squash', 'feat: squashed')
+    expect(git(dir, 'rev-parse', `${newHead}^{tree}`)).toBe(git(dir, 'rev-parse', 'feature^{tree}'))
+    expect(git(dir, 'rev-parse', `${newHead}^`)).toBe(mainHead)
+    expect(git(dir, 'log', '-1', '--format=%s')).toBe('feat: squashed')
+  })
+
+  it('merge creates a two-parent commit', async () => {
+    const dir = makeMergeRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    const newHead = await mergeInWorktree(dir, 'feature', 'merge', 'Merge feature')
+    const parents = git(dir, 'rev-list', '--parents', '-n1', newHead).split(' ').slice(1)
+    expect(parents).toEqual([mainHead, featureTip])
+  })
+
+  it('a conflicted squash aborts: rejects, HEAD unmoved, tree clean', async () => {
+    const dir = makeConflictRepo()
+    const mainHead = git(dir, 'rev-parse', 'main')
+    await expect(mergeInWorktree(dir, 'feature', 'squash', 'boom')).rejects.toThrow()
+    expect(git(dir, 'rev-parse', 'main')).toBe(mainHead)
+    expect(await isDirty(dir)).toBe(false)
+  })
+})
+
+describe('deleteBranch / removeWorktree', () => {
+  it('deletes an unmerged branch (-D flavor)', async () => {
+    const dir = makeMergeRepo()
+    await deleteBranch(dir, 'feature')
+    expect(await listBranches(dir)).not.toContain('feature')
+  })
+
+  it('removes a clean linked worktree', async () => {
+    const dir = makeMergeRepo()
+    const wt = path.join(dir, '.worktrees', 'feature')
+    await addWorktree(dir, 'feature', wt)
+    await removeWorktree(dir, wt)
+    // compare by suffix: git prints realpaths (/private/var vs /var on macOS)
+    expect((await listWorktrees(dir)).some((w) => w.path.endsWith('.worktrees/feature'))).toBe(false)
+    expect(fs.existsSync(wt)).toBe(false)
+  })
+
+  it('refuses a dirty worktree (no --force) and leaves it intact', async () => {
+    const dir = makeMergeRepo()
+    const wt = path.join(dir, '.worktrees', 'feature')
+    await addWorktree(dir, 'feature', wt)
+    write(wt, 'scratch.txt', 'uncommitted\n')
+    await expect(removeWorktree(dir, wt)).rejects.toThrow()
+    expect((await listWorktrees(dir)).some((w) => w.path.endsWith('.worktrees/feature'))).toBe(true)
+  })
+})
+
+describe('rebaseOnto (dependent retarget)', () => {
+  it('replays only the dependent commits onto the new base', async () => {
+    const dir = makeMergeRepo()
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    // dep stacks one commit on feature
+    git(dir, 'checkout', '-q', '-b', 'dep', 'feature')
+    write(dir, 'dep.txt', 'stacked work\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'dep work')
+    // land feature on main, as the merge op would (ff)
+    git(dir, 'checkout', '-q', 'main')
+    git(dir, 'merge', '--ff-only', 'feature')
+    const newBaseHead = git(dir, 'rev-parse', 'main')
+    const res = await rebaseOnto(dir, newBaseHead, featureTip, 'dep')
+    expect(res).toEqual({ ok: true })
+    expect(git(dir, 'rev-parse', 'dep^')).toBe(newBaseHead)
+    expect(git(dir, 'log', '-1', '--format=%s', 'dep')).toBe('dep work')
+  })
+
+  it('a conflicted rebase aborts and leaves the branch and tree untouched', async () => {
+    const dir = makeMergeRepo()
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    // dep re-edits f.txt on top of feature; main edits f.txt incompatibly
+    git(dir, 'checkout', '-q', '-b', 'dep', 'feature')
+    write(dir, 'f.txt', 'dep version\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'dep edit')
+    const depTip = git(dir, 'rev-parse', 'dep')
+    git(dir, 'checkout', '-q', 'main')
+    write(dir, 'f.txt', 'main version\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'main edit')
+    const res = await rebaseOnto(dir, git(dir, 'rev-parse', 'main'), featureTip, 'dep')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toMatch(/rebase/)
+    expect(git(dir, 'rev-parse', 'dep')).toBe(depTip)   // branch untouched
+    expect(await isDirty(dir)).toBe(false)              // tree restored by --abort
   })
 })

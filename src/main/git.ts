@@ -4,7 +4,7 @@ import nodePath from 'node:path'
 import { execGit, execGitDiff } from './exec.js'
 import { tagOrigins } from './mergeDiff.js'
 import type { EditHunk } from './anchor.js'
-import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
+import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, MergeStrategy, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
 
 export async function listBranches(dir: string): Promise<string[]> {
   const out = await execGit(dir, ['branch', '--format=%(refname:short)'])
@@ -703,4 +703,86 @@ export async function mergeTreeProbe(dir: string, base: string, branch: string):
   return conflictFiles.length > 0
     ? { status: 'conflict', conflictFiles }
     : { status: 'clean', treeOid, conflictFiles: [] }
+}
+
+/** Compare-and-swap ref move: `git update-ref <ref> <newSha> <expectedOldSha>`.
+ *  git itself refuses when the ref no longer points at expectedOldSha — this IS the
+ *  race-at-confirm guarantee (S10/Seq C): a base that moved after preflight fails
+ *  closed with nothing written. `ref` is a full refname (refs/heads/<branch>). */
+export async function updateRefCas(dir: string, ref: string, newSha: string, expectedOldSha: string): Promise<void> {
+  assertSafeRef(ref)
+  await execGit(dir, ['update-ref', ref, newSha, expectedOldSha])
+}
+
+/** Unconditional ref write — plants the record keep-ref (refs/limn/keep/<sessionId>)
+ *  at the reviewed tip so squash-orphaned commits survive GC and branch deletion. */
+export async function setRef(dir: string, ref: string, sha: string): Promise<void> {
+  assertSafeRef(ref)
+  await execGit(dir, ['update-ref', ref, sha])
+}
+
+/** Synthesize a commit without a checkout: squash = one parent over the probe's
+ *  treeOid, merge = two parents. Returns the new commit sha. */
+export async function commitTree(dir: string, treeOid: string, parents: string[], message: string): Promise<string> {
+  const args = ['commit-tree', treeOid]
+  for (const p of parents) args.push('-p', p)
+  args.push('-m', message)
+  return (await execGit(dir, args)).trim()
+}
+
+/** Land `branch` into whatever is checked out at `dir` (the base's worktree) with a
+ *  real merge, so that working tree doesn't go stale. Only called after preflight
+ *  verified the worktree clean; a surprise failure aborts — `merge --abort`, falling
+ *  back to `reset --merge` for the squash path (squash writes no MERGE_HEAD, so
+ *  --abort refuses there) — and rethrows with git's stderr. Returns the new HEAD sha. */
+export async function mergeInWorktree(dir: string, branch: string, strategy: MergeStrategy, message?: string): Promise<string> {
+  assertSafeRef(branch)
+  try {
+    if (strategy === 'ff') {
+      await execGit(dir, ['merge', '--ff-only', branch])
+    } else if (strategy === 'squash') {
+      await execGit(dir, ['merge', '--squash', branch])
+      await execGit(dir, ['commit', '-m', message ?? `Squash merge ${branch}`])
+    } else {
+      await execGit(dir, ['merge', '--no-ff', '-m', message ?? `Merge ${branch}`, branch])
+    }
+  } catch (e) {
+    await execGit(dir, ['merge', '--abort']).catch(() =>
+      execGit(dir, ['reset', '--merge']).catch(() => {}))
+    throw e
+  }
+  return headSha(dir)
+}
+
+/** `git branch -D` — the force flavor on purpose: post-merge the reviewed tip is held
+ *  by the keep-ref + merge record, and a squash-landed branch would always fail -d's
+ *  containment check. Callers enforce the ordering (record first, delete after). */
+export async function deleteBranch(dir: string, branch: string): Promise<void> {
+  assertSafeRef(branch)
+  await execGit(dir, ['branch', '-D', branch])
+}
+
+/** `git worktree remove` — never --force: a dirty worktree fails cleanup and is
+ *  reported into the merge record, not bulldozed. */
+export async function removeWorktree(dir: string, wtPath: string): Promise<void> {
+  await execGit(dir, ['worktree', 'remove', wtPath])
+}
+
+/** Retarget a dependent branch: `git rebase --onto <newBase> <oldBase> <branch>` run
+ *  in `dir` (the worktree that has — or may check out — <branch>). oldBase is the
+ *  merged review's reviewedTipSha, so only the dependent's own commits replay. On
+ *  conflict the rebase is aborted (branch sha and working tree restored exactly) and
+ *  the failure comes back as a value — the merge op collects it into
+ *  record.cleanup.failures rather than aborting the whole merge. */
+export async function rebaseOnto(dir: string, newBase: string, oldBase: string, branch: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  assertSafeRef(newBase)
+  assertSafeRef(oldBase)
+  assertSafeRef(branch)
+  try {
+    await execGit(dir, ['rebase', '--onto', newBase, oldBase, branch])
+    return { ok: true }
+  } catch (e) {
+    await execGit(dir, ['rebase', '--abort']).catch(() => {})
+    return { ok: false, error: (e as Error).message }
+  }
 }
