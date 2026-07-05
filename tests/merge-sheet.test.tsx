@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { MergeGate, MergeGateId } from '../src/shared/types'
 import {
-  ctaLabel, deleteBranchBlockers, gateFooterNote, mergeBlocked, pickStrategy
+  ctaLabel, deleteBranchBlockers, gateFooterNote, mergeBlocked, pickStrategy,
+  readStrategyPref, strategyPrefKey
 } from '../src/renderer/components/MergeSheet'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { MergeSheetActions } from '../src/renderer/components/MergeSheet'
@@ -23,6 +24,22 @@ describe('pickStrategy (spec resolution 6: squash default, ladder squash→merge
   it('honors a remembered choice only while it is available', () => {
     expect(pickStrategy('ff', { ff: true, squash: true, merge: true })).toBe('ff')
     expect(pickStrategy('ff', { ff: false, squash: true, merge: true })).toBe('squash')
+  })
+})
+
+describe('readStrategyPref (per-repo strategy memory, resolution 6)', () => {
+  const repo = '/repos/api'
+  it('reads a valid remembered strategy for the repo', () => {
+    expect(readStrategyPref({ [strategyPrefKey(repo)]: JSON.stringify('merge') }, repo)).toBe('merge')
+  })
+  it('is per-repo — another repo\'s choice does not leak', () => {
+    const prefs = { [strategyPrefKey('/repos/other')]: JSON.stringify('ff') }
+    expect(readStrategyPref(prefs, repo)).toBeUndefined()
+  })
+  it('tolerates missing / unparseable / invalid values → undefined (falls back to squash)', () => {
+    expect(readStrategyPref({}, repo)).toBeUndefined()
+    expect(readStrategyPref({ [strategyPrefKey(repo)]: 'not json' }, repo)).toBeUndefined()
+    expect(readStrategyPref({ [strategyPrefKey(repo)]: JSON.stringify('bogus') }, repo)).toBeUndefined()
   })
 })
 

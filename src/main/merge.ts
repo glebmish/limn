@@ -172,6 +172,10 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
   const branch = pair.compare.symbol
   const baseHead = await headSha(repo, baseSymbol)
   const tipSha = await headSha(repo, branch)
+  // baseSymbol and branch both resolved above (headSha), so the only way merge-base
+  // fails now is genuinely no common ancestor (unrelated histories) — for which the
+  // empty tree IS the correct merge-base (the diff is the whole branch). ffPossible is
+  // then false and the conflict probe trips red, so the merge is blocked regardless.
   const mb = await mergeBase(repo, baseSymbol, branch).catch(() => EMPTY_TREE)
 
   // approval gate: the committed tip must be explicitly approved. Dirty-surface

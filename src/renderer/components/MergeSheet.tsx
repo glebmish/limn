@@ -21,6 +21,19 @@ export function pickStrategy(
   return 'ff'
 }
 
+/** Per-repo pref key for the last merge strategy (resolution 6). Keyed by repo path so
+ *  each repo remembers its own choice through the generic getPrefs/setPref store. */
+export function strategyPrefKey(repo: string): string { return `mergeStrategy:${repo}` }
+
+/** Read the remembered strategy out of the flat prefs record, tolerating a missing or
+ *  unparseable value (→ undefined, so pickStrategy falls back to the squash default). */
+export function readStrategyPref(prefs: Record<string, string>, repo: string): MergeStrategy | undefined {
+  try {
+    const v = JSON.parse(prefs[strategyPrefKey(repo)] ?? 'null')
+    return v === 'ff' || v === 'squash' || v === 'merge' ? v : undefined
+  } catch { return undefined }
+}
+
 /** CTA label follows the strategy (design board 1 footer). */
 export function ctaLabel(strategy: MergeStrategy, base: string): string {
   return strategy === 'ff' ? `Fast-forward ${base}`
@@ -352,6 +365,7 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
   const external = Boolean(store.loaded?.mergedExternally)
   const sessionId = store.sessionId
   const [pf, setPf] = useState<MergePreflight | null>(null)
+  const [remembered, setRemembered] = useState<MergeStrategy | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   const [executing, setExecuting] = useState(false)
 
@@ -366,7 +380,11 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
       return
     }
     try {
-      setPf(await api().mergePreflight(id))
+      // preflight + the remembered per-repo strategy (resolution 6) together, so the
+      // panel mounts with the recalled choice preselected rather than the bare default.
+      const [preflight, prefs] = await Promise.all([api().mergePreflight(id), api().getPrefs()])
+      setRemembered(readStrategyPref(prefs, repo))
+      setPf(preflight)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -409,6 +427,9 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
     onRebaseWithAgent: () => { useStore.getState().sendRebase(pf.gates.find((g) => g.id === 'conflicts')?.files); onClose() },
     onExecute: (req) => {
       if (sessionId == null) return
+      // remember this repo's strategy for next time (resolution 6) — external
+      // "Mark merged" has no strategy choice, so it doesn't overwrite the memory.
+      if (!external && repo) void api().setPref(strategyPrefKey(repo), JSON.stringify(req.strategy))
       setExecuting(true); setError(null)
       void runMergeExecute(sessionId, req, external)
         .then((fresh) => {
@@ -424,7 +445,7 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
   return (
     <MergeSheetPanel key={pf.baseHead + ':' + pf.tipSha}
       pf={pf} repo={repo} busy={busy} executing={executing} external={external}
-      initialStrategy={pickStrategy(undefined, pf.strategies)} actions={actions} />
+      initialStrategy={pickStrategy(remembered, pf.strategies)} actions={actions} />
   )
 }
 
