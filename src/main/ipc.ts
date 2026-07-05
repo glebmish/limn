@@ -333,6 +333,17 @@ function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   return s
 }
 
+/** Merged sessions are terminal, read-only records (spec §7): every mutating surface
+ *  rejects with this stable message. Read-only chat on the shared lane stays
+ *  available — sendChat is deliberately NOT guarded. */
+const MERGED_READONLY_MESSAGE = 'This review is merged and read-only'
+
+function assertNotMerged(db: DatabaseSync, sessionId: number): void {
+  const row = db.prepare('SELECT merged_at FROM sessions WHERE id = ?').get(sessionId) as
+    { merged_at: string | null } | undefined
+  if (row?.merged_at) throw new Error(MERGED_READONLY_MESSAGE)
+}
+
 /** The repo index reads light git state per repo (repoState), so the whole builder
  *  is async; the only caller is the (already async) dashboard handler. */
 async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<DashboardData> {
@@ -513,6 +524,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('generate', async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean) => {
     const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)
     const repo = session.repo
     const outcome = await operations.run(opId, repo, async () => {
       const baseEff = effectiveRef(session.pair.base)
@@ -934,6 +946,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const thread = dao.getChatThread(db, threadId)
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
+    assertNotMerged(db, sid)
     const repo = session.repo
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a batch turn is write-capable → always the exclusive lane
@@ -1015,6 +1028,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('approve', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
     dao.approveSessionSurface(db, sessionId, loaded.skeleton.headSha, loaded.branchHash)
     return dao.loadReviewState(db, sessionId)

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/main/db/db'
-import { approveSessionSha, createSession, getSession, loadReviewState, markSessionMerged, retargetSession } from '../src/main/db/sessions'
+import { approveSessionSha, createChatThread, createSession, getSession, loadReviewState, markSessionMerged, retargetSession } from '../src/main/db/sessions'
 import { registerIpc } from '../src/main/ipc'
 import { resolveRefInput } from '../src/main/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite, type FixtureRepo } from './helpers/fixtureRepo'
@@ -153,5 +153,36 @@ describe('markMerged (S12)', () => {
     await expect(h.handlers.get('markMerged')!(h.sessionId, {
       archiveSession: false, deleteBranch: false, removeWorktree: false, retarget: []
     })).rejects.toThrow(/not merged into/)
+  })
+})
+
+describe('merged sessions are read-only (main-process guards)', () => {
+  async function mergedHarness(): Promise<Harness> {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    markSessionMerged(h.db, h.sessionId, fakeMergeRecord({ reviewedTipSha: h.shas.head }))
+    retargetSession(h.db, h.sessionId, 'compare',
+      { kind: 'commit', symbol: h.shas.head.slice(0, 7), anchorSha: h.shas.head })
+    return h
+  }
+
+  it('approve rejects', async () => {
+    const h = await mergedHarness()
+    await expect(h.handlers.get('approve')!(h.sessionId))
+      .rejects.toThrow('This review is merged and read-only')
+  })
+
+  it('generate rejects before taking the lane', async () => {
+    const h = await mergedHarness()
+    await expect(h.handlers.get('generate')!(h.sessionId, agent, 'op-guard', 999))
+      .rejects.toThrow('This review is merged and read-only')
+  })
+
+  it('sendBatch rejects and persists nothing to the thread', async () => {
+    const h = await mergedHarness()
+    const t = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+    await expect(h.handlers.get('sendBatch')!(t, [], 'do things', 'op-guard-2'))
+      .rejects.toThrow('This review is merged and read-only')
+    expect(loadReviewState(h.db, h.sessionId).chats.find((c) => c.id === t)!.messages).toEqual([])
   })
 })
