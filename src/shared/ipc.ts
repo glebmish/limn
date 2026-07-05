@@ -1,6 +1,6 @@
 import type {
   AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
+  ExecutionMode, FileDiff, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
 } from './types.js'
 
 export interface LoadedReview {
@@ -117,6 +117,9 @@ export interface Api {
   sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
   approve(sessionId: number): Promise<ReviewState>
   unapprove(sessionId: number): Promise<ReviewState>
+  /** Read-only merge preflight (spec §3): gates, strategy matrix, commit list, draft
+   *  message, CAS expectations. Takes no lane — callable anytime, like loadSession. */
+  mergePreflight(sessionId: number): Promise<MergePreflight>
   approveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   unapproveArtifact(sessionId: number, artifactPath: string): Promise<ReviewState>
   authStatus(engine: EngineId): Promise<{ ok: boolean; hint: string }>
@@ -180,7 +183,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'approve', 'unapprove', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'approve', 'unapprove', 'mergePreflight', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

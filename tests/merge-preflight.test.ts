@@ -178,3 +178,27 @@ describe('gatherMergePreflight', () => {
     await expect(gatherMergePreflight(db2, sid2)).rejects.toThrow(/already merged/)
   })
 })
+
+import { registerIpc } from '../src/main/ipc'
+import { API_CHANNELS } from '../src/shared/ipc'
+import type { Transport } from '../src/main/transport'
+import type { MergePreflight } from '../src/shared/types'
+
+describe('mergePreflight handler', () => {
+  it('is registered as an Api channel and returns the preflight', async () => {
+    const { db, shas, sessionId } = await setup()
+    approveSessionSha(db, sessionId, shas.head)
+    const handlers = new Map<string, (...args: unknown[]) => unknown>()
+    const transport: Transport = {
+      handle(name, fn) { handlers.set(name, fn) },
+      broadcast() { /* unused */ },
+      notify() { /* unused */ },
+      async pickDirectory() { return null }
+    }
+    registerIpc(db, [], transport)
+    expect(API_CHANNELS).toContain('mergePreflight')
+    const p = await handlers.get('mergePreflight')!(sessionId) as MergePreflight
+    expect(p.ok).toBe(true)
+    expect(p.tipSha).toBe(shas.head)
+  })
+})

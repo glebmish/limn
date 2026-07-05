@@ -18,6 +18,7 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
+import { gatherMergePreflight } from './merge.js'
 import { stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
@@ -1022,6 +1023,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     dao.unapproveSessionSurface(db, sessionId, loaded.branchHash)
     return dao.loadReviewState(db, sessionId)
   })
+
+  handle('mergePreflight', async (sessionId: number) => gatherMergePreflight(db, sessionId))
 
   handle('approveArtifact', async (sessionId: number, artifactPath: string) => {
     const session = mustGetSession(db, sessionId)
