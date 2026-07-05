@@ -212,5 +212,18 @@ export const MIGRATIONS: Migration[] = [
       if (cols.some((c) => c.name === 'scope')) return
       db.exec('ALTER TABLE iterations ADD COLUMN scope TEXT')
     }
+  },
+  {
+    // Merged sessions (merge-into-main spec §2): merged_at NULL = not merged; set =
+    // the session is a terminal read-only record. merge_json carries the full
+    // MergeRecord blob (strategy, shas, overrides, cleanup outcome). Nullable-column
+    // pattern like archived_at; PRAGMA-guarded like v5/v7 so a dev build that already
+    // added the columns survives a version-number reset.
+    version: 8,
+    up(db) {
+      const cols = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]
+      if (!cols.some((c) => c.name === 'merged_at')) db.exec('ALTER TABLE sessions ADD COLUMN merged_at TEXT')
+      if (!cols.some((c) => c.name === 'merge_json')) db.exec('ALTER TABLE sessions ADD COLUMN merge_json TEXT')
+    }
   }
 ]
