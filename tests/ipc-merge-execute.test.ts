@@ -189,3 +189,115 @@ describe('mergeExecute — authoritative re-check (S10 / Seq C)', () => {
     expect(res.preflight.gates.map((g) => g.id)).toContain('stale-approval')
   })
 })
+
+/** A dependent session stacked on feature: branch `dep` in an external worktree. */
+function addDependent(h: Harness, edit: { rel: string; content: string }): { depId: number; depSha: string; wt: string } {
+  const wt = externalWorktree(h.dir, 'feature', '-b', 'dep')
+  fixtureWrite(wt, edit.rel, edit.content)
+  fixtureGit(wt, 'add', '-A')
+  fixtureGit(wt, 'commit', '-m', 'dep work')
+  const depSha = fixtureGit(h.dir, 'rev-parse', 'dep')
+  const depPair: RefPair = {
+    base: { kind: 'branch', symbol: 'feature', anchorSha: h.shas.head },
+    compare: { kind: 'branch', symbol: 'dep', anchorSha: depSha }
+  }
+  const depId = createSession(h.db, h.dir, depPair, agent).id
+  return { depId, depSha, wt }
+}
+
+describe('mergeExecute — dependents + cleanup', () => {
+  it('clean retarget: rebase lands before the base repoint; branch deletion then proceeds', async () => {
+    const h = await setup()
+    fixtureGit(h.dir, 'checkout', 'main') // frees feature so deleteBranch can succeed
+    const { depId } = addDependent(h, { rel: 'src/d.ts', content: 'export const d = 4\n' })
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId,
+      baseReq({ baseHead: h.shas.base, tipSha: h.shas.head }, {
+        cleanup: { archiveSession: true, deleteBranch: true, removeWorktree: false, retarget: [depId] }
+      })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+    const mergedSha = res.record.mergedSha
+
+    // dep rebased onto the new base head: exactly its own commit replayed
+    expect(fixtureGit(h.dir, 'rev-parse', 'dep^')).toBe(mergedSha)
+    expect(fixtureGit(h.dir, 'show', 'dep:src/d.ts')).toBe('export const d = 4')
+    // base repointed only after the successful rebase (the audited exception)
+    const dep = getSession(h.db, depId)!
+    expect(dep.pair.base).toEqual({ kind: 'branch', symbol: 'main', anchorSha: mergedSha })
+    expect(res.record.cleanup.retargeted).toEqual(['dep'])
+    expect(res.record.cleanup.failures).toEqual([])
+    // no live session bases on feature anymore → deletion proceeded
+    expect(res.record.cleanup.branchDeleted).toBe(true)
+    expect(() => fixtureGit(h.dir, 'rev-parse', '--verify', 'refs/heads/feature')).toThrow()
+    // the reviewed tip survives the deletion via the keep-ref
+    expect(fixtureGit(h.dir, 'rev-parse', `refs/limn/keep/${h.sessionId}`)).toBe(h.shas.head)
+    // archive honored + reported
+    expect(res.record.cleanup.archived).toBe(true)
+    expect(listRepoSessions(h.db, h.dir, true).find((s) => s.id === h.sessionId)!.archived).toBe(true)
+  })
+
+  it('conflicted retarget: rebase aborts, dependent untouched, branch deletion skipped with a recorded reason, record still durable', async () => {
+    const h = await setup()
+    fixtureGit(h.dir, 'checkout', 'main')
+    // dep edits docs/spec.md; main will edit the same line → the replay conflicts
+    const { depId, depSha, wt } = addDependent(h, { rel: 'docs/spec.md', content: '# Rate limiting spec (dep)\n' })
+    fixtureWrite(h.dir, 'docs/spec.md', '# Rate limiting spec v2\n')
+    fixtureGit(h.dir, 'add', '-A')
+    fixtureGit(h.dir, 'commit', '-m', 'base edits spec')
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const pre = await h.handlers.get('mergePreflight')!(h.sessionId) as MergePreflight
+    expect(pre.gates.map((g) => g.id)).toEqual(['base-moved']) // probe clean: feature never touches spec.md
+
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId,
+      baseReq({ baseHead: pre.baseHead, tipSha: pre.tipSha }, {
+        strategy: 'merge',
+        overrides: ['base-moved'],
+        cleanup: { archiveSession: false, deleteBranch: true, removeWorktree: false, retarget: [depId] }
+      })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+
+    // merge-anyway over a clean probe landed the true three-way result
+    expect(fixtureGit(h.dir, 'show', 'main:docs/spec.md')).toBe('# Rate limiting spec v2')
+    expect(fixtureGit(h.dir, 'show', 'main:src/b.ts')).toContain('return 43')
+    // the dependent's rebase conflicted and aborted: branch + worktree exactly as before
+    expect(res.record.cleanup.retargeted).toEqual([])
+    expect(res.record.cleanup.failures.some((f) => f.startsWith('retarget dep'))).toBe(true)
+    expect(fixtureGit(h.dir, 'rev-parse', 'dep')).toBe(depSha)
+    expect(fixtureGit(wt, 'status', '--porcelain')).toBe('')
+    expect(getSession(h.db, depId)!.pair.base.symbol).toBe('feature')
+    // branch deletion refused while dep still bases on feature — recorded, not thrown
+    expect(res.record.cleanup.branchDeleted).toBe(false)
+    expect(res.record.cleanup.failures.some((f) => f.startsWith('delete branch skipped'))).toBe(true)
+    expect(fixtureGit(h.dir, 'rev-parse', '--verify', 'refs/heads/feature')).toBe(h.shas.head)
+    // record written before (and despite) the cleanup failures
+    expect(loadReviewState(h.db, h.sessionId).merged!.cleanup.failures.length).toBeGreaterThan(0)
+    expect(res.record.overrides).toEqual([
+      expect.objectContaining({ gate: 'base-moved' })
+    ])
+  })
+
+  it('unselected dependent alone blocks deletion (record lists it in dependents)', async () => {
+    const h = await setup()
+    fixtureGit(h.dir, 'checkout', 'main')
+    addDependent(h, { rel: 'src/d.ts', content: 'export const d = 4\n' })
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId,
+      baseReq({ baseHead: h.shas.base, tipSha: h.shas.head }, {
+        cleanup: { archiveSession: false, deleteBranch: true, removeWorktree: false, retarget: [] }
+      })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+    if (res.status !== 'merged') return
+    expect(res.record.dependents).toEqual(['dep'])
+    expect(res.record.cleanup.branchDeleted).toBe(false)
+    expect(res.record.cleanup.failures.some((f) => f.startsWith('delete branch skipped'))).toBe(true)
+  })
+})
