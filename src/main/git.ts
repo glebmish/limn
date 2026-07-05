@@ -754,7 +754,7 @@ export async function mergeInWorktree(dir: string, branch: string, strategy: Mer
     const recovered = await execGit(dir, ['merge', '--abort']).then(() => true).catch(() =>
       execGit(dir, ['reset', '--merge']).then(() => true).catch(() => false))
     if (!recovered) {
-      throw new Error(`${(e as Error).message}; recovery (git merge --abort / reset --merge) ALSO failed — ${dir} may be left mid-merge. Check \`git -C ${dir} status\` and run \`git -C ${dir} merge --abort\` (or \`git -C ${dir} reset --merge --hard\`) if so.`)
+      throw new Error(`${(e as Error).message}; recovery (git merge --abort / reset --merge) ALSO failed — ${dir} may be left mid-merge. Check \`git -C ${dir} status\` and run \`git -C ${dir} merge --abort\` (or \`git -C ${dir} reset --merge --hard\`) if so.`, { cause: e })
     }
     throw e
   }

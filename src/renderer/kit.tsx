@@ -1,5 +1,5 @@
 import type { SVGProps, ReactNode } from 'react'
-import type { EngineId } from '../shared/types'
+import type { EngineId, MergeStrategy } from '../shared/types'
 
 type P = SVGProps<SVGSVGElement>
 
@@ -97,6 +97,12 @@ export function Delta({ add, del }: { add: number; del: number }) {
 
 export function shortSha(sha: string): string {
   return sha.slice(0, 7)
+}
+
+/** Human label for a merge strategy — shared by the merged verdict button and the
+ *  merged summary band (spec §7). */
+export function strategyLabel(strategy: MergeStrategy): string {
+  return strategy === 'ff' ? 'fast-forward' : strategy === 'squash' ? 'squash' : 'merge commit'
 }
 
 export function ago(iso: string): string {

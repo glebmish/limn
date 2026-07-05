@@ -1,4 +1,4 @@
-import { I, ago } from '../kit'
+import { I, ago, shortSha } from '../kit'
 import type { SessionListItem } from '../../shared/types'
 
 /** One session row, shared by the dashboard's recent list and the repo hub so the
@@ -18,8 +18,11 @@ export function SessionRow({ s, repoName, onRepoClick, onOpen, onDelete, onResto
    *  flat session list, where rows aren't grouped under a branch heading). */
   chip?: boolean
 }) {
-  const status = s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'generated' : 'not generated'
-  const statusKind = s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
+  // merged is the terminal, first-checked status (spec §7): a green badge with the
+  // landed sha, rendered in both the live and archived groups.
+  const status = s.merged ? `Merged · ${shortSha(s.merged.sha)}`
+    : s.approved ? 'approved' : s.unresolved > 0 ? `${s.unresolved} unresolved` : s.hasReview ? 'generated' : 'not generated'
+  const statusKind = s.merged ? 'merged' : s.approved ? 'ok' : s.unresolved > 0 ? 'warn' : 'dim'
   const cls = 'limn-sess' + (active ? ' active' : '') + (selected ? ' sel' : '') + (s.archived ? ' archived' : '')
   return (
     <div className={cls} onClick={onOpen} title={s.title ?? `Session #${s.id}`}>

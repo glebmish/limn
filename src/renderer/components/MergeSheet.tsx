@@ -392,6 +392,8 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
 
   useEffect(() => {
     if (open) { setPf(null); void fetchPreflight() }
+    // fetch once per open; fetchPreflight closes over repo but doesn't need to re-run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   if (!open) return null

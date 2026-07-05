@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
-import { I, shortSha, CmtPlus } from '../kit'
+import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
 import { HeaderDiffControls } from '../components/HeaderDiffControls'
@@ -112,6 +112,21 @@ export default function Review() {
   })
   const generatedShaInTimeline = timelineShaInRange(skeleton.headSha, commits, generatedSha)
   const generatedOffTimeline = Boolean(generatedSha && !generatedShaInTimeline)
+
+  // Terminal merged record (spec §7): the verdict button becomes a non-interactive
+  // "Merged into <base>" and takes the place of the approve button (which MergeButton
+  // already defers to by rendering null once state.merged is set).
+  const merged = state.merged
+  const verdictButton = merged ? (
+    <span
+      className="btn btn-sm rv-approve btn-primary rv-merged"
+      title={`Merged into ${merged.baseSymbol} at ${shortSha(merged.mergedSha)} (${strategyLabel(merged.strategy)})${merged.external ? ' — recorded from an external merge' : ''}`}
+    >
+      <span className="rv-approve-main">
+        <I.merge style={{ width: 13, height: 13 }} />Merged into {merged.baseSymbol}
+      </span>
+    </span>
+  ) : null
 
   const approveButton = (
     <button
@@ -246,7 +261,7 @@ export default function Review() {
                 <div className="eyebrow">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
-                    {annotations && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
+                    {annotations && !merged && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
                     {annotations?.title ?? fallbackTitle}
                   </h1>
                   <HeaderDiffControls
@@ -256,12 +271,13 @@ export default function Review() {
                     dirty={loaded.dirty}
                     setGlobalDiffMode={setGlobalDiffMode}
                   />
-                  {approveButton}
+                  {verdictButton ?? approveButton}
                   <MergeButton loaded={loaded} />
                 </div>
               </div>
 
-              <GenPanel />
+              {/* no follow-up / steer / regenerate on a terminal merged record (§7) */}
+              {!merged && <GenPanel />}
 
               <ReviewSummary
                 annotations={annotations}
@@ -273,6 +289,8 @@ export default function Review() {
                 lastIteration={lastIteration}
                 baseline={baseline}
                 guidedBy={guidedBy}
+                merged={merged}
+                mergedBranch={branch}
               />
 
               {!annotations && (
