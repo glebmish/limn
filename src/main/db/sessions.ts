@@ -9,7 +9,7 @@ import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionM
 
 function now(): string { return new Date().toISOString() }
 
-type LoadWarningKind = 'annotations' | 'chat' | 'comment' | 'iteration'
+type LoadWarningKind = 'annotations' | 'chat' | 'comment' | 'iteration' | 'merge'
 type LoadWarningSink = { kind: LoadWarningKind; into: LoadWarningKind[] }
 
 /** Parse a persisted JSON blob; on failure record a warning and return undefined
@@ -33,6 +33,7 @@ function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
   if (chat) out.push(`${chat} chat message field(s) could not be loaded`)
   const iterations = warnings.filter((w) => w === 'iteration').length
   if (iterations) out.push(`${iterations} past review iteration(s) could not be loaded`)
+  if (warnings.includes('merge')) out.push('merge record could not be loaded')
   return out
 }
 
@@ -118,6 +119,7 @@ interface SessionDbRow {
   title: string | null; summary: string | null
   annotations_json: string | null; approved_sha: string | null; reviewed_at_sha: string | null
   archived_at: string | null
+  merged_at: string | null; merge_json: string | null
   created_at: string; updated_at: string
   repo_path: string
 }
@@ -223,6 +225,8 @@ export function recentSessions(db: DatabaseSync, repoPaths: string[], limit: num
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
   const meta = rowToMeta(row)
   const approvals = sessionApprovals(db, row.id, row.approved_sha)
+  // merged_at is authoritative for the badge; a corrupt blob degrades to sha ''
+  const mergeRecord = row.merged_at ? safeJson<MergeRecord>(row.merge_json) : undefined
   return {
     id: row.id,
     baseSymbol: row.base_symbol,
@@ -230,6 +234,7 @@ function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
     compareKind: row.compare_kind,
     title: row.title ?? undefined,
     hasReview: Boolean(row.annotations_json),
+    ...(row.merged_at ? { merged: { sha: mergeRecord?.mergedSha ?? '' } } : {}),
     approved: approvalFresh(approvals.hashes, row.reviewed_at_sha ?? undefined),
     archived: Boolean(row.archived_at),
     unresolved: unresolvedCount(db, row.id),
@@ -800,6 +805,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   }
   const approvals = sessionApprovals(db, sessionId, row.approved_sha)
   const annotations = safeJson<ReviewAnnotations>(row.annotations_json, { kind: 'annotations', into: warnings })
+  const merged = row.merged_at ? safeJson<MergeRecord>(row.merge_json, { kind: 'merge', into: warnings }) : undefined
   const loadWarnings = summarizeLoadWarnings(warnings)
 
   return {
@@ -815,6 +821,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
     artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts,
+    ...(merged ? { merged } : {}),
     ...(loadWarnings.length ? { loadWarnings } : {})
   }
 }

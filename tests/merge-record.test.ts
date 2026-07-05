@@ -6,7 +6,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/main/db/db'
 import {
   createSession, findSession, getSession, retargetSession, archiveSession,
-  markSessionMerged, retargetSessionBase, dependentSessions
+  markSessionMerged, retargetSessionBase, dependentSessions,
+  listRepoSessions, loadReviewState
 } from '../src/main/db/sessions'
 import type { MergeRecord, RefPair } from '../src/shared/types'
 
@@ -134,6 +135,81 @@ describe('merged-session DAO', () => {
 
     expect(dependentSessions(db, '/repo', 'feature')).toEqual([{ sessionId: dep.id, branch: 'feature-2' }])
     expect(dependentSessions(db, '/repo', 'no-such-branch')).toEqual([])
+    db.close()
+  })
+})
+
+describe('read-side merged plumbing', () => {
+  it('loadReviewState returns the parsed merge record; unmerged sessions carry no merged field', () => {
+    const db = freshDb()
+    const s = createSession(db, '/repo', pair)
+    expect(loadReviewState(db, s.id).merged).toBeUndefined()
+    expect(listRepoSessions(db, '/repo').find((r) => r.id === s.id)!.merged).toBeUndefined()
+
+    const rec = mergeRecord()
+    markSessionMerged(db, s.id, rec)
+    const st = loadReviewState(db, s.id)
+    expect(st.merged).toEqual(rec)
+    expect(st.loadWarnings).toBeUndefined()
+    db.close()
+  })
+
+  it('toListItem surfaces merged: { sha } in both live and archived hub groups', () => {
+    const db = freshDb()
+    const s = createSession(db, '/repo', pair)
+    const rec = mergeRecord()
+    markSessionMerged(db, s.id, rec)
+    expect(listRepoSessions(db, '/repo').find((r) => r.id === s.id)!.merged).toEqual({ sha: rec.mergedSha })
+    archiveSession(db, s.id)
+    const archived = listRepoSessions(db, '/repo', true).find((r) => r.id === s.id)!
+    expect(archived.merged).toEqual({ sha: rec.mergedSha })
+    expect(archived.archived).toBe(true)
+    db.close()
+  })
+
+  it('corrupt merge_json degrades: state drops merged with a warning, list item still flags merged', () => {
+    const db = freshDb()
+    const s = createSession(db, '/repo', pair)
+    markSessionMerged(db, s.id, mergeRecord())
+    db.prepare('UPDATE sessions SET merge_json = ? WHERE id = ?').run('{oops', s.id)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.merged).toBeUndefined()
+    expect(st.loadWarnings).toEqual(expect.arrayContaining(['merge record could not be loaded']))
+    // merged_at is authoritative for the badge; the sha degrades to '' when unreadable
+    expect(listRepoSessions(db, '/repo').find((r) => r.id === s.id)!.merged).toEqual({ sha: '' })
+    db.close()
+  })
+
+  it('merged + compare retarget to the kept tip: session still resolves and renders as merged (spec §2 durability)', () => {
+    const db = freshDb()
+    const s = createSession(db, '/repo', pair)
+    const rec = mergeRecord()
+    const keptTip: { kind: 'commit'; symbol: string; anchorSha: string } =
+      { kind: 'commit', symbol: rec.reviewedTipSha.slice(0, 7), anchorSha: rec.reviewedTipSha }
+
+    // the merge op's §4-step-3 write: record + compare retarget in one transaction
+    db.exec('BEGIN')
+    markSessionMerged(db, s.id, rec)
+    retargetSession(db, s.id, 'compare', keptTip)
+    db.exec('COMMIT')
+
+    // findSession resolves under the retargeted identity (base anchor unchanged,
+    // compare_ident recomputed to c:<kept tip>)
+    const moved: RefPair = { ...pair, compare: keptTip }
+    expect(findSession(db, '/repo', moved)?.id).toBe(s.id)
+    expect(getSession(db, s.id)!.pair.compare).toEqual(keptTip)
+
+    // loadReviewState resolves: commit-kind compare → effectiveRef is the frozen kept tip
+    const st = loadReviewState(db, s.id)
+    expect(st.branch).toBe(rec.reviewedTipSha)
+    expect(st.merged).toEqual(rec)
+
+    // hub row: merged badge with the landed sha, compare shown as the kept commit
+    const item = listRepoSessions(db, '/repo').find((r) => r.id === s.id)!
+    expect(item.merged).toEqual({ sha: rec.mergedSha })
+    expect(item.compareKind).toBe('commit')
+    expect(item.compareSymbol).toBe(rec.reviewedTipSha.slice(0, 7))
     db.close()
   })
 })
