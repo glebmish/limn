@@ -37,6 +37,9 @@ export interface LoadedReview {
   writeCapability: AgentWriteCapability
   /** set when a side's ref no longer resolves — renderer shows re-target banner */
   refMissing?: { side: 'base' | 'compare'; symbol: string }
+  /** non-merged branch session whose approved tip is already an ancestor of the base
+   *  head — the header offers "Mark merged" (S12) instead of the Merge button */
+  mergedExternally?: boolean
   /** Generated reviews from other sessions whose endpoint pair can seed this review. */
   copyCandidates?: ReviewCopyCandidate[]
 }

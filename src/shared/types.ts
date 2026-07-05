@@ -315,6 +315,9 @@ export interface ReviewState {
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
   /** Non-fatal load degradations: blobs that failed to parse and were skipped. */
   loadWarnings?: string[];
+  /** Terminal merged record — set once the branch landed (or was marked merged).
+   *  A merged session is read-only: no watcher, no drift, mutations blocked. */
+  merged?: MergeRecord;
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
 
@@ -378,6 +381,93 @@ export function approvalFresh(approvedHashes: readonly string[] | string | undef
   return Boolean(branchHash && hashes.includes(branchHash))
 }
 
+// ── merge (landing the branch) ────────────────────────────────
+export type MergeStrategy = 'ff' | 'squash' | 'merge'
+
+export type MergeGateId =
+  | 'stale-approval'      // amber  (G1)  approval hash ∉ current surface
+  | 'base-moved'          // amber  (G2)  base head ≠ merge-base(base, branch)
+  | 'conflicts'           // red    (C1)  probe found conflicts (files listed)
+  | 'base-site-dirty'     // red    (G3)  base checked out + that worktree dirty
+  | 'branch-dirty'        // red          compare worktree has uncommitted changes
+  | 'probe-unavailable'   // info         git < 2.38 — conflicts checked at confirm
+
+export interface MergeGate {
+  id: MergeGateId
+  severity: 'amber' | 'red' | 'info'
+  detail: string                  // human sentence for the gate band
+  commits?: number                // stale-approval / base-moved
+  add?: number; del?: number      // stale-approval
+  files?: string[]                // conflicts
+  workdir?: string                // base-site-dirty / branch-dirty
+}
+
+/** A live session stacked on the branch being merged (its base symbol IS that branch). */
+export interface DependentReview {
+  sessionId: number
+  branch: string                  // its compare branch
+  commits: number                 // aheadCount(mergedBranch..branch)
+  rebasable: boolean              // checked out somewhere + that worktree clean
+  blockedReason?: string          // when !rebasable: 'not checked out' | 'dirty worktree'
+}
+
+export interface MergePreflight {
+  ok: boolean                     // no red gates and no un-overridden ambers
+  gates: MergeGate[]
+  strategies: Record<MergeStrategy, boolean>
+  commits: { sha: string; subject: string }[]    // base..tip, newest first
+  draftMessage: string
+  counts: { commits: number; files: number; add: number; del: number }
+  /** the CAS expectations mergeExecute re-checks against */
+  baseHead: string
+  tipSha: string
+  baseSymbol: string
+  branch: string
+  cleanup: { worktreePath?: string; dependents: DependentReview[] }
+}
+
+export interface MergeOverride { gate: MergeGateId; detail: string }
+
+/** The durable record of a landed review (persisted as sessions.merge_json). */
+export interface MergeRecord {
+  strategy: MergeStrategy
+  mergedSha: string               // new base head
+  reviewedTipSha: string          // compare tip that landed
+  baseSymbol: string
+  baseShaBefore: string
+  mergedAt: string                // ISO
+  message?: string                // squash/merge commit message as landed
+  overrides: MergeOverride[]
+  cleanup: {
+    archived: boolean
+    branchDeleted: boolean
+    worktreeRemoved: string | false
+    retargeted: string[]          // dependent branches rebased + repointed
+    failures: string[]            // partial cleanup failures, verbatim
+  }
+  dependents: string[]            // branch names of detected stacked reviews
+  external?: boolean              // settled via "Mark merged" (S12)
+}
+
+export interface MergeCleanupRequest {
+  archiveSession: boolean
+  deleteBranch: boolean
+  removeWorktree: boolean
+  retarget: number[]              // dependent session ids
+}
+
+export interface MergeExecuteRequest {
+  strategy: MergeStrategy
+  message?: string
+  overrides: MergeGateId[]
+  cleanup: MergeCleanupRequest
+  expect: { baseHead: string; tipSha: string }   // what the sheet showed
+}
+
+export type MergeExecuteResult =
+  | { status: 'merged'; record: MergeRecord }
+  | { status: 'preflight-changed'; preflight: MergePreflight }
+
 export interface SessionMeta {
   id: number
   repo: string
@@ -403,6 +493,7 @@ export interface SessionListItem {
   updatedAt: string
   createdAt: string
   agent?: AgentRef
+  merged?: { sha: string }  // landed — first-checked status, green "Merged · sha7" badge
 }
 
 /** A recent-sessions row on the dashboard: a session plus its repo path. */
