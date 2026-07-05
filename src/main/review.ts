@@ -4,7 +4,7 @@ import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import {
-  attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isDirty, locateSide,
+  attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
@@ -228,6 +228,18 @@ export async function assembleReview(
   )
   if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
   const writeCapability = await writeCapabilityFor(repo, pair.compare)
+  // S12 "merged outside Limn": the approved tip is already reachable from the base
+  // head of a live branch/branch session. Piggybacks on state loads — never the
+  // watcher hot path. External squash-merges are not detectable by ancestry (out of
+  // scope); best-effort: an unreadable base yields no detection, never a throw.
+  let mergedExternally = false
+  if (!state.merged && pair.base.kind === 'branch' && pair.compare.kind === 'branch') {
+    try {
+      const baseHead = await headSha(repo, pair.base.symbol)
+      mergedExternally = approvedShas.includes(skeleton.headSha)
+        && await isAncestor(repo, skeleton.headSha, baseHead)
+    } catch { /* base unreadable — no detection */ }
+  }
   return {
     sessionId: session.id, session,
     baseContext: await describeSide(repo, pair.base),
@@ -238,7 +250,8 @@ export async function assembleReview(
     copyCandidates,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
-    writeCapability
+    writeCapability,
+    ...(mergedExternally ? { mergedExternally: true } : {})
   }
 }
 

@@ -463,7 +463,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // message or a bound engine session.
     dao.pruneEmptyUserChats(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
-    if (!loaded.refMissing && session.pair.compare.kind === 'branch') {
+    // merged sessions are terminal read-only records: nothing to watch, no drift to
+    // compute — and post-merge the compare is commit-kind anyway; this gate is the
+    // backstop for records whose retarget didn't land (spec §7).
+    if (!loaded.refMissing && !loaded.state.merged && session.pair.compare.kind === 'branch') {
       void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
       stopWatch()
