@@ -255,4 +255,17 @@ describe('rebaseOnto (dependent retarget)', () => {
     expect(git(dir, 'rev-parse', 'dep')).toBe(depTip)   // branch untouched
     expect(await isDirty(dir)).toBe(false)              // tree restored by --abort
   })
+
+  it('when the abort itself fails, the failure is surfaced (not swallowed)', async () => {
+    const dir = makeMergeRepo()
+    const featureTip = git(dir, 'rev-parse', 'feature')
+    git(dir, 'checkout', '-q', '-b', 'dep', 'feature')
+    // uncommitted change → `git rebase` refuses to start, so there is no rebase to
+    // abort and `rebase --abort` also fails. The recovery-failed branch must report
+    // that, not return the bare (empty-catch) conflict message.
+    write(dir, 'f.txt', 'dirty\n')
+    const res = await rebaseOnto(dir, git(dir, 'rev-parse', 'main'), featureTip, 'dep')
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toMatch(/rebase --abort.*ALSO failed|may be left mid-rebase/)
+  })
 })

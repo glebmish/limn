@@ -747,8 +747,15 @@ export async function mergeInWorktree(dir: string, branch: string, strategy: Mer
       await execGit(dir, ['merge', '--no-ff', '-m', message ?? `Merge ${branch}`, branch])
     }
   } catch (e) {
-    await execGit(dir, ['merge', '--abort']).catch(() =>
-      execGit(dir, ['reset', '--merge']).catch(() => {}))
+    // Recover the base worktree. squash writes no MERGE_HEAD, so --abort refuses there
+    // → fall back to reset --merge. If BOTH fail the worktree is left mid-merge; that
+    // must NOT vanish into an empty catch (it's the base checkout the user works in) —
+    // surface it loudly with the manual recovery command.
+    const recovered = await execGit(dir, ['merge', '--abort']).then(() => true).catch(() =>
+      execGit(dir, ['reset', '--merge']).then(() => true).catch(() => false))
+    if (!recovered) {
+      throw new Error(`${(e as Error).message}; recovery (git merge --abort / reset --merge) ALSO failed — ${dir} may be left mid-merge. Check \`git -C ${dir} status\` and run \`git -C ${dir} merge --abort\` (or \`git -C ${dir} reset --merge --hard\`) if so.`)
+    }
     throw e
   }
   return headSha(dir)
@@ -782,7 +789,14 @@ export async function rebaseOnto(dir: string, newBase: string, oldBase: string, 
     await execGit(dir, ['rebase', '--onto', newBase, oldBase, branch])
     return { ok: true }
   } catch (e) {
-    await execGit(dir, ['rebase', '--abort']).catch(() => {})
-    return { ok: false, error: (e as Error).message }
+    // Abort to restore the dependent's branch + worktree exactly (§6b step 3). If the
+    // abort itself fails the worktree is left mid-rebase; don't swallow that — the
+    // caller collects this string into record.cleanup.failures, so name the worktree
+    // and the manual fix rather than reporting only the original conflict.
+    const aborted = await execGit(dir, ['rebase', '--abort']).then(() => true).catch(() => false)
+    const conflict = (e as Error).message
+    return { ok: false, error: aborted
+      ? conflict
+      : `${conflict}; \`git rebase --abort\` ALSO failed — ${dir} may be left mid-rebase. Check \`git -C ${dir} status\` and run \`git -C ${dir} rebase --abort\` if a rebase is in progress.` }
   }
 }
