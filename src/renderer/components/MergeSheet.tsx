@@ -167,11 +167,14 @@ function GateBand({ gate, base, probeClean, acked, onAck, actions, copyCmd }: {
 /** The sheet body — pure render over a MergePreflight + component-local selections.
  *  All state (strategy, message, checkboxes, acked overrides) lives here; nothing
  *  touches the store until the execute succeeds (spec §5). */
-export function MergeSheetPanel({ pf, repo, busy, executing, initialStrategy, actions }: {
+export function MergeSheetPanel({ pf, repo, busy, executing, external, initialStrategy, actions }: {
   pf: MergePreflight
   repo: string
   busy: boolean       // anyExclusiveRunning — CTA disables with the waiting note
   executing: boolean
+  /** reduced mode (S12): the branch already landed outside Limn — the merge itself
+   *  isn't ours to choose, only the bookkeeping (cleanup) is. */
+  external?: boolean
   initialStrategy: MergeStrategy
   actions: MergeSheetActions
 }) {
@@ -241,45 +244,47 @@ export function MergeSheetPanel({ pf, repo, busy, executing, initialStrategy, ac
         )}
       </div>
 
-      <div className="msh-sec">
-        <div className="msh-lab">How it merges</div>
-        <div className="msh-strat">
-          {(['ff', 'squash', 'merge'] as const).map((s) => (
-            <button key={s} type="button" disabled={!pf.strategies[s]}
-              className={'msh-opt' + (strategy === s ? ' on' : '')} aria-pressed={strategy === s}
-              onClick={() => setStrategy(s)}>
-              <span className="mo-t">{s === 'ff' ? 'Fast-forward' : s === 'squash' ? 'Squash' : 'Merge commit'}</span>
-              <span className="mo-d">{strategySubLabel(s, pf.strategies, base)}</span>
-            </button>
-          ))}
-        </div>
-        <div className="msh-hint">
-          {strategy === 'ff'
-            ? <><span className="mono">{base}</span> moves to <span className="mono">{shortSha(pf.tipSha)}</span> — the {n} commits you reviewed apply unchanged; no new commit is created.</>
-            : strategy === 'squash'
-              ? <>The {n} branch commits become <b>one commit on {base}</b>. Message drafted from the review — edit freely.</>
-              : <>A merge commit joins the branch to <span className="mono">{base}</span>, keeping all {n} commits reachable.</>}
-        </div>
-        {strategy === 'ff' ? (
-          <div className="msh-clist">
-            {pf.commits.map((c, i) => (
-              <div key={c.sha} className="msh-crow">
-                <span className="cr-sha">{shortSha(c.sha)}</span>
-                <span className="cr-msg">{c.subject}</span>
-                {i === 0 && <span className="cr-tag">tip</span>}
-              </div>
+      {!external && (
+        <div className="msh-sec">
+          <div className="msh-lab">How it merges</div>
+          <div className="msh-strat">
+            {(['ff', 'squash', 'merge'] as const).map((s) => (
+              <button key={s} type="button" disabled={!pf.strategies[s]}
+                className={'msh-opt' + (strategy === s ? ' on' : '')} aria-pressed={strategy === s}
+                onClick={() => setStrategy(s)}>
+                <span className="mo-t">{s === 'ff' ? 'Fast-forward' : s === 'squash' ? 'Squash' : 'Merge commit'}</span>
+                <span className="mo-d">{strategySubLabel(s, pf.strategies, base)}</span>
+              </button>
             ))}
           </div>
-        ) : (
-          <>
-            <textarea className="msh-msg" spellCheck={false} aria-label="Merge commit message"
-              value={message} onChange={(e) => setMessage(e.target.value)} />
-            <div className="msh-msg-meta">
-              <I.edit style={{ width: 11, height: 11 }} />Drafted from the review summary — click to edit.
+          <div className="msh-hint">
+            {strategy === 'ff'
+              ? <><span className="mono">{base}</span> moves to <span className="mono">{shortSha(pf.tipSha)}</span> — the {n} commits you reviewed apply unchanged; no new commit is created.</>
+              : strategy === 'squash'
+                ? <>The {n} branch commits become <b>one commit on {base}</b>. Message drafted from the review — edit freely.</>
+                : <>A merge commit joins the branch to <span className="mono">{base}</span>, keeping all {n} commits reachable.</>}
+          </div>
+          {strategy === 'ff' ? (
+            <div className="msh-clist">
+              {pf.commits.map((c, i) => (
+                <div key={c.sha} className="msh-crow">
+                  <span className="cr-sha">{shortSha(c.sha)}</span>
+                  <span className="cr-msg">{c.subject}</span>
+                  {i === 0 && <span className="cr-tag">tip</span>}
+                </div>
+              ))}
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <textarea className="msh-msg" spellCheck={false} aria-label="Merge commit message"
+                value={message} onChange={(e) => setMessage(e.target.value)} />
+              <div className="msh-msg-meta">
+                <I.edit style={{ width: 11, height: 11 }} />Drafted from the review summary — click to edit.
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="msh-sec">
         <div className="msh-lab">After the merge</div>
@@ -313,12 +318,28 @@ export function MergeSheetPanel({ pf, repo, busy, executing, initialStrategy, ac
           {executing
             ? <span className="gen-spinner"></span>
             : <I.merge style={{ width: 13, height: 13 }} />}
-          {ctaLabel(strategy, base)}
+          {external ? 'Mark merged' : ctaLabel(strategy, base)}
         </button>
         {note && <span className="msh-local">{note}</span>}
       </div>
     </div>
   )
+}
+
+/** Execute (or record) the merge. Returns null when it landed (store reloaded so the
+ *  merged record folds in), or the fresh MergePreflight when the authoritative
+ *  re-check refused (Seq C) — the caller re-renders the sheet with the true gates. */
+export async function runMergeExecute(
+  sessionId: number,
+  req: MergeExecuteRequest,
+  external: boolean
+): Promise<MergePreflight | null> {
+  const res = external
+    ? await api().markMerged(sessionId, req.cleanup)
+    : await api().mergeExecute(sessionId, req)
+  if (res.status === 'preflight-changed') return res.preflight
+  await useStore.getState().reload()
+  return null
 }
 
 /** Contract component: fetches the preflight when opened (read-only, callable anytime
@@ -328,13 +349,22 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
   const store = useStore()
   const busy = anyExclusiveRunning(store.ops)
   const repo = store.loaded?.state.repo ?? ''
+  const external = Boolean(store.loaded?.mergedExternally)
+  const sessionId = store.sessionId
   const [pf, setPf] = useState<MergePreflight | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [executing, setExecuting] = useState(false)
 
   const fetchPreflight = async (): Promise<void> => {
     setError(null)
+    // materialize can itself fail (e.g. the write that would mint the session was
+    // refused) — surface that as the sheet's error state (with its Re-check retry)
+    // rather than leaving "Running preflight…" spinning forever (Task 13 review).
     const id = await useStore.getState().materialize()  // transient review mints its session here
-    if (id == null) return
+    if (id == null) {
+      setError(useStore.getState().error ?? 'Could not start the review session.')
+      return
+    }
     try {
       setPf(await api().mergePreflight(id))
     } catch (err) {
@@ -376,12 +406,24 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
     onClose,
     onRecheck: () => void fetchPreflight(),
     onReviewCommits: () => { useStore.getState().setGlobalDiffMode('approved'); onClose() },
-    onRebaseWithAgent: () => onClose(),   // Task 14 prepends store.sendRebase()
-    onExecute: () => undefined,           // Task 14 wires api().mergeExecute
+    onRebaseWithAgent: () => { useStore.getState().sendRebase(pf.gates.find((g) => g.id === 'conflicts')?.files); onClose() },
+    onExecute: (req) => {
+      if (sessionId == null) return
+      setExecuting(true); setError(null)
+      void runMergeExecute(sessionId, req, external)
+        .then((fresh) => {
+          if (fresh) { setPf(fresh); setExecuting(false) } // Seq C: re-render, keep the sheet open
+          else onClose()                                    // merged — reload already folded it in
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : String(err))
+          setExecuting(false)
+        })
+    },
   }
   return (
     <MergeSheetPanel key={pf.baseHead + ':' + pf.tipSha}
-      pf={pf} repo={repo} busy={busy} executing={false}
+      pf={pf} repo={repo} busy={busy} executing={executing} external={external}
       initialStrategy={pickStrategy(undefined, pf.strategies)} actions={actions} />
   )
 }

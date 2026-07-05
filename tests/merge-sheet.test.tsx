@@ -264,6 +264,19 @@ describe('MergeSheetPanel — dependents + delete-branch coupling (spec §5)', (
   })
 })
 
+describe('MergeSheetPanel — reduced Mark-merged mode (S12)', () => {
+  it('drops strategy + message, keeps cleanup, CTA reads Mark merged', () => {
+    const out = renderToStaticMarkup(
+      <MergeSheetPanel pf={makePreflight()} repo="/repo" busy={false} executing={false}
+        external initialStrategy="squash" actions={noop} />
+    )
+    expect(out).not.toContain('How it merges')
+    expect(out).not.toContain('<textarea')
+    expect(out).toContain('Archive this review session')
+    expect(out).toContain('Mark merged')
+  })
+})
+
 describe('MergeSheetPanel — lane busy / executing', () => {
   it('anyExclusiveRunning disables the CTA with the waiting note', () => {
     const out = panel(makePreflight(), { busy: true })
