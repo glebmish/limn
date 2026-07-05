@@ -154,6 +154,24 @@ describe('mergeExecute — merged record renders the reviewed diff (§2 durabili
   }
 })
 
+describe('mergeExecute — post-land record-write failure (#5)', () => {
+  it('surfaces a distinct "landed but not recorded" error, not a generic merge failure', async () => {
+    const h = await setup()
+    approveSessionSha(h.db, h.sessionId, h.shas.head)
+    // Force the keep-ref write inside persistMergeRecord to fail: occupy refs/limn/keep
+    // as a ref so refs/limn/keep/<id> hits a git directory/file conflict. The land
+    // (ff CAS) runs first and succeeds, so this exercises the after-land path.
+    fixtureGit(h.dir, 'update-ref', 'refs/limn/keep', h.shas.base)
+    await expect(h.handlers.get('mergeExecute')!(
+      h.sessionId, baseReq({ baseHead: h.shas.base, tipSha: h.shas.head }, { strategy: 'ff' })
+    )).rejects.toThrow(/merge landed/)
+    // the merge really landed despite the record failure — main advanced to the tip
+    expect(fixtureGit(h.dir, 'rev-parse', 'main')).toBe(h.shas.head)
+    // and the session is NOT recorded as merged (the record write is what failed)
+    expect(loadReviewState(h.db, h.sessionId).merged).toBeUndefined()
+  })
+})
+
 describe('mergeExecute — authoritative re-check (S10 / Seq C)', () => {
   it('base moved after the sheet was shown: preflight-changed, nothing written', async () => {
     const h = await setup()

@@ -260,6 +260,24 @@ function errorMessage(error: unknown): string {
   return String(error instanceof Error ? error.message : error)
 }
 
+/** The base ref already moved (the merge LANDED) but the durable record — keep-ref +
+ *  markSessionMerged + compare/base retarget — could not be written. Distinct from a
+ *  plain merge failure precisely because the outcomes demand opposite responses: a
+ *  merge failure means nothing landed (safe to retry); this means the branch is
+ *  already on the base, so a blind retry would double-land (e.g. a second empty squash)
+ *  or churn `preflight-changed`. The message says so and carries the landed SHA. */
+export class MergeRecordWriteError extends Error {
+  constructor(readonly mergedSha: string, readonly baseSymbol: string, cause: unknown) {
+    super(
+      `The merge landed — ${baseSymbol} is now at ${mergedSha.slice(0, 7)} — but Limn could not ` +
+      `write the merge record: ${errorMessage(cause)}. Do NOT re-run the merge (the branch is ` +
+      `already on ${baseSymbol}); archive this review manually if you want it out of the way.`,
+      { cause }
+    )
+    this.name = 'MergeRecordWriteError'
+  }
+}
+
 /** Run writes in one transaction (mirrors ipc.ts's inTx — node:sqlite has no
  *  db.transaction()). Not re-entrant: `fn` must not open its own transaction. */
 function inTx(db: DatabaseSync, fn: () => void): void {
@@ -436,7 +454,13 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
     cleanup: emptyCleanup(),
     dependents: ctx.dependents.map((d) => d.branch)
   }
-  await persistMergeRecord(db, ctx, record)
+  try {
+    await persistMergeRecord(db, ctx, record)
+  } catch (err) {
+    // the land succeeded (base ref moved); a record-write failure here must not read
+    // as a generic "merge failed" that invites a double-land retry (#5).
+    throw new MergeRecordWriteError(mergedSha, ctx.baseSymbol, err)
+  }
   await runCleanupAndRetargets(db, ctx, record, req.cleanup, mergedSha)
   try {
     // persist the final cleanup outcome — MUST NOT throw: the merge already landed
@@ -474,7 +498,13 @@ export async function markMergedExternal(db: DatabaseSync, sessionId: number, cl
     dependents: ctx.dependents.map((d) => d.branch),
     external: true
   }
-  await persistMergeRecord(db, ctx, record)
+  try {
+    await persistMergeRecord(db, ctx, record)
+  } catch (err) {
+    // external merge already landed outside Limn; a record-write failure is still a
+    // "recorded, not re-merge" situation (#5) — mergedSha is the base head here.
+    throw new MergeRecordWriteError(ctx.baseHead, ctx.baseSymbol, err)
+  }
   await runCleanupAndRetargets(db, ctx, record, cleanup, ctx.baseHead)
   try {
     // same "cannot reject a landed merge" guard as executeMerge: the settle already
