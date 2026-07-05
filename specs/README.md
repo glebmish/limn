@@ -26,6 +26,7 @@ grounded against the code as of `d896f37` and ends with numbered open questions
 
 | Spec | Scope |
 | --- | --- |
+| [merge-into-main](merge-into-main/spec.md) | Design screens 08/09 (2026-07-05): merge sheet with preflight gates (approval/base freshness, merge-tree probe, dirty-tree blocks), ff/squash/merge strategies (plumbing `commit-tree`+`update-ref` CAS when base isn't checked out), agent rebase loop for conflicts, terminal read-only merged record (keep-ref durability), "Mark merged" for external merges. Draft — open questions pending |
 | [educational-review](educational-review/spec.md) | From the 2026-07-04 agentic-workflow analysis, decided + re-grounded against the stack tip (`7536961`): anchored narration blocks replace `what`/`desc`/`plainNotes`/`insight` (flat wire anchor → `FocusTarget`, stamped via comment-anchoring); diagrams typed/edged/anchored; hotspots as queueable agent comments; `contrast`/`verify`/planMap grounding; `order` → `afterSectionId` on the scoped patch; `focus`+`tour` → `point`; `get_review_progress`; one-turn-one-channel discipline. Staged: structure first, behavioral enforcement gated on post-ACP measurement |
 
 ## Ordering and dependencies
