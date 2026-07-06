@@ -339,18 +339,26 @@ describe('spliceScopedUpdate', () => {
       expect(out.annotations.planMap!.deviations[0].sectionId).toBe('other-changes-2')
     })
 
-    it("keeps the afterSectionId placement working after an id is re-minted", () => {
-      const p = prior([psec({ id: 's1', files: ['a.ts'] })])
+    it("inserts a re-minted new section in the MIDDLE per its afterSectionId (not appended)", () => {
+      // ≥2 prior sections so "insert after s1" (middle) and "append" (end) DIFFER —
+      // the naive `patch.revisedSections.find(w => w.id === ns.id)` lookup breaks
+      // because the id is re-minted ('other-changes' → 'other-changes-2') BEFORE the
+      // placement step, so the by-id lookup misses and the section wrongly appends.
+      const p = prior([
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
+      ])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 'other-changes', afterSectionId: 's1', files: ['b.ts'] })],
-          keptSectionIds: ['s1']
+          revisedSections: [wsec({ id: 'other-changes', afterSectionId: 's1', files: ['c.ts'] })],
+          keptSectionIds: ['s1', 's2']
         }),
-        skel(['a.ts', 'b.ts']),
+        skel(['a.ts', 'b.ts', 'c.ts']),
         new Set()
       )
-      expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'other-changes-2'])
+      // lands BETWEEN s1 and s2 (the anchor is s1), and the colliding id is re-minted
+      expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'other-changes-2', 's2'])
     })
   })
 

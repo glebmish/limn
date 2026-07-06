@@ -66,7 +66,11 @@ export const reviewWireSchema = z.object({
   planMap: wirePlanMap.nullable(),
   questions: z.array(wireQuestion),
   artifactPaths: z.array(z.string()).nullable(),
-  hotspots: z.array(z.object({ anchor: wireAnchor, text: z.string(), severity: z.enum(['risk', 'note']) }))
+  // A4 consumes hotspots; A1 discards them at parse. Optional so a real generation
+  // that omits the (prompt-unmentioned) field parses first-try and never burns the
+  // single repair turn — matching this file's ".optional() for omittable fields"
+  // principle. Any A1 read of absence treats it as [].
+  hotspots: z.array(z.object({ anchor: wireAnchor, text: z.string(), severity: z.enum(['risk', 'note']) })).optional()
 })
 
 // Scoped-update patch: what the engine returns for a diff-scoped iteration.
