@@ -62,3 +62,20 @@ describe('InlineThread — resolved comments keep a re-queue control (spec Decis
     expect(out).not.toContain('Re-queue')
   })
 })
+
+describe('InlineThread — resolution note renders as a reply (B4 channel dedup)', () => {
+  it('renders the resolution note as a reply-styled thread entry, not just verdict metadata', () => {
+    const out = html(hotspotComment({
+      author: 'user',
+      severity: undefined,
+      resolution: { verdict: 'addressed', note: 'Fixed the null check in a follow-up commit.' }
+    }))
+    // the note text appears in the thread body (previously only sat in a title attr)
+    expect(out).toContain('Fixed the null check in a follow-up commit.')
+    // it is wrapped in the same reply-entry class the human/agent reply thread uses
+    const replyIdx = out.indexOf('dreply')
+    expect(replyIdx).toBeGreaterThan(-1)
+    const afterReply = out.slice(replyIdx)
+    expect(afterReply).toContain('Fixed the null check in a follow-up commit.')
+  })
+})

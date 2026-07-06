@@ -182,12 +182,11 @@ const TOOL_IMPLS: ToolImpl[] = [
   {
     name: 'suggest_mark_viewed',
     description:
-      'Propose that the reviewer mark file(s) and/or section(s) as viewed. Call this ' +
-      'proactively whenever you have finished walking the reviewer through a file or section, ' +
-      'or they signal they understand it — don\'t wait to be asked. It only proposes: it ' +
+      'Propose that the reviewer mark file(s) and/or section(s) as viewed, once you have ' +
+      'finished walking them through it or they signal they understand it. It only proposes: it ' +
       'renders a confirm button in chat and nothing changes until the reviewer clicks it, so ' +
       'suggesting is low-risk. Provide at least one file or section, and a short note on what ' +
-      'was covered.',
+      'was covered. At most once per turn, only after the reviewer signals understanding.',
     input: SUGGEST_INPUT,
     run: (_ctx, raw) => {
       const { files, sectionIds, note } = raw as z.infer<z.ZodObject<typeof SUGGEST_INPUT>>
@@ -228,7 +227,7 @@ const TOOL_IMPLS: ToolImpl[] = [
       'file, section, or the summary. Whenever you notice a bug, risk, or noteworthy detail ' +
       'while answering, record it with add_comment anchored to the exact spot rather than only ' +
       'mentioning it in chat — anchored comments persist in the review; chat prose does not. ' +
-      'Anchor as specifically as possible.',
+      'Anchor as specifically as possible. For findings, not for restating your chat answer.',
     input: ADD_COMMENT_INPUT,
     run: async (ctx, raw) => {
       const { anchor: rawAnchor, text } = raw as z.infer<z.ZodObject<typeof ADD_COMMENT_INPUT>>

@@ -123,9 +123,15 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           <div className="bb">{c.text}</div>
         )}
         {c.resolution?.note && c.status === 'resolved' && (
-          <div className="bb" style={{ paddingTop: 0, color: 'var(--muted)', fontSize: 12 }}>
-            <EngineGlyph engine={c.resolution.agentRef?.engine} style={{ width: 10, height: 10, color: 'var(--accent)', marginRight: 5 }} />
-            {c.resolution.note}
+          // The resolve note IS the reply for the common case (spec B4 channel dedup) —
+          // render it as a reply-styled thread entry, not just verdict metadata, so it
+          // reads as the answer.
+          <div className="dreply">
+            <div className="bh">
+              <AgentId agentRef={c.resolution.agentRef} threadId={c.threadId} />
+              <span className="dim">resolution</span>
+            </div>
+            <div className="bb">{c.resolution.note}</div>
           </div>
         )}
         {c.replies.map((r, i) => (
