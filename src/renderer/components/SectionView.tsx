@@ -1,12 +1,69 @@
 import { useState } from 'react'
-import type { FileDiff, Section } from '../../shared/types'
+import type { Diagram, DiagramNode2, FileDiff, Section } from '../../shared/types'
 import { narrationText } from '../../shared/types'
-import { I, CmtPlus } from '../kit'
+import { I, CmtPlus, DiagramNodeBox, Flow } from '../kit'
 import { GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 import { DiffView } from './DiffView'
+import { layoutDiagram } from '../lib/diagramLayout'
+import { focusAnchor } from '../lib/focus'
+
+/** A single diagram node: `DiagramNodeBox` wrapped in a focus button when the
+ *  node carries an anchor (clicking it scrolls/highlights the anchored spot);
+ *  a plain wrapper otherwise. `'plain'` kind renders no extra class. */
+function DiagramNodeItem({ n }: { n: DiagramNode2 }) {
+  const box = <DiagramNodeBox kind={n.kind === 'plain' ? undefined : n.kind} title={n.label} sub={n.sub} />
+  if (!n.anchor) return box
+  return (
+    <button type="button" className="diagram-node-btn" onClick={() => focusAnchor(n.anchor!)}>
+      {box}
+    </button>
+  )
+}
+
+/** Renders a section's object diagram (spec A2/A3): a two-tier chain-plus-
+ *  branches layout when `layoutDiagram` can draw it, falling back to a flat
+ *  node list + `from → to: label` edge list when it can't (cycle, multi-level
+ *  fan-in/out). Never crashes, never fakes a chain that isn't there. */
+function DiagramView({ d }: { d: Diagram }) {
+  const { rows, ok } = layoutDiagram(d)
+  const byId = new Map(d.nodes.map((n) => [n.id, n]))
+  return (
+    <div className="diagram-view">
+      {ok ? (
+        <div className="diagram-rows">
+          {rows.map((row, ri) => (
+            <div className="diagram-row" key={ri}>
+              {row.map((n, ni) => (
+                <span key={n.id} className="diagram-row-item">
+                  {ni > 0 && <Flow />}
+                  <DiagramNodeItem n={n} />
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="diagram-fallback">
+          <div className="diagram-fallback-nodes">
+            {d.nodes.map((n) => <DiagramNodeItem key={n.id} n={n} />)}
+          </div>
+          <ul className="diagram-fallback-edges">
+            {d.edges.map((e, i) => (
+              <li key={i}>
+                {(byId.get(e.from)?.label ?? e.from)} <Flow /> {(byId.get(e.to)?.label ?? e.to)}
+                {e.label ? `: ${e.label}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {d.caption && <div className="diagram-caption">{d.caption}</div>}
+    </div>
+  )
+}
 
 export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   s: Section
@@ -107,6 +164,14 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
                 setCommenting(null)
               }}
             />
+          )}
+          {showCtx && s.diagram && (
+            <Commentable scope={{ region: 'section', sectionId: s.id }}>
+              <div className="gsec-diagram gsec-diagram-cmt">
+                <CmtPlus extra="diagram-plus" onClick={() => setCommenting('diagram')} />
+                <DiagramView d={s.diagram} />
+              </div>
+            </Commentable>
           )}
           {diagramComments.map((c) => (
             <InlineThread key={c.id} c={c} locLabel={`on the diagram in “${s.name}”`} />

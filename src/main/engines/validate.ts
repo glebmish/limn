@@ -56,8 +56,18 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       return rest
     })
     if (s.diagram) {
+      const nodeIds = new Set(s.diagram.nodes.map((n) => n.id))
+      const edges = s.diagram.edges.filter((e) => {
+        if (nodeIds.has(e.from) && nodeIds.has(e.to)) return true
+        warnings.push(`section "${s.name}" diagram edge references unknown node (${e.from} → ${e.to}) — dropped`)
+        return false
+      })
+      if (diagramHasCycle(nodeIds, edges)) {
+        warnings.push(`section "${s.name}" diagram has a cycle — kept, renderer falls back to a list`)
+      }
       s.diagram = {
         ...s.diagram,
+        edges,
         nodes: s.diagram.nodes.map((n) => {
           if (!n.anchor || !isUnknownAnchorFile(n.anchor)) return n
           warnings.push(`diagram node anchor on unknown file ${n.anchor.file} — de-anchored`)
@@ -91,4 +101,27 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
     : undefined
 
   return { annotations: { ...parsed, sections, planMap }, warnings }
+}
+
+/** Cheap DFS cycle check over a diagram's (already node-id-valid) edges. Cycles
+ *  are not dropped — only warned about — since the renderer's `layoutDiagram`
+ *  already falls back to a flat node/edge list rather than crashing. */
+function diagramHasCycle(nodeIds: ReadonlySet<string>, edges: { from: string; to: string }[]): boolean {
+  const out = new Map<string, string[]>()
+  for (const id of nodeIds) out.set(id, [])
+  for (const e of edges) out.get(e.from)?.push(e.to)
+  const WHITE = 0, GRAY = 1, BLACK = 2
+  const color = new Map<string, number>([...nodeIds].map((id) => [id, WHITE]))
+  const visit = (id: string): boolean => {
+    color.set(id, GRAY)
+    for (const next of out.get(id) ?? []) {
+      const c = color.get(next)
+      if (c === GRAY) return true
+      if (c === WHITE && visit(next)) return true
+    }
+    color.set(id, BLACK)
+    return false
+  }
+  for (const id of nodeIds) if (color.get(id) === WHITE && visit(id)) return true
+  return false
 }

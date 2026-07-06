@@ -123,6 +123,53 @@ describe('mergeAnnotations', () => {
     const sec = annotations.sections.find((s) => s.id === 'a')!
     expect(sec.narration[0].anchor).toEqual({ kind: 'file', file: 'src/b.ts' }) // cross-reference kept
   })
+
+  it('drops a diagram edge referencing an unknown node id, keeping the rest, with a warning', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [{ text: 'w' }],
+          diagram: {
+            why: 'why', caption: 'cap',
+            nodes: [{ id: 'n1', label: 'One', kind: 'plain' }, { id: 'n2', label: 'Two', kind: 'plain' }],
+            edges: [{ from: 'n1', to: 'n2' }, { from: 'n1', to: 'ghost' }]
+          }
+        }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.includes('ghost'))).toBe(true)
+    const sec = annotations.sections.find((s) => s.id === 'a')!
+    expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }])
+  })
+
+  it('warns (but keeps) a cyclic diagram edge set', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [{ text: 'w' }],
+          diagram: {
+            why: 'why', caption: 'cap',
+            nodes: [{ id: 'n1', label: 'One', kind: 'plain' }, { id: 'n2', label: 'Two', kind: 'plain' }],
+            edges: [{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }]
+          }
+        }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.toLowerCase().includes('cycle'))).toBe(true)
+    const sec = annotations.sections.find((s) => s.id === 'a')!
+    // cyclic edges are kept (only warned about) — the renderer falls back to a list
+    expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }])
+  })
 })
 
 describe('FakeEngine contract', () => {

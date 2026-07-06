@@ -293,6 +293,22 @@
 .ins-caption{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
 .gsec-what{border-radius:var(--r-md);border:1px solid var(--accent-line);align-items:flex-start}
 
+/* diagram v2: object diagram render (chain/branches + node-list fallback) */
+.diagram-view{width:100%}
+.diagram-rows{display:flex;flex-direction:column;align-items:center;gap:12px}
+.diagram-row{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap}
+.diagram-row-item{display:inline-flex;align-items:center;gap:9px}
+.diagram-node-btn{all:unset;cursor:pointer}
+.node{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink-2);background:var(--panel);
+  border:1px solid var(--line-2);border-radius:var(--r-sm);padding:6px 9px;white-space:nowrap}
+.node.hi{color:var(--accent-ink);border-color:var(--accent-line);background:var(--accent-soft)}
+.node.new{color:var(--accent-ink);border-style:dashed}
+.node .sm{font-size:10px;font-weight:400;color:var(--muted)}
+.flowarrow{color:var(--faint);font-family:var(--mono);font-size:13px;flex:0 0 auto}
+.diagram-fallback-nodes{display:flex;flex-wrap:wrap;gap:9px;justify-content:center}
+.diagram-fallback-edges{margin:10px 0 0;padding:0;list-style:none;font-size:11px;color:var(--ink-2);display:flex;flex-direction:column;gap:4px}
+.diagram-caption{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-top:12px;padding-top:11px;border-top:1px solid var(--line);width:100%}
+
 /* file diff block */
 /* Keep the header outside content-visibility so it can stick while the diff body
    remains cheap for large reviews. */

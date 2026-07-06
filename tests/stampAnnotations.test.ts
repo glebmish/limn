@@ -47,6 +47,37 @@ describe('stampAnnotationAnchors', () => {
     expect(fileBlock.anchor).toEqual({ kind: 'file', file: 'src/a.ts' }) // non-diff anchor untouched
   })
 
+  it('stamps a diff-anchored diagram node in place, leaves non-diff node anchors untouched', async () => {
+    const ann: ReviewAnnotations = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [{ text: 'w' }],
+          diagram: {
+            why: 'why', caption: 'cap',
+            nodes: [
+              { id: 'n1', label: 'One', kind: 'plain', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+              { id: 'n2', label: 'Two', kind: 'plain', anchor: { kind: 'file', file: 'src/a.ts' } },
+              { id: 'n3', label: 'Three', kind: 'plain' }
+            ],
+            edges: [{ from: 'n1', to: 'n2' }]
+          }
+        }
+      ],
+      questions: []
+    }
+
+    await stampAnnotationAnchors(fx.dir, fakeSession(), ann)
+
+    const [n1, n2, n3] = ann.sections[0].diagram!.nodes
+    expect(n1.anchor).toMatchObject({ kind: 'diff' })
+    expect((n1.anchor as any).stamp).toBeTruthy()
+    expect((n1.anchor as any).stamp.headSha).toBe(fx.shas.head)
+    expect(n2.anchor).toEqual({ kind: 'file', file: 'src/a.ts' }) // non-diff anchor untouched
+    expect(n3.anchor).toBeUndefined()
+  })
+
   it('never throws even against a non-repo workdir (stampAnchor degrades to unstamped)', async () => {
     const ann: ReviewAnnotations = {
       title: 't', summary: 's',
