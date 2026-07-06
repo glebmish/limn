@@ -40,12 +40,14 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
   // Block-anchor integrity gate: a narration (or diagram-node) anchor pointing at
   // a file the diff never touched is dropped — text/node stays, only the anchor
   // is stripped, so a hallucinated file reference degrades gracefully instead of
-  // producing a chip that resolves nowhere. Deliberately NOT restricted to the
-  // section's own `files` — a block anchoring a file owned by a different
-  // section is a legitimate cross-reference (the focus pathway allows it).
-  const trackedFiles = new Set(skeleton.files.map((f) => f.path))
+  // producing a chip that resolves nowhere. Keyed on the SAME `known` set the
+  // section-file check uses (skeleton.files ∪ untracked) so the anchor gate is
+  // exactly as permissive as section assignment: an agent-sectioned untracked
+  // file is legitimate diff content and its anchor is kept. Deliberately NOT
+  // restricted to the section's own `files` either — a block anchoring a file
+  // owned by a different section is a legitimate cross-reference (focus pathway).
   const isUnknownAnchorFile = (anchor: { kind: string; file?: string }): anchor is { kind: 'diff' | 'file'; file: string } =>
-    (anchor.kind === 'diff' || anchor.kind === 'file') && anchor.file !== undefined && !trackedFiles.has(anchor.file)
+    (anchor.kind === 'diff' || anchor.kind === 'file') && anchor.file !== undefined && !known.has(anchor.file)
   for (const s of sections) {
     s.narration = s.narration.map((b) => {
       if (!b.anchor || !isUnknownAnchorFile(b.anchor)) return b

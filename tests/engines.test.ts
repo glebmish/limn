@@ -83,6 +83,25 @@ describe('mergeAnnotations', () => {
     expect(sec.narration[1].anchor).toBeUndefined() // untouched framing block
   })
 
+  it('keeps a narration block anchored to a sectioned untracked file (untracked is valid diff content)', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const untracked = new Set(['new.ts'])
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts', 'new.ts'],
+          narration: [{ text: 'the new untracked file', anchor: { kind: 'file', file: 'new.ts' } }]
+        }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any, untracked)
+    expect(warnings.some((w) => w.includes('new.ts'))).toBe(false) // not wrongly flagged
+    const sec = annotations.sections.find((s) => s.id === 'a')!
+    expect(sec.narration[0].anchor).toEqual({ kind: 'file', file: 'new.ts' }) // anchor kept
+  })
+
   it('keeps a narration block anchored to a file owned by a different section (cross-reference)', async () => {
     const sk = await getDiff(fx.dir, 'main', 'feature')
     const raw = {
