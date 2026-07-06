@@ -1,4 +1,4 @@
-import type { Diagram, DiagramNode2 } from '../../shared/types.js'
+import type { Diagram, DiagramNode2 } from '../../shared/types'
 
 /** Two-tier "chain-plus-branches" layout for a Diagram (spec A2, Decision 5).
  *  A simple linear chain lays out as one ordered row. A single fan-out node

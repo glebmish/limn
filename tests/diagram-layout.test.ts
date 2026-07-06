@@ -20,7 +20,8 @@ describe('layoutDiagram', () => {
   })
 
   it('a fan-out node stacks its targets as a branch row', () => {
-    // a -> b (main chain), a -> c and a -> d (branches off a)
+    // `a` fans out to b, c, d — the main row is the chain up to and including
+    // the fan-out node (just `a` here), its three targets form the branch row.
     const d = diagram(['a', 'b', 'c', 'd'], [
       { from: 'a', to: 'b' },
       { from: 'a', to: 'c' },
@@ -28,10 +29,24 @@ describe('layoutDiagram', () => {
     ])
     const { rows, ok } = layoutDiagram(d)
     expect(ok).toBe(true)
-    expect(rows.length).toBeGreaterThanOrEqual(2)
-    // the fan-out targets beyond the main chain appear in a branch row
-    const flat = rows.flat().map((n) => n.id)
-    expect(flat.sort()).toEqual(['a', 'b', 'c', 'd'])
+    expect(rows).toHaveLength(2)
+    // exact row contents AND order — a garbled split (e.g. [[a,b],[c,d]]) must fail
+    expect(rows[0].map((n) => n.id)).toEqual(['a'])
+    expect(rows[1].map((n) => n.id)).toEqual(['b', 'c', 'd'])
+  })
+
+  it('a chain leading into a fan-out keeps the chain on the main row', () => {
+    // x -> a, then a fans out to b, c — main row is the x→a chain, branch row is b, c.
+    const d = diagram(['x', 'a', 'b', 'c'], [
+      { from: 'x', to: 'a' },
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' }
+    ])
+    const { rows, ok } = layoutDiagram(d)
+    expect(ok).toBe(true)
+    expect(rows).toHaveLength(2)
+    expect(rows[0].map((n) => n.id)).toEqual(['x', 'a'])
+    expect(rows[1].map((n) => n.id)).toEqual(['b', 'c'])
   })
 
   it('a cycle cannot be drawn by the two-tier layout — ok:false', () => {
