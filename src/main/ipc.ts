@@ -28,6 +28,7 @@ import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
+import { stampAnnotationAnchors } from './engines/stampAnnotations.js'
 import { scopedEligible, SCOPE_CHAIN_CAP } from './engines/scope.js'
 import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
@@ -699,6 +700,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
       const { annotations, warnings, engineSession, agentTurnText, scope } = result
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
+
+      // post-merge stamping seam: both the full pass (mergeAnnotations) and the
+      // scoped pass (spliceScopedUpdate, which calls mergeAnnotations internally)
+      // converge on `annotations` here, before it is persisted below — one call
+      // covers both. Mirrors add_comment's stamp-at-creation; never throws.
+      await stampAnnotationAnchors(workdir, session, annotations)
 
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
       if (annotations.artifactPaths) {

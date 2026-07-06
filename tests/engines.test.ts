@@ -59,6 +59,51 @@ describe('mergeAnnotations', () => {
     // every tracked file was assigned, so there is no Other-changes catch-all here
     expect(annotations.sections.find((s) => s.id === 'other-changes')).toBeFalsy()
   })
+
+  it('de-anchors a narration block that anchors an unknown file, keeping its text and warning', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [
+            { text: 'keep me', anchor: { kind: 'file', file: 'src/NOPE.ts' } },
+            { text: 'unanchored framing block' }
+          ]
+        }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.includes('NOPE'))).toBe(true)
+    const sec = annotations.sections.find((s) => s.id === 'a')!
+    expect(sec.narration[0].text).toBe('keep me') // text survives
+    expect(sec.narration[0].anchor).toBeUndefined() // anchor stripped
+    expect(sec.narration[1].anchor).toBeUndefined() // untouched framing block
+  })
+
+  it('keeps a narration block anchored to a file owned by a different section (cross-reference)', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [{ text: 'see the added file below', anchor: { kind: 'file', file: 'src/b.ts' } }]
+        },
+        {
+          id: 'b', name: 'B', files: ['src/b.ts'],
+          narration: [{ text: 'the new file' }]
+        }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.includes('src/b.ts'))).toBe(false)
+    const sec = annotations.sections.find((s) => s.id === 'a')!
+    expect(sec.narration[0].anchor).toEqual({ kind: 'file', file: 'src/b.ts' }) // cross-reference kept
+  })
 })
 
 describe('FakeEngine contract', () => {

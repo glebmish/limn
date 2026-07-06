@@ -37,6 +37,35 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
     sections.push({ ...s, files })
   }
 
+  // Block-anchor integrity gate: a narration (or diagram-node) anchor pointing at
+  // a file the diff never touched is dropped — text/node stays, only the anchor
+  // is stripped, so a hallucinated file reference degrades gracefully instead of
+  // producing a chip that resolves nowhere. Deliberately NOT restricted to the
+  // section's own `files` — a block anchoring a file owned by a different
+  // section is a legitimate cross-reference (the focus pathway allows it).
+  const trackedFiles = new Set(skeleton.files.map((f) => f.path))
+  const isUnknownAnchorFile = (anchor: { kind: string; file?: string }): anchor is { kind: 'diff' | 'file'; file: string } =>
+    (anchor.kind === 'diff' || anchor.kind === 'file') && anchor.file !== undefined && !trackedFiles.has(anchor.file)
+  for (const s of sections) {
+    s.narration = s.narration.map((b) => {
+      if (!b.anchor || !isUnknownAnchorFile(b.anchor)) return b
+      warnings.push(`narration anchor on unknown file ${b.anchor.file} — de-anchored`)
+      const { anchor: _drop, ...rest } = b
+      return rest
+    })
+    if (s.diagram) {
+      s.diagram = {
+        ...s.diagram,
+        nodes: s.diagram.nodes.map((n) => {
+          if (!n.anchor || !isUnknownAnchorFile(n.anchor)) return n
+          warnings.push(`diagram node anchor on unknown file ${n.anchor.file} — de-anchored`)
+          const { anchor: _drop, ...rest } = n
+          return rest
+        })
+      }
+    }
+  }
+
   // only tracked (committed/staged) strays land in "Other changes"; an unsectioned
   // untracked file is intentionally left orphan so the renderer auto-excludes it.
   const strays = skeleton.files.map((f) => f.path).filter((p) => !assigned.has(p) && !untracked.has(p))
