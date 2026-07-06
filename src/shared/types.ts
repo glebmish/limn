@@ -269,7 +269,7 @@ export type EngineEvent =
   | { type: 'status'; text: string }
   | { type: 'tool'; call: ToolCall }          // structured tool-call lifecycle (wf-D)
   | { type: 'text'; text: string }            // streamed assistant text (chat)
-  | { type: 'action'; action: AgentAction }   // agent tool call (focus, suggest, …)
+  | { type: 'action'; action: AgentAction }   // agent tool call (point, suggest_mark_viewed, comment, …)
   | { type: 'approval_request'; request: ApprovalRequest }  // needs reviewer go-ahead
   | { type: 'done' }
   | { type: 'error'; message: string }

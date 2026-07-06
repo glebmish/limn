@@ -38,6 +38,23 @@ describe('ToolCallLog', () => {
     expect(out).not.toContain('class="tcall-verb">point</span>')
   })
 
+  it('uses an action chip instead of a generic row for update_plan_status', () => {
+    const segments: MessageSegment[] = [
+      { kind: 'tool', id: 'plan-1' },
+    ]
+    const calls: ToolCall[] = [
+      { id: 'plan-1', verb: 'bash', name: 'mcp__limn__update_plan_status', state: 'ok', out: 'Updated plan item 0.' },
+    ]
+    const actions: AgentAction[] = [
+      { kind: 'plan_status_updated', index: 0, met: true },
+    ]
+
+    const out = renderToStaticMarkup(<SegmentBody segments={segments} calls={calls} actions={actions} />)
+
+    expect(out).toContain('updated plan status')
+    expect(out).not.toContain('update_plan_status')
+  })
+
   it('renders submitted comment references as clickable visual cards', () => {
     const out = renderToStaticMarkup(
       <SubmittedCommentRefs commentRefs={['c1']} comments={[{

@@ -456,7 +456,8 @@ const ACTION_TOOL_KIND: Record<string, AgentAction['kind']> = {
   add_comment: 'comment_added',
   reply_to_comment: 'comment_replied',
   resolve_comment: 'comment_resolved',
-  edit_review: 'review_edited'
+  edit_review: 'review_edited',
+  update_plan_status: 'plan_status_updated'
 }
 
 function actionToolKind(call: ToolCall): AgentAction['kind'] | null {

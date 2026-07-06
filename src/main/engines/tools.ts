@@ -150,17 +150,16 @@ const TOOL_IMPLS: ToolImpl[] = [
     description:
       'Point the reviewer at one or more spots in the review — the summary, a section, ' +
       'a file, or a specific diff line (optionally a range via endLine) — and briefly ' +
-      'highlight them. Pass a single stop to jump+highlight one spot; pass 2-8 stops for an ' +
-      'interactive walkthrough across a sequence — for example a value flow, call chain, ' +
-      'lifecycle path, or cross-file risk — with an optional short note per stop. ALWAYS call ' +
-      'this whenever your answer refers to a place in the code or review (a file, a function, ' +
-      'a diff line) — call point to jump the reviewer there instead of only naming the path in ' +
+      'highlight them. Use a single stop when your answer refers to one spot; use 2-8 stops ' +
+      'for an interactive walkthrough across a sequence — for example a value flow, call ' +
+      'chain, lifecycle path, or cross-file risk — with an optional short note per stop. ' +
+      'Whenever your answer refers to a place in the code or review (a file, a function, a ' +
+      'diff line), call point to jump the reviewer there instead of only naming the path in ' +
       'prose. Prefer the most specific target available (a diff line/range over a file). It ' +
       'leaves a clickable chip (or, for multiple stops, an interactive walkthrough card with ' +
       'Prev/Next) in the chat so the reviewer can re-focus later; use loop=true when a ' +
-      'multi-stop sequence is cyclic or useful to repeat. Calling point is the primary way you ' +
-      'point at code; do it proactively, not only when asked — but when one call covers the ' +
-      'locations, don\'t also point at them individually.',
+      'multi-stop sequence is cyclic or useful to repeat. It is the primary way to point at ' +
+      'code — but when one call covers the locations, don\'t also point at them individually.',
     input: POINT_INPUT,
     run: (_ctx, raw) => {
       const { stops, loop } = raw as z.infer<z.ZodObject<typeof POINT_INPUT>>
