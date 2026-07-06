@@ -18,6 +18,20 @@ function AgentId({ agentRef, threadId }: { agentRef?: AgentRef; threadId?: numbe
   )
 }
 
+/** Resolved-comment re-queue control (spec Decision 19): a resolved comment —
+ *  reviewer-authored or an agent hotspot alike — keeps a way back into the batch.
+ *  Purely a status flip (`requeueComment`, persisted via upsertComment); it never
+ *  sends/dispatches anything itself — the reviewer still clicks the ordinary
+ *  queued-comment "Send now" separately. This is what "unjams" a hotspot: agree
+ *  with it, one click queues it, same as any comment. */
+function RequeueButton({ c }: { c: Comment }) {
+  return (
+    <button className="requeue" onClick={() => void useStore.getState().requeueComment(c)} title="Queue this comment for the agent">
+      <I.send style={{ width: 11, height: 11 }} />Re-queue
+    </button>
+  )
+}
+
 export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) {
   const [editing, setEditing] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -49,6 +63,13 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
       <div className={'box' + (isAgent ? ' agent' : '')}>
         <div className="bh">
           {isAgent ? <AgentId agentRef={c.agentRef} threadId={c.threadId} /> : <><Ava>me</Ava><b>You</b></>}
+          {c.severity && (
+            // hotspot severity badge — deliberately NOT the resolved-verdict green/
+            // muted palette, so a hotspot never reads as an already-handled thread.
+            <span className={`sev-badge sev-${c.severity}`} title={c.severity === 'risk' ? 'Agent-flagged risk' : 'Agent note'}>
+              {c.severity}
+            </span>
+          )}
           <span className="dim">{locLabel}</span>
           {!isAgent && c.status === 'queued' && (
             <>
@@ -119,11 +140,15 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         {!merged && !editing && !isAgent && c.status !== 'sent' && (
           <div className="bf">
             {c.status !== 'resolved' && !confirmDel && <button onClick={() => setEditing(true)}>Edit</button>}
+            {c.status === 'resolved' && <RequeueButton c={c} />}
             {deleteControl}
           </div>
         )}
         {!merged && !editing && isAgent && (
-          <div className="bf">{deleteControl}</div>
+          <div className="bf">
+            {c.status === 'resolved' && <RequeueButton c={c} />}
+            {deleteControl}
+          </div>
         )}
       </div>
     </div>

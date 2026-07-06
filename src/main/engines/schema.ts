@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AgentQuestion, FocusTarget, ReviewAnnotations, Section } from '../../shared/types.js'
+import type { AgentQuestion, FocusTarget, Hotspot, ReviewAnnotations, Section } from '../../shared/types.js'
 
 // Wire schemas: schema-in-prompt output validated client-side by zod (no native
 // output-schema channel post-ACP). Keep shapes prompt-friendly: flat objects over
@@ -147,6 +147,14 @@ export function questionFromWire(q: WireQuestion): AgentQuestion {
   }
 }
 
+/** Normalize the wire's top-level `hotspots` (absent ⇒ []) into transient,
+ *  GENERATION-TRANSIENT `Hotspot`s — anchor normalized the same way block/diagram
+ *  anchors are (`normalizeWireAnchor`). Consumed once at the ipc post-merge seam
+ *  (`mintHotspotComments`); never part of a persisted `ReviewAnnotations`. */
+export function hotspotsFromWire(wire?: { anchor: WireAnchor; text: string; severity: Hotspot['severity'] }[]): Hotspot[] {
+  return (wire ?? []).map((h) => ({ anchor: normalizeWireAnchor(h.anchor), text: h.text, severity: h.severity }))
+}
+
 export function parseReviewOutput(raw: unknown): ReviewAnnotations {
   const wire = reviewWireSchema.parse(raw)
   return {
@@ -155,6 +163,7 @@ export function parseReviewOutput(raw: unknown): ReviewAnnotations {
     sections: wire.sections.map(sectionFromWire),
     planMap: wire.planMap ?? undefined,
     questions: wire.questions.map(questionFromWire),
-    artifactPaths: wire.artifactPaths ?? undefined
+    artifactPaths: wire.artifactPaths ?? undefined,
+    hotspots: hotspotsFromWire(wire.hotspots)
   }
 }

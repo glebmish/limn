@@ -9,7 +9,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -29,6 +29,7 @@ import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_O
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { stampAnnotationAnchors } from './engines/stampAnnotations.js'
+import { mintHotspotComments } from './engines/hotspots.js'
 import { scopedEligible, SCOPE_CHAIN_CAP } from './engines/scope.js'
 import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
@@ -214,6 +215,10 @@ interface GenResult {
   engineSession: string
   agentTurnText: string
   scope: 'full' | 'scoped'
+  /** A4: the full pass's pre-merge parsed hotspots (mergeAnnotations strips
+   *  `.hotspots` from `annotations` itself — see validate.ts). Undefined for a
+   *  scoped pass: the scoped wire schema has no hotspots field. */
+  hotspots?: Hotspot[]
 }
 
 /** Notify that a long-running agent op finished. Whether this surfaces (and the
@@ -627,7 +632,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths)
         return {
           annotations, warnings, engineSession, scope: 'full',
-          agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`
+          agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
+          hotspots: value.hotspots
         }
       }
 
@@ -698,7 +704,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         result = await runFullPass()
       }
 
-      const { annotations, warnings, engineSession, agentTurnText, scope } = result
+      const { annotations, warnings, engineSession, agentTurnText, scope, hotspots } = result
       annotations.generatedBy = agent   // lock "Guided by" to the producing agent
 
       // post-merge stamping seam: both the full pass (mergeAnnotations) and the
@@ -706,6 +712,26 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // converge on `annotations` here, before it is persisted below — one call
       // covers both. Mirrors add_comment's stamp-at-creation; never throws.
       await stampAnnotationAnchors(workdir, session, annotations)
+
+      // this iteration's number is minted here (rather than down at addIteration)
+      // so hotspot comments below can carry the SAME `iteration`, before the row
+      // exists — nextIterationNumber is a pure MAX(n)+1 read, no side effect.
+      const iterationN = dao.nextIterationNumber(db, sessionId)
+
+      // A4: hotspots are a full-generation concept, read from the PRE-merge parsed
+      // value (GenResult.hotspots — undefined on a scoped pass, which has none in
+      // its wire schema) and minted into anchored, resolved agent comments here —
+      // never carried on `annotations` itself (mergeAnnotations strips the field).
+      // knownFiles mirrors mergeAnnotations' own file-in-diff gate (skeleton ∪
+      // untracked); stamping mirrors add_comment's stamp-at-creation.
+      if (hotspots && hotspots.length > 0) {
+        const knownFiles = new Set([...skeleton.files.map((f) => f.path), ...untrackedPaths])
+        const minted = mintHotspotComments(hotspots, { knownFiles, iteration: iterationN })
+        for (const c of minted) {
+          const stamped = await stampAnchor(workdir, session, c.anchor)
+          dao.upsertComment(db, sessionId, { ...c, anchor: stamped })
+        }
+      }
 
       for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
       if (annotations.artifactPaths) {
@@ -727,7 +753,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         }
         dao.setArtifacts(db, sessionId, refs)
       }
-      const iterationN = dao.nextIterationNumber(db, sessionId)
       // the meta + review-thread finalization are one atomic group: a crash mid-way
       // must not leave annotations saved without the review thread bound to them.
       inTx(db, () => {

@@ -100,7 +100,11 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       }
     : undefined
 
-  return { annotations: { ...parsed, sections, planMap }, warnings }
+  // A4: `parsed.hotspots` is GENERATION-TRANSIENT (consumed once at the ipc
+  // post-merge seam via `mintHotspotComments`) — explicitly dropped here rather
+  // than spread through, so it can never leak into the persisted annotations.
+  const { hotspots: _hotspots, ...parsedRest } = parsed
+  return { annotations: { ...parsedRest, sections, planMap }, warnings }
 }
 
 /** Cheap DFS cycle check over a diagram's (already node-id-valid) edges. Cycles

@@ -65,6 +65,7 @@ export class FakeEngine implements ReviewEngine {
         narration: [{ text: `This section groups ${files.length} file${files.length > 1 ? 's' : ''} under ${dir}.` }]
       }))
       q.push({ type: 'status', text: 'Writing the guided review…' })
+      const firstFile = req.diff.files[0]?.path
       const value: ReviewAnnotations = {
         title: `Changes on ${req.branch}`,
         summary: `Demo review of ${req.diff.files.length} files grouped into ${sections.length} sections.`,
@@ -74,7 +75,14 @@ export class FakeEngine implements ReviewEngine {
           text: 'Demo question: should the config default stay as-is?',
           context: 'Top-level files',
           options: ['keep the current default', 'switch to the new default']
-        }]
+        }],
+        // A4 demo/smoke path: one sample hotspot so the mint-at-merge flow (and the
+        // renderer's severity badge + re-queue control) has something to show.
+        hotspots: firstFile ? [{
+          anchor: { kind: 'file', file: firstFile },
+          text: 'Demo hotspot: double-check this file for edge cases the tests may miss.',
+          severity: 'risk'
+        }] : []
       }
       q.push({ type: 'done' })
       q.close()

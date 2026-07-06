@@ -343,6 +343,17 @@
 .dthread .bf .del-confirm{color:var(--red);font-weight:600}
 .dthread .bf .del-confirm:hover{color:var(--red)}
 .dthread .bf .dim{font-size:11px;color:var(--muted);align-self:center}
+/* resolved-comment re-queue control (spec Decision 19) — an ordinary ghost
+   footer button, styled like "send-now" so it reads as an action, not a verdict */
+.dthread .bf .requeue{display:inline-flex;align-items:center;gap:4px;color:var(--accent-ink);font-weight:600}
+.dthread .bf .requeue:hover{color:var(--accent)}
+
+/* hotspot severity badge (A4) — deliberately NOT the resolved-verdict green/muted
+   palette (VERDICT_ICON), so an agent-flagged hotspot never reads as handled */
+.dthread .sev-badge{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.03em;
+  text-transform:uppercase;padding:1px 6px;border-radius:999px;line-height:1.6}
+.dthread .sev-badge.sev-risk{color:var(--red);background:var(--red-soft);border:1px solid var(--red-line)}
+.dthread .sev-badge.sev-note{color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-line)}
 
 @media (max-width:1180px){.gsec-cols{grid-template-columns:1fr}}
 

@@ -69,6 +69,12 @@ export interface ReviewSlice {
   addComment(anchor: CommentAnchor, text: string): Promise<string | null>
   editComment(comment: Comment, text: string): Promise<void>
   deleteComment(id: string): Promise<void>
+  /** Re-queue a resolved comment (reviewer-authored OR agent hotspot): flips
+   *  `status` back to 'queued' and persists it — nothing more. This is the ONLY
+   *  path a hotspot comment can take into the user's batch, and it is purely a
+   *  status flip: it does NOT send/dispatch anything to an agent (spec Decision
+   *  19) — the reviewer still clicks "Send now" separately once queued. */
+  requeueComment(comment: Comment): Promise<void>
 }
 
 export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (set, get) => ({
@@ -272,6 +278,13 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     const sessionId = await get().materialize()
     if (sessionId == null) return
     const state = await api().deleteComment(sessionId, id)
+    setComments(state.comments)
+  },
+
+  async requeueComment(comment) {
+    const sessionId = await get().materialize()
+    if (sessionId == null) return
+    const state = await api().upsertComment(sessionId, { ...comment, status: 'queued' })
     setComments(state.comments)
   }
 })

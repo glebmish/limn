@@ -102,6 +102,10 @@ export interface AgentQuestion {
   /** Short reviewer-selectable answers when the agent can name concrete choices. */
   options?: string[]
 }
+/** A full-generation agent-flagged risk/note, anchored at a diff spot. Becomes an
+ *  anchored `Comment` (author:'agent', status:'resolved') at the ipc post-merge
+ *  seam — never a persisted part of a review's narration. */
+export interface Hotspot { anchor: FocusTarget; text: string; severity: HotspotSeverity }
 export interface ReviewAnnotations {
   title: string; summary: string; sections: Section[];
   planMap?: PlanMap; questions: AgentQuestion[]; artifactPaths?: string[];
@@ -109,6 +113,12 @@ export interface ReviewAnnotations {
    *  generate time, so "Guided by" stays locked to it even if the regenerate
    *  picker is changed to a different agent. Not part of the engine's output. */
   generatedBy?: AgentRef;
+  /** GENERATION-TRANSIENT: populated by `parseReviewOutput` from the wire's
+   *  top-level `hotspots`; read once at the ipc post-merge seam to mint agent
+   *  comments (`mintHotspotComments`), then discarded. `mergeAnnotations`'
+   *  output never carries this field — hotspots are NOT part of the persisted
+   *  review record; once minted they live on as ordinary (resolved) comments. */
+  hotspots?: Hotspot[];
 }
 
 // ── comments ──────────────────────────────────────────────────
