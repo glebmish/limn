@@ -629,7 +629,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         const pump = pumpEvents(run.events, recorder.emit)
         const { value, sessionId: engineSession } = await run.result
         await pump
-        const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths)
+        const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths, new Set(artifacts.map((a) => a.path)))
         return {
           annotations, warnings, engineSession, scope: 'full',
           agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,

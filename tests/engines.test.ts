@@ -170,6 +170,57 @@ describe('mergeAnnotations', () => {
     // cyclic edges are kept (only warned about) — the renderer falls back to a list
     expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }])
   })
+
+  it('nulls a planMap acceptance source pointing at neither a diff file nor a known artifact, with a warning', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: 'a', name: 'A', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      planMap: {
+        acceptance: [{ text: 'does the thing', met: true, source: { path: 'src/GHOST.ts', line: 3 } }],
+        steps: [], deviations: []
+      },
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.includes('GHOST'))).toBe(true)
+    const crit = annotations.planMap!.acceptance[0]
+    expect(crit.text).toBe('does the thing') // entry kept
+    expect(crit.source).toBeUndefined() // source nulled
+  })
+
+  it('keeps a planMap acceptance source pointing at a changed diff file', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: 'a', name: 'A', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      planMap: {
+        acceptance: [{ text: 'does the thing', met: true, source: { path: 'src/a.ts', line: 2 } }],
+        steps: [], deviations: []
+      },
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    expect(warnings.some((w) => w.includes('src/a.ts'))).toBe(false)
+    expect(annotations.planMap!.acceptance[0].source).toEqual({ path: 'src/a.ts', line: 2 })
+  })
+
+  it('keeps a planMap acceptance source pointing at a known artifact path (not a diff file)', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: 'a', name: 'A', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      planMap: {
+        acceptance: [{ text: 'matches the spec', met: true, source: { path: 'docs/spec.md', line: 5 } }],
+        steps: [], deviations: []
+      },
+      questions: []
+    } as const
+    const artifactPaths = new Set(['docs/spec.md'])
+    const { annotations, warnings } = mergeAnnotations(sk, raw as any, new Set(), artifactPaths)
+    expect(warnings.some((w) => w.includes('docs/spec.md'))).toBe(false)
+    expect(annotations.planMap!.acceptance[0].source).toEqual({ path: 'docs/spec.md', line: 5 })
+  })
 })
 
 describe('FakeEngine contract', () => {

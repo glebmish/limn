@@ -5,6 +5,7 @@ import { narrationText } from '../../shared/types'
 import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
+import { focusAnchor } from '../lib/focus'
 import { FileTree } from './FileTree'
 import { Composer, InlineThread } from './Threads'
 
@@ -74,6 +75,18 @@ export function ReviewSidebar({
   const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const stepComments = (n: number) => comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
   const criterionComments = (i: number) => comments.filter((c) => c.anchor.kind === 'acceptance' && c.anchor.index === i)
+  // An acceptance criterion's `source` (integrity-gated in mergeAnnotations — only
+  // ever a diff file or a detected artifact) jumps the reviewer to where it's
+  // grounded: a diff-file source flashes the exact line via focusAnchor; an
+  // artifact-path source opens the rendered doc (no per-line scroll target exists
+  // there yet, so opening it is the useful thing a click can do).
+  const jumpToSource = (source: { path: string; line?: number }): void => {
+    if (loaded.skeleton.files.some((f) => f.path === source.path)) {
+      focusAnchor({ kind: 'diff', file: source.path, side: 'new', line: source.line ?? 1, hunkRange: '', lineContent: '' })
+    } else {
+      useStore.getState().openDoc(source.path)
+    }
+  }
   return (
     <nav className="gside" aria-label="Review sections">
       {artifacts.length > 0 && (
@@ -112,8 +125,12 @@ export function ReviewSidebar({
                   {a.role === 'spec' && annotations?.planMap ? (
                     annotations.planMap.acceptance.map((crit, i) => (
                       <Fragment key={i}>
-                        <div className={'spec-req' + (crit.met === true ? ' met' : '')}>
-                          <CmtPlus extra="peek-plus" onClick={() => setCommentCriterion(i)} />
+                        <div
+                          className={'spec-req' + (crit.met === true ? ' met' : '') + (crit.source ? ' has-source' : '')}
+                          title={crit.source ? `Grounded in ${crit.source.path}${crit.source.line ? `:${crit.source.line}` : ''} — click to jump there` : undefined}
+                          {...(crit.source ? clickable(() => jumpToSource(crit.source!)) : {})}
+                        >
+                          <CmtPlus extra="peek-plus" stop onClick={() => setCommentCriterion(i)} />
                           <span className="req-dot"></span>
                           <span className="req-t">{crit.text}</span>
                           <span className="req-st">{crit.met === true ? 'done' : crit.met === 'partial' ? 'partial' : 'open'}</span>

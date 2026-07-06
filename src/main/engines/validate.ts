@@ -11,7 +11,7 @@ export interface MergeResult {
  *  candidates — the agent may section the relevant ones, but unsectioned untracked
  *  files are NOT swept into "Other changes"; they stay orphan and are auto-excluded
  *  from the review by the renderer. */
-export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotations, untracked: ReadonlySet<string> = new Set()): MergeResult {
+export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotations, untracked: ReadonlySet<string> = new Set(), artifactPaths: ReadonlySet<string> = new Set()): MergeResult {
   const warnings: string[] = []
   const known = new Set([...skeleton.files.map((f) => f.path), ...untracked])
   const assigned = new Set<string>()
@@ -92,9 +92,20 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
 
   // valid sectionId references only
   const ids = new Set(sections.map((s) => s.id))
+  // Acceptance-criterion `source` integrity: a citation is only trustworthy if it
+  // points at either a file the diff actually touched OR a detected artifact
+  // (spec/plan) — anything else is a hallucinated path, so the source is dropped
+  // (the acceptance entry itself is kept; only the grounding link is stripped).
+  const knownSource = new Set([...known, ...artifactPaths])
   const planMap = parsed.planMap
     ? {
         ...parsed.planMap,
+        acceptance: parsed.planMap.acceptance.map((a) => {
+          if (!a.source || knownSource.has(a.source.path)) return a
+          warnings.push(`acceptance criterion "${a.text}" cites unknown source ${a.source.path} — source dropped`)
+          const { source: _drop, ...rest } = a
+          return rest
+        }),
         steps: parsed.planMap.steps.map((st) => (ids.has(st.sectionId) ? st : { ...st, sectionId: '' })),
         deviations: parsed.planMap.deviations.filter((d) => ids.has(d.sectionId) || d.sectionId === '')
       }

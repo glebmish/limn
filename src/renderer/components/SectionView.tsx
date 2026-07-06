@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Diagram, DiagramNode2, FileDiff, Section } from '../../shared/types'
+import type { BehaviorContrast, Diagram, DiagramNode2, FileDiff, Section } from '../../shared/types'
 import { narrationText } from '../../shared/types'
 import { I, CmtPlus, DiagramNodeBox, Flow } from '../kit'
 import { GUIDANCE, sectionDisclosureState, useStore } from '../store'
@@ -65,6 +65,31 @@ function DiagramView({ d }: { d: Diagram }) {
   )
 }
 
+/** Compact two-row "was"/"now" strip — the densest educational unit (spec A5):
+ *  a before/after behavior contrast, rendered directly above the narration so
+ *  the reviewer sees what changed in outcome before reading why. */
+function ContrastStrip({ c }: { c: BehaviorContrast }) {
+  return (
+    <div className="gsec-contrast">
+      <div className="gsec-contrast-row was"><span className="gc-label">Was</span><span className="gc-text">{c.was}</span></div>
+      <div className="gsec-contrast-row now"><span className="gc-label">Now</span><span className="gc-text">{c.now}</span></div>
+    </div>
+  )
+}
+
+/** `verify`: a copyable one-liner (e.g. a test/repro command) the reviewer can
+ *  run to confirm the section's behavior — a chip, not prose, since it's meant
+ *  to be copy-pasted rather than read. */
+function VerifyChip({ v }: { v: string }) {
+  return (
+    <button type="button" className="gsec-verify" title="Copy to clipboard" onClick={() => void navigator.clipboard.writeText(v)}>
+      <I.copy style={{ width: 11, height: 11 }} />
+      <span className="gv-label">Verify</span>
+      <code className="gv-cmd">{v}</code>
+    </button>
+  )
+}
+
 export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   s: Section
   n: number
@@ -108,6 +133,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             {!done && !open && !reReview && <span className="pill pill-unrev">unreviewed</span>}
             {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />viewed</span>}
           </div>
+          {open && showCtx && s.contrast && <ContrastStrip c={s.contrast} />}
           {open && showCtx && s.narration.length > 0 && (
             <Commentable scope={{ region: 'section', sectionId: s.id }}>
               <div className="gsec-narration">
@@ -117,6 +143,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               </div>
             </Commentable>
           )}
+          {open && showCtx && s.verify && <VerifyChip v={s.verify} />}
           {!open && !done && (
             <div className="gsec-collapsed-sub" title={narrationText(s) || undefined}>
               {files.length} file{files.length === 1 ? '' : 's'}{narrationText(s) ? ` · ${narrationText(s)}` : ''}

@@ -75,6 +75,8 @@
 .spec-req .req-t{flex:1 1 auto;min-width:0}
 .spec-req .req-st{flex:0 0 auto;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-2);display:flex;align-items:center;margin-top:1px}
 .spec-req.met .req-st{color:var(--accent)}
+.spec-req.has-source{cursor:pointer}
+.spec-req.has-source:hover .req-t{color:var(--ink)}
 .gnav-planlabel{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 13px 9px}
 .gnav-planlabel .pl-l{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);white-space:nowrap}
 .gnav-planlabel .pl-l svg{color:var(--accent)}

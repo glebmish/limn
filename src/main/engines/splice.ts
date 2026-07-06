@@ -157,7 +157,10 @@ export function spliceScopedUpdate(
   }
 
   // ── Step 8: validate exactly like today via the existing mergeAnnotations ────
-  const { annotations, warnings } = mergeAnnotations(currentSkeleton, spliced, untrackedPaths)
+  // Scoped patches rarely touch planMap acceptance sources; `prior.artifactPaths`
+  // (the agent-declared list carried over unchanged at Step 7 above) is threaded
+  // through as the best available artifact set rather than an empty one.
+  const { annotations, warnings } = mergeAnnotations(currentSkeleton, spliced, untrackedPaths, new Set(prior.artifactPaths ?? []))
 
   // ── Step 9: post-merge quality signal (Q5 — WARN, do NOT fall back) ──────────
   const other = annotations.sections.find((s) => s.id === OTHER_CHANGES_ID)
