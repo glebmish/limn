@@ -82,9 +82,22 @@ const LIST_COMMENTS_INPUT = { status: z.enum(['queued', 'sent', 'resolved', 'out
 const GET_REVIEW_INPUT = {} satisfies z.ZodRawShape
 const GET_PROGRESS_INPUT = {} satisfies z.ZodRawShape
 const EDIT_REVIEW_INPUT = {
-  field: z.enum(['title', 'summary']),
+  field: z.enum(['title', 'summary', 'section.block', 'section.contrast', 'section.verify']),
   sectionId: z.string().optional(),
-  value: z.string()
+  blockIndex: z.number().int().optional(),
+  op: z.enum(['replace', 'insert', 'delete']).optional(),
+  // title / summary / section.block / section.verify all read `value`; section.contrast
+  // reads `was`/`now` instead (deliberately not overloaded onto value). All optional at
+  // the schema level (cheap omission, no repair turn) — per-field presence is validated
+  // in the handler, where the error can name exactly what's missing.
+  value: z.string().optional(),
+  was: z.string().optional(),
+  now: z.string().optional()
+} satisfies z.ZodRawShape
+const UPDATE_PLAN_STATUS_INPUT = {
+  index: z.number().int(),
+  met: z.union([z.boolean(), z.literal('partial')]),
+  note: z.string()
 } satisfies z.ZodRawShape
 
 let commentSeq = 0
@@ -267,14 +280,22 @@ const TOOL_IMPLS: ToolImpl[] = [
   },
   {
     name: 'get_review',
-    description: 'Get the current guided review (title, summary, and each section’s name/narration) so you can reference or edit it.',
+    description:
+      'Get the current guided review (title, summary, and each section’s name/narration/' +
+      'contrast/verify) so you can reference or edit it. A section’s `narration` array is ' +
+      'indexed — array position is the `blockIndex` edit_review expects.',
     input: GET_REVIEW_INPUT,
     run: (ctx) => {
       const ann = loadReviewState(ctx.db, ctx.sessionId).annotations
       if (!ann) return { result: 'No review has been generated yet.' }
       const slim = {
         title: ann.title, summary: ann.summary,
-        sections: ann.sections.map((s) => ({ id: s.id, name: s.name, narration: s.narration.map((b) => b.text) }))
+        sections: ann.sections.map((s) => ({
+          id: s.id, name: s.name,
+          narration: s.narration.map((b) => b.text), // index === blockIndex
+          ...(s.contrast ? { contrast: s.contrast } : {}),
+          ...(s.verify ? { verify: s.verify } : {})
+        }))
       }
       return { result: JSON.stringify(slim) }
     }
@@ -306,19 +327,82 @@ const TOOL_IMPLS: ToolImpl[] = [
   {
     name: 'edit_review',
     description:
-      'Amend the guided review in place — the title or the summary — e.g. to add detail a ' +
-      'reviewer’s question surfaced. Does not regenerate the whole review.',
+      'Amend the guided review in place — the title, the summary, or (with sectionId) a ' +
+      'section\'s narration block (insert/replace/delete at blockIndex — see get_review\'s ' +
+      'indexed narration array), its behavior contrast (was/now), or its verify step — e.g. ' +
+      'to add detail a reviewer\'s question surfaced. Does not regenerate the whole review.',
     input: EDIT_REVIEW_INPUT,
     run: (ctx, raw) => {
-      const { field, sectionId, value } = raw as z.infer<z.ZodObject<typeof EDIT_REVIEW_INPUT>>
+      const { field, sectionId, blockIndex, op, value, was, now } = raw as z.infer<z.ZodObject<typeof EDIT_REVIEW_INPUT>>
       const ann: ReviewAnnotations | undefined = loadReviewState(ctx.db, ctx.sessionId).annotations
       if (!ann) throw new Error('No review to edit yet — generate one first')
-      if (field === 'title') ann.title = value
-      else ann.summary = value
+
+      function requireValue(): string {
+        if (value === undefined) throw new Error(`edit_review field ${field} requires a value`)
+        return value
+      }
+      function findSection() {
+        if (!sectionId) throw new Error(`edit_review field ${field} requires a sectionId`)
+        const s = ann!.sections.find((sec) => sec.id === sectionId)
+        if (!s) throw new Error(`No section with id ${sectionId}`)
+        return s
+      }
+
+      if (field === 'title') ann.title = requireValue()
+      else if (field === 'summary') ann.summary = requireValue()
+      else if (field === 'section.block') {
+        const s = findSection()
+        if (!op) throw new Error('edit_review field section.block requires an op')
+        if (blockIndex === undefined) throw new Error('edit_review field section.block requires a blockIndex')
+        const maxIndex = op === 'insert' ? s.narration.length : s.narration.length - 1
+        if (blockIndex < 0 || blockIndex > maxIndex) {
+          throw new Error(`blockIndex ${blockIndex} out of range for section ${sectionId} (${s.narration.length} block(s))`)
+        }
+        if (op === 'replace') {
+          const anchor = s.narration[blockIndex].anchor
+          s.narration[blockIndex] = { text: requireValue(), ...(anchor ? { anchor } : {}) }
+        } else if (op === 'insert') {
+          s.narration.splice(blockIndex, 0, { text: requireValue() })
+        } else {
+          s.narration.splice(blockIndex, 1) // delete needs no value
+        }
+      } else if (field === 'section.contrast') {
+        const s = findSection()
+        if (was === undefined || now === undefined) throw new Error('edit_review field section.contrast requires was and now')
+        s.contrast = { was, now }
+      } else {
+        const s = findSection()
+        s.verify = requireValue()
+      }
+
       updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
       return {
         result: `Updated ${field}${sectionId ? ` of section ${sectionId}` : ''}.`,
         action: { kind: 'review_edited', field, ...(sectionId ? { sectionId } : {}) }
+      }
+    }
+  },
+  {
+    name: 'update_plan_status',
+    description:
+      'Flip an acceptance criterion\'s met status (true, false, or "partial") with a short ' +
+      'note explaining why — e.g. once you\'ve verified it against the code or the reviewer ' +
+      'has confirmed it. Addresses the planMap acceptance list by index (see get_review or the ' +
+      'plan artifact for indices).',
+    input: UPDATE_PLAN_STATUS_INPUT,
+    run: (ctx, raw) => {
+      const { index, met, note } = raw as z.infer<z.ZodObject<typeof UPDATE_PLAN_STATUS_INPUT>>
+      const ann: ReviewAnnotations | undefined = loadReviewState(ctx.db, ctx.sessionId).annotations
+      if (!ann) throw new Error('No review to edit yet — generate one first')
+      if (!ann.planMap) throw new Error('This review has no planMap to update')
+      if (index < 0 || index >= ann.planMap.acceptance.length) {
+        throw new Error(`index ${index} out of range (${ann.planMap.acceptance.length} acceptance criteria)`)
+      }
+      ann.planMap.acceptance[index].met = met
+      updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
+      return {
+        result: `Marked acceptance criterion ${index + 1} as ${met} (${note}).`,
+        action: { kind: 'plan_status_updated', index, met }
       }
     }
   }
@@ -342,7 +426,8 @@ export function limnAllowedToolNames(): string[] {
  *  on purpose — do NOT derive it from LIMN_TOOLS, so a new tool can't ride in. */
 export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'point', 'suggest_mark_viewed', 'list_comments', 'add_comment',
-  'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress', 'edit_review'
+  'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress', 'edit_review',
+  'update_plan_status'
 ])
 
 /** Fail loudly if any tool isn't cleared for the engines' blanket auto-accept

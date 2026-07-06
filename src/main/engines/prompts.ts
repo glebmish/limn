@@ -323,7 +323,7 @@ ${list}
 ${REVIEWER_TEXT_POLICY}
 
 Fold these decisions into the guided review:
-- Where a decision changes how the title or summary should read, update it with edit_review (fields: title, summary).
+- Where a decision changes how the review should read, update it with edit_review (fields: title, summary, section.block, section.contrast, section.verify).
 - Then call resolve_comment for each (verdict "addressed", with a one-line note on what you changed or confirmed).
 - When you reference a specific file or diff line, call focus to point the reviewer at it.
 This is a read-only review refinement: you may read files and run read-only git commands, but do NOT modify any files and do NOT commit.`

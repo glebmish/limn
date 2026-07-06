@@ -28,7 +28,7 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'get_review_progress', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
+const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'get_review_progress', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed', 'update_plan_status']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
@@ -306,13 +306,27 @@ describe('review edit tools (real temp DB)', () => {
     base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
     compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
   }
-  const annotations: ReviewAnnotations = {
-    title: 'Old title', summary: 'Old summary',
-    sections: [{ id: 's1', name: 'Auth', narration: [{ text: 'old what' }], files: ['src/a.ts'] }],
-    questions: []
+  const anchoredTarget = { kind: 'diff', file: 'src/a.ts', side: 'new', line: 3, hunkRange: '@@', lineContent: 'x' } as const
+  function baseAnnotations(): ReviewAnnotations {
+    return {
+      title: 'Old title', summary: 'Old summary',
+      sections: [{
+        id: 's1', name: 'Auth', files: ['src/a.ts'],
+        narration: [
+          { text: 'framing block' },
+          { text: 'anchored block', anchor: anchoredTarget }
+        ]
+      }],
+      planMap: {
+        acceptance: [{ text: 'Handles auth', met: 'partial' }],
+        steps: [],
+        deviations: []
+      },
+      questions: []
+    }
   }
 
-  function setup(): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number } {
+  function setup(annotations: ReviewAnnotations = baseAnnotations()): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number } {
     const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-rev-')), 'db')).db
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
@@ -324,12 +338,29 @@ describe('review edit tools (real temp DB)', () => {
     return { db, ctx, sessionId: s.id }
   }
 
-  it('get_review returns the current title + sections', async () => {
+  it('get_review returns the current title + indexed narration + contrast/verify presence', async () => {
     const { ctx } = setup()
     const { result } = await createToolHost(ctx).call('get_review', {})
-    const parsed = JSON.parse(result) as { title: string; sections: { narration: string[] }[] }
+    const parsed = JSON.parse(result) as {
+      title: string
+      sections: { narration: string[]; contrast?: unknown; verify?: string }[]
+    }
     expect(parsed.title).toBe('Old title')
-    expect(parsed.sections[0].narration).toEqual(['old what'])
+    // array position == blockIndex, so block addressing lines up
+    expect(parsed.sections[0].narration).toEqual(['framing block', 'anchored block'])
+    expect(parsed.sections[0].contrast).toBeUndefined()
+    expect(parsed.sections[0].verify).toBeUndefined()
+  })
+
+  it('get_review surfaces contrast + verify when set', async () => {
+    const ann = baseAnnotations()
+    ann.sections[0].contrast = { was: 'threw', now: 'returns null' }
+    ann.sections[0].verify = 'run the auth test suite'
+    const { ctx } = setup(ann)
+    const { result } = await createToolHost(ctx).call('get_review', {})
+    const parsed = JSON.parse(result) as { sections: { contrast?: { was: string; now: string }; verify?: string }[] }
+    expect(parsed.sections[0].contrast).toEqual({ was: 'threw', now: 'returns null' })
+    expect(parsed.sections[0].verify).toBe('run the auth test suite')
   })
 
   it('edit_review patches the summary and syncs the denormalized column', async () => {
@@ -341,8 +372,126 @@ describe('review edit tools (real temp DB)', () => {
     expect(action).toMatchObject({ kind: 'review_edited', field: 'summary' })
   })
 
-  // section editing (section.what / section.desc) is narrowed away interim — B3
-  // reintroduces block-addressed section edits.
+  it('edit_review patches the title', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { action } = await createToolHost(ctx).call('edit_review', { field: 'title', value: 'New title' })
+    expect(loadReviewState(db, sessionId).annotations!.title).toBe('New title')
+    expect(action).toMatchObject({ kind: 'review_edited', field: 'title' })
+  })
+
+  it('edit_review section.block replace overwrites text and preserves an existing anchor', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { action } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 1, op: 'replace', value: 'rewritten anchored block'
+    })
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.narration[1]).toEqual({ text: 'rewritten anchored block', anchor: anchoredTarget })
+    expect(sec.narration).toHaveLength(2)
+    expect(action).toMatchObject({ kind: 'review_edited', field: 'section.block', sectionId: 's1' })
+  })
+
+  it('edit_review section.block replace on an unanchored block stays unanchored', async () => {
+    const { db, ctx, sessionId } = setup()
+    await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 0, op: 'replace', value: 'rewritten framing'
+    })
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.narration[0]).toEqual({ text: 'rewritten framing' })
+  })
+
+  it('edit_review section.block insert splices a new block at the index', async () => {
+    const { db, ctx, sessionId } = setup()
+    await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 1, op: 'insert', value: 'inserted block'
+    })
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.narration.map((b) => b.text)).toEqual(['framing block', 'inserted block', 'anchored block'])
+    expect(sec.narration[2].anchor).toEqual(anchoredTarget) // shifted, not mutated
+  })
+
+  it('edit_review section.block delete removes the block at the index (no value needed)', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { isError } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 0, op: 'delete'
+    })
+    expect(isError).toBeFalsy()
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.narration).toEqual([{ text: 'anchored block', anchor: anchoredTarget }])
+  })
+
+  it('edit_review section.block replace throws when value is omitted', async () => {
+    const { ctx } = setup()
+    const { isError, result } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 0, op: 'replace'
+    })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/requires a value/)
+  })
+
+  it('edit_review section.block throws on an out-of-range blockIndex', async () => {
+    const { ctx } = setup()
+    const { isError, result } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 's1', blockIndex: 5, op: 'replace', value: 'x'
+    })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/blockIndex/)
+  })
+
+  it('edit_review section.block throws on an unknown sectionId', async () => {
+    const { ctx } = setup()
+    const { isError, result } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.block', sectionId: 'nope', blockIndex: 0, op: 'replace', value: 'x'
+    })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/No section with id nope/)
+  })
+
+  it('edit_review section.contrast sets was/now', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { action } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.contrast', sectionId: 's1', was: 'threw on missing token', now: 'returns null'
+    })
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.contrast).toEqual({ was: 'threw on missing token', now: 'returns null' })
+    expect(action).toMatchObject({ kind: 'review_edited', field: 'section.contrast', sectionId: 's1' })
+  })
+
+  it('edit_review section.verify sets verify', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { action } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.verify', sectionId: 's1', value: 'run `npm test tests/auth`'
+    })
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
+    expect(sec.verify).toBe('run `npm test tests/auth`')
+    expect(action).toMatchObject({ kind: 'review_edited', field: 'section.verify', sectionId: 's1' })
+  })
+
+  it('update_plan_status flips acceptance[index].met (partial -> true) with a note, emits + persists', async () => {
+    const { db, ctx, sessionId } = setup()
+    const { isError, action } = await createToolHost(ctx).call('update_plan_status', {
+      index: 0, met: true, note: 'confirmed by test run'
+    })
+    expect(isError).toBeFalsy()
+    const planMap = loadReviewState(db, sessionId).annotations!.planMap!
+    expect(planMap.acceptance[0].met).toBe(true)
+    expect(action).toEqual({ kind: 'plan_status_updated', index: 0, met: true })
+  })
+
+  it('update_plan_status throws on an out-of-range index', async () => {
+    const { ctx } = setup()
+    const { isError, result } = await createToolHost(ctx).call('update_plan_status', { index: 9, met: true, note: 'x' })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/index/)
+  })
+
+  it('update_plan_status throws when there is no planMap', async () => {
+    const ann = baseAnnotations()
+    delete ann.planMap
+    const { ctx } = setup(ann)
+    const { isError, result } = await createToolHost(ctx).call('update_plan_status', { index: 0, met: true, note: 'x' })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/planMap/)
+  })
 })
 
 describe('get_review_progress (real temp DB)', () => {
