@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolDef, type ToolHostCtx } from '../src/main/engines/tools'
 import { FakeEngine } from '../src/main/engines/fake'
 import { openDb } from '../src/main/db/db'
-import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta } from '../src/main/db/sessions'
+import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta, replaceUiState } from '../src/main/db/sessions'
 import type { AgentAction, Comment, EngineEvent, RefPair, ReviewAnnotations } from '../src/shared/types'
 
 function makeCtx(over: Partial<ToolHostCtx> = {}): { ctx: ToolHostCtx; events: EngineEvent[] } {
@@ -28,7 +28,7 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
+const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'get_review_progress', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
@@ -343,6 +343,61 @@ describe('review edit tools (real temp DB)', () => {
 
   // section editing (section.what / section.desc) is narrowed away interim — B3
   // reintroduces block-addressed section edits.
+})
+
+describe('get_review_progress (real temp DB)', () => {
+  const pair: RefPair = {
+    base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
+    compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
+  }
+  function comment(id: string, status: Comment['status']): Comment {
+    return {
+      id, anchor: { kind: 'file', file: 'src/a.ts' }, author: 'user', text: `c-${id}`,
+      status, replies: [], createdAt: 'now', iteration: 0
+    }
+  }
+
+  function setup(): { db: DatabaseSync; ctx: ToolHostCtx; sessionId: number } {
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-progress-')), 'db')).db
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    replaceUiState(db, s.id, {
+      viewedAt: { 'src/a.ts': { sha: 'c'.repeat(40), hash: 'hash1' } },
+      reviewedSections: ['s1']
+    })
+    upsertComment(db, s.id, comment('c1', 'queued'))
+    upsertComment(db, s.id, comment('c2', 'sent'))
+    upsertComment(db, s.id, comment('c3', 'resolved'))
+    upsertComment(db, s.id, comment('c4', 'outdated'))
+    const ctx: ToolHostCtx = {
+      db, sessionId: s.id, threadId: t.id, opId: 'o', repo: '/repo',
+      agent: { engine: 'claude' }, emit: () => {}
+    }
+    return { db, ctx, sessionId: s.id }
+  }
+
+  it('reports viewed files, reviewed sections, and comment counts by status', async () => {
+    const { ctx } = setup()
+    const { result, isError } = await createToolHost(ctx).call('get_review_progress', {})
+    expect(isError).toBeFalsy()
+    const parsed = JSON.parse(result) as {
+      viewed_files: string[]; reviewed_sections: string[]
+      comments: { queued: number; sent: number; resolved: number; outdated: number }
+    }
+    expect(parsed.viewed_files).toEqual(['src/a.ts'])
+    expect(parsed.reviewed_sections).toEqual(['s1'])
+    expect(parsed.comments).toEqual({ queued: 1, sent: 1, resolved: 1, outdated: 1 })
+  })
+
+  it('is read-only: emits no action and collects nothing', async () => {
+    const { ctx } = setup()
+    const events: EngineEvent[] = []
+    const host = createToolHost({ ...ctx, emit: (e) => events.push(e) })
+    const { action } = await host.call('get_review_progress', {})
+    expect(action).toBeUndefined()
+    expect(events).toEqual([])
+    expect(host.collected()).toEqual([])
+  })
 })
 
 // commit_changes was removed — the agent commits via git through its own shell,

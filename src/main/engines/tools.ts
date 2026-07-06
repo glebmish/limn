@@ -80,6 +80,7 @@ const RESOLVE_INPUT = {
 } satisfies z.ZodRawShape
 const LIST_COMMENTS_INPUT = { status: z.enum(['queued', 'sent', 'resolved', 'outdated']).optional() } satisfies z.ZodRawShape
 const GET_REVIEW_INPUT = {} satisfies z.ZodRawShape
+const GET_PROGRESS_INPUT = {} satisfies z.ZodRawShape
 const EDIT_REVIEW_INPUT = {
   field: z.enum(['title', 'summary']),
   sectionId: z.string().optional(),
@@ -279,6 +280,30 @@ const TOOL_IMPLS: ToolImpl[] = [
     }
   },
   {
+    name: 'get_review_progress',
+    description:
+      'Get a compact snapshot of review progress: which files/sections the reviewer has ' +
+      'marked viewed, and comment counts by status (queued/sent/resolved/outdated). Call this ' +
+      'to calibrate what to suggest next — e.g. don\'t re-suggest a file already viewed, and ' +
+      'check for queued comments before wrapping up.',
+    input: GET_PROGRESS_INPUT,
+    run: (ctx) => {
+      const state = loadReviewState(ctx.db, ctx.sessionId)
+      const comments = { queued: 0, sent: 0, resolved: 0, outdated: 0 }
+      for (const c of state.comments) comments[c.status]++
+      const slim = {
+        viewed_files: Object.keys(state.viewedAt),
+        reviewed_sections: state.reviewedSections,
+        comments,
+        // Live commit/file drift requires shelling out to git (async); this tool stays
+        // synchronous + read-only, so it surfaces only the cheap, already-loaded anchor —
+        // not a computed delta. Callers wanting the real drift use the fetch-pill path.
+        drift: { since_sha: state.reviewedAtSha ?? null, note: 'counts only — live git drift not computed here' }
+      }
+      return { result: JSON.stringify(slim) }
+    }
+  },
+  {
     name: 'edit_review',
     description:
       'Amend the guided review in place — the title or the summary — e.g. to add detail a ' +
@@ -317,7 +342,7 @@ export function limnAllowedToolNames(): string[] {
  *  on purpose — do NOT derive it from LIMN_TOOLS, so a new tool can't ride in. */
 export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'point', 'suggest_mark_viewed', 'list_comments', 'add_comment',
-  'reply_to_comment', 'resolve_comment', 'get_review', 'edit_review'
+  'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress', 'edit_review'
 ])
 
 /** Fail loudly if any tool isn't cleared for the engines' blanket auto-accept
