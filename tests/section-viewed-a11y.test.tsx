@@ -18,7 +18,7 @@ function file(path: string): FileDiff {
   } as unknown as FileDiff
 }
 const vm = (sha = 's'): ViewMark => ({ sha, hash: 'h' })
-const section = (name: string): Section => ({ id: 's1', name } as unknown as Section)
+const section = (name: string): Section => ({ id: 's1', name, narration: [] } as unknown as Section)
 
 // zustand v5's `useStore` server snapshot reads `getInitialState()` (react.mjs), so
 // `renderToStaticMarkup` sees the INITIAL store state and ignores `setState`. Seed the

@@ -44,14 +44,11 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
     sections.push({
       id: 'other-changes',
       name: 'Other changes',
-      desc: 'Files the agent did not group into a section.',
-      what: 'Remaining changes in this branch.',
-      files: strays,
-      order: sections.length + 1
+      narration: [{ text: 'Remaining changes in this branch the agent did not group into a section.' }],
+      files: strays
     })
   }
 
-  sections.sort((a, b) => a.order - b.order)
   // valid sectionId references only
   const ids = new Set(sections.map((s) => s.id))
   const planMap = parsed.planMap

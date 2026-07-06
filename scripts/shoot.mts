@@ -15,6 +15,7 @@ import {
   addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment, setArtifacts
 } from '../src/main/db/sessions'
 import type { RefPair } from '../src/shared/types'
+import { narrationText } from '../src/shared/types'
 
 const fx = makeFixtureRepo()
 // recognized-format spec + plan written on the branch (Superpowers convention),
@@ -190,7 +191,7 @@ upsertComment(db, session.id, {
 // follow-up pass: comment on the title, an acceptance criterion, a deviation, a
 // hunk, and text selections in the narration + the doc (proves "comment on
 // everything" + text-selection commenting).
-const narration = annotations.sections[0]?.what ?? 'the narration'
+const narration = (annotations.sections[0] ? narrationText(annotations.sections[0]) : '') || 'the narration'
 const narrationQuote = narration.split(' ').slice(0, 4).join(' ')
 upsertComment(db, session.id, {
   id: 'user-title1', anchor: { kind: 'title' },

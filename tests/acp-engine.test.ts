@@ -56,10 +56,11 @@ afterEach(() => {
 const validReview = {
   title: 'T',
   summary: 'S',
-  sections: [{ id: 'a', name: 'A', desc: 'd', what: 'w', files: ['x.ts'], order: 1, diagram: null, insight: null, plainNotes: null }],
+  sections: [{ id: 'a', name: 'A', narration: [{ text: 'w' }], files: ['x.ts'] }],
   planMap: null,
   questions: [],
-  artifactPaths: null
+  artifactPaths: null,
+  hotspots: []
 }
 
 describe('AcpEngine e2e against FakeAcpAgent', () => {
@@ -352,8 +353,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
       title: null,
       summary: null,
       revisedSections: [{
-        id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts', 'src/c.ts'], order: 1,
-        diagram: null, insight: null, plainNotes: null
+        id: 's1', name: 'src', narration: [{ text: 'w' }], files: ['src/a.ts', 'src/c.ts']
       }],
       deletedSectionIds: [],
       keptSectionIds: ['s2'],
@@ -369,8 +369,8 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
       title: 'Prior title',
       summary: 'Prior summary',
       sections: [
-        { id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts'], order: 1 },
-        { id: 's2', name: 'docs', desc: 'd', what: 'w', files: ['docs/x.md'], order: 2 }
+        { id: 's1', name: 'src', narration: [{ text: 'w' }], files: ['src/a.ts'] },
+        { id: 's2', name: 'docs', narration: [{ text: 'w' }], files: ['docs/x.md'] }
       ],
       questions: []
     }

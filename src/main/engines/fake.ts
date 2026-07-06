@@ -13,18 +13,15 @@ function topDir(p: string): string {
   return p.includes('/') ? p.split('/')[0] : '(root)'
 }
 
-/** A revised/new section body in wire shape (nullable diagram/insight/plainNotes),
- *  byte-identical in shape to a fresh generation's section. */
-function wireSection(id: string, name: string, files: string[], order: number, revised: boolean): WireSection {
+/** A revised/new section body in wire shape, byte-identical in shape to a fresh
+ *  generation's section. `afterSectionId` places a genuinely new section right
+ *  after the section owning its dir (falls back to append when there's no owner). */
+function wireSection(id: string, name: string, files: string[], revised: boolean, afterSectionId?: string): WireSection {
   return {
     id, name,
-    desc: revised ? `Changes under ${name} (updated for the drift).` : `New area ${name} introduced by the drift.`,
-    what: `${revised ? 'Revised' : 'Added'} for ${files.length} changed file${files.length > 1 ? 's' : ''} in ${name}.`,
+    narration: [{ text: `${revised ? 'Revised' : 'Added'} for ${files.length} changed file${files.length > 1 ? 's' : ''} in ${name}.` }],
     files,
-    order,
-    diagram: null,
-    insight: null,
-    plainNotes: null
+    ...(afterSectionId ? { afterSectionId } : {})
   }
 }
 
@@ -64,10 +61,8 @@ export class FakeEngine implements ReviewEngine {
       const sections = [...byDir.entries()].map(([dir, files], i) => ({
         id: `s${i + 1}`,
         name: dir === '(root)' ? 'Top-level files' : dir,
-        desc: `Changes under ${dir}.`,
-        what: `Touches ${files.length} file${files.length > 1 ? 's' : ''} in ${dir}.`,
         files,
-        order: i + 1
+        narration: [{ text: `This section groups ${files.length} file${files.length > 1 ? 's' : ''} under ${dir}.` }]
       }))
       q.push({ type: 'status', text: 'Writing the guided review…' })
       const value: ReviewAnnotations = {
@@ -146,8 +141,8 @@ export class FakeEngine implements ReviewEngine {
         const value: ScopedReviewPatch = {
           title: null, summary: null,
           revisedSections: [
-            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], first?.order ?? 1, true),
-            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], first?.order ?? 1, true)
+            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], true),
+            wireSection(dupId, first?.name ?? 'A', first?.files ?? [], true)
           ],
           deletedSectionIds: [],
           keptSectionIds: priorIds.filter((id) => id !== dupId),
@@ -180,7 +175,7 @@ export class FakeEngine implements ReviewEngine {
       }
 
       const revisedSections: WireSection[] = [...revisedFiles.values()].map((e) =>
-        wireSection(e.section.id, e.section.name, [...e.files], e.section.order, true)
+        wireSection(e.section.id, e.section.name, [...e.files], true)
       )
       // mint `s<N+1>`, skipping any id a (possibly non-sequential) prior review holds.
       const priorIdSet = new Set(priorIds)
@@ -196,7 +191,7 @@ export class FakeEngine implements ReviewEngine {
       const suppressMint = steer.includes('[scoped-miss]') || process.env.LIMN_SCOPED_MISS === '1'
       if (!suppressMint) {
         for (const [, e] of newByDir) {
-          revisedSections.push(wireSection(mintId(), e.name, [...e.files], mintN, false))
+          revisedSections.push(wireSection(mintId(), e.name, [...e.files], false))
         }
       }
 

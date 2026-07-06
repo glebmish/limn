@@ -4,15 +4,12 @@ import type { ScopedReviewPatch, WireSection } from '../src/main/engines/schema'
 import { SpliceError, spliceScopedUpdate } from '../src/main/engines/splice'
 
 // ── fixtures ───────────────────────────────────────────────────
-function psec(over: Partial<Section> & Pick<Section, 'id' | 'order'>): Section {
-  return { name: over.id, desc: `desc ${over.id}`, what: `what ${over.id}`, files: [], ...over }
+function psec(over: Partial<Section> & Pick<Section, 'id'>): Section {
+  return { name: over.id, narration: [{ text: `narration ${over.id}` }], files: [], ...over }
 }
 
-function wsec(over: Partial<WireSection> & Pick<WireSection, 'id' | 'order'>): WireSection {
-  return {
-    name: over.id, desc: `desc ${over.id}`, what: `what ${over.id}`, files: [],
-    diagram: null, insight: null, plainNotes: null, ...over
-  }
+function wsec(over: Partial<WireSection> & Pick<WireSection, 'id'>): WireSection {
+  return { name: over.id, narration: [{ text: `narration ${over.id}` }], files: [], ...over }
 }
 
 function prior(sections: Section[], over: Partial<ReviewAnnotations> = {}): ReviewAnnotations {
@@ -41,15 +38,15 @@ function allFiles(a: ReviewAnnotations): string[] {
 
 describe('spliceScopedUpdate', () => {
   describe('assembly', () => {
-    it('revises a section body but keeps its id and order/position', () => {
+    it('revises a section body but keeps its id and position', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 's1', order: 1, name: 'Renamed', what: 'new narration', files: ['a.ts'] })],
+          revisedSections: [wsec({ id: 's1', name: 'Renamed', narration: [{ text: 'new narration' }], files: ['a.ts'] })],
           keptSectionIds: ['s2']
         }),
         skel(['a.ts', 'b.ts']),
@@ -57,37 +54,63 @@ describe('spliceScopedUpdate', () => {
       )
       expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 's2'])
       expect(out.annotations.sections[0].name).toBe('Renamed')
-      expect(out.annotations.sections[0].what).toBe('new narration')
-      expect(out.annotations.sections[0].order).toBe(1)
+      expect(out.annotations.sections[0].narration[0].text).toBe('new narration')
       expect(out.annotations.sections[1].id).toBe('s2')
       expect(out.revisedCount).toBe(1)
       expect(out.keptCount).toBe(1)
     })
 
-    it('inserts a new section by its order field then renormalizes order to 1..n', () => {
+    it('inserts a new section after its afterSectionId anchor', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 3, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 'sNew', order: 2, files: ['c.ts'] })],
+          revisedSections: [wsec({ id: 'sNew', afterSectionId: 's1', files: ['c.ts'] })],
           keptSectionIds: ['s1', 's2']
         }),
         skel(['a.ts', 'b.ts', 'c.ts']),
         new Set()
       )
       expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'sNew', 's2'])
-      expect(out.annotations.sections.map((s) => s.order)).toEqual([1, 2, 3])
       expect(out.revisedCount).toBe(0)
       expect(out.keptCount).toBe(2)
     })
 
+    it('appends a new section when afterSectionId is absent or names an unknown id', () => {
+      const p = prior([
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
+      ])
+      const outAbsent = spliceScopedUpdate(
+        p,
+        patch({
+          revisedSections: [wsec({ id: 'sNew', files: ['c.ts'] })],
+          keptSectionIds: ['s1', 's2']
+        }),
+        skel(['a.ts', 'b.ts', 'c.ts']),
+        new Set()
+      )
+      expect(outAbsent.annotations.sections.map((s) => s.id)).toEqual(['s1', 's2', 'sNew'])
+
+      const outUnknown = spliceScopedUpdate(
+        p,
+        patch({
+          revisedSections: [wsec({ id: 'sNew2', afterSectionId: 'ghost', files: ['d.ts'] })],
+          keptSectionIds: ['s1', 's2']
+        }),
+        skel(['a.ts', 'b.ts', 'd.ts']),
+        new Set()
+      )
+      expect(outUnknown.annotations.sections.map((s) => s.id)).toEqual(['s1', 's2', 'sNew2'])
+    })
+
     it('drops a deleted section', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       const out = spliceScopedUpdate(
         p,
@@ -103,14 +126,14 @@ describe('spliceScopedUpdate', () => {
   describe('file move', () => {
     it('removes a claimed file from a kept section and drops the emptied section', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       // s2 revised to also claim a.ts; s1 kept — its only file moves away → dropped.
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 's2', order: 2, files: ['b.ts', 'a.ts'] })],
+          revisedSections: [wsec({ id: 's2', files: ['b.ts', 'a.ts'] })],
           keptSectionIds: ['s1']
         }),
         skel(['a.ts', 'b.ts']),
@@ -124,13 +147,13 @@ describe('spliceScopedUpdate', () => {
 
     it('strips a claimed file from a kept section that still has other files', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts', 'keep.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts', 'keep.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 's2', order: 2, files: ['b.ts', 'a.ts'] })],
+          revisedSections: [wsec({ id: 's2', files: ['b.ts', 'a.ts'] })],
           keptSectionIds: ['s1']
         }),
         skel(['a.ts', 'b.ts', 'keep.ts']),
@@ -144,8 +167,8 @@ describe('spliceScopedUpdate', () => {
 
   describe('handshake', () => {
     const p = prior([
-      psec({ id: 's1', order: 1, files: ['a.ts'] }),
-      psec({ id: 's2', order: 2, files: ['b.ts'] })
+      psec({ id: 's1', files: ['a.ts'] }),
+      psec({ id: 's2', files: ['b.ts'] })
     ])
     const sk = skel(['a.ts', 'b.ts'])
 
@@ -170,7 +193,7 @@ describe('spliceScopedUpdate', () => {
         spliceScopedUpdate(
           p,
           patch({
-            revisedSections: [wsec({ id: 's1', order: 1, files: ['a.ts'] }), wsec({ id: 's1', order: 1, files: ['a.ts'] })],
+            revisedSections: [wsec({ id: 's1', files: ['a.ts'] }), wsec({ id: 's1', files: ['a.ts'] })],
             keptSectionIds: ['s2']
           }),
           sk,
@@ -189,7 +212,7 @@ describe('spliceScopedUpdate', () => {
       expect(() =>
         spliceScopedUpdate(
           p,
-          patch({ revisedSections: [wsec({ id: 's1', order: 1, files: ['a.ts'] })], keptSectionIds: ['s1', 's2'] }),
+          patch({ revisedSections: [wsec({ id: 's1', files: ['a.ts'] })], keptSectionIds: ['s1', 's2'] }),
           sk,
           new Set()
         )
@@ -200,9 +223,9 @@ describe('spliceScopedUpdate', () => {
   describe('garbage guard', () => {
     it('throws when more than 50% of prior sections are deleted', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] }),
-        psec({ id: 's3', order: 3, files: ['c.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] }),
+        psec({ id: 's3', files: ['c.ts'] })
       ])
       expect(() =>
         spliceScopedUpdate(p, patch({ deletedSectionIds: ['s1', 's2'], keptSectionIds: ['s3'] }), skel(['c.ts']), new Set())
@@ -211,8 +234,8 @@ describe('spliceScopedUpdate', () => {
 
     it('does NOT throw at exactly 50% deleted', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       expect(() =>
         spliceScopedUpdate(p, patch({ deletedSectionIds: ['s1'], keptSectionIds: ['s2'] }), skel(['b.ts']), new Set())
@@ -221,16 +244,16 @@ describe('spliceScopedUpdate', () => {
 
     it('throws when every prior section is revised (engine ignored scoping)', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       expect(() =>
         spliceScopedUpdate(
           p,
           patch({
             revisedSections: [
-              wsec({ id: 's1', order: 1, files: ['a.ts'] }),
-              wsec({ id: 's2', order: 2, files: ['b.ts'] })
+              wsec({ id: 's1', files: ['a.ts'] }),
+              wsec({ id: 's2', files: ['b.ts'] })
             ]
           }),
           skel(['a.ts', 'b.ts']),
@@ -246,7 +269,7 @@ describe('spliceScopedUpdate', () => {
         { id: 'q1', text: 'Q1?' },
         { id: 'q2', text: 'Q2?' }
       ]
-      const p = prior([psec({ id: 's1', order: 1, files: ['a.ts'] })], { questions })
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })], { questions })
       const out = spliceScopedUpdate(
         p,
         patch({
@@ -274,7 +297,7 @@ describe('spliceScopedUpdate', () => {
     }
 
     it('keeps prior title/summary/planMap when the patch scalar is null', () => {
-      const p = prior([psec({ id: 's1', order: 1, files: ['a.ts'] })], { planMap })
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })], { planMap })
       const out = spliceScopedUpdate(p, patch({ keptSectionIds: ['s1'] }), skel(['a.ts']), new Set())
       expect(out.annotations.title).toBe('Prior title')
       expect(out.annotations.summary).toBe('Prior summary')
@@ -282,7 +305,7 @@ describe('spliceScopedUpdate', () => {
     })
 
     it('replaces title/summary when the patch supplies them', () => {
-      const p = prior([psec({ id: 's1', order: 1, files: ['a.ts'] })])
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })])
       const out = spliceScopedUpdate(
         p,
         patch({ title: 'New title', summary: 'New summary', keptSectionIds: ['s1'] }),
@@ -296,11 +319,11 @@ describe('spliceScopedUpdate', () => {
 
   describe('new-section id collision', () => {
     it("re-mints a new id colliding with 'other-changes' and rewrites planMap references", () => {
-      const p = prior([psec({ id: 's1', order: 1, files: ['a.ts'] })])
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 'other-changes', order: 2, files: ['b.ts'] })],
+          revisedSections: [wsec({ id: 'other-changes', files: ['b.ts'] })],
           keptSectionIds: ['s1'],
           planMap: {
             acceptance: [],
@@ -315,11 +338,25 @@ describe('spliceScopedUpdate', () => {
       expect(out.annotations.planMap!.steps[0].sectionId).toBe('other-changes-2')
       expect(out.annotations.planMap!.deviations[0].sectionId).toBe('other-changes-2')
     })
+
+    it("keeps the afterSectionId placement working after an id is re-minted", () => {
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })])
+      const out = spliceScopedUpdate(
+        p,
+        patch({
+          revisedSections: [wsec({ id: 'other-changes', afterSectionId: 's1', files: ['b.ts'] })],
+          keptSectionIds: ['s1']
+        }),
+        skel(['a.ts', 'b.ts']),
+        new Set()
+      )
+      expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'other-changes-2'])
+    })
   })
 
   describe('end-to-end through mergeAnnotations', () => {
     it('sweeps a drift-added unclaimed file to Other changes with a warning, coverage stays 100%', () => {
-      const p = prior([psec({ id: 's1', order: 1, files: ['a.ts'] })])
+      const p = prior([psec({ id: 's1', files: ['a.ts'] })])
       // current skeleton has a since-added file the engine never claimed.
       const out = spliceScopedUpdate(
         p,
@@ -338,13 +375,13 @@ describe('spliceScopedUpdate', () => {
 
     it('does not warn when a drift-added file was claimed by a revised section', () => {
       const p = prior([
-        psec({ id: 's1', order: 1, files: ['a.ts'] }),
-        psec({ id: 's2', order: 2, files: ['b.ts'] })
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
       ])
       const out = spliceScopedUpdate(
         p,
         patch({
-          revisedSections: [wsec({ id: 's1', order: 1, files: ['a.ts', 'new.ts'] })],
+          revisedSections: [wsec({ id: 's1', files: ['a.ts', 'new.ts'] })],
           keptSectionIds: ['s2']
         }),
         skel(['a.ts', 'b.ts', 'new.ts']),

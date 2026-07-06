@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { Artifact, Comment, FileDiff, ReviewAnnotations, Section, ViewMark } from '../../shared/types'
+import { narrationText } from '../../shared/types'
 import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
@@ -206,7 +207,7 @@ export function ReviewSidebar({
                 <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
                 <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
               </div>
-              {sectionNav.open && !sectionNav.done && s.desc && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{s.desc}</div>}
+              {sectionNav.open && !sectionNav.done && narrationText(s) && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{narrationText(s)}</div>}
               <FileTree
                 files={sFiles}
                 viewedAt={viewedAt}

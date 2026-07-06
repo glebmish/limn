@@ -29,7 +29,7 @@ describe('mergeAnnotations', () => {
     const raw = {
       title: 't', summary: 's',
       sections: [
-        { id: 'a', name: 'A', desc: 'd', what: 'w', files: ['src/a.ts', 'src/NOPE.ts'], order: 1 }
+        { id: 'a', name: 'A', narration: [{ text: 'w' }], files: ['src/a.ts', 'src/NOPE.ts'] }
       ],
       questions: []
     }
@@ -48,7 +48,7 @@ describe('mergeAnnotations', () => {
     const raw = {
       title: 't', summary: 's',
       sections: [
-        { id: 'a', name: 'A', desc: 'd', what: 'w', files: [...sk.files.map((f) => f.path), 'new.ts'], order: 1 }
+        { id: 'a', name: 'A', narration: [{ text: 'w' }], files: [...sk.files.map((f) => f.path), 'new.ts'] }
       ],
       questions: []
     }
@@ -147,9 +147,9 @@ describe('FakeEngine generateScopedUpdate', () => {
     title: 'Prior title',
     summary: 'Prior summary',
     sections: [
-      { id: 's1', name: 'src', desc: 'd', what: 'w', files: ['src/a.ts', 'src/b.ts'], order: 1 },
-      { id: 's2', name: 'docs', desc: 'd', what: 'w', files: ['docs/x.md'], order: 2 },
-      { id: 's3', name: 'tests', desc: 'd', what: 'w', files: ['tests/t.ts'], order: 3 }
+      { id: 's1', name: 'src', narration: [{ text: 'w' }], files: ['src/a.ts', 'src/b.ts'] },
+      { id: 's2', name: 'docs', narration: [{ text: 'w' }], files: ['docs/x.md'] },
+      { id: 's3', name: 'tests', narration: [{ text: 'w' }], files: ['tests/t.ts'] }
     ],
     questions: [{ id: 'q1', text: 'keep default?' }]
   }

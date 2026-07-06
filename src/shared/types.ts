@@ -70,14 +70,28 @@ export function driftHasChanges(drift: DriftSummary | null | undefined): drift i
 }
 
 // ── annotations (engine output, validated) ───────────────────
-export type DiagramNode = [label: string, kind: '' | 'hi' | 'new', sub: string]
+/** One block of section narration, read in order. `anchor` absent = a framing/
+ *  cross-cutting block (no single line it points at); present = it points a
+ *  reviewer at a specific spot while explaining it. */
+export interface NarrationBlock { text: string; anchor?: FocusTarget }
+export type DiagramKind = 'plain' | 'hi' | 'new'
+export interface DiagramNode2 { id: string; label: string; kind: DiagramKind; sub?: string; anchor?: FocusTarget }
+export interface DiagramEdge { from: string; to: string; label?: string }
+export interface Diagram { why: string; caption: string; nodes: DiagramNode2[]; edges: DiagramEdge[] }
+export interface BehaviorContrast { was: string; now: string }
+export interface AcceptanceSource { path: string; line?: number }
+export type HotspotSeverity = 'risk' | 'note'
 export interface Section {
-  id: string; name: string; desc: string; what: string; files: string[]; order: number;
-  diagram?: DiagramNode[]; insight?: { caption: string };
-  plainNotes?: Record<string, string>;
+  id: string; name: string; files: string[];
+  narration: NarrationBlock[];
+  diagram?: Diagram;
+  contrast?: BehaviorContrast;
+  verify?: string;
 }
+/** First narration block's text — the collapsed sub-line / slim payload summary. */
+export function narrationText(s: Section): string { return s.narration[0]?.text ?? '' }
 export interface PlanMap {
-  acceptance: { text: string; met: boolean | 'partial' }[];
+  acceptance: { text: string; met: boolean | 'partial'; source?: AcceptanceSource }[];
   steps: { n: number; text: string; sectionId: string; status: 'done' | 'changed' | 'missing' }[];
   deviations: { text: string; sectionId: string }[];
 }
@@ -124,7 +138,7 @@ export interface AnchorContext {
 }
 
 export type CommentAnchor =
-  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; hunkRange: string; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
+  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; endLine?: number; hunkRange: string; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
   | { kind: 'artifact'; path: string; line: number; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
   | { kind: 'plan-step'; stepN: number }
   | { kind: 'section'; sectionId: string; part?: 'narration' | 'diagram' }
@@ -143,6 +157,9 @@ export interface Comment {
   /** agent-authored comments/replies carry which agent + which chat thread, for
    *  the identity chip + click-through (JSON blob — no column migration). */
   agentRef?: AgentRef; threadId?: number;
+  /** Set on hotspot cards (agent-flagged risk/note comments) — absent on ordinary
+   *  comments. */
+  severity?: HotspotSeverity;
   status: 'queued' | 'sent' | 'resolved' | 'outdated';
   /** Set by the re-anchor pipeline when a positional comment maps to a line that
    *  is valid in the file but not present in any rendered hunk at the current
@@ -173,7 +190,7 @@ export type AgentAction =
   | { kind: 'comment_added'; comment: Comment }
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
   | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
-  | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.what' | 'section.desc'; sectionId?: string }
+  | { kind: 'review_edited'; field: 'title' | 'summary'; sectionId?: string }
 
 // ── tool-call log (wf-D) ──────────────────────────────────────
 /** Verb drives the row icon + label; derived from the engine's raw tool name. */

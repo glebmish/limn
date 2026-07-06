@@ -1,5 +1,5 @@
 import type { CommentAnchor, SelectionScope } from '../../shared/types.js'
-import type { Comment, FileDiff, ReviewAnnotations, Section } from '../../shared/types.js'
+import type { Comment, FileDiff, FocusTarget, ReviewAnnotations, Section } from '../../shared/types.js'
 import type { ChatContext, ReviewRequest } from './types.js'
 
 /** Cap on untracked files offered to the narration as section candidates — past this
@@ -87,8 +87,8 @@ ${fileList}
 
 Then produce the structured review:
 1. Group the changed files into logical sections (by what they accomplish together, not by directory). Every committed/staged file in the list above must appear in exactly one section's "files" array, using the exact paths shown.${hasUntracked ? ' Files marked "untracked — optional" are NOT yet tracked by git: include one in a section ONLY if it is genuinely part of this change (e.g. a new source/test file the branch needs); leave scratch, build, or unrelated stray files out entirely — anything you omit is kept out of the review rather than forced into it.' : ''} Order sections by where the reviewer's attention pays off most (core logic first, tests/config later).
-2. For each section write: "desc" — one sentence on why this section matters to the reviewer; "what" — plain-language explanation of what changed and why (this is your narration, the heart of the review).
-3. Optionally add a "diagram" per section: 2-5 nodes [label, kind, sub] showing the mechanism (kind "hi" = the key node, "new" = newly introduced, "" = plain). Add "insight.caption" explaining the one thing the diagram shows.
+2. For each section write "narration": an ordered list of blocks, each \`{ "text": "1–4 sentences", "anchor"?: { "file", "line"?, "endLine"?, "side"? } }\`. Blocks in order must read as one continuous explanation; order anchored blocks in the order a reviewer should read the code. First block is usually unanchored and says why this section matters. Target 2–8 blocks.
+3. Optionally add a "diagram" (see schema) ONLY where a runtime flow or lifecycle is non-obvious from the narration order.
 4. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
 5. If a spec/plan artifact exists: fill "planMap" — acceptance criteria with met true/false/"partial", plan steps mapped to your section ids with status done/changed/missing, and "deviations" where the implementation diverged from the stated plan.
 6. "questions": gaps in the author's *intent* that the code and specs cannot answer — decisions only the author can make (e.g. "was switching the retry policy from exponential to linear deliberate?"). Do NOT put bugs, inconsistencies, or risks you found here — those belong in the section narration. Empty array if none. Give each a short stable id like "q1". For each question, set "context" to a short location/section hint or null, and set "options" to 2-4 concise answer choices when the plausible choices are clear; otherwise use an empty array for a free-form decision.
@@ -193,18 +193,24 @@ export interface ScopedUpdatePromptInput {
   steer?: string
 }
 
-/** One prior section, compacted: id/name/desc/what/files/order, with diagram/
- *  insight/plainNotes NAMED (not inlined — the engine keeps them by not revising). */
+/** Compact `@location` label for a narration/diagram-node anchor in the prior-section
+ *  dump — only the `file`/`diff` arms carry a path; `section`/`summary` fall back to
+ *  a short kind label (narration blocks are never anchored to those in practice). */
+function anchorLabel(a: FocusTarget): string {
+  switch (a.kind) {
+    case 'diff': return `${a.file}:${a.line}`
+    case 'file': return a.file
+    case 'section': return `section ${a.sectionId}`
+    case 'summary': return 'summary'
+  }
+}
+
+/** One prior section, compacted: id/name/files/narration blocks (indexed), with a
+ *  diagram NAMED (not inlined — the engine keeps it as-is by not revising the section). */
 function renderPriorSection(s: Section): string {
-  const kept: string[] = []
-  if (s.diagram?.length) kept.push('diagram')
-  if (s.insight) kept.push('insight')
-  if (s.plainNotes && Object.keys(s.plainNotes).length) kept.push('file notes')
-  const keepNote = kept.length ? ` [also has ${kept.join(', ')} — kept as-is unless you revise this section]` : ''
-  return `- [${s.id}] "${s.name}" (order ${s.order})${keepNote}
-    desc: ${s.desc}
-    what: ${s.what}
-    files: ${s.files.length ? s.files.join(', ') : '(none)'}`
+  const blocks = s.narration.map((b, i) => `      [${i}]${b.anchor ? ` @${anchorLabel(b.anchor)}` : ''} ${b.text}`).join('\n')
+  const kept = s.diagram ? ' [also has a diagram — kept unless you revise this section]' : ''
+  return `- [${s.id}] "${s.name}"${kept}\n    files: ${s.files.length ? s.files.join(', ') : '(none)'}\n    narration blocks:\n${blocks}`
 }
 
 /** Inline a file's hunks as unified-diff-ish text (small by the scoped threshold). */
@@ -286,8 +292,8 @@ DRIFT SINCE ${sinceShort} — the only files that changed; their hunks are inlin
 ${sinceBlock}
 ${untrackedBlock}
 Produce the scoped patch:
-1. For each prior section the drift changes, return it in \`revisedSections\` with the SAME id and a fully rewritten body (desc/what/files/diagram/insight as needed).
-2. For a genuinely new area, add a section to \`revisedSections\` with a fresh id and an \`order\` where it belongs.
+1. For each prior section the drift changes, return it in \`revisedSections\` with the SAME id and a fully rewritten body (narration/files/diagram as needed).
+2. For a genuinely new area, add a section to \`revisedSections\` with a fresh id and an \`afterSectionId\` naming the section it should follow (omit to append).
 3. List every prior section you did NOT revise or delete in \`keptSectionIds\` (by id). Put ids of sections the drift removes entirely in \`deletedSectionIds\`.
 4. \`title\`/\`summary\`/\`planMap\`: null to keep the prior value, or a new value to replace it.
 5. \`newQuestions\` for genuinely new intent gaps; \`resolvedQuestionIds\` for ones the drift settles. Do not edit existing question text.
@@ -310,7 +316,7 @@ ${list}
 ${REVIEWER_TEXT_POLICY}
 
 Fold these decisions into the guided review:
-- Where a decision changes how a section or the summary should read, update that narration with edit_review (fields: title, summary, section.what, section.desc).
+- Where a decision changes how the title or summary should read, update it with edit_review (fields: title, summary).
 - Then call resolve_comment for each (verdict "addressed", with a one-line note on what you changed or confirmed).
 - When you reference a specific file or diff line, call focus to point the reviewer at it.
 This is a read-only review refinement: you may read files and run read-only git commands, but do NOT modify any files and do NOT commit.`

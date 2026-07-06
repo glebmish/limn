@@ -7,9 +7,8 @@ import { reviewStatusForFile } from '../lib/fileStatus'
 import { FileHeader, splitPath } from './FileHeader'
 import { DiffBody } from './DiffBody'
 
-export function DiffView({ f, plainNote }: {
+export function DiffView({ f }: {
   f: FileDiff
-  plainNote?: string
 }) {
   const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, diffMode } = useStore()
   const excluded = fileIsExcluded(loaded, f)
@@ -41,7 +40,6 @@ export function DiffView({ f, plainNote }: {
   // override it. A focus always force-shows the body (without clearing the tick).
   const effectiveOpen = manualOpen ?? !isViewed
   const showBody = focused || effectiveOpen
-  const engine = loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine
 
   return (
     <div className="gfile-wrap">
@@ -84,9 +82,6 @@ export function DiffView({ f, plainNote }: {
           f={f}
           mode={diffMode}
           showBody={showBody}
-          plainNote={plainNote}
-          isViewed={isViewed}
-          engine={engine}
           fileComments={fileComments}
           composerAt={composerAt}
           setComposerAt={setComposerAt}

@@ -47,14 +47,11 @@ export function synthesizeSections(files: FileDiff[]): Section[] {
     const dir = f.path.includes('/') ? f.path.split('/')[0] : 'top-level'
     byDir.set(dir, [...(byDir.get(dir) ?? []), f.path])
   }
-  return [...byDir.entries()].map(([dir, paths], i) => ({
+  return [...byDir.entries()].map(([dir, paths]) => ({
     id: `dir-${dir}`,
     name: dir === 'top-level' ? 'Top-level files' : dir + '/',
-    desc: '',
-    what: '',
     files: paths,
-    order: i + 1,
-    flags: []
+    narration: []
   }))
 }
 

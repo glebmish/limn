@@ -298,9 +298,7 @@ function renderAction(action: AgentAction, engine?: EngineId, threadId?: number)
       return { kind: 'card', node: <CommentActionCard action={action} engine={engine} /> }
     case 'review_edited': {
       const target: FocusTarget = action.sectionId ? { kind: 'section', sectionId: action.sectionId } : { kind: 'summary' }
-      const what = action.field === 'title' ? 'the title'
-        : action.field === 'summary' ? 'the summary'
-          : 'a section'
+      const what = action.field === 'title' ? 'the title' : 'the summary'
       return { kind: 'chip', node: (
         <button className="limn-chip" title="Show in the review" onClick={() => focusAnchor(target)}>
           <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />edited {what}

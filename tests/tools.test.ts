@@ -289,7 +289,7 @@ describe('review edit tools (real temp DB)', () => {
   }
   const annotations: ReviewAnnotations = {
     title: 'Old title', summary: 'Old summary',
-    sections: [{ id: 's1', name: 'Auth', desc: 'old desc', what: 'old what', files: ['src/a.ts'], order: 1 }],
+    sections: [{ id: 's1', name: 'Auth', narration: [{ text: 'old what' }], files: ['src/a.ts'] }],
     questions: []
   }
 
@@ -308,9 +308,9 @@ describe('review edit tools (real temp DB)', () => {
   it('get_review returns the current title + sections', async () => {
     const { ctx } = setup()
     const { result } = await createToolHost(ctx).call('get_review', {})
-    const parsed = JSON.parse(result) as { title: string; sections: { what: string }[] }
+    const parsed = JSON.parse(result) as { title: string; sections: { narration: string[] }[] }
     expect(parsed.title).toBe('Old title')
-    expect(parsed.sections[0].what).toBe('old what')
+    expect(parsed.sections[0].narration).toEqual(['old what'])
   })
 
   it('edit_review patches the summary and syncs the denormalized column', async () => {
@@ -322,17 +322,8 @@ describe('review edit tools (real temp DB)', () => {
     expect(action).toMatchObject({ kind: 'review_edited', field: 'summary' })
   })
 
-  it('edit_review patches a section narration field', async () => {
-    const { db, ctx, sessionId } = setup()
-    await createToolHost(ctx).call('edit_review', { field: 'section.what', sectionId: 's1', value: 'now notes clock skew' })
-    expect(loadReviewState(db, sessionId).annotations!.sections[0].what).toBe('now notes clock skew')
-  })
-
-  it('errors (no throw) editing a missing section', async () => {
-    const { ctx } = setup()
-    const { isError } = await createToolHost(ctx).call('edit_review', { field: 'section.desc', sectionId: 'nope', value: 'x' })
-    expect(isError).toBe(true)
-  })
+  // section editing (section.what / section.desc) is narrowed away interim — B3
+  // reintroduces block-addressed section edits.
 })
 
 // commit_changes was removed — the agent commits via git through its own shell,

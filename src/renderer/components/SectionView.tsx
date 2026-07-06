@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
-import { I, DiagramNodeBox, Flow, EngineGlyph, CmtPlus } from '../kit'
+import { narrationText } from '../../shared/types'
+import { I, CmtPlus } from '../kit'
 import { GUIDANCE, sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import { Composer, InlineThread } from './Threads'
@@ -50,12 +51,18 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             {!done && !open && !reReview && <span className="pill pill-unrev">unreviewed</span>}
             {done && <span className="gsec-doneflag"><I.check style={{ width: 12, height: 12 }} />viewed</span>}
           </div>
-          {open && showCtx && s.desc && (
-            <Commentable scope={{ region: 'section', sectionId: s.id }}><div className="d">{s.desc}</div></Commentable>
+          {open && showCtx && s.narration.length > 0 && (
+            <Commentable scope={{ region: 'section', sectionId: s.id }}>
+              <div className="gsec-narration">
+                {s.narration.map((b, i) => (
+                  <div key={i} className={'gnar-block' + (b.anchor ? ' anchored' : '')}>{b.text}</div>
+                ))}
+              </div>
+            </Commentable>
           )}
           {!open && !done && (
-            <div className="gsec-collapsed-sub" title={s.what || undefined}>
-              {files.length} file{files.length === 1 ? '' : 's'}{s.what ? ` · ${s.what}` : ''}
+            <div className="gsec-collapsed-sub" title={narrationText(s) || undefined}>
+              {files.length} file{files.length === 1 ? '' : 's'}{narrationText(s) ? ` · ${narrationText(s)}` : ''}
             </div>
           )}
         </div>
@@ -101,45 +108,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               }}
             />
           )}
-          {showCtx && (s.diagram || s.what) && (
-            <Commentable scope={{ region: 'section', sectionId: s.id }}>
-            <div className="gsec-cols" style={!s.diagram ? { gridTemplateColumns: '1fr' } : undefined}>
-              {s.diagram && (
-                <div className={(s.insight ? 'gsec-insight' : 'gsec-diagram') + ' gsec-diagram-cmt'}>
-                  <CmtPlus extra="diagram-plus" onClick={() => setCommenting('diagram')} />
-                  {s.insight && (
-                    <div className="ins-switch">
-                      <span className="ins-switch-lab">mechanism</span>
-                      <span className="grow"></span>
-                    </div>
-                  )}
-                  <div className={s.insight ? 'df-lane' : undefined} style={s.insight ? { justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' } : { display: 'contents' }}>
-                    {s.diagram.map((nd, i) => (
-                      // keep each connector glued to the node it points to, so when the
-                      // lane wraps it breaks *between* node+arrow units rather than
-                      // stranding a dangling arrow at the end of a line.
-                      <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                        {i > 0 && <Flow />}
-                        <DiagramNodeBox kind={nd[1]} title={nd[0]} sub={nd[2]} />
-                      </span>
-                    ))}
-                  </div>
-                  {s.insight && <div className="ins-caption">{s.insight.caption}</div>}
-                </div>
-              )}
-              {s.what && (
-                <div className="agent-note gsec-what gsec-what-cmt">
-                  <CmtPlus extra="narration-plus" onClick={() => setCommenting('narration')} />
-                  <span className="ai"><EngineGlyph engine={loaded?.state.annotations?.generatedBy?.engine ?? loaded?.state.agent?.engine} style={{ width: 11, height: 11 }} /></span>
-                  <span className="txt">
-                    <b>What changed: </b>{s.what}
-                  </span>
-                </div>
-              )}
-            </div>
-            </Commentable>
-          )}
-
           {diagramComments.map((c) => (
             <InlineThread key={c.id} c={c} locLabel={`on the diagram in “${s.name}”`} />
           ))}
@@ -170,11 +138,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
           <SelectionThreads scope={{ region: 'section', sectionId: s.id }} />
 
           {files.map((f) => (
-            <DiffView
-              key={f.path}
-              f={f}
-              plainNote={s.plainNotes?.[f.path] ?? s.plainNotes?.[f.path.split('/').pop() ?? '']}
-            />
+            <DiffView key={f.path} f={f} />
           ))}
         </div>
       )}

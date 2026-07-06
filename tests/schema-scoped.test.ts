@@ -45,13 +45,8 @@ const validPatch = {
     {
       id: 's1',
       name: 'Auth',
-      desc: 'd',
-      what: 'w',
-      files: ['src/auth.ts'],
-      order: 1,
-      diagram: null,
-      insight: null,
-      plainNotes: null
+      narration: [{ text: 'w' }],
+      files: ['src/auth.ts']
     }
   ],
   deletedSectionIds: ['s2'],
@@ -82,14 +77,12 @@ describe('parseScopedOutput', () => {
       title: 't',
       summary: 's',
       sections: [
-        {
-          id: 's1', name: 'A', desc: 'd', what: 'w', files: ['src/a.ts'],
-          order: 1, diagram: null, insight: null, plainNotes: null
-        }
+        { id: 's1', name: 'A', narration: [{ text: 'w' }], files: ['src/a.ts'] }
       ],
       planMap: null,
       questions: [],
-      artifactPaths: null
+      artifactPaths: null,
+      hotspots: []
     }
     // Sanity: the full doc IS a valid full-review output...
     expect(() => reviewWireSchema.parse(fullDoc)).not.toThrow()

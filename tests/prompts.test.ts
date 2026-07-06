@@ -148,8 +148,11 @@ describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
     title: 'Billing overhaul',
     summary: 'Adds subscriptions.',
     sections: [
-      { id: 's1', name: 'Migrations', desc: 'schema', what: 'MIGRATION_NARRATION creates the tables', files: ['src/db/mig.ts'], order: 1 },
-      { id: 's2', name: 'Lifecycle', desc: 'runtime', what: 'LIFECYCLE_NARRATION wires the hooks', files: ['src/life.ts'], order: 2, diagram: [['n', 'hi', '']], insight: { caption: 'x' } }
+      { id: 's1', name: 'Migrations', narration: [{ text: 'MIGRATION_NARRATION creates the tables' }], files: ['src/db/mig.ts'] },
+      {
+        id: 's2', name: 'Lifecycle', narration: [{ text: 'LIFECYCLE_NARRATION wires the hooks' }], files: ['src/life.ts'],
+        diagram: { why: 'x', caption: 'x', nodes: [{ id: 'n', label: 'n', kind: 'hi' }], edges: [] }
+      }
     ],
     questions: [{ id: 'q1', text: 'was linear retry deliberate?', context: 'retry.ts' }]
   }

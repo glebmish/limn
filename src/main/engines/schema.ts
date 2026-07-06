@@ -1,33 +1,50 @@
 import { z } from 'zod'
-import type { AgentQuestion, DiagramNode, ReviewAnnotations, Section } from '../../shared/types.js'
+import type { AgentQuestion, FocusTarget, ReviewAnnotations, Section } from '../../shared/types.js'
 
-// Wire schemas: what the engines are asked to return. Constraints from the two
-// structured-output validators:
-//  - Claude CLI silently drops schemas containing prefixItems → no z.tuple;
-//    diagram nodes travel as objects and are mapped to DiagramNode tuples after parsing.
-//  - OpenAI strict mode requires every property in `required`, forbids records →
-//    optionals are modeled as nullable, plainNotes travels as an array of {file, note}.
+// Wire schemas: schema-in-prompt output validated client-side by zod (no native
+// output-schema channel post-ACP). Keep shapes prompt-friendly: flat objects over
+// unions, arrays over records, no z.tuple. `.optional()` for omittable fields so a
+// sparse output is the cheap path and omission never burns the single repair turn.
 
-const wireDiagramNode = z.object({
-  label: z.string(),
-  kind: z.enum(['', 'hi', 'new']),
-  sub: z.string()
+const wireAnchor = z.object({
+  file: z.string(),
+  side: z.enum(['new', 'old']).optional(),   // absent = 'new'
+  line: z.number().optional(),               // absent = whole file
+  endLine: z.number().optional()             // absent = single line
 })
-
+const wireBlock = z.object({
+  text: z.string(),
+  anchor: wireAnchor.optional()              // absent = framing/cross-cutting block
+})
+const wireDiagram = z.object({
+  why: z.string(),
+  caption: z.string(),
+  nodes: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    kind: z.enum(['plain', 'hi', 'new']),
+    sub: z.string().optional(),
+    anchor: wireAnchor.optional()
+  })),
+  edges: z.array(z.object({ from: z.string(), to: z.string(), label: z.string().optional() }))
+})
 const wireSection = z.object({
   id: z.string(),
   name: z.string(),
-  desc: z.string(),
-  what: z.string(),
   files: z.array(z.string()),
-  order: z.number(),
-  diagram: z.array(wireDiagramNode).nullable(),
-  insight: z.object({ caption: z.string() }).nullable(),
-  plainNotes: z.array(z.object({ file: z.string(), note: z.string() })).nullable()
+  narration: z.array(wireBlock),
+  diagram: wireDiagram.optional(),
+  contrast: z.object({ was: z.string(), now: z.string() }).optional(),
+  verify: z.string().optional(),
+  afterSectionId: z.string().optional()      // scoped-patch placement only; ignored on full gen
 })
 
 const wirePlanMap = z.object({
-  acceptance: z.array(z.object({ text: z.string(), met: z.union([z.boolean(), z.literal('partial')]) })),
+  acceptance: z.array(z.object({
+    text: z.string(),
+    met: z.union([z.boolean(), z.literal('partial')]),
+    source: z.object({ path: z.string(), line: z.number().optional() }).optional()
+  })),
   steps: z.array(z.object({
     n: z.number(), text: z.string(), sectionId: z.string(),
     status: z.enum(['done', 'changed', 'missing'])
@@ -48,7 +65,8 @@ export const reviewWireSchema = z.object({
   sections: z.array(wireSection),
   planMap: wirePlanMap.nullable(),
   questions: z.array(wireQuestion),
-  artifactPaths: z.array(z.string()).nullable()
+  artifactPaths: z.array(z.string()).nullable(),
+  hotspots: z.array(z.object({ anchor: wireAnchor, text: z.string(), severity: z.enum(['risk', 'note']) }))
 })
 
 // Scoped-update patch: what the engine returns for a diff-scoped iteration.
@@ -81,23 +99,36 @@ export type ScopedReviewPatch = z.infer<typeof scopedReviewWireSchema>
 // Wire-shape section/question, reused by the splice to convert revised/new bodies.
 export type WireSection = z.infer<typeof wireSection>
 export type WireQuestion = z.infer<typeof wireQuestion>
+export type WireAnchor = z.infer<typeof wireAnchor>
 
 export function parseScopedOutput(raw: unknown): ScopedReviewPatch {
   return scopedReviewWireSchema.parse(raw)
 }
 
-/** Map a wire section (nullable objects/arrays) to the domain Section (tuples/records). */
+/** Flat wire anchor → FocusTarget. no line ⇒ whole-file; line ⇒ diff range.
+ *  Degenerate combos degrade: endLine<line drops endLine; side/endLine without line ignored. */
+export function normalizeWireAnchor(a: WireAnchor): FocusTarget {
+  if (a.line === undefined) return { kind: 'file', file: a.file }
+  const endLine = a.endLine !== undefined && a.endLine >= a.line ? a.endLine : undefined
+  return { kind: 'diff', file: a.file, side: a.side ?? 'new', line: a.line, ...(endLine ? { endLine } : {}), hunkRange: '', lineContent: '' }
+}
+
+/** Map a wire section to the domain Section. `afterSectionId` (scoped-patch
+ *  placement) lives on `WireSection` only — splice.ts looks it up from the raw
+ *  patch by id; it is not threaded onto the domain type. */
 export function sectionFromWire(s: WireSection): Section {
   return {
     id: s.id,
     name: s.name,
-    desc: s.desc,
-    what: s.what,
     files: s.files,
-    order: s.order,
-    diagram: s.diagram?.map((n) => [n.label, n.kind, n.sub] as DiagramNode) ?? undefined,
-    insight: s.insight ?? undefined,
-    plainNotes: s.plainNotes ? Object.fromEntries(s.plainNotes.map((p) => [p.file, p.note])) : undefined
+    narration: s.narration.map((b) => ({ text: b.text, ...(b.anchor ? { anchor: normalizeWireAnchor(b.anchor) } : {}) })),
+    ...(s.diagram ? { diagram: {
+      why: s.diagram.why, caption: s.diagram.caption,
+      nodes: s.diagram.nodes.map((n) => ({ id: n.id, label: n.label, kind: n.kind, ...(n.sub ? { sub: n.sub } : {}), ...(n.anchor ? { anchor: normalizeWireAnchor(n.anchor) } : {}) })),
+      edges: s.diagram.edges
+    } } : {}),
+    ...(s.contrast ? { contrast: s.contrast } : {}),
+    ...(s.verify ? { verify: s.verify } : {})
   }
 }
 

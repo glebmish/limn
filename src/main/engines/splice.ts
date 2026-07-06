@@ -73,6 +73,12 @@ export function spliceScopedUpdate(
   const revisedConverted = patch.revisedSections.map(sectionFromWire)
   const revisedById = new Map(revisedConverted.filter((s) => priorIds.has(s.id)).map((s) => [s.id, s] as const))
   const newSections = revisedConverted.filter((s) => !priorIds.has(s.id))
+  // afterSectionId lives on WireSection, not the domain Section sectionFromWire
+  // returns — capture it per new section (by object identity) BEFORE the id
+  // re-mint below can rewrite `ns.id` out from under a by-id lookup.
+  const afterSectionIdByNew = new Map<Section, string | undefined>(
+    newSections.map((s) => [s, patch.revisedSections.find((w) => w.id === s.id)?.afterSectionId] as const)
+  )
 
   const claimed = new Set<string>()
   for (const s of revisedConverted) for (const f of s.files) claimed.add(f)
@@ -84,8 +90,8 @@ export function spliceScopedUpdate(
     if (deletedSet.has(p.id)) continue
     const rev = revisedById.get(p.id)
     if (rev) {
-      // keep the prior slot's order so a revised section stays in place
-      inOrder.push({ ...rev, order: p.order })
+      // keep the prior slot's position so a revised section stays in place
+      inOrder.push({ ...rev })
       revisedCount++
       continue
     }
@@ -111,9 +117,14 @@ export function spliceScopedUpdate(
     takenIds.add(id)
   }
 
-  // combine + renormalize order to 1..n (stable sort keeps prior order on ties)
-  const combined = [...inOrder, ...newSections].sort((a, b) => a.order - b.order)
-  const sections = combined.map((s, i) => ({ ...s, order: i + 1 }))
+  // place new sections after their afterSectionId anchor (unknown/absent ⇒ append)
+  const sections: Section[] = [...inOrder]
+  for (const ns of newSections) {
+    const afterId = afterSectionIdByNew.get(ns)
+    const idx = afterId ? sections.findIndex((s) => s.id === afterId) : -1
+    if (idx >= 0) sections.splice(idx + 1, 0, ns)
+    else sections.push(ns)   // unknown afterSectionId → append (warn in A2/A5 if desired)
+  }
 
   // ── Step 6: questions — add/resolve only (Q8) ───────────────────────────────
   const resolved = new Set(patch.resolvedQuestionIds)

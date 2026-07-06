@@ -81,7 +81,7 @@ const RESOLVE_INPUT = {
 const LIST_COMMENTS_INPUT = { status: z.enum(['queued', 'sent', 'resolved', 'outdated']).optional() } satisfies z.ZodRawShape
 const GET_REVIEW_INPUT = {} satisfies z.ZodRawShape
 const EDIT_REVIEW_INPUT = {
-  field: z.enum(['title', 'summary', 'section.what', 'section.desc']),
+  field: z.enum(['title', 'summary']),
   sectionId: z.string().optional(),
   value: z.string()
 } satisfies z.ZodRawShape
@@ -269,14 +269,14 @@ const TOOL_IMPLS: ToolImpl[] = [
   },
   {
     name: 'get_review',
-    description: 'Get the current guided review (title, summary, and each section’s name/desc/what) so you can reference or edit it.',
+    description: 'Get the current guided review (title, summary, and each section’s name/narration) so you can reference or edit it.',
     input: GET_REVIEW_INPUT,
     run: (ctx) => {
       const ann = loadReviewState(ctx.db, ctx.sessionId).annotations
       if (!ann) return { result: 'No review has been generated yet.' }
       const slim = {
         title: ann.title, summary: ann.summary,
-        sections: ann.sections.map((s) => ({ id: s.id, name: s.name, desc: s.desc, what: s.what }))
+        sections: ann.sections.map((s) => ({ id: s.id, name: s.name, narration: s.narration.map((b) => b.text) }))
       }
       return { result: JSON.stringify(slim) }
     }
@@ -284,27 +284,16 @@ const TOOL_IMPLS: ToolImpl[] = [
   {
     name: 'edit_review',
     description:
-      'Amend the guided review in place — the title, the summary, or a section’s narration ' +
-      '(section.what / section.desc, with sectionId) — e.g. to add detail a reviewer’s question ' +
-      'surfaced. Does not regenerate the whole review.',
+      'Amend the guided review in place — the title or the summary — e.g. to add detail a ' +
+      'reviewer’s question surfaced. Does not regenerate the whole review.',
     input: EDIT_REVIEW_INPUT,
     run: (ctx, raw) => {
       const { field, sectionId, value } = raw as z.infer<z.ZodObject<typeof EDIT_REVIEW_INPUT>>
       const ann: ReviewAnnotations | undefined = loadReviewState(ctx.db, ctx.sessionId).annotations
       if (!ann) throw new Error('No review to edit yet — generate one first')
-      if (field === 'title') {
-        ann.title = value
-        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
-      } else if (field === 'summary') {
-        ann.summary = value
-        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
-      } else {
-        const sec = ann.sections.find((s) => s.id === sectionId)
-        if (!sec) throw new Error(`No section with id ${sectionId}`)
-        if (field === 'section.what') sec.what = value
-        else sec.desc = value
-        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
-      }
+      if (field === 'title') ann.title = value
+      else ann.summary = value
+      updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
       return {
         result: `Updated ${field}${sectionId ? ` of section ${sectionId}` : ''}.`,
         action: { kind: 'review_edited', field, ...(sectionId ? { sectionId } : {}) }

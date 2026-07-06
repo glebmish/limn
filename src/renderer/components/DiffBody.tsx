@@ -1,9 +1,8 @@
 import { Fragment, useMemo } from 'react'
-import type { Comment, DiffLine, EngineId, FileDiff } from '../../shared/types'
-import { I, EngineGlyph } from '../kit'
-import { diffHunksForMode, GUIDANCE, useStore } from '../store'
+import type { Comment, DiffLine, FileDiff } from '../../shared/types'
+import { I } from '../kit'
+import { diffHunksForMode, useStore } from '../store'
 import { Composer, InlineThread } from './Threads'
-import { Commentable, SelectionThreads } from './Commentable'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
@@ -39,13 +38,10 @@ function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; r
  *  gutter/threads/composer, empty-state messaging and the outdated-comments footer.
  *  `composerAt` is owned by the DiffView shell; a line is identified unambiguously by
  *  its `{ hunkIdx, lineIdx }` so two identical lines can't open the composer together. */
-export function DiffBody({ f, mode, showBody, plainNote, isViewed, engine, fileComments, composerAt, setComposerAt }: {
+export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt }: {
   f: FileDiff
   mode: 'branch' | 'approved' | 'viewed'
   showBody: boolean
-  plainNote?: string
-  isViewed: boolean
-  engine?: EngineId
   fileComments: Comment[]
   composerAt: { hunkIdx: number; lineIdx: number } | null
   setComposerAt: (v: { hunkIdx: number; lineIdx: number } | null) => void
@@ -69,16 +65,6 @@ export function DiffBody({ f, mode, showBody, plainNote, isViewed, engine, fileC
 
   return (
     <>
-      {!isViewed && GUIDANCE === 'narrated' && plainNote && (
-        <Commentable scope={{ region: 'file-note', file: f.path }}>
-          <div className="plain-note">
-            <EngineGlyph engine={engine} style={{ width: 12, height: 12, color: 'var(--accent)', flex: '0 0 auto', marginTop: 2 }} />
-            <span>{plainNote}</span>
-          </div>
-          <SelectionThreads scope={{ region: 'file-note', file: f.path }} />
-        </Commentable>
-      )}
-
       {showBody && (
         <div className="gfile-diff">
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
