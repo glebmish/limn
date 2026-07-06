@@ -20,14 +20,14 @@ describe('ToolCallLog', () => {
   it('uses action cards instead of generic rows for action-producing Limn tools', () => {
     const segments: MessageSegment[] = [
       { kind: 'text', text: 'Look here.' },
-      { kind: 'tool', id: 'focus-1' },
+      { kind: 'tool', id: 'point-1' },
       { kind: 'text', text: 'Then continue.' },
     ]
     const calls: ToolCall[] = [
-      { id: 'focus-1', verb: 'bash', name: 'mcp__limn__focus', state: 'ok', out: 'Focused src/a.ts.' },
+      { id: 'point-1', verb: 'bash', name: 'mcp__limn__point', state: 'ok', out: 'Pointed at src/a.ts.' },
     ]
     const actions: AgentAction[] = [
-      { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } },
+      { kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] },
     ]
 
     const out = renderToStaticMarkup(<SegmentBody segments={segments} calls={calls} actions={actions} />)
@@ -35,7 +35,7 @@ describe('ToolCallLog', () => {
     expect(out.indexOf('Look here.')).toBeLessThan(out.indexOf('Jump to'))
     expect(out.indexOf('Jump to')).toBeLessThan(out.indexOf('Then continue.'))
     expect(out).toContain('a.ts')
-    expect(out).not.toContain('class="tcall-verb">focus</span>')
+    expect(out).not.toContain('class="tcall-verb">point</span>')
   })
 
   it('renders submitted comment references as clickable visual cards', () => {

@@ -451,8 +451,7 @@ const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, thread
  *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;
  *  skipped if absent). Keeps tool rows at their true call site instead of grouping. */
 const ACTION_TOOL_KIND: Record<string, AgentAction['kind']> = {
-  focus: 'focus',
-  tour: 'tour',
+  point: 'point',
   suggest_mark_viewed: 'suggest_viewed',
   add_comment: 'comment_added',
   reply_to_comment: 'comment_replied',

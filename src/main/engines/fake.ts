@@ -312,9 +312,9 @@ export class FakeEngine implements ReviewEngine {
           await turn.tools.call('resolve_comment', { commentId: id, verdict: 'addressed', note: 'Done (demo).' })
         }
       } else if (turn.tools) {
-        // tool-enabled read-only chat: exercise the focus + suggest action pipe
-        await turn.tools.call('focus', { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } })
-        await turn.tools.call('tour', {
+        // tool-enabled read-only chat: exercise the point (single + multi-stop) + suggest action pipe
+        await turn.tools.call('point', { stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } }] })
+        await turn.tools.call('point', {
           stops: [
             { target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 }, note: 'The guard introduced by this branch.' },
             { target: { kind: 'file', file: 'src/b.ts' }, note: 'The caller that consumes the guarded value.' }

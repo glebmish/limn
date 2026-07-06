@@ -31,7 +31,7 @@ function focusTarget(a: FocusTarget): { text: string; mono: boolean } {
       return { text: sec?.name ?? 'Review section', mono: false }
     }
     case 'file': return { text: splitPath(a.file).name, mono: true }
-    case 'diff': return { text: `${splitPath(a.file).name}:${a.line}`, mono: true }
+    case 'diff': return { text: a.endLine ? `${splitPath(a.file).name}:${a.line}–${a.endLine}` : `${splitPath(a.file).name}:${a.line}`, mono: true }
   }
 }
 
@@ -55,40 +55,45 @@ function focusableAnchor(anchor: CommentAnchor): FocusTarget | null {
   return anchor.kind === 'summary' || anchor.kind === 'section' || anchor.kind === 'file' || anchor.kind === 'diff' ? anchor : null
 }
 
-function FocusCard({ action }: { action: Extract<AgentAction, { kind: 'focus' }> }) {
-  const target = focusTarget(action.anchor)
-  return (
-    <button className="limn-act focus" title="Re-focus this in the review" onClick={() => focusAnchor(action.anchor)}>
-      <div className="limn-act-head">
-        <I.eye className="ah-ic" />
-        <span className="ah-verb">Jump to</span>
-      </div>
-      <div className="limn-peek">
-        <span className="pk-rail"></span>
-        <div className="pk-body">
-          <span className="pk-kind">{focusKind(action.anchor)}</span>
-          <div className={'pk-target' + (target.mono ? ' mono' : '')}>{target.text}</div>
-        </div>
-      </div>
-    </button>
-  )
-}
-
-export function nextTourIndex(current: number, delta: number, count: number): number {
+export function nextStopIndex(current: number, delta: number, count: number): number {
   if (count <= 0) return 0
   return ((current + delta) % count + count) % count
 }
 
-function TourCard({ action }: { action: Extract<AgentAction, { kind: 'tour' }> }) {
+/** 1 stop → the compact jump chip/card; ≥2 stops → the interactive walkthrough
+ *  (Prev/Next, a live note that follows the active stop). One card for both so a
+ *  single-stop `point` and a multi-stop `point` render on the same code path. */
+function PointCard({ action }: { action: Extract<AgentAction, { kind: 'point' }> }) {
   const [cur, setCur] = useState(0)
   const stopCount = action.stops.length
   const go = (next: number): void => {
-    const bounded = nextTourIndex(cur, next - cur, stopCount)
+    const bounded = nextStopIndex(cur, next - cur, stopCount)
     setCur(bounded)
     const stop = action.stops[bounded]
     if (stop) focusAnchor(stop.target)
   }
   if (stopCount === 0) return null
+
+  if (stopCount === 1) {
+    const stop = action.stops[0]
+    const target = focusTarget(stop.target)
+    return (
+      <button className="limn-act focus" title="Re-focus this in the review" onClick={() => focusAnchor(stop.target)}>
+        <div className="limn-act-head">
+          <I.eye className="ah-ic" />
+          <span className="ah-verb">Jump to</span>
+        </div>
+        <div className="limn-peek">
+          <span className="pk-rail"></span>
+          <div className="pk-body">
+            <span className="pk-kind">{focusKind(stop.target)}</span>
+            <div className={'pk-target' + (target.mono ? ' mono' : '')}>{target.text}</div>
+          </div>
+        </div>
+      </button>
+    )
+  }
+
   const rawNote = action.stops[cur]?.note
   const activeNote = rawNote ? stripLeadingMarker(rawNote) : ''
 
@@ -285,10 +290,8 @@ function SuggestCard({ action, threadId }: { action: Extract<AgentAction, { kind
 
 function renderAction(action: AgentAction, engine?: EngineId, threadId?: number): { kind: 'chip' | 'card'; node: ReactNode } | null {
   switch (action.kind) {
-    case 'focus':
-      return { kind: 'card', node: <FocusCard action={action} /> }
-    case 'tour':
-      return { kind: 'card', node: <TourCard action={action} /> }
+    case 'point':
+      return { kind: 'card', node: <PointCard action={action} /> }
     case 'suggest_viewed':
       return { kind: 'card', node: <SuggestCard action={action} threadId={threadId} /> }
     case 'comment_added':

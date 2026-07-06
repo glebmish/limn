@@ -28,11 +28,11 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const ALL_TOOLS = ['add_comment', 'edit_review', 'focus', 'get_review', 'list_comments', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed', 'tour']
+const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
-  it('exposes the focus/suggest + comment/review tools (no write tool — commits go through git)', () => {
+  it('exposes the point/suggest + comment/review tools (no write tool — commits go through git)', () => {
     expect(LIMN_TOOLS.map((t) => t.name).sort()).toEqual([...ALL_TOOLS].sort())
     for (const t of LIMN_TOOLS) {
       expect(t.description.length).toBeGreaterThan(0)
@@ -64,49 +64,49 @@ describe('AUTO_ACCEPT_TOOL_NAMES — auto-accept allowlist', () => {
   })
 })
 
-describe('createToolHost — focus', () => {
-  it('focuses a diff line, emitting + collecting the action', async () => {
+describe('createToolHost — point', () => {
+  it('points at a single diff line (1 stop), emitting + collecting the action', async () => {
     const { ctx, events } = makeCtx()
     const host = createToolHost(ctx)
-    const { result, isError, action } = await host.call('focus', {
-      target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31 }
+    const { result, isError, action } = await host.call('point', {
+      stops: [{ target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31 } }]
     })
     expect(isError).toBeFalsy()
     expect(result).toContain('jwt.ts')
     expect(action).toEqual({
-      kind: 'focus',
-      anchor: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31, hunkRange: '', lineContent: '' }
+      kind: 'point',
+      stops: [{ target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31, hunkRange: '', lineContent: '' } }]
     })
     expect(actionEvents(events)).toEqual([action])
     expect(host.collected()).toEqual([action])
   })
 
-  it('focuses the summary and a section', async () => {
+  it('preserves a diff stop\'s endLine range', async () => {
     const { ctx } = makeCtx()
     const host = createToolHost(ctx)
-    const a = await host.call('focus', { target: { kind: 'summary' } })
-    const b = await host.call('focus', { target: { kind: 'section', sectionId: 's2' } })
-    expect(a.action).toEqual({ kind: 'focus', anchor: { kind: 'summary' } })
-    expect(b.action).toEqual({ kind: 'focus', anchor: { kind: 'section', sectionId: 's2' } })
+    const { action } = await host.call('point', {
+      stops: [{ target: { kind: 'diff', file: 'a.ts', side: 'new', line: 3, endLine: 9 } }]
+    })
+    expect(action).toEqual({
+      kind: 'point',
+      stops: [{ target: { kind: 'diff', file: 'a.ts', side: 'new', line: 3, endLine: 9, hunkRange: '', lineContent: '' } }]
+    })
+  })
+
+  it('points at the summary and a section (single-stop each)', async () => {
+    const { ctx } = makeCtx()
+    const host = createToolHost(ctx)
+    const a = await host.call('point', { stops: [{ target: { kind: 'summary' } }] })
+    const b = await host.call('point', { stops: [{ target: { kind: 'section', sectionId: 's2' } }] })
+    expect(a.action).toEqual({ kind: 'point', stops: [{ target: { kind: 'summary' } }] })
+    expect(b.action).toEqual({ kind: 'point', stops: [{ target: { kind: 'section', sectionId: 's2' } }] })
     expect(host.collected()).toEqual([a.action, b.action])
   })
 
-  it('rejects malformed input without emitting or collecting', async () => {
-    const { ctx, events } = makeCtx()
-    const host = createToolHost(ctx)
-    const { isError, action } = await host.call('focus', { target: { kind: 'diff' } })
-    expect(isError).toBe(true)
-    expect(action).toBeUndefined()
-    expect(events).toEqual([])
-    expect(host.collected()).toEqual([])
-  })
-})
-
-describe('createToolHost — tour', () => {
   it('creates a multi-stop walkthrough, emitting + collecting the action', async () => {
     const { ctx, events } = makeCtx()
     const host = createToolHost(ctx)
-    const { result, isError, action } = await host.call('tour', {
+    const { result, isError, action } = await host.call('point', {
       stops: [
         { target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31 }, note: '  new guard  ' },
         { target: { kind: 'section', sectionId: 's2' } }
@@ -114,7 +114,7 @@ describe('createToolHost — tour', () => {
       loop: true
     })
     const expected: AgentAction = {
-      kind: 'tour',
+      kind: 'point',
       stops: [
         {
           target: { kind: 'diff', file: 'src/auth/jwt.ts', side: 'new', line: 31, hunkRange: '', lineContent: '' },
@@ -131,17 +131,37 @@ describe('createToolHost — tour', () => {
     expect(host.collected()).toEqual([expected])
   })
 
-  it('rejects malformed tours without emitting or collecting', async () => {
+  it('accepts the max of 8 stops', async () => {
+    const { ctx } = makeCtx()
+    const host = createToolHost(ctx)
+    const stops = Array.from({ length: 8 }, (_, i) => ({ target: { kind: 'section' as const, sectionId: `s${i}` } }))
+    const { isError, action } = await host.call('point', { stops })
+    expect(isError).toBeFalsy()
+    expect(action?.kind === 'point' && action.stops).toHaveLength(8)
+  })
+
+  it('rejects 0 stops and 9 stops without emitting or collecting', async () => {
     const { ctx, events } = makeCtx()
     const host = createToolHost(ctx)
-    const oneStop = await host.call('tour', { stops: [{ target: { kind: 'summary' } }] })
-    const badStop = await host.call('tour', {
+    const zeroStops = await host.call('point', { stops: [] })
+    const nineStops = await host.call('point', {
+      stops: Array.from({ length: 9 }, (_, i) => ({ target: { kind: 'section' as const, sectionId: `s${i}` } }))
+    })
+    expect(zeroStops.isError).toBe(true)
+    expect(nineStops.isError).toBe(true)
+    expect(events).toEqual([])
+    expect(host.collected()).toEqual([])
+  })
+
+  it('rejects malformed stops without emitting or collecting', async () => {
+    const { ctx, events } = makeCtx()
+    const host = createToolHost(ctx)
+    const badStop = await host.call('point', {
       stops: [
         { target: { kind: 'summary' } },
         { target: { kind: 'diff' } }
       ]
     })
-    expect(oneStop.isError).toBe(true)
     expect(badStop.isError).toBe(true)
     expect(events).toEqual([])
     expect(host.collected()).toEqual([])
@@ -184,7 +204,7 @@ describe('createToolHost — dispatch', () => {
 })
 
 describe('FakeEngine chat drives the tool host', () => {
-  it('emits scripted focus + suggestion actions through the host', async () => {
+  it('emits scripted point (single + multi-stop) + suggestion actions through the host', async () => {
     const { ctx, events } = makeCtx()
     const host = createToolHost(ctx)
     const engine = new FakeEngine()
@@ -192,8 +212,7 @@ describe('FakeEngine chat drives the tool host', () => {
     for await (const _ of run.events) { /* drain */ }
     await run.result
     const kinds = actionEvents(events).map((a) => a.kind)
-    expect(kinds).toContain('focus')
-    expect(kinds).toContain('tour')
+    expect(kinds.filter((k) => k === 'point')).toHaveLength(2)
     expect(kinds).toContain('suggest_viewed')
     expect(host.collected().map((a) => a.kind)).toEqual(kinds)
   })

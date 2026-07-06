@@ -182,17 +182,16 @@ export interface Comment {
 }
 
 // ── agent tool actions ────────────────────────────────────────
-/** The reviewable spots a `focus` tool call can scroll+highlight. A subset of
- *  CommentAnchor (no parallel type) so a focus chip and a comment chip share the
+/** The reviewable spots a `point` tool call can scroll+highlight. A subset of
+ *  CommentAnchor (no parallel type) so a point chip and a comment chip share the
  *  same `focusAnchor` renderer. */
 export type FocusTarget = Extract<CommentAnchor, { kind: 'summary' } | { kind: 'section' } | { kind: 'file' } | { kind: 'diff' }>
-export interface TourStop { target: FocusTarget; note?: string }
+export interface PointStop { target: FocusTarget; note?: string }
 /** A side effect (or suggestion) an agent performed during a chat turn. Emitted
  *  live as an `EngineEvent` and persisted on the agent ChatMessage so chips rebuild
  *  on reload. */
 export type AgentAction =
-  | { kind: 'focus'; anchor: FocusTarget }
-  | { kind: 'tour'; stops: TourStop[]; loop?: boolean }
+  | { kind: 'point'; stops: PointStop[]; loop?: boolean }
   // `id` addresses this action for the dismiss-persist path; `resolution` records
   // only an explicit dismissal — the "marked" outcome is derived from real viewedAt
   // marks on reload, so it is never persisted here.

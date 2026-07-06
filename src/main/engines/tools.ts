@@ -48,19 +48,19 @@ const focusTarget = z.discriminatedUnion('kind', [
     file: z.string().min(1),
     side: z.enum(['new', 'old']),
     line: z.number().int().positive(),
-    // hunkRange/lineContent matter for comment anchoring, not for focus — accept
+    endLine: z.number().int().positive().optional(),
+    // hunkRange/lineContent matter for comment anchoring, not for pointing — accept
     // them so a FocusTarget is well-formed, but the agent may omit them.
     hunkRange: z.string().optional(),
     lineContent: z.string().optional()
   })
 ])
 
-const FOCUS_INPUT = { target: focusTarget } satisfies z.ZodRawShape
-const TOUR_INPUT = {
+const POINT_INPUT = {
   stops: z.array(z.object({
     target: focusTarget,
     note: z.string().optional()
-  })).min(2).max(8),
+  })).min(1).max(8),
   loop: z.boolean().optional()
 } satisfies z.ZodRawShape
 const SUGGEST_INPUT = {
@@ -89,7 +89,11 @@ const EDIT_REVIEW_INPUT = {
 let commentSeq = 0
 function normalizeFocusTarget(a: z.infer<typeof focusTarget>): FocusTarget {
   return a.kind === 'diff'
-    ? { kind: 'diff', file: a.file, side: a.side, line: a.line, hunkRange: a.hunkRange ?? '', lineContent: a.lineContent ?? '' }
+    ? {
+        kind: 'diff', file: a.file, side: a.side, line: a.line,
+        ...(a.endLine ? { endLine: a.endLine } : {}),
+        hunkRange: a.hunkRange ?? '', lineContent: a.lineContent ?? ''
+      }
     : a
 }
 function normalizeAnchor(a: z.infer<typeof focusTarget>): CommentAnchor {
@@ -122,42 +126,32 @@ function describeFocus(a: FocusTarget): string {
     case 'summary': return 'the review summary'
     case 'section': return `section ${a.sectionId}`
     case 'file': return a.file
-    case 'diff': return `${a.file}:${a.line}`
+    case 'diff': return a.endLine ? `${a.file}:${a.line}-${a.endLine}` : `${a.file}:${a.line}`
   }
 }
 
 const TOOL_IMPLS: ToolImpl[] = [
   {
-    name: 'focus',
+    name: 'point',
     description:
-      'Scroll the review to a spot and briefly highlight it: the summary, a section, ' +
-      'a file, or a specific diff line. ALWAYS call this whenever your answer refers to a ' +
-      'place in the code or review (a file, a function, a diff line) — call focus to jump ' +
-      'the reviewer there instead of only naming the path in prose. Prefer the most specific ' +
-      'target available (a diff line over a file). It leaves a clickable chip in the chat so ' +
-      'the reviewer can re-focus later. Calling focus is the primary way you point at code; ' +
-      'do it proactively, not only when asked.',
-    input: FOCUS_INPUT,
+      'Point the reviewer at one or more spots in the review — the summary, a section, ' +
+      'a file, or a specific diff line (optionally a range via endLine) — and briefly ' +
+      'highlight them. Pass a single stop to jump+highlight one spot; pass 2-8 stops for an ' +
+      'interactive walkthrough across a sequence — for example a value flow, call chain, ' +
+      'lifecycle path, or cross-file risk — with an optional short note per stop. ALWAYS call ' +
+      'this whenever your answer refers to a place in the code or review (a file, a function, ' +
+      'a diff line) — call point to jump the reviewer there instead of only naming the path in ' +
+      'prose. Prefer the most specific target available (a diff line/range over a file). It ' +
+      'leaves a clickable chip (or, for multiple stops, an interactive walkthrough card with ' +
+      'Prev/Next) in the chat so the reviewer can re-focus later; use loop=true when a ' +
+      'multi-stop sequence is cyclic or useful to repeat. Calling point is the primary way you ' +
+      'point at code; do it proactively, not only when asked — but when one call covers the ' +
+      'locations, don\'t also point at them individually.',
+    input: POINT_INPUT,
     run: (_ctx, raw) => {
-      const { target } = raw as z.infer<z.ZodObject<typeof FOCUS_INPUT>>
-      const anchor = normalizeFocusTarget(target)
-      return { result: `Focused ${describeFocus(anchor)}.`, action: { kind: 'focus', anchor } }
-    }
-  },
-  {
-    name: 'tour',
-    description:
-      'Create a multi-stop walkthrough across the review. Use this when your answer points ' +
-      'at a sequence spanning multiple files, sections, or diff lines — for example a value ' +
-      'flow, call chain, lifecycle path, or cross-file risk. Each stop is a focus target and ' +
-      'an optional short note. It leaves an interactive walkthrough card in the chat; the ' +
-      'reviewer can click stops or use Prev/Next to re-focus each location. Use loop=true ' +
-      'when the sequence is cyclic or useful to repeat.',
-    input: TOUR_INPUT,
-    run: (_ctx, raw) => {
-      const { stops, loop } = raw as z.infer<z.ZodObject<typeof TOUR_INPUT>>
+      const { stops, loop } = raw as z.infer<z.ZodObject<typeof POINT_INPUT>>
       const action: AgentAction = {
-        kind: 'tour',
+        kind: 'point',
         stops: stops.map((s) => ({
           target: normalizeFocusTarget(s.target),
           ...(s.note?.trim() ? { note: s.note.trim() } : {})
@@ -165,7 +159,10 @@ const TOOL_IMPLS: ToolImpl[] = [
         ...(loop ? { loop: true } : {})
       }
       const labels = action.stops.map((s) => describeFocus(s.target)).join(' → ')
-      return { result: `Created a ${action.stops.length}-stop walkthrough: ${labels}.`, action }
+      const result = action.stops.length === 1
+        ? `Pointed at ${labels}.`
+        : `Created a ${action.stops.length}-stop walkthrough: ${labels}.`
+      return { result, action }
     }
   },
   {
@@ -319,7 +316,7 @@ export function limnAllowedToolNames(): string[] {
  *  loudly at turn setup (assertAutoAcceptCoverage) and in tests. Hand-maintained
  *  on purpose — do NOT derive it from LIMN_TOOLS, so a new tool can't ride in. */
 export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'focus', 'tour', 'suggest_mark_viewed', 'list_comments', 'add_comment',
+  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment',
   'reply_to_comment', 'resolve_comment', 'get_review', 'edit_review'
 ])
 

@@ -96,7 +96,7 @@ describe('reduceSegments', () => {
   it('preserves action events at their streamed position', () => {
     const events: EngineEvent[] = [
       { type: 'text', text: 'Before.' },
-      { type: 'action', action: { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } } },
+      { type: 'action', action: { kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] } },
       { type: 'text', text: 'After.' },
       { type: 'action', action: { kind: 'comment_resolved', commentId: 'c1', anchor: { kind: 'file', file: 'src/a.ts' }, verdict: 'addressed', note: 'Done.' } },
     ]

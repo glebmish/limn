@@ -91,9 +91,9 @@ addChatMessage(db, reviewChat.id, {
     '',
     'Only `parseRefInput` calls it today, and it already null-checks, so this is safe.'
   ].join('\n'),
-  // tool actions: focus + suggest + a comment it left + a comment it resolved
+  // tool actions: point + suggest + a comment it left + a comment it resolved
   actions: [
-    { kind: 'focus', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+    { kind: 'point', stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } }] },
     { kind: 'comment_added', comment: {
       id: 'agent-c1', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' },
       author: 'agent', text: 'guard note', status: 'resolved', replies: [], createdAt: 'now', iteration: 1

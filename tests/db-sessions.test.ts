@@ -366,9 +366,9 @@ describe('chat threads DAO', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     const actions: AgentAction[] = [
-      { kind: 'focus', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } },
+      { kind: 'point', stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' } }] },
       {
-        kind: 'tour',
+        kind: 'point',
         loop: true,
         stops: [
           { target: { kind: 'file', file: 'src/a.ts' }, note: 'entry point' },
@@ -398,7 +398,7 @@ describe('chat threads DAO', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     const actions: AgentAction[] = [
-      { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } },
+      { kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] },
       { kind: 'suggest_viewed', id: 'sv-1', files: ['src/a.ts'], note: 'covered' }
     ]
     addChatMessage(db, t.id, { role: 'agent', text: 'done', at: 'T1', actions })
@@ -409,8 +409,8 @@ describe('chat threads DAO', () => {
     const msgs = getChatThread(db, t.id)!.messages
     const sv = msgs[0].actions!.find((a) => a.kind === 'suggest_viewed')!
     expect(sv.kind === 'suggest_viewed' && sv.resolution).toBe('dismissed')
-    // the focus action in the same row is left intact
-    expect(msgs[0].actions![0]).toEqual({ kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } })
+    // the point action in the same row is left intact
+    expect(msgs[0].actions![0]).toEqual({ kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] })
     // the other row's segments_json is untouched
     expect(msgs[1].segments).toEqual([{ kind: 'text', text: 'hi' }])
 
