@@ -7,7 +7,8 @@ import type { AppStore } from './index'
 import { useStore } from './index'
 import { newOpId } from './ops'
 import type { ChatDraft } from './derive'
-import { activeChat, anyRunning, batchUserPreview, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat, rebaseUserPreview } from './derive'
+import { activeChat, anyRunning, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat } from './derive'
+import { batchTurnLabel, rebaseTurnLabel } from '../../shared/turnLabels'
 
 // ── promoted stateful helpers ────────────────────────────────
 // These were closures over set/get inside the store factory; they now reach the
@@ -236,7 +237,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
             ...c,
             messages: [...c.messages, {
               role: 'user' as const,
-              text: batchUserPreview(comments, loaded, refine, trimmed),
+              text: batchTurnLabel(comments, loaded.state.annotations?.questions ?? [], refine, trimmed),
               at: new Date().toISOString(),
               ...(comments.length ? { commentRefs: comments.map((comment) => comment.id) } : {})
             }]
@@ -280,7 +281,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       const loaded = get().loaded
       if (loaded) {
         setChats(loaded.state.chats.map((c) => c.id === targetId
-          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: rebaseUserPreview(loaded.state.base, loaded.state.branch, conflictFiles), at: new Date().toISOString() }] }
+          ? { ...c, messages: [...c.messages, { role: 'user' as const, text: rebaseTurnLabel(loaded.state.base, loaded.state.branch, conflictFiles), at: new Date().toISOString() }] }
           : c))
       }
       const opId = newOpId()

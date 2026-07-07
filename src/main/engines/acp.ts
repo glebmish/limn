@@ -12,7 +12,7 @@ import {
   type SessionNotification
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
-import type { ReasoningEffort, ReviewAnnotations, ExecutionMode } from '../../shared/types.js'
+import type { ReasoningEffort, ExecutionMode } from '../../shared/types.js'
 import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
 import { CancelledError, EngineSessionLostError } from './errors.js'

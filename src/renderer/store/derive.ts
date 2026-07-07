@@ -1,5 +1,5 @@
 import type { LoadedReview, OpErrorCode, OperationStatus } from '../../shared/ipc'
-import type { ApprovalRequest, ChatThread, Comment, EngineEvent, FileDiff, Hunk, Section, ViewMark } from '../../shared/types'
+import type { ApprovalRequest, ChatThread, EngineEvent, FileDiff, Hunk, Section, ViewMark } from '../../shared/types'
 import { fileEffectivelyExcluded } from '../../shared/types'
 import { orderFilesForReview } from '../lib/fileOrder'
 import { IDLE_GEN } from './ops'
@@ -310,24 +310,3 @@ export function pickActiveChat(chats: ChatThread[], current: number | null): num
   return (emptyUser ?? chats[chats.length - 1])?.id ?? null
 }
 
-export function batchUserPreview(comments: Comment[], loaded: LoadedReview | null, refine?: boolean, steer?: string): string {
-  if (refine) {
-    const byId = new Map((loaded?.state.annotations?.questions ?? []).map((q) => [q.id, q]))
-    const lines = comments.map((c) => {
-      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
-      const q = byId.get(qid)
-      const label = q?.text ?? q?.context ?? (qid || 'Open question')
-      return `- ${label}\n  Answer: ${c.text}`
-    })
-    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
-  }
-  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
-}
-
-/** The optimistic user-turn label for a rebase turn — mirrors `rebaseUserMessage`
- *  in main (src/main/ipc.ts) verbatim, the batchUserMessage/batchUserPreview pairing. */
-export function rebaseUserPreview(base: string, branch: string, conflictFiles?: string[]): string {
-  return conflictFiles?.length
-    ? `Rebase ${branch} onto ${base} — resolve ${conflictFiles.length} conflicted file${conflictFiles.length === 1 ? '' : 's'}.`
-    : `Rebase ${branch} onto ${base}.`
-}

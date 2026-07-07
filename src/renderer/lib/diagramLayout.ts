@@ -1,4 +1,5 @@
 import type { Diagram, DiagramNode2 } from '../../shared/types'
+import { hasCycle } from '../../shared/graph'
 
 /** Two-tier "chain-plus-branches" layout for a Diagram (spec A2, Decision 5).
  *  A simple linear chain lays out as one ordered row. A single fan-out node
@@ -23,7 +24,7 @@ export function layoutDiagram(d: Diagram): { rows: DiagramNode2[][]; ok: boolean
     inDegree.set(e.to, (inDegree.get(e.to) ?? 0) + 1)
   }
 
-  if (hasCycle(ids, outMap)) return { rows: [], ok: false }
+  if (hasCycle(ids, edges)) return { rows: [], ok: false }
   if (ids.some((id) => (inDegree.get(id) ?? 0) > 1)) return { rows: [], ok: false }
 
   const fanoutNodes = ids.filter((id) => (outMap.get(id) ?? []).length > 1)
@@ -76,22 +77,3 @@ export function layoutDiagram(d: Diagram): { rows: DiagramNode2[][]; ok: boolean
   return { rows, ok: true }
 }
 
-function hasCycle(ids: string[], outMap: Map<string, string[]>): boolean {
-  const WHITE = 0, GRAY = 1, BLACK = 2
-  const color = new Map<string, number>(ids.map((id) => [id, WHITE]))
-  const stack: string[] = []
-  const visit = (id: string): boolean => {
-    color.set(id, GRAY)
-    stack.push(id)
-    for (const next of outMap.get(id) ?? []) {
-      const c = color.get(next)
-      if (c === GRAY) return true
-      if (c === WHITE && visit(next)) return true
-    }
-    stack.pop()
-    color.set(id, BLACK)
-    return false
-  }
-  for (const id of ids) if (color.get(id) === WHITE && visit(id)) return true
-  return false
-}

@@ -18,6 +18,7 @@ import {
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
 import { inTx } from './db/db.js'
+import { batchTurnLabel, rebaseTurnLabel } from '../shared/turnLabels.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
 import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.js'
 import { stampAnchor } from './anchorStamp.js'
@@ -264,29 +265,6 @@ function reportTurnFailure(opts: {
   if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `${label} failed: ${msg}`, at: new Date().toISOString() })
   sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true, undefined, exclusive)
   if (!cancelled && opts.notify) notifyIfUnfocused(`Agent ${label.toLowerCase()} run failed`, msg.slice(0, 120))
-}
-
-function batchUserMessage(comments: Comment[], state: ReturnType<typeof dao.loadReviewState>, refine?: boolean, steer?: string): string {
-  if (refine) {
-    const byId = new Map((state.annotations?.questions ?? []).map((q) => [q.id, q]))
-    const lines = comments.map((c) => {
-      const qid = c.anchor.kind === 'question' ? c.anchor.questionId : ''
-      const q = byId.get(qid)
-      const label = q?.text ?? q?.context ?? (qid || 'Open question')
-      return `- ${label}\n  Answer: ${c.text}`
-    })
-    return `Answered ${comments.length} open question${comments.length === 1 ? '' : 's'}:\n${lines.join('\n')}`
-  }
-  return steer?.trim() ? `Handle ${comments.length} comment(s) - ${steer.trim()}` : `Handle ${comments.length} comment(s).`
-}
-
-/** The persisted user-turn label for a rebase turn — the full prompt is engine-only.
- *  Mirrored verbatim by `rebaseUserPreview` (renderer, store/derive.ts), the same
- *  main/renderer pairing as batchUserMessage/batchUserPreview. */
-function rebaseUserMessage(base: string, branch: string, conflictFiles?: string[]): string {
-  return conflictFiles?.length
-    ? `Rebase ${branch} onto ${base} — resolve ${conflictFiles.length} conflicted file${conflictFiles.length === 1 ? '' : 's'}.`
-    : `Rebase ${branch} onto ${base}.`
 }
 
 interface OpRecorder {
@@ -1011,7 +989,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       dao.addChatMessage(db, threadId, {
         role: 'user',
         at: userAt,
-        text: batchUserMessage(comments, state, refine, steer),
+        text: batchTurnLabel(comments, state.annotations?.questions ?? [], refine, steer),
         ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
       })
 
@@ -1095,7 +1073,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const state = dao.loadReviewState(db, sid)
       dao.addChatMessage(db, threadId, {
         role: 'user', at: new Date().toISOString(),
-        text: rebaseUserMessage(state.base, state.branch, conflictFiles)
+        text: rebaseTurnLabel(state.base, state.branch, conflictFiles)
       })
 
       const engine = makeEngine(thread.agent.engine)
