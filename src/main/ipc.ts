@@ -29,7 +29,7 @@ import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_O
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { stampAnnotationAnchors } from './engines/stampAnnotations.js'
-import { mintHotspotComments } from './engines/hotspots.js'
+import { mintHotspotComments, supersededHotspotIds } from './engines/hotspots.js'
 import { scopedEligible, SCOPE_CHAIN_CAP } from './engines/scope.js'
 import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
@@ -724,7 +724,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // never carried on `annotations` itself (mergeAnnotations strips the field).
       // knownFiles mirrors mergeAnnotations' own file-in-diff gate (skeleton ∪
       // untracked); stamping mirrors add_comment's stamp-at-creation.
-      if (hotspots && hotspots.length > 0) {
+      if (hotspots) {
+        // a fresh full pass REPLACES the prior full pass's hotspot set: pristine
+        // (never-engaged) hotspot comments are deleted before minting, so N
+        // regenerations leave one set, not N. Engaged ones survive (see
+        // supersededHotspotIds). Scoped passes (hotspots undefined) never touch them.
+        for (const id of supersededHotspotIds(state.comments)) dao.deleteComment(db, sessionId, id)
         const knownFiles = new Set([...skeleton.files.map((f) => f.path), ...untrackedPaths])
         const minted = mintHotspotComments(hotspots, { knownFiles, iteration: iterationN })
         for (const c of minted) {

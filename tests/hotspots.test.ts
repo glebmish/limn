@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { mintHotspotComments } from '../src/main/engines/hotspots'
+import { mintHotspotComments, supersededHotspotIds } from '../src/main/engines/hotspots'
 import { openDb } from '../src/main/db/db'
 import { createSession, loadReviewState, upsertComment } from '../src/main/db/sessions'
 import type { Hotspot, RefPair } from '../src/shared/types'
@@ -57,6 +57,24 @@ describe('mintHotspotComments', () => {
 
   it('returns nothing for an empty hotspot list', () => {
     expect(mintHotspotComments([], { knownFiles: new Set(), iteration: 0 })).toEqual([])
+  })
+})
+
+describe('supersededHotspotIds', () => {
+  it('selects only pristine agent hotspot comments — untouched since minting', () => {
+    const [pristine] = mintHotspotComments([riskHotspot], { knownFiles: new Set(['src/a.ts']), iteration: 1 })
+    const requeued = { ...pristine, id: 'hs-2-0', status: 'queued' as const }
+    const replied = {
+      ...pristine, id: 'hs-3-0',
+      replies: [{ id: 'r1', author: 'user' as const, text: 'why?', createdAt: pristine.createdAt }]
+    }
+    const userComment = { ...pristine, id: 'c-user', author: 'user' as const }
+
+    expect(supersededHotspotIds([pristine, requeued, replied, userComment])).toEqual([pristine.id])
+  })
+
+  it('returns nothing when there are no comments', () => {
+    expect(supersededHotspotIds([])).toEqual([])
   })
 })
 
