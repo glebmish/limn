@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ApprovalRequest, EngineId, ReviewAnnotations, Section } from '../../shared/types.js'
+import type { ApprovalRequest, EngineId, Section } from '../../shared/types.js'
 import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
-import type { ScopedReviewPatch, WireSection } from './schema.js'
+import type { ParsedReview, ScopedReviewPatch, WireSection } from './schema.js'
 import { awaitDecision } from './approvals.js'
 import { EngineSessionLostError } from './errors.js'
 import { execGit } from '../exec.js'
@@ -47,7 +47,7 @@ export function lastFakeChatTurn(): ChatTurn | null { return lastChatTurn }
 export class FakeEngine implements ReviewEngine {
   constructor(readonly id: EngineId = 'claude') {}
 
-  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations> {
+  generateReview(req: ReviewRequest): EngineRun<ParsedReview> {
     const q = new EventQueue()
     const result = (async () => {
       q.push({ type: 'status', text: 'Exploring the repository…' })
@@ -66,16 +66,18 @@ export class FakeEngine implements ReviewEngine {
       }))
       q.push({ type: 'status', text: 'Writing the guided review…' })
       const firstFile = req.diff.files[0]?.path
-      const value: ReviewAnnotations = {
-        title: `Changes on ${req.branch}`,
-        summary: `Demo review of ${req.diff.files.length} files grouped into ${sections.length} sections.`,
-        sections,
-        questions: [{
-          id: 'q1',
-          text: 'Demo question: should the config default stay as-is?',
-          context: 'Top-level files',
-          options: ['keep the current default', 'switch to the new default']
-        }],
+      const value: ParsedReview = {
+        annotations: {
+          title: `Changes on ${req.branch}`,
+          summary: `Demo review of ${req.diff.files.length} files grouped into ${sections.length} sections.`,
+          sections,
+          questions: [{
+            id: 'q1',
+            text: 'Demo question: should the config default stay as-is?',
+            context: 'Top-level files',
+            options: ['keep the current default', 'switch to the new default']
+          }]
+        },
         // A4 demo/smoke path: one sample hotspot so the mint-at-merge flow (and the
         // renderer's severity badge + re-queue control) has something to show.
         hotspots: firstFile ? [{

@@ -155,15 +155,26 @@ export function hotspotsFromWire(wire?: { anchor: WireAnchor; text: string; seve
   return (wire ?? []).map((h) => ({ anchor: normalizeWireAnchor(h.anchor), text: h.text, severity: h.severity }))
 }
 
-export function parseReviewOutput(raw: unknown): ReviewAnnotations {
+/** A full generation's parsed output: the annotations that flow toward
+ *  persistence, plus the generation-transient hotspots as a SIBLING — off the
+ *  persisted type entirely, so no `updateSessionMeta({annotations})` caller can
+ *  ever persist them by accident. */
+export interface ParsedReview {
+  annotations: ReviewAnnotations
+  hotspots: Hotspot[]
+}
+
+export function parseReviewOutput(raw: unknown): ParsedReview {
   const wire = reviewWireSchema.parse(raw)
   return {
-    title: wire.title,
-    summary: wire.summary,
-    sections: wire.sections.map(sectionFromWire),
-    planMap: wire.planMap ?? undefined,
-    questions: wire.questions.map(questionFromWire),
-    artifactPaths: wire.artifactPaths ?? undefined,
+    annotations: {
+      title: wire.title,
+      summary: wire.summary,
+      sections: wire.sections.map(sectionFromWire),
+      planMap: wire.planMap ?? undefined,
+      questions: wire.questions.map(questionFromWire),
+      artifactPaths: wire.artifactPaths ?? undefined
+    },
     hotspots: hotspotsFromWire(wire.hotspots)
   }
 }

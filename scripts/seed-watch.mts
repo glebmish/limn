@@ -14,7 +14,7 @@ const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }
 const { value, sessionId: engineSession } = await run.result
-const { annotations } = mergeAnnotations(sk, value)
+const { annotations } = mergeAnnotations(sk, value.annotations)
 
 const base = await resolveRefInput(fx.dir, 'main')
 const compare = await resolveRefInput(fx.dir, 'feature')

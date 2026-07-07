@@ -98,8 +98,8 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const events = await drain(run.events)
     expect(events.some((e) => e.type === 'text')).toBe(false) // suppressed
     const { value } = await run.result
-    expect(value.title).toBe('T')
-    expect(value.sections[0].id).toBe('a')
+    expect(value.annotations.title).toBe('T')
+    expect(value.annotations.sections[0].id).toBe('a')
   })
 
   it('2b. generation turn auto-allows a command permission (even an unsafe one), without parking', async () => {
@@ -115,7 +115,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const events = await drain(run.events)
     expect(events.some((e) => e.type === 'approval_request')).toBe(false) // no parking — generation has no opId
     const { value } = await run.result
-    expect(value.title).toBe('T') // allow branch taken
+    expect(value.annotations.title).toBe('T') // allow branch taken
     const records = readRecords()
     expect((records.find((r) => r.event === 'permissionOutcome')?.outcome as { optionId?: string })?.optionId).toBe('allow')
     // the session mode is the non-write one, so edits ask instead of auto-applying
@@ -135,7 +135,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const events = await drain(run.events)
     expect(events.some((e) => e.type === 'approval_request')).toBe(false) // denied outright, never parked
     const { value } = await run.result
-    expect(value.title).toBe('T') // reject branch taken
+    expect(value.annotations.title).toBe('T') // reject branch taken
     const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
     expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
   })
@@ -148,7 +148,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
     await drain(run.events)
     const { value } = await run.result
-    expect(value.title).toBe('T')
+    expect(value.annotations.title).toBe('T')
   })
 
   it('3b. repair turn: invalid twice → rejects with an UNWRAPPED ZodError, no raw error event', async () => {

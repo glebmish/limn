@@ -215,8 +215,8 @@ interface GenResult {
   engineSession: string
   agentTurnText: string
   scope: 'full' | 'scoped'
-  /** A4: the full pass's pre-merge parsed hotspots (mergeAnnotations strips
-   *  `.hotspots` from `annotations` itself — see validate.ts). Undefined for a
+  /** A4: the full pass's parsed hotspots (a sibling of annotations on
+   *  ParsedReview — never a field on the persisted type). Undefined for a
    *  scoped pass: the scoped wire schema has no hotspots field. */
   hotspots?: Hotspot[]
 }
@@ -629,7 +629,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         const pump = pumpEvents(run.events, recorder.emit)
         const { value, sessionId: engineSession } = await run.result
         await pump
-        const { annotations, warnings } = mergeAnnotations(skeleton, value, untrackedPaths, new Set(artifacts.map((a) => a.path)))
+        const { annotations, warnings } = mergeAnnotations(skeleton, value.annotations, untrackedPaths, new Set(artifacts.map((a) => a.path)))
         return {
           annotations, warnings, engineSession, scope: 'full',
           agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
@@ -718,10 +718,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // exists — nextIterationNumber is a pure MAX(n)+1 read, no side effect.
       const iterationN = dao.nextIterationNumber(db, sessionId)
 
-      // A4: hotspots are a full-generation concept, read from the PRE-merge parsed
-      // value (GenResult.hotspots — undefined on a scoped pass, which has none in
-      // its wire schema) and minted into anchored, resolved agent comments here —
-      // never carried on `annotations` itself (mergeAnnotations strips the field).
+      // A4: hotspots are a full-generation concept (GenResult.hotspots — undefined
+      // on a scoped pass, which has none in its wire schema), minted into anchored,
+      // resolved agent comments here. They ride ParsedReview as a SIBLING of
+      // annotations, so they can never reach persistence by accident.
       // knownFiles mirrors mergeAnnotations' own file-in-diff gate (skeleton ∪
       // untracked); stamping mirrors add_comment's stamp-at-creation.
       if (hotspots) {

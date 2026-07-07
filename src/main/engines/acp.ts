@@ -25,6 +25,7 @@ import {
   reviewJsonSchema,
   scopedReviewJsonSchema,
   parseReviewOutput,
+  type ParsedReview,
   parseScopedOutput,
   type ScopedReviewPatch
 } from './schema.js'
@@ -90,8 +91,8 @@ export class AcpEngine implements ReviewEngine {
     this.id = config.id
   }
 
-  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations> {
-    return this.runAcpTurn<ReviewAnnotations>({
+  generateReview(req: ReviewRequest): EngineRun<ParsedReview> {
+    return this.runAcpTurn<ParsedReview>({
       repo: req.repo,
       prompt: buildReviewPrompt(req) + '\n' + structuredEpilogue(reviewJsonSchema),
       model: req.model,

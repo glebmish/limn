@@ -113,12 +113,6 @@ export interface ReviewAnnotations {
    *  generate time, so "Guided by" stays locked to it even if the regenerate
    *  picker is changed to a different agent. Not part of the engine's output. */
   generatedBy?: AgentRef;
-  /** GENERATION-TRANSIENT: populated by `parseReviewOutput` from the wire's
-   *  top-level `hotspots`; read once at the ipc post-merge seam to mint agent
-   *  comments (`mintHotspotComments`), then discarded. `mergeAnnotations`'
-   *  output never carries this field — hotspots are NOT part of the persisted
-   *  review record; once minted they live on as ordinary (resolved) comments. */
-  hotspots?: Hotspot[];
 }
 
 // ── comments ──────────────────────────────────────────────────

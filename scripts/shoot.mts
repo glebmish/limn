@@ -30,7 +30,7 @@ const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }
 const { value, sessionId: engineSession } = await run.result
-const { annotations } = mergeAnnotations(sk, value)
+const { annotations } = mergeAnnotations(sk, value.annotations)
 // the FakeEngine doesn't emit a planMap; synthesize one so the spec acceptance
 // list + plan steps (and the per-step comment affordance) render in the spine.
 const firstSection = annotations.sections[0]?.id ?? 's1'

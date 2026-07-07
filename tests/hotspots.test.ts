@@ -66,7 +66,7 @@ describe('supersededHotspotIds', () => {
     const requeued = { ...pristine, id: 'hs-2-0', status: 'queued' as const }
     const replied = {
       ...pristine, id: 'hs-3-0',
-      replies: [{ id: 'r1', author: 'user' as const, text: 'why?', createdAt: pristine.createdAt }]
+      replies: [{ id: 'r1', author: 'user' as const, text: 'why?', at: pristine.createdAt }]
     }
     const userComment = { ...pristine, id: 'c-user', author: 'user' as const }
 

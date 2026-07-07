@@ -3,7 +3,7 @@ import type {
   ExecutionMode, FileDiff, ReasoningEffort, ReviewAnnotations
 } from '../../shared/types.js'
 import type { AgentToolHost } from './tools.js'
-import type { ScopedReviewPatch } from './schema.js'
+import type { ParsedReview, ScopedReviewPatch } from './schema.js'
 
 export interface ReviewRequest {
   repo: string
@@ -80,7 +80,7 @@ export interface EngineRun<T> {
 
 export interface ReviewEngine {
   id: EngineId
-  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
+  generateReview(req: ReviewRequest): EngineRun<ParsedReview>
   /** Diff-scoped update: run a scoped patch turn (structured output =
    *  scopedReviewJsonSchema), resuming `priorEngineSessionId` when present. The
    *  run returns whatever session id the engine yields (Claude mints a new id on

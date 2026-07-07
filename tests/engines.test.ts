@@ -240,7 +240,7 @@ describe('FakeEngine contract', () => {
     const { value: raw, sessionId } = await run.result
     expect(sessionId).toBeTruthy()
 
-    const { annotations } = mergeAnnotations(sk, raw)
+    const { annotations } = mergeAnnotations(sk, raw.annotations)
     const all = annotations.sections.flatMap((s) => s.files).sort()
     expect(all).toEqual(sk.files.map((f) => f.path).sort())
 
