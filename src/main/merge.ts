@@ -413,8 +413,9 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
   try {
     if (ctx.baseWorkdir) {
       // base checked out (worktree verified clean by the gates): advance it through a
-      // real merge so it doesn't go stale. mergeInWorktree aborts + throws on failure.
-      mergedSha = await mergeInWorktree(ctx.baseWorkdir, ctx.branch, req.strategy, req.strategy === 'ff' ? undefined : message)
+      // real merge so it doesn't go stale. mergeInWorktree aborts + throws on failure;
+      // expect.baseHead is its CAS guard, mirroring the updateRefCas branches below.
+      mergedSha = await mergeInWorktree(ctx.baseWorkdir, ctx.branch, req.strategy, req.expect.baseHead, req.strategy === 'ff' ? undefined : message)
     } else if (req.strategy === 'ff') {
       await updateRefCas(ctx.repo, baseRef, ctx.tipSha, req.expect.baseHead)
       mergedSha = ctx.tipSha

@@ -282,15 +282,31 @@ describe('MergeSheetPanel — dependents + delete-branch coupling (spec §5)', (
 })
 
 describe('MergeSheetPanel — reduced Mark-merged mode (S12)', () => {
+  const external = (pf: MergePreflight): string => renderToStaticMarkup(
+    <MergeSheetPanel pf={pf} repo="/repo" busy={false} executing={false}
+      external initialStrategy="squash" actions={noop} />
+  )
+
   it('drops strategy + message, keeps cleanup, CTA reads Mark merged', () => {
-    const out = renderToStaticMarkup(
-      <MergeSheetPanel pf={makePreflight()} repo="/repo" busy={false} executing={false}
-        external initialStrategy="squash" actions={noop} />
-    )
+    const out = external(makePreflight())
     expect(out).not.toContain('How it merges')
     expect(out).not.toContain('<textarea')
     expect(out).toContain('Archive this review session')
     expect(out).toContain('Mark merged')
+  })
+
+  it('merge gates do not block recording an external merge (base-moved is expected there)', () => {
+    // a --no-ff external merge leaves baseHead ≠ tip, so the amber base-moved gate
+    // trips — but the merge already happened; only the bookkeeping is ours.
+    const out = external(makePreflight({
+      ok: false,
+      gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }],
+    }))
+    expect(foot(out)).not.toContain('disabled')
+    // no rebase/override theater for a branch that already landed
+    expect(out).not.toContain('Rebase onto')
+    expect(out).not.toContain('Merge anyway')
+    expect(out).not.toContain('Gated until')
   })
 })
 

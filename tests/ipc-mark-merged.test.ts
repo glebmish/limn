@@ -220,6 +220,20 @@ describe('merged sessions are read-only (main-process guards)', () => {
     expect(loadReviewState(h.db, h.sessionId).comments).toEqual([])
   })
 
+  it('artifact approve/unapprove reject — the terminal record keeps its approvals', async () => {
+    const h = await mergedHarness()
+    await expect(h.handlers.get('approveArtifact')!(h.sessionId, 'specs/spec.md'))
+      .rejects.toThrow('This review is merged and read-only')
+    await expect(h.handlers.get('unapproveArtifact')!(h.sessionId, 'specs/spec.md'))
+      .rejects.toThrow('This review is merged and read-only')
+  })
+
+  it('compare retarget rejects — the merge pinned the compare to the merged sha', async () => {
+    const h = await mergedHarness()
+    await expect(h.handlers.get('retargetSession')!(h.sessionId, 'compare', 'main'))
+      .rejects.toThrow('This review is merged and read-only')
+  })
+
   // Note: sendChat is intentionally NOT guarded — read-only chat about a landed
   // review is allowed (§7 / open question 7). It has no assertNotMerged call, so
   // there is nothing to assert here without driving a real engine turn.

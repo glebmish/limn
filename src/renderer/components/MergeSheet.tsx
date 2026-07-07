@@ -205,8 +205,11 @@ export function MergeSheetPanel({ pf, repo, busy, executing, external, initialSt
   const base = pf.baseSymbol
   const probeClean = !pf.gates.some((g) => g.id === 'conflicts')
   const blockers = deleteBranchBlockers(pf.cleanup.dependents, retarget)
-  const note = executing ? null : gateFooterNote(pf.gates, acked, busy)
-  const disabled = mergeBlocked(pf.gates, acked) || busy || executing
+  // external (S12): the merge already happened outside Limn — the gates describe a
+  // merge that isn't ours to choose (base-moved is EXPECTED after a --no-ff land),
+  // so they neither render nor block; only the bookkeeping CTA remains.
+  const note = executing ? null : gateFooterNote(external ? [] : pf.gates, acked, busy)
+  const disabled = (!external && mergeBlocked(pf.gates, acked)) || busy || executing
   const copyCmd = 'git -C ' + (pf.cleanup.worktreePath ?? repo) + ' rebase ' + base
 
   const toggleRetarget = (id: number): void => {
@@ -241,7 +244,12 @@ export function MergeSheetPanel({ pf, repo, busy, executing, external, initialSt
       </div>
 
       <div className="msh-sec">
-        {pf.gates.length === 0 ? (
+        {external ? (
+          <div className="msh-gate good">
+            <span className="mg-ic"><I.check style={{ width: 11, height: 11 }} /></span>
+            <span className="mg-t"><b>Already merged into {base}.</b> Recording it — only the cleanup below runs.</span>
+          </div>
+        ) : pf.gates.length === 0 ? (
           <div className="msh-gate good">
             <span className="mg-ic"><I.check style={{ width: 11, height: 11 }} /></span>
             <span className="mg-t"><b>Clear to merge.</b> No gates tripped.</span>

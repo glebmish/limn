@@ -157,8 +157,9 @@ describe('commitTree (plumbing squash/merge)', () => {
 describe('mergeInWorktree', () => {
   it('ff advances the checked-out base to the branch tip', async () => {
     const dir = makeMergeRepo()  // main checked out, feature strictly ahead
+    const mainHead = git(dir, 'rev-parse', 'main')
     const featureTip = git(dir, 'rev-parse', 'feature')
-    const newHead = await mergeInWorktree(dir, 'feature', 'ff')
+    const newHead = await mergeInWorktree(dir, 'feature', 'ff', mainHead)
     expect(newHead).toBe(featureTip)
     expect(git(dir, 'rev-parse', 'main')).toBe(featureTip)
   })
@@ -166,7 +167,7 @@ describe('mergeInWorktree', () => {
   it('squash lands one commit whose tree equals the branch tree', async () => {
     const dir = makeMergeRepo()
     const mainHead = git(dir, 'rev-parse', 'main')
-    const newHead = await mergeInWorktree(dir, 'feature', 'squash', 'feat: squashed')
+    const newHead = await mergeInWorktree(dir, 'feature', 'squash', mainHead, 'feat: squashed')
     expect(git(dir, 'rev-parse', `${newHead}^{tree}`)).toBe(git(dir, 'rev-parse', 'feature^{tree}'))
     expect(git(dir, 'rev-parse', `${newHead}^`)).toBe(mainHead)
     expect(git(dir, 'log', '-1', '--format=%s')).toBe('feat: squashed')
@@ -176,7 +177,7 @@ describe('mergeInWorktree', () => {
     const dir = makeMergeRepo()
     const mainHead = git(dir, 'rev-parse', 'main')
     const featureTip = git(dir, 'rev-parse', 'feature')
-    const newHead = await mergeInWorktree(dir, 'feature', 'merge', 'Merge feature')
+    const newHead = await mergeInWorktree(dir, 'feature', 'merge', mainHead, 'Merge feature')
     const parents = git(dir, 'rev-list', '--parents', '-n1', newHead).split(' ').slice(1)
     expect(parents).toEqual([mainHead, featureTip])
   })
@@ -184,8 +185,23 @@ describe('mergeInWorktree', () => {
   it('a conflicted squash aborts: rejects, HEAD unmoved, tree clean', async () => {
     const dir = makeConflictRepo()
     const mainHead = git(dir, 'rev-parse', 'main')
-    await expect(mergeInWorktree(dir, 'feature', 'squash', 'boom')).rejects.toThrow()
+    await expect(mergeInWorktree(dir, 'feature', 'squash', mainHead, 'boom')).rejects.toThrow()
     expect(git(dir, 'rev-parse', 'main')).toBe(mainHead)
+    expect(await isDirty(dir)).toBe(false)
+  })
+
+  it('refuses when the checked-out base no longer matches expectHead (CAS analog)', async () => {
+    const dir = makeMergeRepo()
+    const staleHead = git(dir, 'rev-parse', 'main')
+    // the base moves after preflight was gathered
+    fs.writeFileSync(path.join(dir, 'z.txt'), 'moved\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'external commit on base')
+    const movedHead = git(dir, 'rev-parse', 'main')
+
+    // no-ff would happily merge onto the moved head — the guard must refuse first
+    await expect(mergeInWorktree(dir, 'feature', 'merge', staleHead, 'Merge feature')).rejects.toThrow(/moved|expected/i)
+    expect(git(dir, 'rev-parse', 'main')).toBe(movedHead) // nothing landed
     expect(await isDirty(dir)).toBe(false)
   })
 })

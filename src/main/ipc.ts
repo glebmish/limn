@@ -1195,12 +1195,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('approveArtifact', async (sessionId: number, artifactPath: string) => {
     const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)  // terminal record keeps its approvals (§7)
     const sha = await headSha(session.repo, effectiveRef(session.pair.compare))
     dao.approveArtifact(db, sessionId, artifactPath, sha)
     return dao.loadReviewState(db, sessionId)
   })
 
   handle('unapproveArtifact', async (sessionId: number, artifactPath: string) => {
+    assertNotMerged(db, sessionId)  // terminal record keeps its approvals (§7)
     dao.unapproveArtifact(db, sessionId, artifactPath)
     return dao.loadReviewState(db, sessionId)
   })
@@ -1253,6 +1255,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   handle('retargetSession', async (sessionId: number, side: 'base' | 'compare', refInput: string) => {
     if (side === 'base') throw new Error('Session base cannot be changed; open a new review for a different base')
     const session = mustGetSession(db, sessionId)
+    // §7: the merge pinned the compare to the merged sha — a retarget would unpin
+    // the terminal record out from under the merged view.
+    assertNotMerged(db, sessionId)
     const resolved = await resolveRefInput(session.repo, refInput)
     const refSide: RefSide = { kind: resolved.kind, symbol: resolved.symbol, anchorSha: resolved.sha }
     dao.retargetSession(db, sessionId, side, refSide)

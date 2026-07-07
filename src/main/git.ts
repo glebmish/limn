@@ -734,9 +734,18 @@ export async function commitTree(dir: string, treeOid: string, parents: string[]
  *  real merge, so that working tree doesn't go stale. Only called after preflight
  *  verified the worktree clean; a surprise failure aborts — `merge --abort`, falling
  *  back to `reset --merge` for the squash path (squash writes no MERGE_HEAD, so
- *  --abort refuses there) — and rethrows with git's stderr. Returns the new HEAD sha. */
-export async function mergeInWorktree(dir: string, branch: string, strategy: MergeStrategy, message?: string): Promise<string> {
+ *  --abort refuses there) — and rethrows with git's stderr. Returns the new HEAD sha.
+ *
+ *  `expectHead` is the CAS analog of updateRefCas's expected-old-sha: `git merge`
+ *  has no atomic compare-and-swap, and --no-ff/--squash would silently land onto a
+ *  HEAD that moved after preflight, so the guard re-reads HEAD just before merging
+ *  and refuses on mismatch (nothing written; caller re-gathers → preflight-changed). */
+export async function mergeInWorktree(dir: string, branch: string, strategy: MergeStrategy, expectHead: string, message?: string): Promise<string> {
   assertSafeRef(branch)
+  const head = await headSha(dir)
+  if (head !== expectHead) {
+    throw new Error(`base moved: worktree HEAD is ${head.slice(0, 7)}, expected ${expectHead.slice(0, 7)} — nothing merged`)
+  }
   try {
     if (strategy === 'ff') {
       await execGit(dir, ['merge', '--ff-only', branch])

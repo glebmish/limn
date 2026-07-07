@@ -24,6 +24,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
 
   const deviations = loaded?.state.annotations?.planMap?.deviations ?? []
   const approvedAt = loaded?.state.artifactApprovals[path]
+  const merged = Boolean(loaded?.state.merged)  // terminal record keeps its approvals (§7)
   const queuedHere = comments.filter((c) => c.status === 'queued').length
   const approve = async (): Promise<void> => {
     if (approving) return
@@ -99,7 +100,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
               ? <><b>Plan — awaiting your approval.</b> Review how this change was meant to be built; comment on any line, then approve or send notes.</>
               : <><b>Spec — the intent this change is judged against.</b> Comment on any line, then approve it as the bar for this branch.</>}
         </span>
-        {approvedAt ? (
+        {!merged && (approvedAt ? (
           <button className="btn btn-sm psb-stamp" style={{ marginLeft: 'auto' }} disabled={approving} onClick={approve} title="Clear this approval">
             <I.x style={{ width: 12, height: 12 }} />Unapprove {art.role}
           </button>
@@ -107,7 +108,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
           <button className="btn btn-sm btn-primary" style={{ marginLeft: 'auto' }} disabled={approving} onClick={approve}>
             <I.check style={{ width: 12, height: 12 }} />Approve {art.role}
           </button>
-        )}
+        ))}
         {!approvedAt && queuedHere > 0 && (
           <span className="dim" style={{ fontSize: 10.5, whiteSpace: 'nowrap' }}>{queuedHere} note{queuedHere > 1 ? 's' : ''} queued</span>
         )}
