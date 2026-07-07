@@ -44,8 +44,9 @@ export async function dirtyCount(dir: string): Promise<number> {
  *  uncommitted). When the branch is checked out nowhere pass `workdir` null — the
  *  delta then falls back to committed-only (`sinceSha..branch`) and uncommitted edits
  *  are invisible. Untracked files are excluded (numstat). Backs the fetch pill. */
-export async function driftSummary(repo: string, branch: string, sinceSha: string, workdir: string | null): Promise<DriftSummary> {
-  const head = await headSha(repo, branch)
+export async function driftSummary(repo: string, branch: string, sinceSha: string, workdir: string | null, knownHead?: string): Promise<DriftSummary> {
+  // `knownHead` skips the rev-parse when the caller already resolved the branch tip
+  const head = knownHead ?? await headSha(repo, branch)
   const commits = Number((await execGit(repo, ['rev-list', '--count', `${sinceSha}..${branch}`])).trim()) || 0
   // numstat lines: `<add>\t<del>\t<path>` — binary files report `-`/`-` (→ 0 here).
   const numstat = workdir

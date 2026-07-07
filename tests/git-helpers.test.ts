@@ -90,6 +90,13 @@ describe('driftSummary', () => {
     expect(d.dirty).toBe(true)             // a.ts is an uncommitted edit
   })
 
+  it('uses a caller-provided head instead of re-resolving the ref', async () => {
+    // sentinel: a caller that already resolved the ref passes it through verbatim
+    const d = await driftSummary(dir, 'feature', shas.firstFeature, dir, shas.firstFeature)
+    expect(d.headSha).toBe(shas.firstFeature)
+    expect(d.commits).toBe(2) // counts still come from the ref, not the passed head
+  })
+
   it('falls back to a committed-only delta (dirty false) when checked out nowhere', async () => {
     // workdir null → no working tree to read; uncommitted edits are invisible.
     fixtureGit(dir, 'checkout', '-q', '--detach') // free the branch from any worktree

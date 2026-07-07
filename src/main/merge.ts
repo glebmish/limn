@@ -5,10 +5,11 @@ import type {
 } from '../shared/types.js'
 import {
   aheadCount, branchCheckedOutAt, commitTree, deleteBranch, dirtyCount, driftSummary,
-  EMPTY_TREE, headSha, isAncestor, isDirty, log, mergeBase, mergeInWorktree, mergeTreeProbe,
+  EMPTY_TREE, headSha, isAncestor, isDirty, listWorktrees, log, mergeBase, mergeInWorktree, mergeTreeProbe,
   rebaseOnto, removeWorktree, setRef, updateRefCas, type MergeProbe
 } from './git.js'
 import * as dao from './db/sessions.js'
+import { inTx } from './db/db.js'
 
 /** Inputs the gate evaluator is pure over — gathered from git + db by
  *  `gatherMergePreflight` (Task 8), synthesized directly in unit tests. */
@@ -170,57 +171,73 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
   if (state.merged) throw new Error('This review is already merged')
   const baseSymbol = pair.base.symbol
   const branch = pair.compare.symbol
-  const baseHead = await headSha(repo, baseSymbol)
-  const tipSha = await headSha(repo, branch)
-  // baseSymbol and branch both resolved above (headSha), so the only way merge-base
-  // fails now is genuinely no common ancestor (unrelated histories) — for which the
-  // empty tree IS the correct merge-base (the diff is the whole branch). ffPossible is
-  // then false and the conflict probe trips red, so the merge is blocked regardless.
-  const mb = await mergeBase(repo, baseSymbol, branch).catch(() => EMPTY_TREE)
+  // Preflight sits on the sheet-open critical path (and runs again inside
+  // executeMerge), so the many independent git reads are batched: one worktree
+  // listing answers every branch→path lookup, one `status --porcelain` per dir
+  // yields both the dirty flag and the count, and each dependency-free group of
+  // subprocesses runs concurrently. All reads are re-gathered authoritatively
+  // inside the execute lane, so batching carries no safety risk.
+  const [baseHead, tipSha, mb, worktrees, probe, commitList] = await Promise.all([
+    headSha(repo, baseSymbol),
+    headSha(repo, branch),
+    // both refs resolve (headSha above would have thrown), so the only way
+    // merge-base fails is genuinely no common ancestor (unrelated histories) — for
+    // which the empty tree IS the correct merge-base (the diff is the whole
+    // branch). ffPossible is then false and the conflict probe trips red, so the
+    // merge is blocked regardless.
+    mergeBase(repo, baseSymbol, branch).catch(() => EMPTY_TREE),
+    listWorktrees(repo),
+    mergeTreeProbe(repo, baseSymbol, branch),
+    log(repo, baseSymbol, branch) // base..tip, newest first
+  ])
+  const checkedOutAt = (b: string): string | null => worktrees.find((w) => w.branch === b)?.path ?? null
+  const dirtySite = async (workdir: string | null): Promise<{ workdir: string; count: number } | undefined> => {
+    if (!workdir) return undefined
+    const count = await dirtyCount(workdir)
+    return count > 0 ? { workdir, count } : undefined
+  }
 
   // approval gate: the committed tip must be explicitly approved. Dirty-surface
   // approvals don't count here — a merge can only land commits (branch-dirty is
   // its own red gate).
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
   const approvalCoversTip = approvedShas.includes(tipSha)
-  let staleInfo: MergeGateInputs['staleInfo']
-  if (!approvalCoversTip && state.approvedSha) {
-    try {
-      const d = await driftSummary(repo, branch, state.approvedSha, null) // committed-only
-      staleInfo = { commits: d.commits, add: d.add, del: d.del, sinceSha: state.approvedSha }
-    } catch { /* approved sha unreachable (rebase) — stale gate without counts */ }
-  }
+  const worktreePath = checkedOutAt(branch)
+  const baseWorkdir = checkedOutAt(baseSymbol)
 
-  const worktreePath = await branchCheckedOutAt(repo, branch)
-  const branchDirty = worktreePath && await isDirty(worktreePath)
-    ? { workdir: worktreePath, count: await dirtyCount(worktreePath) }
-    : undefined
-  const baseWorkdir = await branchCheckedOutAt(repo, baseSymbol)
-  const baseSiteDirty = baseWorkdir && await isDirty(baseWorkdir)
-    ? { workdir: baseWorkdir, count: await dirtyCount(baseWorkdir) }
-    : undefined
-  const baseMoved = baseHead !== mb
-    ? { commits: await aheadCount(repo, mb, baseSymbol), from: mb, to: baseHead }
-    : undefined
-  const probe = await mergeTreeProbe(repo, baseSymbol, branch)
-  const ffPossible = await isAncestor(repo, baseHead, tipSha)
-
-  const commitList = await log(repo, baseSymbol, branch) // base..tip, newest first
-  const range = await driftSummary(repo, branch, mb, null)
+  const [staleInfo, branchDirty, baseSiteDirty, baseMoved, ffPossible, range] = await Promise.all([
+    !approvalCoversTip && state.approvedSha
+      ? driftSummary(repo, branch, state.approvedSha, null, tipSha) // committed-only
+        .then((d): MergeGateInputs['staleInfo'] => ({ commits: d.commits, add: d.add, del: d.del, sinceSha: state.approvedSha! }))
+        .catch(() => undefined) /* approved sha unreachable (rebase) — stale gate without counts */
+      : undefined,
+    dirtySite(worktreePath),
+    dirtySite(baseWorkdir),
+    baseHead !== mb
+      ? aheadCount(repo, mb, baseSymbol).then((commits) => ({ commits, from: mb, to: baseHead }))
+      : undefined,
+    isAncestor(repo, baseHead, tipSha),
+    driftSummary(repo, branch, mb, null, tipSha)
+  ])
   const counts = { commits: commitList.length, files: range.files, add: range.add, del: range.del }
 
-  const dependents: DependentReview[] = []
-  for (const dep of dao.dependentSessions(db, repo, branch)) {
-    const wt = await branchCheckedOutAt(repo, dep.branch)
-    const clean = wt ? !(await isDirty(wt)) : false
-    dependents.push({
-      sessionId: dep.sessionId,
-      branch: dep.branch,
-      commits: await aheadCount(repo, branch, dep.branch),
-      rebasable: Boolean(wt) && clean,
-      ...(wt ? (clean ? {} : { blockedReason: 'dirty worktree' }) : { blockedReason: 'not checked out' })
+  const dependents: DependentReview[] = await Promise.all(
+    dao.dependentSessions(db, repo, branch).map(async (dep) => {
+      const wt = checkedOutAt(dep.branch)
+      const [dirty, commits] = await Promise.all([
+        wt ? dirtyCount(wt).then((n) => n > 0) : Promise.resolve(false),
+        aheadCount(repo, branch, dep.branch)
+      ])
+      const clean = Boolean(wt) && !dirty
+      return {
+        sessionId: dep.sessionId,
+        branch: dep.branch,
+        commits,
+        rebasable: clean,
+        ...(wt ? (clean ? {} : { blockedReason: 'dirty worktree' }) : { blockedReason: 'not checked out' })
+      }
     })
-  }
+  )
 
   const title = state.annotations?.title?.trim() || `Merge ${branch} into ${baseSymbol}`
   const draftMessage = draftMergeMessage(
@@ -279,19 +296,6 @@ export class MergeRecordWriteError extends Error {
       { cause }
     )
     this.name = 'MergeRecordWriteError'
-  }
-}
-
-/** Run writes in one transaction (mirrors ipc.ts's inTx — node:sqlite has no
- *  db.transaction()). Not re-entrant: `fn` must not open its own transaction. */
-function inTx(db: DatabaseSync, fn: () => void): void {
-  db.exec('BEGIN')
-  try {
-    fn()
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
   }
 }
 
@@ -459,21 +463,27 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
     cleanup: emptyCleanup(),
     dependents: ctx.dependents.map((d) => d.branch)
   }
+  return settleMerge(db, ctx, record, req.cleanup)
+}
+
+/** Shared settle tail (§4 step 4 / S12): durably record the merge, run cleanup,
+ *  then persist the merged flag. A persistMergeRecord failure throws the typed
+ *  MergeRecordWriteError — the merge LANDED (record.mergedSha), and a generic
+ *  "merge failed" would invite a double-land retry (#5). markSessionMerged MUST
+ *  NOT throw: the initial record is already durable, so a failure there is only
+ *  reflected in the returned record's cleanup.failures — the DB keeps the
+ *  pre-cleanup record while the caller still sees the fuller truth. */
+async function settleMerge(
+  db: DatabaseSync, ctx: MergeContext, record: MergeRecord, cleanupReq: MergeCleanupRequest
+): Promise<MergeExecuteResult> {
   try {
     await persistMergeRecord(db, ctx, record)
   } catch (err) {
-    // the land succeeded (base ref moved); a record-write failure here must not read
-    // as a generic "merge failed" that invites a double-land retry (#5).
-    throw new MergeRecordWriteError(mergedSha, ctx.baseSymbol, err)
+    throw new MergeRecordWriteError(record.mergedSha, ctx.baseSymbol, err)
   }
-  await runCleanupAndRetargets(db, ctx, record, req.cleanup, mergedSha)
+  await runCleanupAndRetargets(db, ctx, record, cleanupReq, record.mergedSha)
   try {
-    // persist the final cleanup outcome — MUST NOT throw: the merge already landed
-    // and the initial record (from persistMergeRecord) is durable, so a failure here
-    // must not fail the whole handler and report a successful merge as an error to
-    // the renderer. Record the failure in the returned record instead; the DB keeps
-    // the initial (pre-cleanup) record, but the caller still sees the fuller truth.
-    dao.markSessionMerged(db, sessionId, record)
+    dao.markSessionMerged(db, ctx.session.id, record)
   } catch (err) {
     record.cleanup.failures.push(`persist cleanup outcome: ${errorMessage(err)}`)
   }
@@ -503,21 +513,5 @@ export async function markMergedExternal(db: DatabaseSync, sessionId: number, cl
     dependents: ctx.dependents.map((d) => d.branch),
     external: true
   }
-  try {
-    await persistMergeRecord(db, ctx, record)
-  } catch (err) {
-    // external merge already landed outside Limn; a record-write failure is still a
-    // "recorded, not re-merge" situation (#5) — mergedSha is the base head here.
-    throw new MergeRecordWriteError(ctx.baseHead, ctx.baseSymbol, err)
-  }
-  await runCleanupAndRetargets(db, ctx, record, cleanup, ctx.baseHead)
-  try {
-    // same "cannot reject a landed merge" guard as executeMerge: the settle already
-    // durably recorded (persistMergeRecord); a failure here must only be reflected in
-    // the returned record's cleanup.failures, never thrown as a handler error.
-    dao.markSessionMerged(db, sessionId, record)
-  } catch (err) {
-    record.cleanup.failures.push(`persist cleanup outcome: ${errorMessage(err)}`)
-  }
-  return { status: 'merged', record }
+  return settleMerge(db, ctx, record, cleanup)
 }

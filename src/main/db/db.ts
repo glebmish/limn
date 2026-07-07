@@ -35,6 +35,19 @@ export function openDb(file: string): OpenResult {
   return { db, recoveredFrom }
 }
 
+/** Run writes in one transaction (node:sqlite has no db.transaction()).
+ *  Not re-entrant: `fn` must not open its own transaction. */
+export function inTx(db: DatabaseSync, fn: () => void): void {
+  db.exec('BEGIN')
+  try {
+    fn()
+    db.exec('COMMIT')
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
 /** True when an open/integrity error indicates an actually corrupt database file
  *  (as opposed to a lock, permission, or other transient failure). Matches the
  *  integrity_check sentinel raised by open() and SQLite's corruption messages. */

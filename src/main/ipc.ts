@@ -17,6 +17,7 @@ import {
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
+import { inTx } from './db/db.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
 import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.js'
 import { stampAnchor } from './anchorStamp.js'
@@ -331,17 +332,6 @@ function ignoreLocally(repo: string, pattern: string): void {
 /** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
  *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
  *  call a dao helper that opens its own transaction (e.g. setArtifacts). */
-function inTx(db: DatabaseSync, fn: () => void): void {
-  db.exec('BEGIN')
-  try {
-    fn()
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
-}
-
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   const s = dao.getSession(db, id)
   if (!s) throw new Error(`session ${id} not found`)
