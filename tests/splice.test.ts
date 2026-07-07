@@ -107,6 +107,74 @@ describe('spliceScopedUpdate', () => {
       expect(outUnknown.annotations.sections.map((s) => s.id)).toEqual(['s1', 's2', 'sNew2'])
     })
 
+    it('places a new section anchored on another new section declared later', () => {
+      const p = prior([
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['z.ts'] })
+      ])
+      const out = spliceScopedUpdate(
+        p,
+        patch({
+          // B declared BEFORE its anchor A — placement must not depend on declaration order
+          revisedSections: [
+            wsec({ id: 'sB', afterSectionId: 'sA', files: ['c.ts'] }),
+            wsec({ id: 'sA', afterSectionId: 's1', files: ['b.ts'] })
+          ],
+          keptSectionIds: ['s1', 's2']
+        }),
+        skel(['a.ts', 'b.ts', 'c.ts', 'z.ts']),
+        new Set()
+      )
+      expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'sA', 'sB', 's2'])
+    })
+
+    it('keeps declaration order for new sections sharing one afterSectionId', () => {
+      const p = prior([
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['b.ts'] })
+      ])
+      const out = spliceScopedUpdate(
+        p,
+        patch({
+          revisedSections: [
+            wsec({ id: 'sN1', afterSectionId: 's1', files: ['c.ts'] }),
+            wsec({ id: 'sN2', afterSectionId: 's1', files: ['d.ts'] })
+          ],
+          keptSectionIds: ['s1', 's2']
+        }),
+        skel(['a.ts', 'b.ts', 'c.ts', 'd.ts']),
+        new Set()
+      )
+      expect(out.annotations.sections.map((s) => s.id)).toEqual(['s1', 'sN1', 'sN2', 's2'])
+    })
+
+    it('resolves an anchor on a new section whose id was re-minted for collision', () => {
+      const p = prior([
+        psec({ id: 's1', files: ['a.ts'] }),
+        psec({ id: 's2', files: ['z.ts'] })
+      ])
+      const out = spliceScopedUpdate(
+        p,
+        patch({
+          // 'other-changes' is the reserved sweep id, so this new section is always
+          // re-minted; sB anchors on the ORIGINAL wire id and must still chain after it.
+          revisedSections: [
+            wsec({ id: 'other-changes', afterSectionId: 's1', files: ['b.ts'] }),
+            wsec({ id: 'sB', afterSectionId: 'other-changes', files: ['c.ts'] })
+          ],
+          keptSectionIds: ['s1', 's2']
+        }),
+        skel(['a.ts', 'b.ts', 'c.ts', 'z.ts']),
+        new Set()
+      )
+      const ids = out.annotations.sections.map((s) => s.id)
+      // the reserved id was re-minted, and sB still lands right after it
+      expect(ids[0]).toBe('s1')
+      expect(ids[1]).toMatch(/^other-changes-\d+$/)
+      expect(ids[2]).toBe('sB')
+      expect(ids[3]).toBe('s2')
+    })
+
     it('drops a deleted section', () => {
       const p = prior([
         psec({ id: 's1', files: ['a.ts'] }),

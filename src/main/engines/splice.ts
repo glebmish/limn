@@ -117,13 +117,36 @@ export function spliceScopedUpdate(
     takenIds.add(id)
   }
 
-  // place new sections after their afterSectionId anchor (unknown/absent ⇒ append)
+  // place new sections after their afterSectionId anchor (unknown/absent ⇒ append).
+  // Placement must not depend on declaration order: an anchor may name another NEW
+  // section declared later (defer it to a later pass), and siblings sharing one
+  // anchor chain after each other so they keep declaration order. Anchors are
+  // resolved through idRemap so a re-minted target is still found. Anything still
+  // unplaced when a pass makes no progress (unknown or cyclic anchors) is appended.
   const sections: Section[] = [...inOrder]
-  for (const ns of newSections) {
-    const afterId = afterSectionIdByNew.get(ns)
-    const idx = afterId ? sections.findIndex((s) => s.id === afterId) : -1
-    if (idx >= 0) sections.splice(idx + 1, 0, ns)
-    else sections.push(ns)   // unknown afterSectionId → append (warn in A2/A5 if desired)
+  const chainTail = new Map<string, string>() // anchor id → id of last sibling placed there
+  let pending = [...newSections]
+  for (;;) {
+    const deferred: Section[] = []
+    for (const ns of pending) {
+      const raw = afterSectionIdByNew.get(ns)
+      const afterId = raw === undefined ? undefined : idRemap.get(raw) ?? raw
+      const insertAfter = afterId === undefined ? undefined : chainTail.get(afterId) ?? afterId
+      const idx = insertAfter === undefined ? -1 : sections.findIndex((s) => s.id === insertAfter)
+      if (idx >= 0) {
+        sections.splice(idx + 1, 0, ns)
+        chainTail.set(afterId!, ns.id)
+      } else if (afterId !== undefined && pending.some((p) => p !== ns && p.id === afterId)) {
+        deferred.push(ns) // anchor is a new section not placed yet — retry next pass
+      } else {
+        sections.push(ns) // absent/unknown afterSectionId → append
+      }
+    }
+    if (deferred.length === 0 || deferred.length === pending.length) {
+      sections.push(...deferred) // cyclic anchors — append in declaration order
+      break
+    }
+    pending = deferred
   }
 
   // ── Step 6: questions — add/resolve only (Q8) ───────────────────────────────
