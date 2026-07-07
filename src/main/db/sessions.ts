@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,
-  MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
+  MergeRecord, MessageSegment, PointStop, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
@@ -22,6 +22,22 @@ function safeJson<T>(raw: string | null, loadWarning?: LoadWarningSink): T | und
   }
 }
 
+/** Shape-gate a parsed annotations blob: rows persisted before the schema-v2
+ *  cutover (sections with desc/what/order, no narration; diagram as a tuple
+ *  array) parse as valid JSON but crash the renderer's unguarded narration/
+ *  diagram.nodes derefs. Wrong shape degrades exactly like unparseable JSON:
+ *  load warning + undefined ("regenerate to restore"), never a crash. */
+function gateAnnotationsShape(
+  a: ReviewAnnotations | undefined, loadWarning?: LoadWarningSink
+): ReviewAnnotations | undefined {
+  if (!a) return a
+  const v2 = Array.isArray(a.sections) && a.sections.every((s) =>
+    Array.isArray(s.narration) && (s.diagram === undefined || Array.isArray(s.diagram.nodes)))
+  if (v2) return a
+  if (loadWarning) loadWarning.into.push(loadWarning.kind)
+  return undefined
+}
+
 /** Fold the raw per-blob failure warnings collected during a load into human-readable
  *  summaries for the renderer's error strip. Returns [] when nothing degraded. */
 function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
@@ -35,6 +51,20 @@ function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
   if (iterations) out.push(`${iterations} past review iteration(s) could not be loaded`)
   if (warnings.includes('merge')) out.push('merge record could not be loaded')
   return out
+}
+
+/** Persisted actions can predate the focus/tour → point merge; map those legacy
+ *  kinds onto point (same target shape — one stop / many stops) so their chips
+ *  still render instead of falling through renderAction's default and vanishing. */
+function normalizeLegacyAction(a: AgentAction): AgentAction {
+  const legacy = a as unknown as { kind: string; anchor?: unknown; stops?: unknown; loop?: boolean }
+  if (legacy.kind === 'focus' && legacy.anchor) {
+    return { kind: 'point', stops: [{ target: legacy.anchor as PointStop['target'] }] }
+  }
+  if (legacy.kind === 'tour' && Array.isArray(legacy.stops)) {
+    return { kind: 'point', stops: legacy.stops as PointStop[], ...(legacy.loop !== undefined ? { loop: legacy.loop } : {}) }
+  }
+  return a
 }
 
 /** Build an AgentRef from the denormalized engine/model/effort columns. */
@@ -371,7 +401,7 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarnin
       // the conversation or the rest of the session.
       const chatWarning = warnings ? { kind: 'chat' as const, into: warnings } : undefined
       const anchor = safeJson<CommentAnchor>(r.anchor_json, chatWarning)
-      const actions = safeJson<AgentAction[]>(r.actions_json, chatWarning)
+      const actions = safeJson<AgentAction[]>(r.actions_json, chatWarning)?.map(normalizeLegacyAction)
       const tools = safeJson<ToolCall[]>(r.tools_json, chatWarning)
       const segments = safeJson<MessageSegment[]>(r.segments_json, chatWarning)
       const commentRefs = safeJson<string[]>(r.comment_refs_json, chatWarning)
@@ -554,10 +584,9 @@ type IterationRow = { n: number; engine: EngineId; engine_session_id: string; en
  *  iterations are history, and `latestIteration` / the iterations list degrade to the
  *  last good row. */
 function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteration | undefined {
-  const annotations = safeJson<ReviewAnnotations>(
-    r.annotations_json,
-    warnings ? { kind: 'iteration', into: warnings } : undefined
-  )
+  const iterationWarning = warnings ? { kind: 'iteration' as const, into: warnings } : undefined
+  const annotations = gateAnnotationsShape(
+    safeJson<ReviewAnnotations>(r.annotations_json, iterationWarning), iterationWarning)
   if (!annotations) return undefined
   return {
     n: r.n,
@@ -818,7 +847,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     artifactApprovals[r.path] = r.sha
   }
   const approvals = sessionApprovals(db, sessionId, row.approved_sha)
-  const annotations = safeJson<ReviewAnnotations>(row.annotations_json, { kind: 'annotations', into: warnings })
+  const annotationsWarning = { kind: 'annotations' as const, into: warnings }
+  const annotations = gateAnnotationsShape(
+    safeJson<ReviewAnnotations>(row.annotations_json, annotationsWarning), annotationsWarning)
   const merged = row.merged_at ? safeJson<MergeRecord>(row.merge_json, { kind: 'merge', into: warnings }) : undefined
   const loadWarnings = summarizeLoadWarnings(warnings)
 

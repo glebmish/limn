@@ -46,6 +46,63 @@ const iter = (n: number, engine: 'claude' | 'codex', sessionId: string, endSha: 
   return { n, engine, sessionId, endSha, at, title: annotations.title, summary: annotations.summary, annotations }
 }
 
+describe('loadReviewState — pre-v2 annotations shape', () => {
+  it('degrades v1 annotations (sections without narration) to a load warning instead of crashing the renderer', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    // a persisted pre-cutover blob: sections carry desc/what/order, no narration,
+    // diagram as the old tuple array — valid JSON, wrong (v1) shape
+    const v1 = {
+      title: 'Old review', summary: 'From before the schema v2 cutover',
+      sections: [{
+        id: 's1', name: 'core', files: ['a.ts'],
+        desc: 'what it does', what: 'the change', order: 1,
+        diagram: [['a', 'node', 'sub']], plainNotes: ['note']
+      }],
+      questions: []
+    }
+    db.prepare('UPDATE sessions SET annotations_json = ? WHERE id = ?').run(JSON.stringify(v1), s.id)
+
+    const state = loadReviewState(db, s.id)
+    expect(state.annotations).toBeUndefined()
+    expect(state.loadWarnings ?? []).toContain('review annotations could not be loaded — regenerate to restore')
+  })
+
+  it('keeps v2 annotations (sections with narration arrays) intact', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const v2 = {
+      title: 'New review', summary: 'v2', questions: [],
+      sections: [{ id: 's1', name: 'core', files: ['a.ts'], narration: [{ text: 'hello' }] }]
+    }
+    db.prepare('UPDATE sessions SET annotations_json = ? WHERE id = ?').run(JSON.stringify(v2), s.id)
+
+    const state = loadReviewState(db, s.id)
+    expect(state.annotations?.sections[0].narration[0].text).toBe('hello')
+    expect(state.loadWarnings).toBeUndefined()
+  })
+})
+
+describe('chat load — legacy focus/tour actions', () => {
+  it('maps persisted focus and tour actions onto point so their chips still render', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const legacy = [
+      { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } },
+      { kind: 'tour', stops: [{ target: { kind: 'file', file: 'src/b.ts' }, note: 'walk' }], loop: true }
+    ]
+    addChatMessage(db, t.id, { role: 'agent', text: 'hi', at: new Date().toISOString(), actions: legacy as unknown as AgentAction[] })
+
+    const [thread] = listChatThreads(db, s.id)
+    const actions = thread.messages[0].actions!
+    expect(actions).toHaveLength(2)
+    expect(actions[0]).toEqual({ kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] })
+    expect(actions[1]).toEqual({
+      kind: 'point',
+      stops: [{ target: { kind: 'file', file: 'src/b.ts' }, note: 'walk' }],
+      loop: true
+    })
+  })
+})
+
 describe('sessions DAO', () => {
   it('creates and finds a session by pair identity', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
