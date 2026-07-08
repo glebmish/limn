@@ -278,7 +278,8 @@ export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactForma
 /** An ordered slice of an agent message: prose, a tool call reference, or an
  *  action reference by index into `ChatMessage.actions`. Preserves the
  *  interleaving the agent emitted so rows/cards render inline at their call site,
- *  not grouped. Built by `reduceSegments`; `text`/`tools` stay for back-compat. */
+ *  not grouped. Built by `reduceSegments` for chat turns; review-generation turns
+ *  persist `text` + `tools` with no `segments` and render via the tools-then-text path. */
 export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string } | { kind: 'action'; index: number }
 export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[]; commentRefs?: string[] }
 /** A conversation thread inside a review. 'review' is the auto-created thread
@@ -296,7 +297,7 @@ export interface ChatThread {
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
 }
-export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations; /** provenance of this iteration: 'full' = fresh/replacement generation, 'scoped' = diff-scoped update spliced onto the prior. Absent on rows written before the column existed (treated as 'full' historically). */ scope?: 'full' | 'scoped' }
+export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations; /** provenance of this iteration: 'full' = fresh/replacement generation, 'scoped' = diff-scoped update spliced onto the prior. */ scope: 'full' | 'scoped' }
 export interface ReviewCopyCandidate {
   sessionId: number
   iteration: number

@@ -5,9 +5,10 @@ export interface Migration { version: number; up(db: DatabaseSync): void }
 /** Forward-only, applied in order inside a transaction. Never edit a shipped
  *  migration — append a new one.
  *
- *  Greenfield baseline: the original v1–v5 history was squashed into this single
- *  schema (no released databases to preserve). When evolving the schema from
- *  here, append a new migration with the next version — don't edit this one. */
+ *  Greenfield baseline: there are no released databases to preserve, so the
+ *  entire migration history is squashed into this single starting schema. When
+ *  evolving from here, append a new migration with the next version — don't edit
+ *  this one. */
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,
@@ -44,6 +45,8 @@ export const MIGRATIONS: Migration[] = [
           approved_sha TEXT,
           reviewed_at_sha TEXT,
           archived_at TEXT,
+          merged_at TEXT,
+          merge_json TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
@@ -78,7 +81,9 @@ export const MIGRATIONS: Migration[] = [
           at TEXT NOT NULL,
           anchor_json TEXT,
           actions_json TEXT,
-          tools_json TEXT
+          tools_json TEXT,
+          segments_json TEXT,
+          comment_refs_json TEXT
         );
 
         CREATE TABLE iterations (
@@ -90,6 +95,7 @@ export const MIGRATIONS: Migration[] = [
           title TEXT NOT NULL,
           summary TEXT,
           annotations_json TEXT NOT NULL,
+          scope TEXT,
           at TEXT NOT NULL,
           PRIMARY KEY (session_id, n)
         );
@@ -121,24 +127,7 @@ export const MIGRATIONS: Migration[] = [
           sha TEXT NOT NULL,
           PRIMARY KEY (session_id, path)
         );
-      `)
-    }
-  },
-  {
-    // ordered text↔tool segments for inline tool-call rendering in chat messages.
-    // Nullable: old rows have NULL → renderer falls back to the legacy tools-then-text path.
-    version: 2,
-    up(db) {
-      db.exec('ALTER TABLE chat_messages ADD COLUMN segments_json TEXT')
-    }
-  },
-  {
-    // Approval is a set of previously approved committed states. `sessions.approved_sha`
-    // remains the current baseline pointer for older code/data, while this table lets
-    // reopening or checking out any earlier approved SHA restore the approved state.
-    version: 3,
-    up(db) {
-      db.exec(`
+
         CREATE TABLE session_approvals (
           session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
           sha TEXT NOT NULL,
@@ -146,52 +135,7 @@ export const MIGRATIONS: Migration[] = [
           approved_at TEXT NOT NULL,
           PRIMARY KEY (session_id, hash)
         );
-        INSERT INTO session_approvals (session_id, sha, hash, approved_at)
-          SELECT id, approved_sha, approved_sha, updated_at FROM sessions WHERE approved_sha IS NOT NULL;
-      `)
-    }
-  },
-  {
-    // Compatibility for dev builds that created the first approval-history table as
-    // `(session_id, sha)` only. Re-key it by branch surface hash; legacy rows use
-    // `hash = sha`, which is exactly the clean-tree surface hash.
-    version: 4,
-    up(db) {
-      const cols = db.prepare('PRAGMA table_info(session_approvals)').all() as { name: string }[]
-      if (cols.some((c) => c.name === 'hash')) return
-      db.exec(`
-        CREATE TABLE session_approvals_new (
-          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-          sha TEXT NOT NULL,
-          hash TEXT NOT NULL,
-          approved_at TEXT NOT NULL,
-          PRIMARY KEY (session_id, hash)
-        );
-        INSERT INTO session_approvals_new (session_id, sha, hash, approved_at)
-          SELECT session_id, sha, sha, approved_at FROM session_approvals;
-        DROP TABLE session_approvals;
-        ALTER TABLE session_approvals_new RENAME TO session_approvals;
-      `)
-    }
-  },
-  {
-    // Optional comment ids attached to user batch-submission messages, so the chat
-    // can render clickable references instead of a bare "Handle N comment(s)" line.
-    version: 5,
-    up(db) {
-      const cols = db.prepare('PRAGMA table_info(chat_messages)').all() as { name: string }[]
-      if (cols.some((c) => c.name === 'comment_refs_json')) return
-      db.exec('ALTER TABLE chat_messages ADD COLUMN comment_refs_json TEXT')
-    }
-  },
-  {
-    // Per-file exclude override for untracked working-tree files. `excluded` 1 = the
-    // reviewer hid it from the review; 0 = an explicit keep that overrides the auto
-    // "orphan untracked file in a narrated review is excluded" default. Absent rows
-    // fall back to that default. Only untracked files are ever stored here.
-    version: 6,
-    up(db) {
-      db.exec(`
+
         CREATE TABLE excluded_files (
           session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
           file TEXT NOT NULL,
@@ -199,31 +143,6 @@ export const MIGRATIONS: Migration[] = [
           PRIMARY KEY (session_id, file)
         );
       `)
-    }
-  },
-  {
-    // Iteration provenance: 'full' = today's fresh/replacement generation,
-    // 'scoped' = a diff-scoped update spliced onto the prior iteration. Nullable:
-    // rows written before this column read back NULL and are treated as 'full'
-    // historically (never backfilled). Written at iteration insert.
-    version: 7,
-    up(db) {
-      const cols = db.prepare('PRAGMA table_info(iterations)').all() as { name: string }[]
-      if (cols.some((c) => c.name === 'scope')) return
-      db.exec('ALTER TABLE iterations ADD COLUMN scope TEXT')
-    }
-  },
-  {
-    // Merged sessions (merge-into-main spec §2): merged_at NULL = not merged; set =
-    // the session is a terminal read-only record. merge_json carries the full
-    // MergeRecord blob (strategy, shas, overrides, cleanup outcome). Nullable-column
-    // pattern like archived_at; PRAGMA-guarded like v5/v7 so a dev build that already
-    // added the columns survives a version-number reset.
-    version: 8,
-    up(db) {
-      const cols = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]
-      if (!cols.some((c) => c.name === 'merged_at')) db.exec('ALTER TABLE sessions ADD COLUMN merged_at TEXT')
-      if (!cols.some((c) => c.name === 'merge_json')) db.exec('ALTER TABLE sessions ADD COLUMN merge_json TEXT')
     }
   }
 ]

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,
-  MergeRecord, MessageSegment, PointStop, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
+  MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
@@ -22,22 +22,6 @@ function safeJson<T>(raw: string | null, loadWarning?: LoadWarningSink): T | und
   }
 }
 
-/** Shape-gate a parsed annotations blob: rows persisted before the schema-v2
- *  cutover (sections with desc/what/order, no narration; diagram as a tuple
- *  array) parse as valid JSON but crash the renderer's unguarded narration/
- *  diagram.nodes derefs. Wrong shape degrades exactly like unparseable JSON:
- *  load warning + undefined ("regenerate to restore"), never a crash. */
-function gateAnnotationsShape(
-  a: ReviewAnnotations | undefined, loadWarning?: LoadWarningSink
-): ReviewAnnotations | undefined {
-  if (!a) return a
-  const v2 = Array.isArray(a.sections) && a.sections.every((s) =>
-    Array.isArray(s.narration) && (s.diagram === undefined || Array.isArray(s.diagram.nodes)))
-  if (v2) return a
-  if (loadWarning) loadWarning.into.push(loadWarning.kind)
-  return undefined
-}
-
 /** Fold the raw per-blob failure warnings collected during a load into human-readable
  *  summaries for the renderer's error strip. Returns [] when nothing degraded. */
 function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
@@ -51,20 +35,6 @@ function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
   if (iterations) out.push(`${iterations} past review iteration(s) could not be loaded`)
   if (warnings.includes('merge')) out.push('merge record could not be loaded')
   return out
-}
-
-/** Persisted actions can predate the focus/tour → point merge; map those legacy
- *  kinds onto point (same target shape — one stop / many stops) so their chips
- *  still render instead of falling through renderAction's default and vanishing. */
-function normalizeLegacyAction(a: AgentAction): AgentAction {
-  const legacy = a as unknown as { kind: string; anchor?: unknown; stops?: unknown; loop?: boolean }
-  if (legacy.kind === 'focus' && legacy.anchor) {
-    return { kind: 'point', stops: [{ target: legacy.anchor as PointStop['target'] }] }
-  }
-  if (legacy.kind === 'tour' && Array.isArray(legacy.stops)) {
-    return { kind: 'point', stops: legacy.stops as PointStop[], ...(legacy.loop !== undefined ? { loop: legacy.loop } : {}) }
-  }
-  return a
 }
 
 /** Build an AgentRef from the denormalized engine/model/effort columns. */
@@ -156,17 +126,9 @@ interface SessionDbRow {
 
 const SESSION_SELECT = `SELECT s.*, r.path AS repo_path FROM sessions s JOIN repos r ON r.id = s.repo_id`
 
-function sessionApprovals(db: DatabaseSync, sessionId: number, legacyApprovedSha?: string | null): { shas: string[]; hashes: string[] } {
-  const shas = new Set<string>()
-  const hashes = new Set<string>()
+function sessionApprovals(db: DatabaseSync, sessionId: number): { shas: string[]; hashes: string[] } {
   const rows = db.prepare('SELECT sha, hash FROM session_approvals WHERE session_id = ?').all(sessionId) as { sha: string; hash: string }[]
-  if (legacyApprovedSha) shas.add(legacyApprovedSha)
-  if (rows.length === 0 && legacyApprovedSha) hashes.add(legacyApprovedSha)
-  for (const r of rows) {
-    shas.add(r.sha)
-    hashes.add(r.hash)
-  }
-  return { shas: [...shas], hashes: [...hashes] }
+  return { shas: [...new Set(rows.map((r) => r.sha))], hashes: rows.map((r) => r.hash) }
 }
 
 function rowToMeta(row: SessionDbRow): SessionMeta {
@@ -254,7 +216,7 @@ export function recentSessions(db: DatabaseSync, repoPaths: string[], limit: num
 
 function toListItem(db: DatabaseSync, row: SessionDbRow): SessionListItem {
   const meta = rowToMeta(row)
-  const approvals = sessionApprovals(db, row.id, row.approved_sha)
+  const approvals = sessionApprovals(db, row.id)
   // merged_at is authoritative for the badge; a corrupt blob degrades to sha ''
   const mergeRecord = row.merged_at ? safeJson<MergeRecord>(row.merge_json) : undefined
   return {
@@ -401,7 +363,7 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarnin
       // the conversation or the rest of the session.
       const chatWarning = warnings ? { kind: 'chat' as const, into: warnings } : undefined
       const anchor = safeJson<CommentAnchor>(r.anchor_json, chatWarning)
-      const actions = safeJson<AgentAction[]>(r.actions_json, chatWarning)?.map(normalizeLegacyAction)
+      const actions = safeJson<AgentAction[]>(r.actions_json, chatWarning)
       const tools = safeJson<ToolCall[]>(r.tools_json, chatWarning)
       const segments = safeJson<MessageSegment[]>(r.segments_json, chatWarning)
       const commentRefs = safeJson<string[]>(r.comment_refs_json, chatWarning)
@@ -556,7 +518,7 @@ export function addIteration(db: DatabaseSync, sessionId: number, it: Iteration)
   if (!it.title || !it.annotations) throw new Error('iteration requires title and annotations')
   db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at, it.title, JSON.stringify(it.annotations), it.scope ?? null)
+    .run(sessionId, it.n, it.engine, it.sessionId, it.endSha, it.summary ?? null, it.at, it.title, JSON.stringify(it.annotations), it.scope)
 }
 
 export function nextIterationNumber(db: DatabaseSync, sessionId: number): number {
@@ -566,7 +528,7 @@ export function nextIterationNumber(db: DatabaseSync, sessionId: number): number
 
 /** Number of most-recent consecutive iterations with `scope:'scoped'` (up to `cap`).
  *  Used to force a full re-grounding after a chain of scoped updates (spec §6/Q2).
- *  A NULL/'full' scope (or no iterations) breaks the run. */
+ *  A 'full' scope (or no iterations) breaks the run. */
 export function trailingScopedCount(db: DatabaseSync, sessionId: number, cap: number): number {
   const rows = db.prepare('SELECT scope FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT ?')
     .all(sessionId, cap) as { scope: string | null }[]
@@ -584,9 +546,10 @@ type IterationRow = { n: number; engine: EngineId; engine_session_id: string; en
  *  iterations are history, and `latestIteration` / the iterations list degrade to the
  *  last good row. */
 function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteration | undefined {
-  const iterationWarning = warnings ? { kind: 'iteration' as const, into: warnings } : undefined
-  const annotations = gateAnnotationsShape(
-    safeJson<ReviewAnnotations>(r.annotations_json, iterationWarning), iterationWarning)
+  const annotations = safeJson<ReviewAnnotations>(
+    r.annotations_json,
+    warnings ? { kind: 'iteration', into: warnings } : undefined
+  )
   if (!annotations) return undefined
   return {
     n: r.n,
@@ -597,8 +560,7 @@ function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteratio
     ...(r.summary ? { summary: r.summary } : {}),
     title: r.title,
     annotations,
-    // NULL scope (legacy rows) is omitted → callers treat absence as 'full'.
-    ...(r.scope === 'full' || r.scope === 'scoped' ? { scope: r.scope } : {})
+    scope: r.scope === 'scoped' ? 'scoped' : 'full'
   }
 }
 
@@ -675,7 +637,8 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
       at: now(),
       title: annotations.title,
       summary: annotations.summary,
-      annotations
+      annotations,
+      scope: 'full'
     })
     const sourceState = loadReviewState(db, sourceSessionId)
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(targetSessionId)
@@ -846,10 +809,8 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   for (const r of db.prepare('SELECT path, sha FROM artifact_approvals WHERE session_id = ?').all(sessionId) as { path: string; sha: string }[]) {
     artifactApprovals[r.path] = r.sha
   }
-  const approvals = sessionApprovals(db, sessionId, row.approved_sha)
-  const annotationsWarning = { kind: 'annotations' as const, into: warnings }
-  const annotations = gateAnnotationsShape(
-    safeJson<ReviewAnnotations>(row.annotations_json, annotationsWarning), annotationsWarning)
+  const approvals = sessionApprovals(db, sessionId)
+  const annotations = safeJson<ReviewAnnotations>(row.annotations_json, { kind: 'annotations', into: warnings })
   const merged = row.merged_at ? safeJson<MergeRecord>(row.merge_json, { kind: 'merge', into: warnings }) : undefined
   const loadWarnings = summarizeLoadWarnings(warnings)
 

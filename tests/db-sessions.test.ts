@@ -43,65 +43,8 @@ function mkComment(id: string): Comment {
 const ann = (title = 'Review') => ({ title, summary: `${title} summary`, sections: [], questions: [] })
 const iter = (n: number, engine: 'claude' | 'codex', sessionId: string, endSha: string, at: string, title = `Review ${n}`) => {
   const annotations = ann(title)
-  return { n, engine, sessionId, endSha, at, title: annotations.title, summary: annotations.summary, annotations }
+  return { n, engine, sessionId, endSha, at, title: annotations.title, summary: annotations.summary, annotations, scope: 'full' as const }
 }
-
-describe('loadReviewState — pre-v2 annotations shape', () => {
-  it('degrades v1 annotations (sections without narration) to a load warning instead of crashing the renderer', () => {
-    const s = createSession(db, '/repo', pair, { engine: 'claude' })
-    // a persisted pre-cutover blob: sections carry desc/what/order, no narration,
-    // diagram as the old tuple array — valid JSON, wrong (v1) shape
-    const v1 = {
-      title: 'Old review', summary: 'From before the schema v2 cutover',
-      sections: [{
-        id: 's1', name: 'core', files: ['a.ts'],
-        desc: 'what it does', what: 'the change', order: 1,
-        diagram: [['a', 'node', 'sub']], plainNotes: ['note']
-      }],
-      questions: []
-    }
-    db.prepare('UPDATE sessions SET annotations_json = ? WHERE id = ?').run(JSON.stringify(v1), s.id)
-
-    const state = loadReviewState(db, s.id)
-    expect(state.annotations).toBeUndefined()
-    expect(state.loadWarnings ?? []).toContain('review annotations could not be loaded — regenerate to restore')
-  })
-
-  it('keeps v2 annotations (sections with narration arrays) intact', () => {
-    const s = createSession(db, '/repo', pair, { engine: 'claude' })
-    const v2 = {
-      title: 'New review', summary: 'v2', questions: [],
-      sections: [{ id: 's1', name: 'core', files: ['a.ts'], narration: [{ text: 'hello' }] }]
-    }
-    db.prepare('UPDATE sessions SET annotations_json = ? WHERE id = ?').run(JSON.stringify(v2), s.id)
-
-    const state = loadReviewState(db, s.id)
-    expect(state.annotations?.sections[0].narration[0].text).toBe('hello')
-    expect(state.loadWarnings).toBeUndefined()
-  })
-})
-
-describe('chat load — legacy focus/tour actions', () => {
-  it('maps persisted focus and tour actions onto point so their chips still render', () => {
-    const s = createSession(db, '/repo', pair, { engine: 'claude' })
-    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
-    const legacy = [
-      { kind: 'focus', anchor: { kind: 'file', file: 'src/a.ts' } },
-      { kind: 'tour', stops: [{ target: { kind: 'file', file: 'src/b.ts' }, note: 'walk' }], loop: true }
-    ]
-    addChatMessage(db, t.id, { role: 'agent', text: 'hi', at: new Date().toISOString(), actions: legacy as unknown as AgentAction[] })
-
-    const [thread] = listChatThreads(db, s.id)
-    const actions = thread.messages[0].actions!
-    expect(actions).toHaveLength(2)
-    expect(actions[0]).toEqual({ kind: 'point', stops: [{ target: { kind: 'file', file: 'src/a.ts' } }] })
-    expect(actions[1]).toEqual({
-      kind: 'point',
-      stops: [{ target: { kind: 'file', file: 'src/b.ts' }, note: 'walk' }],
-      loop: true
-    })
-  })
-})
 
 describe('sessions DAO', () => {
   it('creates and finds a session by pair identity', () => {
@@ -284,7 +227,7 @@ describe('sessions DAO', () => {
     const source = createSession(db, '/repo', pair, { engine: 'claude' })
     const target = createSession(db, '/repo', { ...pair, compare: { ...pair.compare, symbol: 'other', anchorSha: 'd'.repeat(40) } }, { engine: 'codex' })
     const annotations = { title: 'Copied title', summary: 'Copied summary', sections: [], questions: [] }
-    addIteration(db, source.id, { n: 1, engine: 'claude', sessionId: 'es-old', endSha: 'b'.repeat(40), at: 'T1', title: annotations.title, summary: annotations.summary, annotations })
+    addIteration(db, source.id, { n: 1, engine: 'claude', sessionId: 'es-old', endSha: 'b'.repeat(40), at: 'T1', title: annotations.title, summary: annotations.summary, annotations, scope: 'full' })
     updateSessionMeta(db, source.id, { annotations, reviewedAtSha: 'b'.repeat(40) })
     const reviewThread = createChatThread(db, source.id, { kind: 'review', agent: { engine: 'claude' }, engineSessionId: 'es-old' })
     addChatMessage(db, reviewThread.id, { role: 'agent', text: 'review text', at: 'T1' })
@@ -526,7 +469,8 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
   it('listRepoSessions denormalizes status and excludes archived', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     upsertComment(db, s.id, mkComment('c1'))            // queued → unresolved
-    updateSessionMeta(db, s.id, { approvedSha: 'z'.repeat(40), reviewedAtSha: 'z'.repeat(40) })
+    approveSessionSha(db, s.id, 'z'.repeat(40))         // real approval → session_approvals row
+    updateSessionMeta(db, s.id, { reviewedAtSha: 'z'.repeat(40) })
     const otherRepo = createSession(db, '/other', pair)
     const list = listRepoSessions(db, '/repo')
     expect(list.map((r) => r.id)).not.toContain(otherRepo.id)
