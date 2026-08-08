@@ -87,14 +87,18 @@ let watcher: {
 // calls and in-flight polls from replaced watchers so they can't arm ghost timers.
 const watchEpoch = createWatchEpoch()
 
-/** Change detector + current head. For dirty worktrees this hashes actual diff
+/** Change detector + current head. Re-resolves the branch's worktree every call and
+ *  folds it into the signature, so an EXTERNAL checkout (worktree added/removed in a
+ *  terminal) moves the sig and the poller broadcasts a fresh writeCapability — the
+ *  "isn't checked out" gate clears live. For dirty worktrees this hashes actual diff
  *  content, not just porcelain shape, so editing an already-dirty file emits a new
- *  pending update. */
-async function watchState(repo: string, branch: string, workdir: string | null): Promise<{ head: string; sig: string }> {
+ *  pending update. Exported for tests. */
+export async function watchState(repo: string, branch: string): Promise<{ head: string; workdir: string | null; sig: string }> {
   const head = await headSha(repo, branch)
-  if (!workdir) return { head, sig: `${head}\n` }
+  const workdir = await branchCheckedOutAt(repo, branch)
+  if (!workdir) return { head, workdir, sig: `${head}\n\n` }
   const porcelain = (await execGit(workdir, ['status', '--porcelain'])).trim()
-  if (!porcelain) return { head, sig: `${head}\n` }
+  if (!porcelain) return { head, workdir, sig: `${head}\n${workdir}\n` }
   const h = createHash('sha256')
   h.update(`head\0${head}\0status\0${porcelain}\0`)
   h.update(await execGit(workdir, ['diff', '--binary', 'HEAD']))
@@ -102,14 +106,15 @@ async function watchState(repo: string, branch: string, workdir: string | null):
     .split('\0').filter(Boolean)
   const hashes = await hashObjects(workdir, untracked)
   for (const p of untracked.sort()) h.update(`untracked\0${p}\0${hashes.get(p) ?? ''}\0`)
-  return { head, sig: `${head}\n${h.digest('hex')}` }
+  return { head, workdir, sig: `${head}\n${workdir}\n${h.digest('hex')}` }
 }
 
 async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
   stopWatch()
   const epoch = watchEpoch.current()
-  const workdir = await branchCheckedOutAt(repo, branch)
-  const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
+  const init = await watchState(repo, branch).catch(() => null)
+  const workdir = init?.workdir ?? null
+  const loadSig = init?.sig ?? `${loadedSha}\n`
   // seed last-known: the load-time head, and the write capability computed once here
   // (so a `watchStopped` broadcast can carry non-empty fields even if the very first
   // real poll is the one that fails).
@@ -134,7 +139,8 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
      *  clears). Quiet successes carry no drift/capability at all. */
     let broadcast: { drift: DriftSummary | null; writeCapability: AgentWriteCapability } | null = null
     try {
-      const { head, sig } = await watchState(repo, branch, w.workdir)
+      const { head, workdir, sig } = await watchState(repo, branch)
+      w.workdir = workdir // external checkouts move the worktree under a live watch
       state = { head, sig }
       if (sig !== w.lastSig || w.stopped) {
         // drift is measured against the LOAD-time state: null when the tree returns
@@ -196,8 +202,9 @@ async function rebaselineWatcher(repo: string): Promise<void> {
   const w = watcher
   if (!w || w.repo !== repo) return
   try {
-    const { head, sig } = await watchState(w.repo, w.branch, w.workdir)
+    const { head, workdir, sig } = await watchState(w.repo, w.branch)
     if (watcher !== w) return // replaced mid-await
+    w.workdir = workdir
     w.loadSig = sig
     w.lastSig = sig
     w.lastHead = head

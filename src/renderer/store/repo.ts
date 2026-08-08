@@ -26,13 +26,15 @@ export async function openBranchReview(branch: string): Promise<void> {
   else await useStore.getState().openReview(repo, { compare: branch })
 }
 
-/** Post-checkout payoff. If `branch` is the loaded review's compare branch, reload it
- *  (its agent-gating state just changed). Otherwise the user checked out a *different*
- *  branch to work on it — land on that branch's review (skipped mid new-review setup
- *  on the Compare screen, where a jump would discard the in-progress ref pair). */
+/** Post-checkout payoff. If `branch` is the loaded review's compare branch, refresh it
+ *  (its write-gating state just changed) — refreshLoaded, NOT reload: a transient
+ *  preview has no sessionId, so a bare reload() would no-op and leave the stale
+ *  "isn't checked out" gate up. Otherwise the user checked out a *different* branch
+ *  to work on it — land on that branch's review (skipped mid new-review setup on the
+ *  Compare screen, where a jump would discard the in-progress ref pair). */
 export async function afterCheckout(branch: string, loaded: LoadedReview | null): Promise<void> {
   const compare = loaded?.session.pair.compare
-  if (loaded && compare?.kind === 'branch' && compare.symbol === branch) { await useStore.getState().reload(); return }
+  if (loaded && compare?.kind === 'branch' && compare.symbol === branch) { await useStore.getState().refreshLoaded(); return }
   await openBranchReview(branch)
 }
 
