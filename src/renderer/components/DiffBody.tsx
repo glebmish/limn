@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { diffHunksForMode, useStore } from '../store'
@@ -7,6 +7,8 @@ import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
 import { fileEditable } from '../lib/edits'
+import { gapLines, hunkGaps, type Gap } from '../lib/expand'
+import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
 
 /** tabs → spaces so ch-offset word marks align with the monospace text */
@@ -67,19 +69,91 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const frame = editable && editFrame && editFrame.file === f.path ? editFrame : null
   const coveredBy = (l: DiffLine): boolean =>
     frame != null && l.new != null && l.new >= frame.start && l.new <= frame.end
-  // the frame mounts at the first covered row's position
-  const framePos = useMemo(() => {
-    if (!frame) return null
-    for (let i = 0; i < hunks.length; i++) {
-      const j = hunks[i].lines.findIndex(coveredBy)
-      if (j >= 0) return { i, j }
-    }
-    return null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame, hunks])
+  // The frame mounts exactly once, at the first covered row in document order
+  // (hunk rows and expanded context rows alike) — a per-render flag, not state.
+  let frameMounted = false
+  const mountFrame = (key: string): React.ReactNode => {
+    if (!frame || frameMounted) return null
+    frameMounted = true
+    return <FlowFrame key={key} f={f} frame={frame} />
+  }
   const openFrameAt = (l: DiffLine): void => {
     if (!editable || l.new == null) return
     setEditFrame({ file: f.path, start: l.new, end: l.new })
+  }
+
+  // ── expand-context: reveal unchanged file lines around/between hunks. Revealed
+  // rows are plain working-tree rows — same pencil, same frame. Component state,
+  // reset when the file re-renders after a save (line numbers may have shifted).
+  const [expandedGaps, setExpandedGaps] = useState<Record<string, DiffLine[]>>({})
+  const fileLinesRef = useRef<string[] | null>(null)
+  useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f])
+  // needs a worktree to read from — same availability as editing (v1)
+  const gaps = useMemo(() => (editable && mode === 'branch' && !f.binary ? hunkGaps(hunks) : []), [editable, mode, f.binary, hunks])
+  // where a gap would start at each hunk boundary: index i = before hunk i,
+  // index hunks.length = the trailing to-EOF gap
+  const gapStarts = useMemo(() => {
+    const starts: number[] = [1]
+    for (const h of hunks) {
+      let end = 0
+      for (const l of h.lines) if (l.new != null) end = l.new
+      starts.push(end + 1)
+    }
+    return starts
+  }, [hunks])
+  const expand = async (gap: Gap): Promise<void> => {
+    if (!loaded) return
+    try {
+      if (!fileLinesRef.current) {
+        const wf = await api().readWorkingFile(loaded.state.repo, loaded.session.pair.compare, f.path)
+        if (!wf.ok) return
+        fileLinesRef.current = wf.lines
+      }
+      const rows = gapLines(fileLinesRef.current, gap)
+      if (rows.length) setExpandedGaps((prev) => ({ ...prev, [gap.key]: rows }))
+    } catch { /* worktree read failed — leave the fold closed */ }
+  }
+  const gapAt = (from: number, to?: number | null): Gap | undefined =>
+    gaps.find((g) => g.from === from && (to === undefined || g.to === to || (to === null && g.to === null)))
+  /** the expander row (or its revealed rows) for the gap starting at `from` */
+  const gapBlock = (from: number, trailing: boolean, label: string): React.ReactNode => {
+    const gap = trailing ? gaps.find((g) => g.to === null && g.from === from) : gapAt(from, undefined)
+    if (!gap || (gap.to != null && gap.to < gap.from)) return null
+    const rows = expandedGaps[gap.key]
+    if (rows) {
+      return rows.map((l) => (
+        <Fragment key={`x${gap.key}-${l.new}`}>
+          {coveredBy(l) ? mountFrame(`xf-${l.new}`) : (
+            <div
+              className="dline"
+              data-limn-line={`${f.path}:new:${l.new}`}
+              onDoubleClick={editable ? () => openFrameAt(l) : undefined}
+            >
+              <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
+              <span className="sign"></span>
+              <CodeLine text={l.text} lang={lang} />
+              {editable && (
+                <button
+                  className="pencil-btn limn-line-edit"
+                  title="Edit this line in place — saves as an uncommitted change"
+                  aria-label={`Edit line ${l.new}`}
+                  onClick={() => openFrameAt(l)}
+                >
+                  <I.edit style={{ width: 12, height: 12 }} />
+                </button>
+              )}
+            </div>
+          )}
+        </Fragment>
+      ))
+    }
+    const count = gap.to != null ? gap.to - gap.from + 1 : null
+    return (
+      <button className="expander-row" onClick={() => void expand(gap)} aria-label={`Expand hidden lines ${label}`}>
+        <I.chevR style={{ width: 10, height: 10, transform: 'rotate(90deg)' }} />
+        {count != null ? `expand ${count} unchanged line${count === 1 ? '' : 's'} ${label}` : `expand unchanged lines ${label}`}
+      </button>
+    )
   }
 
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
@@ -106,6 +180,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
           )}
           {hunks.map((h, i) => (
             <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>
+              {gapBlock(i === 0 ? 1 : gapStarts[i], false, i === 0 ? 'above' : '')}
               <div className="hunk-head">
                 <I.diff style={{ width: 12, height: 12, opacity: 0.6 }} />
                 {h.range}
@@ -124,10 +199,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                 // hide; a − row adjacent to covered rows stays as a grey sliver
                 // (its text is what the edit may replace — scope marker, not input).
                 if (frame && coveredBy(l)) {
-                  if (framePos && framePos.i === i && framePos.j === j) {
-                    return <FlowFrame key={`frame-${j}`} f={f} frame={frame} />
-                  }
-                  return null
+                  return <Fragment key={`fr-${j}`}>{mountFrame(`frame-${i}-${j}`)}</Fragment>
                 }
                 const sliver = frame != null && l.new == null &&
                   (coveredBy(h.lines[j - 1] ?? {} as DiffLine) || coveredBy(h.lines[j + 1] ?? {} as DiffLine))
@@ -184,6 +256,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
               })}
             </div>
           ))}
+          {hunks.length > 0 && gapBlock(gapStarts[hunks.length], true, 'below')}
           {notShown.length > 0 && (
             <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
               {notShown.length} comment{notShown.length > 1 ? 's' : ''} anchored to lines not shown in this diff:

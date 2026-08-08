@@ -238,6 +238,11 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline:hover .pencil-btn,.dline:focus-within .pencil-btn,.pencil-btn:focus-visible{
   opacity:1;background:var(--panel-2);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .pencil-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
+/* expand-context: reveal unchanged file lines around/between hunks */
+.expander-row{display:flex;align-items:center;gap:6px;width:100%;border:none;cursor:pointer;
+  background:var(--panel-2);color:var(--muted);font:500 11px var(--sans);padding:3px 14px;
+  border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);text-align:left}
+.expander-row:hover{background:var(--accent-soft);color:var(--accent-ink)}
 /* covered − rows ride inside the frame's span as inert grey slivers */
 .dline.frame-sliver{opacity:.45;filter:grayscale(.7)}
 .dline.frame-sliver .gutter-add,.dline.frame-sliver .pencil-btn{display:none}
