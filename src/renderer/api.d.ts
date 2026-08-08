@@ -47,6 +47,13 @@ declare global {
       openSettings?: boolean
       /** dev-only: open a spec/plan artifact doc by path once the review mounts */
       openDoc?: string | null
+      /** JSON {file,start,end} — open the in-place flow frame for a static capture */
+      editFrame?: string | null
+      /** JSON {file,line,text} — perform a REAL in-place edit (full save pipeline)
+       *  once the review mounts, so the after-save render can be captured */
+      runEdit?: string | null
+      /** force-show the hover affordances (pencil, rail ↺) for static captures */
+      showAffordances?: boolean
       /** dev-only: expand a left-spine artifact peek panel by path for a static capture */
       openPeek?: string | null
     }

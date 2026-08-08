@@ -238,6 +238,9 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline:hover .pencil-btn,.dline:focus-within .pencil-btn,.pencil-btn:focus-visible{
   opacity:1;background:var(--panel-2);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .pencil-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
+/* dev/screenshot: force-show the hover affordances for static captures */
+body.limn-show-affordances .pencil-btn,body.limn-show-affordances .rail-undo{opacity:1}
+
 /* rail ↺: discard an uncommitted span — rides the amber rail it acts on (far left,
    so it never contends with the code-side comment + / pencil) */
 .rail-undo{position:absolute;left:1px;top:50%;transform:translateY(-50%);

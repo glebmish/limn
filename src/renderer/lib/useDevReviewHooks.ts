@@ -18,6 +18,8 @@ let devBatchRan = false
 let devGenRan = false
 let devDocRan = false
 let devDriftRan = false
+let devFrameRan = false
+let devEditRan = false
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
 export function fakeGenState(): GenState {
@@ -91,6 +93,36 @@ export function useDevReviewHooks({
     if (dev.openDoc && !devDocRan && loaded) {
       devDocRan = true
       openDoc(dev.openDoc)
+    }
+    // dev-only: LIMN_SHOW_AFFORDANCES forces the hover affordances (pencil, rail ↺)
+    // visible so a static capture can show them
+    if (dev.showAffordances) document.body.classList.add('limn-show-affordances')
+    // dev-only: LIMN_EDIT_FRAME opens the in-place flow frame on a scope
+    if (dev.editFrame && !devFrameRan && loaded) {
+      devFrameRan = true
+      try {
+        const scope = JSON.parse(dev.editFrame) as { file: string; start: number; end: number }
+        setTimeout(() => useStore.getState().setEditFrame(scope), 600)
+      } catch { /* bad json */ }
+    }
+    // dev-only: LIMN_RUN_EDIT performs a REAL in-place edit through the full save
+    // pipeline (readWorkingFile → CAS applyEdit → viewed re-stamp → fold-in) so the
+    // after-save state — dotted rail, ticked counters, no drift pill — is genuine
+    if (dev.runEdit && !devEditRan && loaded) {
+      devEditRan = true
+      try {
+        const spec = JSON.parse(dev.runEdit) as { file: string; line: number; text: string }
+        setTimeout(() => void (async () => {
+          const st = useStore.getState()
+          const cur = st.loaded
+          if (!cur) return
+          const wf = await window.api.readWorkingFile(cur.state.repo, cur.session.pair.compare, spec.file)
+          if (!wf.ok) return
+          await st.saveEdit(spec.file, {
+            start: spec.line, end: spec.line, snapshot: [wf.lines[spec.line - 1]], newLines: [spec.text]
+          })
+        })(), 800)
+      } catch { /* bad json */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
