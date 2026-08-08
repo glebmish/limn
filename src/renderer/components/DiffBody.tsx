@@ -6,7 +6,7 @@ import { Composer, InlineThread } from './Threads'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
-import { fileEditable } from '../lib/edits'
+import { discardSpanAt, fileEditable } from '../lib/edits'
 import { gapLines, hunkGaps, type Gap } from '../lib/expand'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
@@ -80,6 +80,18 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const openFrameAt = (l: DiffLine): void => {
     if (!editable || l.new == null) return
     setEditFrame({ file: f.path, start: l.new, end: l.new })
+  }
+
+  // ── rail ↺: discard a contiguous unstaged span — git checkout --, surfaced.
+  // Runs the same CAS save pipeline with the span's pre-change text as payload;
+  // a conflict (file moved since render) just refreshes the review.
+  const discardAt = async (lines: DiffLine[], j: number): Promise<void> => {
+    const span = discardSpanAt(lines, j)
+    if (!span) return
+    const res = await useStore.getState().saveEdit(f.path, {
+      start: span.start, end: span.end, snapshot: span.snapshot, newLines: span.restore
+    })
+    if (res && !res.ok) await useStore.getState().refreshLoaded()
   }
 
   // ── expand-context: reveal unchanged file lines around/between hunks. Revealed
@@ -229,6 +241,16 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                           onClick={() => openFrameAt(l)}
                         >
                           <I.edit style={{ width: 12, height: 12 }} />
+                        </button>
+                      )}
+                      {editable && l.origin === 'unstaged' && discardSpanAt(h.lines, j) != null && (
+                        <button
+                          className="rail-undo limn-line-discard"
+                          title="Discard — git checkout -- (reverts this uncommitted span)"
+                          aria-label={`Discard uncommitted change at line ${lineNo}`}
+                          onClick={() => void discardAt(h.lines, j)}
+                        >
+                          <I.undo style={{ width: 10, height: 10 }} />
                         </button>
                       )}
                     </div>

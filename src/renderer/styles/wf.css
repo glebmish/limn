@@ -238,6 +238,15 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline:hover .pencil-btn,.dline:focus-within .pencil-btn,.pencil-btn:focus-visible{
   opacity:1;background:var(--panel-2);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
 .pencil-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
+/* rail ↺: discard an uncommitted span — rides the amber rail it acts on (far left,
+   so it never contends with the code-side comment + / pencil) */
+.rail-undo{position:absolute;left:1px;top:50%;transform:translateY(-50%);
+  width:14px;height:14px;border-radius:50%;background:transparent;color:var(--amber);border:none;padding:0;
+  cursor:pointer;display:flex;opacity:0;align-items:center;justify-content:center;z-index:5}
+.dline:hover .rail-undo,.rail-undo:focus-visible{opacity:1;background:var(--amber);color:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.22)}
+.rail-undo:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+
 /* expand-context: reveal unchanged file lines around/between hunks */
 .expander-row{display:flex;align-items:center;gap:6px;width:100%;border:none;cursor:pointer;
   background:var(--panel-2);color:var(--muted);font:500 11px var(--sans);padding:3px 14px;

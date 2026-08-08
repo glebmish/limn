@@ -36,6 +36,7 @@ export const I = {
   // tool-call verbs (wf-D), ported from the wireframe A.* set
   search: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" {...p}><circle cx="6" cy="6" r="3.5" /><path d="M8.7 8.7L12 12" /></svg>,
   edit: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...p}><path d="M9.5 2.5l2 2L5 11l-2.5.5L3 9z" /><path d="M8.5 3.5l2 2" /></svg>,
+  undo: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 6.5h5a3 3 0 0 1 0 6H6" /><path d="M5.5 4L3 6.5 5.5 9" /></svg>,
   term: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="1.5" y="2.5" width="11" height="9" rx="1.3" /><path d="M4 6l2 1.5L4 9M7.5 9.5h3" /></svg>,
   list: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" {...p}><path d="M5 4h7M5 7h7M5 10h7M2.3 4h.01M2.3 7h.01M2.3 10h.01" /></svg>,
   // info — circle-i; the markers-key affordance in the diff header
