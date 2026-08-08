@@ -1,4 +1,5 @@
 import { installCli, takeCliOpen } from './cli.js'
+import { applyEditToFile, readWorkingFile, withWriteQueue } from './fileEdits.js'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -9,7 +10,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -185,6 +186,22 @@ function stopWatch(): void {
   // mid-await startWatch, whether or not a watcher is armed right now.
   watchEpoch.bump()
   if (watcher) { clearInterval(watcher.timer); watcher = null }
+}
+
+/** Fold a self-write (an in-place edit the app just made) into the watch baseline so
+ *  it never surfaces as drift — the renderer refreshes itself right after the write;
+ *  the pill stays reserved for outside hands (spec inv 2). Best-effort: on failure
+ *  the next poll broadcasts and the renderer's refresh clears it anyway. */
+async function rebaselineWatcher(repo: string): Promise<void> {
+  const w = watcher
+  if (!w || w.repo !== repo) return
+  try {
+    const { head, sig } = await watchState(w.repo, w.branch, w.workdir)
+    if (watcher !== w) return // replaced mid-await
+    w.loadSig = sig
+    w.lastSig = sig
+    w.lastHead = head
+  } catch { /* next poll decides */ }
 }
 
 function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMsg | OpResultMsg | RepoChangedMsg): void {
@@ -1108,9 +1125,31 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
   })
 
-  // ── in-place edits (implemented in the next tasks of specs/inplace-edits) ──
-  handle('readWorkingFile', async () => { throw new Error('not implemented') })
-  handle('applyEdit', async () => { throw new Error('not implemented') })
+  // ── in-place edits (specs/inplace-edits) ──────────────────────────────────
+  // Deliberately NOT under operations.run: agent runs never pause editing — the
+  // line-anchored CAS in applyEditToFile arbitrates concurrent writers (inv 7).
+  handle('readWorkingFile', async (repo: string, compare: RefSide, path: string) => {
+    const capability = await writeCapabilityFor(repo, compare)
+    if (!capability.enabled || !capability.workdir) {
+      throw new Error('reading working files requires the compare branch checked out')
+    }
+    return readWorkingFile(capability.workdir, path)
+  })
+
+  handle('applyEdit', async (repo: string, compare: RefSide, path: string, edit: FileEdit) => {
+    const capability = await writeCapabilityFor(repo, compare)
+    const workdir = capability.workdir
+    if (!capability.enabled || !workdir) {
+      throw new Error('in-place edits require the compare branch checked out')
+    }
+    return withWriteQueue(workdir, async () => {
+      const result = await applyEditToFile(workdir, path, edit)
+      // Fold the self-write into the watch baseline before the next poll can see
+      // it, so an in-review edit never raises the drift pill (spec inv 2).
+      if (result.ok) await rebaselineWatcher(repo)
+      return result
+    })
+  })
 
   handle('approve', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)
