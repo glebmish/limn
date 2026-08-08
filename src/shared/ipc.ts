@@ -1,6 +1,6 @@
 import type {
-  AgentRef, AgentWriteCapability, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
+  AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
+  ExecutionMode, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
 } from './types.js'
 
 export interface LoadedReview {
@@ -115,6 +115,12 @@ export interface Api {
   /** The unified batch turn: send queued comments to a chat thread's agent, which
    *  handles them with its tools (edit+commit code, resolve, or reply). */
   sendBatch(threadId: number, commentIds: string[], steer: string | undefined, opId: string, refine?: boolean): Promise<void>
+  // ── in-place edits ──
+  /** Current working-tree content of one file in the compare branch's worktree. */
+  readWorkingFile(repo: string, compare: RefSide, path: string): Promise<WorkingFile>
+  /** CAS-guarded in-place edit of the compare branch's working tree. Never takes the
+   *  agent-op lock — concurrent writers are arbitrated by the line-anchored CAS. */
+  applyEdit(repo: string, compare: RefSide, path: string, edit: FileEdit): Promise<ApplyEditResult>
   /** The agent rebase turn (merge sheet §6): rebase the review's compare branch onto
    *  its base in the review workdir — a batch-shaped, write-enabled, exclusive-lane
    *  turn on the given thread. `conflictFiles` is the merge probe's conflict list,
@@ -195,7 +201,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'sendRebase', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'sendRebase', 'readWorkingFile', 'applyEdit', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
 ]

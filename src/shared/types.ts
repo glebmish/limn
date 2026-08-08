@@ -57,13 +57,29 @@ export interface CommitInfo { sha: string; subject: string; author: string; date
  *  "since you reviewed" fetch pill (commit chip + working-tree-edit chip). */
 export interface DriftSummary { headSha: string; commits: number; files: number; add: number; del: number; dirty: boolean }
 
-/** Main-process verdict on whether an agent may edit the compare branch. */
+/** Main-process verdict on whether the compare branch's working tree is writable —
+ *  gates agent edit runs AND reviewer in-place edits alike. A dirty tree is NOT a
+ *  refusal: uncommitted edits share the tree with agent writes (spec inv 8). */
 export interface AgentWriteCapability {
   enabled: boolean
-  reason: 'available' | 'not-branch' | 'not-checked-out' | 'dirty'
+  reason: 'available' | 'not-branch' | 'not-checked-out'
   branch: string | null
   workdir: string | null
 }
+
+// ── in-place edits (reviewer editing the working tree from the review) ────────
+/** One in-place edit: replace working-tree lines start..end (1-based, inclusive)
+ *  with `newLines`. `snapshot` must equal the file's current lines start..end or the
+ *  write is refused (line-anchored compare-and-swap — writes elsewhere in the file
+ *  never block). `end = start-1` with an empty snapshot inserts before `start`. */
+export interface FileEdit { start: number; end: number; snapshot: string[]; newLines: string[] }
+export type ApplyEditResult =
+  | { ok: true; fileHash: string }
+  /** the anchored lines changed on disk since render; `current` = the file's lines now */
+  | { ok: false; reason: 'conflict'; current: string[] }
+export type WorkingFile =
+  | { ok: true; lines: string[]; trailingNewline: boolean }
+  | { ok: false; reason: 'binary' | 'too-large' | 'missing' }
 
 export function driftHasChanges(drift: DriftSummary | null | undefined): drift is DriftSummary {
   return Boolean(drift && (drift.commits > 0 || drift.files > 0 || drift.dirty))

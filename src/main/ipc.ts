@@ -973,11 +973,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const capability = await writeCapabilityFor(repo, session.pair.compare)
       const workdir = capability.workdir ?? repo
       if (!refine && !capability.enabled) {
-        const reason = capability.reason === 'dirty'
-          ? 'the working tree has uncommitted changes'
-          : capability.reason === 'not-checked-out'
-            ? 'the compare branch is not checked out'
-            : 'the compare side is not a writable branch'
+        const reason = capability.reason === 'not-checked-out'
+          ? 'the compare branch is not checked out'
+          : 'the compare side is not a writable branch'
         throw new Error(`Agent edits are unavailable because ${reason}`)
       }
       const writeEnabled = !refine
@@ -1063,11 +1061,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const capability = await writeCapabilityFor(repo, session.pair.compare)
       const workdir = capability.workdir ?? repo
       if (!capability.enabled) {
-        const reason = capability.reason === 'dirty'
-          ? 'the working tree has uncommitted changes'
-          : capability.reason === 'not-checked-out'
-            ? 'the compare branch is not checked out'
-            : 'the compare side is not a writable branch'
+        const reason = capability.reason === 'not-checked-out'
+          ? 'the compare branch is not checked out'
+          : 'the compare side is not a writable branch'
         throw new Error(`Agent edits are unavailable because ${reason}`)
       }
       const state = dao.loadReviewState(db, sid)
@@ -1111,6 +1107,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       reportTurnFailure({ db, threadId, opId, outcome, label: 'Rebase', exclusive: true, notify: true })
     }
   })
+
+  // ── in-place edits (implemented in the next tasks of specs/inplace-edits) ──
+  handle('readWorkingFile', async () => { throw new Error('not implemented') })
+  handle('applyEdit', async () => { throw new Error('not implemented') })
 
   handle('approve', async (sessionId: number) => {
     const session = mustGetSession(db, sessionId)

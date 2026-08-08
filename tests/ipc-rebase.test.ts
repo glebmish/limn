@@ -134,15 +134,14 @@ describe('sendRebase — the agent rebase turn (merge §6)', () => {
     await holding
   })
 
-  it('refuses on a dirty compare worktree (writeCapability precheck)', async () => {
+  it('proceeds on a dirty compare worktree (in-place edits share the tree)', async () => {
     const h = await setup()
     const t = createChatThread(h.db, h.sessionId, { kind: 'review', agent }).id
     fixtureWrite(h.dir, 'src/a.ts', 'uncommitted local edit\n')
     await h.handlers.get('sendRebase')!(t, 'op-r')
+    // a dirty tree is no longer a refusal (specs/inplace-edits inv 8) — the turn runs
     const res = h.results.find((r) => r.opId === 'op-r')!
-    expect(res.status).toBe('failed')
-    expect(res.error).toContain('uncommitted changes')
-    // FakeEngine was never launched with a rebase prompt
-    expect(lastFakeChatTurn()?.message ?? '').not.toContain('git rebase main')
+    expect(res.status).toBe('succeeded')
+    expect(lastFakeChatTurn()!.message).toContain('git rebase main')
   })
 })

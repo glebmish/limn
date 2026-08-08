@@ -148,17 +148,9 @@ describe('ENGINE_SESSION_LOST classification (typed EngineSessionLostError)', ()
     expect(res.error).not.toContain('agent session is no longer available')
   })
 
-  it('(g) dirty-tree precondition throw on a session-bound thread → generic', async () => {
-    const h = await setup()
-    const id = thread(h, 'stale-session-42')
-    fs.writeFileSync(path.join(h.repo, 'src/a.ts'), 'uncommitted change\n') // dirty the compare worktree
-    await h.handlers.get('sendBatch')!(id, [], 'please edit', 'op-dirty')
-
-    const res = h.results.find((r) => r.opId === 'op-dirty')!
-    expect(res.status).toBe('failed')
-    expect(res.errorCode).toBeUndefined()
-    expect(res.error).toContain('uncommitted changes')
-  })
+  // (g) removed with the dirty-tree write gate (specs/inplace-edits): a dirty worktree
+  // no longer produces a precondition throw — generic classification of pre-engine
+  // throws stays covered by (f) "Nothing to send".
 
   it('sendBatch classifies a lost session the same way (thread untouched)', async () => {
     const h = await setup()

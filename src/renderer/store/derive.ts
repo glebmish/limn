@@ -18,10 +18,6 @@ export type Guidance = 'minimal' | 'guided' | 'narrated'
 export const DENSITY: Density = 'comfortable'
 export const GUIDANCE: Guidance = 'guided'
 
-/** Whether the review's compare branch is in a state where agent edits can safely
- *  land. `blocked` → branch checked out nowhere (submissions disabled, offer
- *  checkout). `dirtyWarn` → branch active but its worktree is dirty (allowed, warn).
- *  Non-branch compares are inherently review-only and never blocked. */
 /** Non-fatal load degradations (blobs that failed to parse, salvaged in the DAO)
  *  surface in the same dismissible error strip as boot notices. null → no strip. */
 export function loadWarningStrip(loaded: LoadedReview): string | null {
@@ -29,12 +25,17 @@ export function loadWarningStrip(loaded: LoadedReview): string | null {
   return w && w.length ? `Some saved review data could not be loaded: ${w.join('; ')}` : null
 }
 
+/** Whether the review's compare branch is in a state where writes (agent edits and
+ *  reviewer in-place edits) can land. `blocked` → branch checked out nowhere
+ *  (submissions disabled, offer checkout). `dirtyWarn` → writable but the worktree
+ *  carries uncommitted changes, so agent edits will mix with them (warn, never a
+ *  block). Non-branch compares are inherently review-only and never blocked. */
 export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; dirtyWarn: boolean; writeEnabled: boolean; branch: string | null } {
   const capability = loaded?.writeCapability
   if (!loaded || !capability) return { blocked: false, dirtyWarn: false, writeEnabled: false, branch: null }
   return {
     blocked: capability.reason === 'not-checked-out',
-    dirtyWarn: capability.reason === 'dirty',
+    dirtyWarn: capability.enabled && Boolean(loaded.dirty),
     writeEnabled: capability.enabled,
     branch: capability.branch
   }

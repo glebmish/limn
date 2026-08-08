@@ -5,7 +5,7 @@ import { makeFixtureRepo } from './helpers/fixtureRepo'
 import { writeCapabilityFor } from '../src/main/review'
 
 describe('writeCapabilityFor', () => {
-  it('distinguishes immutable refs, clean branches, and dirty branches', async () => {
+  it('distinguishes immutable refs and unchecked-out branches; dirty trees stay writable', async () => {
     const fx = makeFixtureRepo()
     expect(await writeCapabilityFor(fx.dir, { kind: 'commit', symbol: 'HEAD', anchorSha: 'a'.repeat(40) }))
       .toMatchObject({ enabled: false, reason: 'not-branch' })
@@ -16,8 +16,9 @@ describe('writeCapabilityFor', () => {
     expect(await writeCapabilityFor(fx.dir, { kind: 'branch', symbol: 'feature', anchorSha: 'a'.repeat(40) }))
       .toMatchObject({ enabled: true, reason: 'available', workdir: fs.realpathSync(fx.dir) })
 
+    // In-place edits deliberately dirty the tree; agent writes share it (spec inv 8).
     fs.appendFileSync(path.join(fx.dir, 'README.md'), '\ndirty\n')
     expect(await writeCapabilityFor(fx.dir, { kind: 'branch', symbol: 'feature', anchorSha: 'a'.repeat(40) }))
-      .toMatchObject({ enabled: false, reason: 'dirty', workdir: fs.realpathSync(fx.dir) })
+      .toMatchObject({ enabled: true, reason: 'available', workdir: fs.realpathSync(fx.dir) })
   })
 })

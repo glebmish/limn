@@ -46,9 +46,9 @@ export async function writeCapabilityFor(repo: string, compare: RefSide): Promis
   if (!workdir) {
     return { enabled: false, reason: 'not-checked-out', branch: compare.symbol, workdir: null }
   }
-  if (await isDirty(workdir)) {
-    return { enabled: false, reason: 'dirty', branch: compare.symbol, workdir }
-  }
+  // A dirty tree no longer blocks: reviewer in-place edits and agent writes share the
+  // working tree deliberately (specs/inplace-edits, invariant 8); CAS + git history
+  // arbitrate, and the UI keeps an "edits will mix" warn.
   return { enabled: true, reason: 'available', branch: compare.symbol, workdir }
 }
 
