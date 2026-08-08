@@ -139,7 +139,7 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
 
 export type DiffMode = 'branch' | 'approved' | 'viewed'
 
-function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
+export function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
   return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
 }
 

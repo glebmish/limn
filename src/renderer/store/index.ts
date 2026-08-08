@@ -16,6 +16,8 @@ import type { ReviewSlice } from './review'
 import { createReviewSlice } from './review'
 import type { ProgressSlice } from './progress'
 import { createProgressSlice } from './progress'
+import type { EditsSlice } from './edits'
+import { createEditsSlice } from './edits'
 
 // Re-export the pure derivation layer so every `from '../store'` import (renderer +
 // tests) keeps resolving to the same names and types as when they lived in store.ts.
@@ -65,10 +67,12 @@ export type { ChatSlice } from './chat'
 // (viewed marks + section disclosure + in-review nav + presentation); re-export their types.
 export type { ReviewSlice } from './review'
 export type { ProgressSlice } from './progress'
+// Edits slice (in-place edits: flow-frame scope + save pipeline); re-export its type.
+export type { EditsSlice } from './edits'
 // App.tsx's push-event bridge, now named + unit-testable handlers.
 export { handleOpEvent, handleOpResult, handleRepoChanged, handleCliOpen, handleSettingsOpen } from './bridge'
 
-export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlice, ChatSlice, ReviewSlice, ProgressSlice {
+export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlice, ChatSlice, ReviewSlice, ProgressSlice, EditsSlice {
   screen: 'dashboard' | 'hub' | 'review'
   settingsOpen: boolean
   error: string | null
@@ -98,6 +102,7 @@ export const useStore = create<AppStore>()((...a) => {
     ...createChatSlice(...a),
     ...createReviewSlice(...a),
     ...createProgressSlice(...a),
+    ...createEditsSlice(...a),
     screen: 'dashboard',
     settingsOpen: false,
     error: null,
