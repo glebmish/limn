@@ -127,6 +127,60 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   }
   const gapAt = (from: number, to?: number | null): Gap | undefined =>
     gaps.find((g) => g.from === from && (to === undefined || g.to === to || (to === null && g.to === null)))
+  /** the fold (unrevealed gap) whose span contains working-tree line `n` */
+  const hiddenGapContaining = (n: number): Gap | undefined =>
+    gaps.find((g) => !expandedGaps[g.key] && n >= g.from && (g.to == null || n <= g.to))
+
+  // Growth across a fold (board 01): when the frame's edge enters a fold, the
+  // fold's lines reveal in one batch — only the adjacent line joined the frame.
+  useEffect(() => {
+    if (!frame) return
+    for (const n of [frame.start - 1, frame.start, frame.end, frame.end + 1]) {
+      const g = hiddenGapContaining(n)
+      if (g) void expand(g)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame?.start, frame?.end])
+
+  // ── post-save keyboard round trip (board 01): the save leaves a selection on the
+  // line; ↑/↓ move it (folds reveal in batches as crossed), ⏎ re-enters edit on the
+  // selected line, esc clears. Active only while no frame is open in this file.
+  const lineSelect = useStore((s) => s.lineSelect)
+  const setLineSelect = useStore((s) => s.setLineSelect)
+  const selected = lineSelect && lineSelect.file === f.path && !frame && editable ? lineSelect : null
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement | null
+      if (t && t.closest('textarea,input,select,[contenteditable="true"]')) return
+      if (e.key === 'Escape') { e.preventDefault(); setLineSelect(null); return }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        setEditFrame({ file: f.path, start: selected.line, end: selected.line })
+        return
+      }
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      e.preventDefault()
+      void (async () => {
+        const target = selected.line + (e.key === 'ArrowDown' ? 1 : -1)
+        if (target < 1) return
+        const g = hiddenGapContaining(target)
+        if (g) await expand(g) // crossing a fold reveals it in one batch
+        const eof = fileLinesRef.current?.length
+        if (eof != null && target > eof) return
+        setLineSelect({ file: f.path, line: target })
+      })()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, f.path])
+  // keep the moving selection on screen
+  useEffect(() => {
+    if (!selected) return
+    document.querySelector(`[data-limn-line="${CSS.escape(f.path)}:new:${selected.line}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [selected, f.path])
   /** the expander row (or its revealed rows) for the gap starting at `from` */
   const gapBlock = (from: number, trailing: boolean, label: string): React.ReactNode => {
     const gap = trailing ? gaps.find((g) => g.to === null && g.from === from) : gapAt(from, undefined)
@@ -137,7 +191,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
         <Fragment key={`x${gap.key}-${l.new}`}>
           {coveredBy(l) ? mountFrame(`xf-${l.new}`) : (
             <div
-              className="dline"
+              className={'dline' + (selected && l.new === selected.line ? ' line-selected' : '')}
               data-limn-line={`${f.path}:new:${l.new}`}
               onDoubleClick={editable ? () => openFrameAt(l) : undefined}
             >
@@ -218,7 +272,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                 return (
                   <Fragment key={j}>
                     <div
-                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls + (sliver ? ' frame-sliver' : '')}
+                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
                       data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
                       onDoubleClick={editable && l.new != null ? () => openFrameAt(l) : undefined}
                     >

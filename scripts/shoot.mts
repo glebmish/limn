@@ -26,6 +26,20 @@ fixtureWrite(fx.dir, SPEC, '# Rate limiting spec\n\nGoal: protect the API on bra
 fixtureWrite(fx.dir, PLAN, '# Rate limiting plan\n\n1. add a token-bucket limiter\n2. wire it into the request path\n3. expose the cap as config\n')
 fixtureGit(fx.dir, 'add', '-A')
 fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
+// a long file with one small mid-file change — gives the diff real folds so the
+// in-place-edit demos (expander batches, fold-crossing growth/navigation) have
+// something to reveal. Added on main, merged into feature, then tweaked there.
+const longLines = (v25: string): string =>
+  Array.from({ length: 34 }, (_, i) => (i === 24 ? v25 : `export const v${i + 1} = ${i + 1}`)).join('\n') + '\n'
+fixtureGit(fx.dir, 'checkout', '-q', 'main')
+fixtureWrite(fx.dir, 'src/long.ts', longLines('export const v25 = 25'))
+fixtureGit(fx.dir, 'add', '-A')
+fixtureGit(fx.dir, 'commit', '-m', 'add long.ts')
+fixtureGit(fx.dir, 'checkout', '-q', 'feature')
+fixtureGit(fx.dir, 'merge', '-q', '--no-edit', 'main')
+fixtureWrite(fx.dir, 'src/long.ts', longLines('export const v25 = 25 * FACTOR'))
+fixtureGit(fx.dir, 'add', '-A')
+fixtureGit(fx.dir, 'commit', '-m', 'scale v25 by FACTOR')
 const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }

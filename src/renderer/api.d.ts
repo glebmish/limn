@@ -54,6 +54,9 @@ declare global {
       runEdit?: string | null
       /** force-show the hover affordances (pencil, rail ↺) for static captures */
       showAffordances?: boolean
+      /** JSON scripted-demo steps [{at,do,sel?,key?,meta?,text?}] — dispatches real
+       *  DOM events (dblclick/type/key) on a schedule so recordings drive the real UI */
+      scenario?: string | null
       /** dev-only: expand a left-spine artifact peek panel by path for a static capture */
       openPeek?: string | null
     }

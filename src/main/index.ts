@@ -110,6 +110,28 @@ function createWindow(): void {
       })
     }, parseInt(process.env.LIMN_SHOT_DELAY ?? '9000', 10))
   }
+
+  // dev-only recording: LIMN_SHOT_FRAMES=<dir> captures frame-0001.png… every
+  // LIMN_SHOT_EVERY ms (default 400) for LIMN_SHOT_COUNT frames (default 40),
+  // starting after LIMN_SHOT_DELAY — a GIF/video source for scripted scenarios.
+  const framesDir = process.env.LIMN_SHOT_FRAMES
+  if (framesDir) {
+    const every = parseInt(process.env.LIMN_SHOT_EVERY ?? '400', 10)
+    const count = parseInt(process.env.LIMN_SHOT_COUNT ?? '40', 10)
+    let n = 0
+    setTimeout(() => {
+      const t = setInterval(() => {
+        const frame = ++n
+        void win.webContents.capturePage().then((img) => {
+          fsWriteShot(path.join(framesDir, `frame-${String(frame).padStart(4, '0')}.png`), img.toPNG())
+        })
+        if (frame >= count) {
+          clearInterval(t)
+          if (process.env.LIMN_SHOT_QUIT) setTimeout(() => app.quit(), 500)
+        }
+      }, every)
+    }, parseInt(process.env.LIMN_SHOT_DELAY ?? '3000', 10))
+  }
 }
 
 function devCliArgs(): CliArgs | null {
@@ -183,5 +205,6 @@ app.on('window-all-closed', () => {
 })
 
 function fsWriteShot(p: string, buf: Buffer): void {
+  fs.mkdirSync(path.dirname(p), { recursive: true })
   fs.writeFileSync(p, buf)
 }

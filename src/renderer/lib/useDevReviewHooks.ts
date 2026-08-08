@@ -20,6 +20,28 @@ let devDocRan = false
 let devDriftRan = false
 let devFrameRan = false
 let devEditRan = false
+let devScenarioRan = false
+
+interface ScenarioStep { at: number; do: 'dblclick' | 'click' | 'type' | 'key'; sel?: string; key?: string; meta?: boolean; text?: string }
+
+/** Dispatch one scripted-demo step as REAL DOM events (React's root listeners pick
+ *  them up), so a recording drives the actual UI paths — no store shortcuts. */
+function runScenarioStep(s: ScenarioStep): void {
+  const el = s.sel ? document.querySelector(s.sel) : (document.activeElement ?? document.body)
+  if (!el) return
+  if (s.do === 'dblclick') {
+    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+  } else if (s.do === 'click') {
+    ;(el as HTMLElement).click()
+  } else if (s.do === 'type') {
+    const ta = el as HTMLTextAreaElement
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    setter?.call(ta, s.text ?? '')
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  } else if (s.do === 'key') {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: s.key ?? '', bubbles: true, cancelable: true, metaKey: Boolean(s.meta) }))
+  }
+}
 
 /** dev-only: a synthetic mid-flight review op for capturing the live gen panel. */
 export function fakeGenState(): GenState {
@@ -103,6 +125,15 @@ export function useDevReviewHooks({
       try {
         const scope = JSON.parse(dev.editFrame) as { file: string; start: number; end: number }
         setTimeout(() => useStore.getState().setEditFrame(scope), 600)
+      } catch { /* bad json */ }
+    }
+    // dev-only: LIMN_SCENARIO runs scripted demo steps (real DOM events) on a
+    // schedule — the source for recorded GIFs of interactive flows
+    if (dev.scenario && !devScenarioRan && loaded) {
+      devScenarioRan = true
+      try {
+        const steps = JSON.parse(dev.scenario) as ScenarioStep[]
+        for (const s of steps) setTimeout(() => runScenarioStep(s), s.at)
       } catch { /* bad json */ }
     }
     // dev-only: LIMN_RUN_EDIT performs a REAL in-place edit through the full save

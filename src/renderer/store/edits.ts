@@ -13,6 +13,12 @@ export interface EditsSlice {
   editFrame: { file: string; start: number; end: number } | null
   setEditFrame(frame: EditsSlice['editFrame']): void
 
+  /** The post-save keyboard round trip (board 12): saving leaves a selection on the
+   *  line — ↑/↓ move it (DiffBody reveals folds as they're crossed), ⏎ re-enters
+   *  edit there, esc clears. No caret, no input — just the highlighted row. */
+  lineSelect: { file: string; line: number } | null
+  setLineSelect(sel: EditsSlice['lineSelect']): void
+
   /** CAS write via applyEdit. On success: re-stamp the viewed mark (a deliberate
    *  in-view edit keeps the file viewed — spec inv 3) and refresh the review (the
    *  fold-in — spec inv 2). A conflict is returned to the caller unrefreshed so the
@@ -26,9 +32,16 @@ export interface EditsSlice {
 
 export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set, get) => ({
   editFrame: null,
+  lineSelect: null,
 
   setEditFrame(frame) {
-    set({ editFrame: frame })
+    // opening a frame swallows any line selection; closing leaves it to the caller
+    // (a save re-establishes it on the saved line, a cancel keeps none)
+    set(frame ? { editFrame: frame, lineSelect: null } : { editFrame: null })
+  },
+
+  setLineSelect(sel) {
+    set({ lineSelect: sel })
   },
 
   async saveEdit(file, edit) {

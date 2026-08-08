@@ -66,7 +66,13 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     if (!edit) { setEditFrame(null); return } // unchanged save is a cancel
     const res = await saveEdit(f.path, edit)
     if (!res) { setEditFrame(null); return } // transport error already surfaced
-    if (res.ok) { setEditFrame(null); return }
+    if (res.ok) {
+      // keyboard round trip: the save leaves a selection on the edited line —
+      // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody)
+      setEditFrame(null)
+      useStore.getState().setLineSelect({ file: f.path, line: edit.start })
+      return
+    }
     // Same-line conflict: the review refreshes around the frame, which reopens on
     // the fresh content with the typed text kept — never a retype (spec inv 6).
     const end = Math.min(frame.end, res.current.length)

@@ -71,5 +71,6 @@ contextBridge.exposeInMainWorld('limnDev', {
   editFrame: process.env.LIMN_EDIT_FRAME ?? null,
   runEdit: process.env.LIMN_RUN_EDIT ?? null,
   showAffordances: process.env.LIMN_SHOW_AFFORDANCES === '1',
+  scenario: process.env.LIMN_SCENARIO ?? null,
   openPeek: process.env.LIMN_OPEN_PEEK ?? null
 })
