@@ -27,7 +27,7 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
 /** Frame/pencil availability for a whole file. Rows additionally need working-tree
  *  text behind them (`l.new != null` — never a − row). */
 export function fileEditable(loaded: LoadedReview | null, f: FileDiff): boolean {
-  return Boolean(loaded?.writeCapability.enabled) && !f.binary && !f.conflict
+  return Boolean(loaded?.writeCapability?.enabled) && !f.binary && !f.conflict
 }
 
 export interface DiscardSpan {

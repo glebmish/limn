@@ -6,6 +6,8 @@ import { Composer, InlineThread } from './Threads'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
+import { fileEditable } from '../lib/edits'
+import { FlowFrame } from './FlowFrame'
 
 /** tabs → spaces so ch-offset word marks align with the monospace text */
 function disp(text: string): string {
@@ -56,6 +58,30 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated' && c.status !== 'resolved')
 
+  // ── in-place edits (specs/inplace-edits): the flow frame replaces the rows it
+  // covers; a hover pencil / double-click on any working-tree row opens it.
+  const loaded = useStore((s) => s.loaded)
+  const editFrame = useStore((s) => s.editFrame)
+  const setEditFrame = useStore((s) => s.setEditFrame)
+  const editable = fileEditable(loaded, f)
+  const frame = editable && editFrame && editFrame.file === f.path ? editFrame : null
+  const coveredBy = (l: DiffLine): boolean =>
+    frame != null && l.new != null && l.new >= frame.start && l.new <= frame.end
+  // the frame mounts at the first covered row's position
+  const framePos = useMemo(() => {
+    if (!frame) return null
+    for (let i = 0; i < hunks.length; i++) {
+      const j = hunks[i].lines.findIndex(coveredBy)
+      if (j >= 0) return { i, j }
+    }
+    return null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame, hunks])
+  const openFrameAt = (l: DiffLine): void => {
+    if (!editable || l.new == null) return
+    setEditFrame({ file: f.path, start: l.new, end: l.new })
+  }
+
   const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
     line == null
       ? []
@@ -94,11 +120,23 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                 const originCls = l.origin === 'staged' ? ' staged'
                   : l.origin === 'unstaged' ? ' unstaged'
                   : (l.since || l.sinceViewed) ? ' since' : ''
+                // rows the open frame covers: the first mounts the editor, the rest
+                // hide; a − row adjacent to covered rows stays as a grey sliver
+                // (its text is what the edit may replace — scope marker, not input).
+                if (frame && coveredBy(l)) {
+                  if (framePos && framePos.i === i && framePos.j === j) {
+                    return <FlowFrame key={`frame-${j}`} f={f} frame={frame} />
+                  }
+                  return null
+                }
+                const sliver = frame != null && l.new == null &&
+                  (coveredBy(h.lines[j - 1] ?? {} as DiffLine) || coveredBy(h.lines[j + 1] ?? {} as DiffLine))
                 return (
                   <Fragment key={j}>
                     <div
-                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls}
+                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls + (sliver ? ' frame-sliver' : '')}
                       data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
+                      onDoubleClick={editable && l.new != null ? () => openFrameAt(l) : undefined}
                     >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
@@ -111,6 +149,16 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                       >
                         <I.plus style={{ width: 12, height: 12 }} />
                       </button>
+                      {editable && l.new != null && (
+                        <button
+                          className="pencil-btn limn-line-edit"
+                          title="Edit this line in place — saves as an uncommitted change"
+                          aria-label={`Edit line ${l.new}`}
+                          onClick={() => openFrameAt(l)}
+                        >
+                          <I.edit style={{ width: 12, height: 12 }} />
+                        </button>
+                      )}
                     </div>
                     {threads.map((c) => (
                       <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />

@@ -230,6 +230,39 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
   opacity:1;background:var(--accent);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.22)}
 .gutter-add:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
 
+/* ---- In-place edits (specs/inplace-edits) ---- */
+/* hover pencil at the row's right edge — the comment + keeps the gutter */
+.pencil-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:18px;height:18px;border-radius:5px;background:transparent;color:var(--muted-2);border:none;padding:0;
+  cursor:pointer;display:flex;opacity:0;align-items:center;justify-content:center;z-index:4}
+.dline:hover .pencil-btn,.dline:focus-within .pencil-btn,.pencil-btn:focus-visible{
+  opacity:1;background:var(--panel-2);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.pencil-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:1px}
+/* covered − rows ride inside the frame's span as inert grey slivers */
+.dline.frame-sliver{opacity:.45;filter:grayscale(.7)}
+.dline.frame-sliver .gutter-add,.dline.frame-sliver .pencil-btn{display:none}
+/* the flow frame replaces the covered rows in place */
+.flow-frame{border:1px solid var(--accent-line);border-left-width:3px;background:var(--panel);
+  font-family:var(--mono);font-size:12px;line-height:1.65}
+.ff-head{display:flex;align-items:center;gap:10px;padding:3px 8px 3px 10px;background:var(--accent-soft);
+  border-bottom:1px solid var(--accent-line);font-family:var(--sans)}
+.ff-chip{font-size:11px;font-weight:600;color:var(--accent-ink)}
+.ff-hint{font-size:10.5px;color:var(--muted)}
+.ff-btn{border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:5px;
+  font:600 11px var(--sans);padding:2px 8px;cursor:pointer}
+.ff-btn.ff-ok{background:var(--accent);border-color:var(--accent);color:#fff}
+.ff-yours{display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--amber-soft,#fdf4e3);
+  border-bottom:1px solid var(--line);font-family:var(--sans);font-size:11.5px;color:var(--ink)}
+.ff-yours code{font-family:var(--mono);font-size:11px;white-space:pre;overflow-x:auto;
+  background:var(--panel-2);padding:2px 6px;border-radius:4px;max-width:40ch}
+.ff-body{display:flex;align-items:stretch}
+.ff-gutter{flex:0 0 auto;width:46px;display:flex;flex-direction:column;text-align:right;color:var(--faint);
+  font-size:10.5px;user-select:none;border-right:1px solid var(--line)}
+.ff-gutter span{padding-right:5px;line-height:1.65;height:calc(1.65 * 12px)}
+.ff-ta{flex:1 1 auto;border:none;outline:none;resize:none;background:transparent;color:var(--ink);
+  font-family:var(--mono);font-size:12px;line-height:1.65;white-space:pre;overflow-x:auto;
+  padding:0 12px 0 16px;margin:0;display:block}
+
 /* inline composer thread inside diff */
 .thread{margin:0 14px;border:1px solid var(--line-2);border-radius:var(--r-md);overflow:hidden;
   background:var(--panel);font-family:var(--sans)}
