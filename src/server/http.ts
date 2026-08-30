@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
-import { registerIpc } from './ipc.js'
+import { registerIpc, shutdownIpc } from './ipc.js'
 import { openDb } from './db/db.js'
 import { issueCliOpen, type CliOpenArgs } from './cliOpen.js'
 import { CANONICAL_HOST, isJsonContentType, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
@@ -291,6 +291,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       alias?.close()
       alias?.closeAllConnections()
       server.closeAllConnections()
+      // Cancel the live-watch poll timer before the DB goes: an armed watcher would
+      // otherwise keep the event loop alive long past close() and swallow the first
+      // SIGINT (the reason the screenshot scripts used to need a SIGKILL escalation).
+      shutdownIpc()
       server.close(() => { db.close(); resolve() })
     })
   }

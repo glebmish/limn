@@ -366,12 +366,6 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
 9. **Slim the `@modelcontextprotocol/sdk` tree** — it pulls express *and* hono for a
    server Limn only speaks to over loopback; it dominates the ≈ 35 MB installed
    footprint. Either a narrower entry point or a hand-rolled streamable-HTTP transport.
-10. **Single-signal shutdown while a review watcher is armed** — the live-watch poll
-    timer keeps the event loop alive past `server.close()`, so the first SIGINT/SIGTERM
-    can hang; the screenshot-family scripts (`shot.sh`, `record-inplace-demo.sh`,
-    `smoke-installed.sh`) escalate to SIGKILL to work around it, while `pack-smoke.sh`
-    still uses a plain `kill`. Unref the timer (or cancel the watcher in `close()`)
-    instead.
 
 ## 12. Open questions resolved during brainstorming
 

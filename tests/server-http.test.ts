@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { startServer, type RunningServer, type ServerOptions } from '../src/server/http'
+import { currentWatchEpoch } from '../src/server/ipc'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 
 let running: RunningServer | null = null
@@ -215,5 +216,27 @@ describe('dev hooks', () => {
     }
     // never an asset
     expect(await (await fetch(`${s.url}/app.js`)).text()).not.toContain('limn-dev')
+  })
+})
+
+describe('close()', () => {
+  it('calls the review watcher down so nothing keeps the process alive', async () => {
+    const s = await boot()
+    const fx = makeFixtureRepo()
+    // previewReview arms the live-watch poll timer for the compare branch
+    const res = await rpc(s, 'previewReview', [fx.dir, 'main', 'feature', { engine: 'claude' }])
+    expect(res.status).toBe(200)
+    const armed = currentWatchEpoch()
+    const timersBefore = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length
+
+    const closed = running!.close().then(() => 'closed' as const)
+    running = null
+    const timer = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2000).unref())
+    expect(await Promise.race([closed, timer])).toBe('closed')
+
+    // the epoch bump is stopWatch's signature: the watcher was actually called down,
+    // not merely unref'd into invisibility
+    expect(currentWatchEpoch()).toBeGreaterThan(armed)
+    expect(process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length).toBeLessThanOrEqual(timersBefore)
   })
 })

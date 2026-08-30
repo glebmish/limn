@@ -126,7 +126,9 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
   const w = {
     repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, epoch,
     ...initialWatchDecision, lastHead: loadedSha, lastCapability: seedCapability,
-    timer: setInterval(() => void poll(), LIVE_INTERVAL_MS)
+    // unref: a poll timer must never be the reason the process stays alive after the
+    // server closed. shutdownIpc() cancels it properly; this is the safety net.
+    timer: setInterval(() => void poll(), LIVE_INTERVAL_MS).unref()
   }
   watcher = w
   async function poll(): Promise<void> {
@@ -167,7 +169,7 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
     if (decision.retuneTo !== null) {
       // enter the 10 s probe on stop, or restore the 500 ms cadence on recovery
       clearInterval(w.timer)
-      w.timer = setInterval(() => void poll(), decision.retuneTo)
+      w.timer = setInterval(() => void poll(), decision.retuneTo).unref()
     }
     if (decision.emit === 'stopped') {
       // watch is down — surface it (fields are last-known) so the titlebar can pause
@@ -185,6 +187,19 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
       send('repo:changed', { repo, branch, headSha: state.head, drift: broadcast.drift, writeCapability: broadcast.writeCapability })
     }
   }
+}
+
+/** Release everything `registerIpc` armed that outlives a request: today that is the
+ *  live-watch poll timer. `RunningServer.close()` calls this before closing the DB, so
+ *  a single SIGINT ends the process even with a review mounted (spec §4). */
+export function shutdownIpc(): void {
+  stopWatch()
+}
+
+/** Test seam: the watch generation. Every stopWatch (and so every startWatch and
+ *  shutdownIpc) bumps it, which is how a test proves the watcher was called down. */
+export function currentWatchEpoch(): number {
+  return watchEpoch.current()
 }
 
 function stopWatch(): void {

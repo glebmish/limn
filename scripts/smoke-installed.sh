@@ -6,7 +6,7 @@ out="${2:?out png}"
 
 limn="$(command -v limn || true)"
 if [ -z "$limn" ]; then
-  echo "limn is not installed globally (npm i -g limn); nothing to smoke" >&2
+  echo "limn is not installed globally (npm i -g @glebmish/limn); nothing to smoke" >&2
   exit 1
 fi
 
@@ -16,9 +16,9 @@ SID=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync
 port="${LIMN_PORT:-$((20000 + RANDOM % 20000))}"
 LIMN_DEV_HOOKS=1 LIMN_DB="$DB" LIMN_PORT="$port" "$limn" service serve >/tmp/limn-installed.log 2>&1 &
 srv=$!
-# A session with an active live-watch timer can outlive a graceful SIGTERM's
-# server.close() (the poll interval keeps the event loop alive), so escalate
-# to SIGKILL if it doesn't exit promptly.
+# The server stops on the first signal (close() calls the live-watch timer down),
+# so this is only a safety net for a wedged run — e.g. a headless Chrome holding
+# a socket open — not a workaround for a known hang.
 kill_srv() {
   kill "$srv" 2>/dev/null || true
   for _ in $(seq 1 20); do kill -0 "$srv" 2>/dev/null || return 0; sleep 0.1; done
