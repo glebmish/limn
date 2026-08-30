@@ -12,18 +12,9 @@ port="${LIMN_PORT:-$((20000 + RANDOM % 20000))}"
 [ -f dist/renderer/index.html ] || npm run build >/dev/null
 LIMN_DEV_HOOKS=1 LIMN_DB="$db" LIMN_PORT="$port" node bin/limn.js service serve >/tmp/limn-serve.log 2>&1 &
 srv=$!
-# The server stops on the first signal (close() calls the live-watch timer down),
-# so this is only a safety net for a wedged run — e.g. a headless Chrome holding
-# a socket open — not a workaround for a known hang.
-kill_srv() {
-  kill "$srv" 2>/dev/null || true
-  for _ in $(seq 1 20); do kill -0 "$srv" 2>/dev/null || return 0; sleep 0.1; done
-  kill -9 "$srv" 2>/dev/null || true
-}
+. "$(dirname "$0")/lib.sh"
 trap kill_srv EXIT
-healthy=0
-for _ in $(seq 1 50); do curl -sf "http://127.0.0.1:$port/health" >/dev/null && { healthy=1; break; }; sleep 0.2; done
-[ "$healthy" = 1 ] || { echo "server never became healthy" >&2; exit 1; }
+wait_healthy
 url="$(env LIMN_PORT="$port" LIMN_OPEN_SESSION="$sid" LIMN_FLOW=chat "$@" npx tsx scripts/dev-url.mts)"
 npx tsx scripts/cdp-shot.mts --url "$url" --out "$out" --delay "${LIMN_SHOT_DELAY:-6000}"
 echo "wrote $out" >&2

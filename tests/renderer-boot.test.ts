@@ -1,5 +1,32 @@
-import { describe, it, expect } from 'vitest'
-import { readDevHooks, readOpenTicket } from '../src/renderer/boot-params'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { readDevHooks, readOpenTicket, stripQuery } from '../src/renderer/boot-params'
+
+describe('stripQuery', () => {
+  const g = globalThis as unknown as { window?: unknown }
+  afterEach(() => { delete g.window })
+
+  function fakeWindow(href: string): ReturnType<typeof vi.fn> {
+    const replaceState = vi.fn()
+    g.window = { location: { href }, history: { replaceState } }
+    return replaceState
+  }
+
+  it('drops only the named params and keeps the path, the rest of the query, and the hash', () => {
+    const replace = fakeWindow('http://limn.localhost:5466/?open=abc&token=t#x')
+    stripQuery(['open'])
+    expect(replace).toHaveBeenCalledWith(null, '', '/?token=t#x')
+  })
+  it('drops the `?` entirely when nothing is left', () => {
+    const replace = fakeWindow('http://limn.localhost:5466/?open=abc')
+    stripQuery(['open'])
+    expect(replace).toHaveBeenCalledWith(null, '', '/')
+  })
+  it('leaves history alone when none of the params are present', () => {
+    const replace = fakeWindow('http://limn.localhost:5466/?token=t')
+    stripQuery(['open'])
+    expect(replace).not.toHaveBeenCalled()
+  })
+})
 
 describe('boot params', () => {
   it('reads the cli:open ticket from ?open=', () => {

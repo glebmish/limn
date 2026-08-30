@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Pack the package the way release does, install it into a throwaway prefix with
-# DEFAULT npm flags, and prove: no platform binaries were fetched, the bin runs,
-# the server answers /health. Usage: scripts/pack-smoke.sh
+# Pack the package the way release does, install it into a throwaway prefix, and
+# prove: no platform binaries were fetched, the bin runs, the server answers /health.
+# Installs run with --ignore-scripts: nothing in the tree needs an install-time
+# script, and skipping them keeps the smoke deterministic. Usage: scripts/pack-smoke.sh
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/limn-pack.XXXXXX")"
@@ -11,8 +12,13 @@ pid=""
 # binary-free), which also strips rollup's own native binary — so vite/vitest would
 # stop working after a local run until you reinstalled by hand. Release CI re-strips
 # with its own `npm ci --omit=optional` before `npm pack`, so this restore costs it
-# nothing but a reinstall.
-trap 'kill "$pid" 2>/dev/null || true; rm -rf "$work"; (cd "$root" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null)' EXIT
+# nothing but a reinstall. A failed restore is said out loud: silently leaving a
+# half-stripped tree behind is exactly the confusion this trap exists to prevent.
+restore_tree() {
+  (cd "$root" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null) \
+    || echo "::warning::pack-smoke could not restore node_modules — run: npm ci" >&2
+}
+trap 'kill "$pid" 2>/dev/null || true; rm -rf "$work"; restore_tree' EXIT
 
 cd "$root"
 # Build with a full install first: vite/rollup's own native binary
@@ -28,7 +34,10 @@ npm ci --omit=optional --ignore-scripts --no-audit --no-fund >/dev/null
 # --ignore-scripts skips our own prepack guard, so assert the same thing directly:
 # the tarball's contents are decided by what is in node_modules right now.
 scripts/assert-no-platform-binaries.sh >/dev/null
-tgz="$(npm pack --ignore-scripts --pack-destination "$work" 2>/dev/null | tail -1)"
+# npm's notices go to stderr along with any real error; keep them out of the captured
+# filename but show them when the pack itself fails.
+tgz="$(npm pack --ignore-scripts --pack-destination "$work" 2>"$work/pack.err" | tail -1)" \
+  || { echo "::error::npm pack failed"; cat "$work/pack.err" >&2; exit 1; }
 echo "tarball: $tgz ($(du -h "$work/$tgz" | cut -f1))"
 
 # 1. the tarball must not carry platform binaries
@@ -40,7 +49,7 @@ if grep -E 'claude-agent-sdk-(darwin|linux|win32)|codex-(darwin|linux|win32)' <<
   echo "::error::platform binaries found in tarball"; exit 1
 fi
 
-# 2. install with default flags into an isolated prefix
+# 2. install into an isolated prefix (a global install, like a user's `npm i -g`)
 npm install -g --prefix "$work/prefix" --ignore-scripts --no-audit --no-fund "$work/$tgz" >/dev/null
 pkg="$work/prefix/lib/node_modules/@glebmish/limn"
 # no -maxdepth: a platform binary nested deeper than 4 levels would be missed

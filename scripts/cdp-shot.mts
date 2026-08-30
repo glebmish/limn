@@ -45,8 +45,13 @@ try {
   let seq = 0
   const pending = new Map<number, (v: { result?: Record<string, unknown>; error?: { message: string } }) => void>()
   ws.onmessage = (e) => { const msg = JSON.parse(String(e.data)); if (msg.id && pending.has(msg.id)) { pending.get(msg.id)!(msg); pending.delete(msg.id) } }
-  const send = (method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
-    const id = ++seq; pending.set(id, (m) => m.error ? reject(new Error(m.error.message)) : resolve(m.result ?? {})); ws.send(JSON.stringify({ id, method, params }))
+  // Per-call timeout: a Chrome that stops answering (a renderer hang, a closed target)
+  // must fail the script, not park it forever behind the caller's own kill timeout.
+  const send = (method: string, params: Record<string, unknown> = {}, timeoutMs = 20_000): Promise<Record<string, unknown>> => new Promise((resolve, reject) => {
+    const id = ++seq
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP ${method} did not answer within ${timeoutMs}ms`)) }, timeoutMs)
+    pending.set(id, (m) => { clearTimeout(timer); if (m.error) reject(new Error(m.error.message)); else resolve(m.result ?? {}) })
+    ws.send(JSON.stringify({ id, method, params }))
   })
 
   await send('Page.enable')
