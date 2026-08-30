@@ -74,7 +74,7 @@ limn
 The first `limn` offers to install Limn as a background service (a LaunchAgent on
 macOS, a `systemd --user` unit on Linux) so **http://limn.localhost:5466** is always
 there; say `n` (or pass `--no-service`) to just run it in the foreground. `npx
-@glebmish/limn` runs it once without installing anything.
+@glebmish/limn` runs it once (answer `n` to keep nothing installed).
 
 Requires Node ≥ 22.5 and `git`. `*.localhost` resolves to your machine in Chrome,
 Edge, Arc and Firefox with no setup; Safari does not resolve it — use
@@ -143,7 +143,7 @@ limn --hub                           # open the repo's saved-review list
 | `--no-service` | Skip the service prompt; run in the foreground. |
 
 ```bash
-limn service serve [--port N]     # foreground server (default 5466)
+limn service serve [--port N] [--port-80]   # foreground server (default 5466)
 limn service install [--port-80]  # always-on background service (+ optional http://limn.localhost alias on :80)
 limn service status               # activation (service / foreground / not running), URL, pid, node path, native stop/restart commands
 limn service uninstall            # remove the service; database untouched
@@ -176,7 +176,7 @@ npm run dev        # vite on :5173, proxying /rpc, /events, /health to a server 
 npm test           # vitest: diff parser, ref resolution, sessions DAO, CLI args, service units, anchoring, engine contract
 npm run typecheck
 npm run lint
-npm run build      # dist/renderer (vite) + dist/{server,cli} (tsc)
+npm run build      # dist/renderer (vite) + dist/{main,server,cli,shared} (tsc)
 npm run pack:smoke # npm pack → install into a temp prefix → /health, asserting no platform binaries shipped
 ```
 
@@ -184,7 +184,7 @@ Pushing a `v*` tag that matches `package.json` publishes `@glebmish/limn` to npm
 (bundled JS-only adapter closure, no platform binaries) and creates a GitHub Release
 with the tarball.
 
-Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_PORT` (server port), `LIMN_DB` (SQLite path), `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` (bind somewhere other than loopback — e.g. a Tailscale address — with a required token; the service records them when they are set in the shell that runs `limn service install`), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer). Real-engine smoke scripts: `npx tsx scripts/acp-smoke.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_PORT` (server port), `LIMN_DB` (SQLite path), `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` (bind somewhere other than loopback — e.g. a Tailscale address — with a required token; the service records them when they are set in the shell that runs `limn service install`). Page-level dev hooks (read by `scripts/dev-url.mts`, see *Screenshots*): `LIMN_OPEN_SESSION=<id>` (open straight to a saved review), `LIMN_OPEN_HUB=<repo>` (open a repo's saved-review list), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer). Real-engine smoke script: `npx tsx scripts/acp-smoke.ts --engine=claude|codex`.
 
 **Screenshots:** `scripts/shot.sh <out.png> [LIMN_* hooks]` seeds a fixture repo + db, serves it on an ephemeral port, and captures the page with headless Chrome over CDP (`CHROME_BIN` overrides the binary). The hooks — `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown), … — travel to the page as `?dev=<json>` built by `scripts/dev-url.mts`.
 

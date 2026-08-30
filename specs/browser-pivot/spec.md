@@ -175,7 +175,7 @@ directories. Users need no special flags.
   `{ close(), port, url }`; `main()` moves to the CLI. Lets tests stand it up on an
   ephemeral port.
 - `GET /health` (unauthenticated, loopback‑only semantics via `sameSiteOk`) →
-  `{ app: 'limn', version, pid, startedAt, port, db }`. Used by the CLI role check,
+  `{ app: 'limn', version, pid, startedAt, port }` (no `db` — as built). Used by the CLI role check,
   `status`, `serve`'s clash message.
 - `cli:open` becomes a real channel, delivered as a **one‑time ticket** rather than a
   push (as built): `POST /rpc/cli:open` resolves `repoRoot(dir)`, parks the resulting
@@ -327,9 +327,9 @@ Unit (vitest, in `tests/`):
 - `server-http.test.ts` — `startServer` on port 0: `/health` shape, `cli:open` RPC →
   ticket, `takeCliOpen` redemption (single use, 60 s TTL), guards unchanged
   (`guard.test.ts` keeps its tests).
-- `open-role.test.ts` — dual‑role decision table with a stubbed `/health` and a stubbed
-  prompt (TTY / non‑TTY / `--no-service` / npx cache path).
-- `api-client.test.ts` — RPC/SSE plumbing and the boot-time `?open=<ticket>` redemption.
+- `cli-open-role.test.ts` — dual‑role decision table with a stubbed `/health` and a
+  stubbed prompt (TTY / non‑TTY / `--no-service` / npx cache path).
+- `renderer-boot.test.ts` — boot params and the `?open=<ticket>` redemption.
 
 Integration (CI job): `npm pack` → install into a temp prefix → `limn service serve
 --port 0` in background → `curl /health` → `limn open --hub` against `LIMN_PORT` →
@@ -364,8 +364,10 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
    footprint. Either a narrower entry point or a hand-rolled streamable-HTTP transport.
 10. **Single-signal shutdown while a review watcher is armed** — the live-watch poll
     timer keeps the event loop alive past `server.close()`, so the first SIGINT/SIGTERM
-    can hang; `scripts/shot.sh` and `pack-smoke.sh` escalate to SIGKILL. Unref the timer
-    (or cancel the watcher in `close()`) instead.
+    can hang; the screenshot-family scripts (`shot.sh`, `record-inplace-demo.sh`,
+    `smoke-installed.sh`) escalate to SIGKILL to work around it, while `pack-smoke.sh`
+    still uses a plain `kill`. Unref the timer (or cancel the watcher in `close()`)
+    instead.
 
 ## 12. Open questions resolved during brainstorming
 

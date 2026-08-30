@@ -32,13 +32,14 @@ read live from git, never cached as truth.
   log locations; `cliOpen.ts` mints the CLI's one-time open tickets.
 - **`src/server/`** — the HTTP carrier. `http.ts` exports `startServer(opts)`
   (static SPA + `/rpc/*` + `/events` + `/health`, and it opens the single DB
-  handle); `guard.ts` holds the pure host/origin/auth checks so they are testable
-  without a socket.
+  handle); `guard.ts` holds the pure host/origin checks so they are testable
+  without a socket (the token comparison itself lives in `http.ts`).
 - **`src/cli/`** — the `limn` binary: `args.ts` (grammar), `open.ts` (the
   dual-role entry point), `serve.ts` (foreground server), and `service/`
   (launchd / systemd `--user` backends, `status` rendering).
-- **`src/renderer/`** — React 19 with a single Zustand store (`store.ts`) that
-  owns screen routing (Dashboard, RepoHub, Review) and the op lifecycle.
+- **`src/renderer/`** — React 19 with one Zustand store assembled from slices in
+  `store/` (`repo`, `review`, `chat`, `ops`, `edits`, `dashboard`, …) that owns
+  screen routing (Dashboard, RepoHub, Review) and the op lifecycle.
   `api-client.ts` installs `window.api` over `fetch` + `EventSource`.
 
 The dependency graph runs one way: renderer → (HTTP/SSE) → `ipc.ts` →
@@ -134,8 +135,8 @@ limn [DIR] …
 The background service runs `<node> <…/dist/cli/index.js> service serve
 [--port-80]` from a generated unit — `~/Library/LaunchAgents/dev.glebmish.limn.plist`
 (launchd, `RunAtLoad` + `KeepAlive`, logging to `~/Library/Logs/limn.log`) or
-`~/.config/systemd/user/limn.service` (systemd `--user`, `Restart=always`, logs in
-the journal). Both record absolute, symlink-resolved paths for `node` and the
+`~/.config/systemd/user/limn.service` (systemd `--user`, `Restart=always`, appending
+to the same log file, though `limn service logs` reads the journal there). Both record absolute, symlink-resolved paths for `node` and the
 entry script, a login-shell `PATH` (so the engines find `git`/`claude`/`codex`),
 and any of `LIMN_PORT` / `LIMN_DB` / `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` that were
 set in the installing shell. There are no `stop`/`restart` subcommands:

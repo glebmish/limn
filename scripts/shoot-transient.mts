@@ -1,8 +1,8 @@
 /* Screenshot seed (dev only) for the transient-review default entry: builds a
  * fixture repo (main..feature diff + a recognized spec/plan) and an EMPTY db (no
- * sessions). Serve with `LIMN_DB=<db> node bin/limn.js service serve` and open
- * the URL from `scripts/dev-url.mts` (LIMN_OPEN_REPO=<repo>) to land directly
- * on the transient review (no session row) — the default entry. Prints {repo, db}. */
+ * sessions). Serve with `LIMN_DB=<db> node bin/limn.js service serve`, then open the
+ * repo from the Dashboard (or `limn <repo>`) to land directly on the transient review
+ * (no session row) — the default entry. Prints {repo, db}. */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

@@ -85,14 +85,15 @@ limn service install [--port-80]  # write + load the unit, start it, wait for /h
 limn service status               # activation, URL, pid, node path, native commands
 limn service logs [-f]            # the service log
 limn service uninstall            # unload + delete the unit; the database is untouched
-limn service serve [--port N]     # no service at all: a foreground server, Ctrl-C to stop
+limn service serve [--port N] [--port-80]   # no service at all: a foreground server, Ctrl-C to stop
 ```
 
 On macOS the unit is a LaunchAgent at `~/Library/LaunchAgents/dev.glebmish.limn.plist`
 (`RunAtLoad` + `KeepAlive`, log at `~/Library/Logs/limn.log`). On Linux it is a
-`systemd --user` unit at `~/.config/systemd/user/limn.service` (`Restart=always`, logs
-in the journal); run `loginctl enable-linger $USER` if you want it up without a login
-session. Install is idempotent — re-run it after Node moves and it repairs the recorded
+`systemd --user` unit at `~/.config/systemd/user/limn.service` (`Restart=always`); run
+`loginctl enable-linger $USER` if you want it up without a login session. On Linux the
+unit appends stdout/stderr to the same log file `status` prints, while `limn service
+logs` reads the journal (`journalctl --user -u limn`) — check both if one looks empty. Install is idempotent — re-run it after Node moves and it repairs the recorded
 path. Windows is not supported for the background service yet; `limn service serve`
 works there.
 
@@ -109,8 +110,8 @@ Limn 0.4.0
   stop:        launchctl bootout gui/501/dev.glebmish.limn   (or: limn service uninstall)
 ```
 
-It exits 0 only when the server answers and — for an installed unit — the `node` the
-unit records still exists. Activation is exactly one of **service** (a unit is loaded),
+It exits 0 only when the server answers **on loopback** and — for an installed unit —
+the `node` the unit records still exists. Activation is exactly one of **service** (a unit is loaded),
 **foreground** (something answers `/health` but no unit is loaded, e.g. `npx`), or **not
 running**.
 
@@ -144,6 +145,17 @@ reboot. Then open `http://<tailnet-ip>:5466/?token=<the token>` on the other dev
 tab stores the token in `sessionStorage`, so reloads stay authenticated. Anyone who can
 reach that address and holds the token can read this machine's repos and use its agent
 credentials, so keep it to a private tailnet.
+
+> **Known limitation.** With a non-loopback `LIMN_WEB_HOST` the server binds *only* that
+> address, but `limn service install` and `limn service status` still probe
+> `127.0.0.1`. So install reports `service installed but not answering on 5466 after
+> 10s` and `status` reports `— not answering` (exit 1) even when the service is up and
+> healthy. Verify it yourself instead — open the URL above, or:
+>
+> ```bash
+> curl -X POST -H 'Authorization: Bearer <the token>' -d '[]' \
+>   http://<tailnet-ip>:5466/rpc/dashboard
+> ```
 
 ## Safari
 
