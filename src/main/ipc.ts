@@ -1,4 +1,4 @@
-import { installCli, takeCliOpen } from './cli.js'
+import { takeCliOpen } from './cliOpen.js'
 import { applyEditToFile, readWorkingFile, withWriteQueue } from './fileEdits.js'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -1277,6 +1277,5 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     dao.retargetSession(db, sessionId, side, refSide)
   })
 
-  handle('installCli', async () => installCli())
-  handle('takeCliOpen', async () => takeCliOpen())
+  handle('takeCliOpen', async (ticket: string) => takeCliOpen(ticket))
 }

@@ -7,8 +7,13 @@ describe('isLoopbackName', () => {
       expect(isLoopbackName(n)).toBe(true)
     }
   })
+  it('recognizes the canonical limn.localhost name and other .localhost subdomains', () => {
+    for (const n of ['limn.localhost', 'LIMN.localhost', 'a.b.localhost']) {
+      expect(isLoopbackName(n)).toBe(true)
+    }
+  })
   it('rejects non-loopback hosts', () => {
-    for (const n of ['0.0.0.0', '192.168.1.5', 'evil.com', 'my-box.tailnet.ts.net', '10.0.0.1']) {
+    for (const n of ['0.0.0.0', '192.168.1.5', 'evil.com', 'my-box.tailnet.ts.net', '10.0.0.1', 'localhost.evil.com']) {
       expect(isLoopbackName(n)).toBe(false)
     }
   })
@@ -26,6 +31,10 @@ describe('isProtectedPath', () => {
 describe('sameSiteOk (CSRF / DNS-rebinding guard)', () => {
   it('allows a same-origin request (served SPA → its own host)', () => {
     expect(sameSiteOk({ host: 'localhost:8787', origin: 'http://localhost:8787' }, false)).toBe(true)
+  })
+
+  it('allows the canonical limn.localhost origin with no token', () => {
+    expect(sameSiteOk({ host: 'limn.localhost:5466', origin: 'http://limn.localhost:5466' }, false)).toBe(true)
   })
 
   it('allows a no-Origin request on loopback (curl / native client)', () => {

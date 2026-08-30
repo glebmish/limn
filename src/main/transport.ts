@@ -1,7 +1,7 @@
 import type { OpEventMsg, OpResultMsg, RepoChangedMsg } from '../shared/ipc.js'
 
-/** The three server→client push streams. `cli:open` is desktop-CLI only and is
- *  pushed directly by the Electron main process, so it isn't part of this contract. */
+/** The three server→client push streams. `cli:open` is not among them: the CLI
+ *  redeems a ticket over RPC at page boot (see cliOpen.ts), it isn't pushed. */
 export type BroadcastChannel = 'op:event' | 'op:result' | 'repo:changed'
 export type BroadcastMsg = OpEventMsg | OpResultMsg | RepoChangedMsg
 

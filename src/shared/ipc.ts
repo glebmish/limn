@@ -146,8 +146,9 @@ export interface Api {
   dashboard(): Promise<DashboardData>
   refOptions(repo: string, relativeTo: string): Promise<RefOptions>
   retargetSession(sessionId: number, side: 'base' | 'compare', refInput: string): Promise<void>
-  installCli(): Promise<{ ok: boolean; message: string }>
-  takeCliOpen(): Promise<CliOpenMsg | null>
+  /** Redeem a one-time cli:open ticket minted by `limn` (see src/main/cliOpen.ts).
+   *  Null for unknown, already-redeemed, or expired tickets. */
+  takeCliOpen(ticket: string): Promise<CliOpenMsg | null>
 }
 
 export interface OpEventMsg {
@@ -191,8 +192,6 @@ export interface RendererApi extends Api {
   onOpEvent(cb: (msg: OpEventMsg) => void): () => void
   onOpResult(cb: (msg: OpResultMsg) => void): () => void
   onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
-  onCliOpen(cb: (msg: CliOpenMsg) => void): () => void
-  onSettingsOpen(cb: () => void): () => void
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
@@ -203,5 +202,5 @@ export const API_CHANNELS: (keyof Api)[] = [
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
   'sendBatch', 'sendRebase', 'readWorkingFile', 'applyEdit', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
-  'refOptions', 'retargetSession', 'installCli', 'takeCliOpen'
+  'refOptions', 'retargetSession', 'takeCliOpen'
 ]

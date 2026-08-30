@@ -18,8 +18,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "serve": "electron-vite build && tsx src/server/index.ts",
-    "serve:start": "tsx src/server/index.ts",
+    "serve": "electron-vite build && LIMN_WEB_STATIC=out/renderer tsx src/server/index.ts",
+    "serve:start": "LIMN_WEB_STATIC=out/renderer tsx src/server/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

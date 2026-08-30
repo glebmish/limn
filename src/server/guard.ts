@@ -1,9 +1,12 @@
-// Pure request guards for the web-serve mode — extracted so they can be unit
-// tested without standing up the HTTP server (index.ts runs main() on import).
+// Pure request guards for the HTTP service — extracted so they can be unit
+// tested without standing up a server (see startServer in http.ts).
 
+/** `*.localhost` counts: RFC 6761 reserves the TLD for loopback and browsers resolve
+ *  it locally without DNS, so nobody can host content there but this machine — which
+ *  is what makes the canonical `limn.localhost` address same-site, not a rebind. */
 export function isLoopbackName(name: string): boolean {
   const n = name.toLowerCase().replace(/^\[|\]$/g, '')
-  return n === 'localhost' || n === '127.0.0.1' || n === '::1'
+  return n === 'localhost' || n.endsWith('.localhost') || n === '127.0.0.1' || n === '::1'
 }
 
 /** Only endpoints that expose repository state or execute actions need auth.
