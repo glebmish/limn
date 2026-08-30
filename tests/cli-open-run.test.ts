@@ -124,4 +124,29 @@ describe('issueRemote', () => {
     expect(srv.seen[0].auth).toBeUndefined()
     srv.close()
   })
+
+  async function answering(status: number, type: string, body: string): Promise<{ port: number; close(): void }> {
+    const s = http.createServer((_req, res) => { res.writeHead(status, { 'Content-Type': type }).end(body) })
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r))
+    return { port: (s.address() as { port: number }).port, close: () => s.close() }
+  }
+  const targetOn = (port: number): ServiceTarget => ({ host: '127.0.0.1', port, token: '', url: `http://limn.localhost:${port}` })
+
+  it('relays the server\'s JSON error message on a non-2xx answer', async () => {
+    const srv = await answering(500, 'application/json', JSON.stringify({ error: '/repo is not inside a git repository' }))
+    await expect(issueRemote(targetOn(srv.port), { dir: '/repo' })).rejects.toThrow('/repo is not inside a git repository')
+    srv.close()
+  })
+
+  it('falls back to the status code when a non-2xx body is not JSON (a proxy page, a 401 text)', async () => {
+    const srv = await answering(401, 'text/plain', 'unauthorized')
+    await expect(issueRemote(targetOn(srv.port), { dir: '/repo' })).rejects.toThrow('cli:open failed (401)')
+    srv.close()
+  })
+
+  it('rejects a 2xx answer that carries no ticket', async () => {
+    const srv = await answering(200, 'application/json', JSON.stringify({ value: null }))
+    await expect(issueRemote(targetOn(srv.port), { dir: '/repo' })).rejects.toThrow('cli:open failed (200)')
+    srv.close()
+  })
 })

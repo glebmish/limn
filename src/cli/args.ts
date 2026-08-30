@@ -18,7 +18,11 @@ const SERVICE_COMMANDS = ['serve', 'install', 'uninstall', 'status', 'logs']
 /** `--name value` / `--name=value` reader shared by every command. */
 function takeValue(argv: string[], i: number, name: string): [string, number] {
   const tok = argv[i]
-  if (tok.startsWith(`${name}=`)) return [tok.slice(name.length + 1), i]
+  if (tok.startsWith(`${name}=`)) {
+    const v = tok.slice(name.length + 1)
+    if (v === '') throw new CliUsageError(`${name} needs a value`)
+    return [v, i]
+  }
   const next = argv[i + 1]
   if (next === undefined || next.startsWith('-')) throw new CliUsageError(`${name} needs a value`)
   return [next, i + 1]
@@ -58,14 +62,18 @@ function parseService(argv: string[]): CliCommand {
   const [sub, ...rest] = argv
   if (!sub || sub === '--help' || sub === '-h') return { kind: 'help', topic: 'service' }
   const flag = (name: string): boolean => rest.includes(name)
+  /** Every token must be an allowed flag or the value of one; a stray positional is a
+   *  mistake (`service logs limn.log`) rather than something to ignore. */
   const reject = (allowed: AllowedFlag[]): void => {
-    for (const t of rest) {
-      if (!t.startsWith('-')) continue
+    for (let i = 0; i < rest.length; i++) {
+      const t = rest[i]
+      if (!t.startsWith('-')) throw new CliUsageError(`unexpected argument "${t}"`)
       const eq = t.indexOf('=')
       const name = eq === -1 ? t : t.slice(0, eq)
       const match = allowed.find((a) => a.name === name)
       if (!match) throw new CliUsageError(`unknown flag ${t}`)
       if (eq !== -1 && !match.takesValue) throw new CliUsageError(`flag ${name} takes no value`)
+      if (eq === -1 && match.takesValue) i++ // the next token is its value
     }
   }
   switch (sub) {

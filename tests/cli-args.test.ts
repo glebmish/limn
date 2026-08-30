@@ -50,4 +50,14 @@ describe('parseArgs', () => {
     // value-taking flags still accept `=value`
     expect(parseArgs(['service', 'serve', '--port=7000'], cwd)).toEqual({ kind: 'serve', port: 7000, port80: false })
   })
+  it('rejects stray positionals after a service subcommand instead of ignoring them', () => {
+    expect(() => parseArgs(['service', 'status', 'extra'], cwd)).toThrow(/unexpected argument "extra"/)
+    expect(() => parseArgs(['service', 'serve', '--port', '7000', 'x'], cwd)).toThrow(/unexpected argument "x"/)
+    expect(() => parseArgs(['service', 'logs', '-f', 'limn.log'], cwd)).toThrow(/unexpected argument "limn.log"/)
+  })
+  it('rejects an empty `=value` on a value-taking flag', () => {
+    expect(() => parseArgs(['open', '--base='], cwd)).toThrow(/--base needs a value/)
+    expect(() => parseArgs(['--branch=', '--hub'], cwd)).toThrow(/--branch needs a value/)
+    expect(() => parseArgs(['service', 'serve', '--port='], cwd)).toThrow(/--port needs a value/)
+  })
 })

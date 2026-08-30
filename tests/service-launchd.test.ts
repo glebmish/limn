@@ -55,7 +55,9 @@ describe('launchd install', () => {
         runs.push([cmd, ...args]); return { code: 0, stdout: '', stderr: '' }
       }
       const logFile = path.join(home, 'Library', 'Logs', 'limn.log')
-      await launchd.install({ ...spec, home, logFile, extraEnv: { LIMN_WEB_TOKEN: 's3cret' } }, run)
+      // destructured on purpose: the backend must not lean on `this`
+      const { install } = launchd
+      await install({ ...spec, home, logFile, extraEnv: { LIMN_WEB_TOKEN: 's3cret' } }, run)
       expect(fs.readFileSync(file, 'utf8')).toContain('s3cret')
       expect(fs.statSync(file).mode & 0o777).toBe(0o600)
       expect(runs.map((r) => r[1])).toContain('bootstrap')

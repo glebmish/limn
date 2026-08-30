@@ -43,7 +43,12 @@ function entryScript(): string {
   const sibling = path.join(import.meta.dirname, '..', 'index.js')
   if (fs.existsSync(sibling)) return fs.realpathSync(sibling)
   const argv1 = process.argv[1]
-  if (argv1 && fs.existsSync(argv1) && fs.statSync(argv1).isFile()) return fs.realpathSync(argv1)
+  if (argv1 && fs.existsSync(argv1) && fs.statSync(argv1).isFile()) {
+    // A tsx dev run (`tsx src/cli/index.ts service install`) lands here; recording the
+    // .ts would write a unit that plain node cannot start.
+    if (/\.[cm]?tsx?$/.test(argv1)) throw new Error(`the entry script is TypeScript source (${argv1}); run \`npm run build\` and install from the built dist/ instead`)
+    return fs.realpathSync(argv1)
+  }
   throw new Error('cannot locate the limn entry script (run from an installed package or the built dist/)')
 }
 
@@ -60,13 +65,15 @@ export function unitSpec(port80: boolean, opts: { loginPath?: string } = {}): Un
 
 async function waitHealthy(t: ServiceTarget, ms: number): Promise<boolean> {
   const until = Date.now() + ms
-  while (Date.now() < until) {
+  for (;;) {
+    const left = until - Date.now()
+    if (left <= 0) return false
     // t.host, not loopback: with LIMN_WEB_HOST set the unit binds only that address,
-    // and a loopback probe would report a perfectly healthy service as dead.
-    if (await probeHealth(t.port, t.host)) return true
+    // and a loopback probe would report a perfectly healthy service as dead. The probe
+    // is capped at what is left so the deadline is the deadline.
+    if (await probeHealth(t.port, t.host, Math.min(1500, left))) return true
     await new Promise((r) => setTimeout(r, 300))
   }
-  return false
 }
 
 /** Write the unit, load it, and wait for the service to answer /health. */
@@ -97,7 +104,7 @@ async function statusModel(): Promise<StatusModel> {
   const t = serviceTarget()
   const health = await probeHealth(t.port, t.host)
   const activation = b ? await b.activation(execAsync) : null
-  return { version: APP_VERSION, port: t.port, host: t.host, url: t.url, health, activation, unsupported: !b, dbPath: defaultDbPath(), logFile: logPath(), foregroundPid: health?.pid ?? null }
+  return { version: APP_VERSION, port: t.port, host: t.host, url: t.url, health, activation, manager: b?.name ?? null, unsupported: !b, dbPath: defaultDbPath(), logFile: logPath() }
 }
 
 function pipeThrough(cmd: string, args: string[]): Promise<number> {
@@ -126,9 +133,10 @@ export async function runServiceCommand(cmd: CliCommand, io: Io): Promise<number
       return exitCode
     }
     case 'service-logs': {
+      if (!b) { io.err('error: background service is not supported on this platform; `limn service serve` logs to its own terminal'); return 2 }
       // systemd captures stdout in the journal even with StandardOutput=append:, and
       // journalctl is what a Linux user expects; launchd writes the plain log file.
-      if (b?.name === 'systemd') return pipeThrough('journalctl', ['--user', '-u', 'limn', ...(cmd.follow ? ['-f'] : ['-n', '200'])])
+      if (b.name === 'systemd') return pipeThrough('journalctl', ['--user', '-u', 'limn', ...(cmd.follow ? ['-f'] : ['-n', '200'])])
       const file = logPath()
       if (!fs.existsSync(file)) { io.out(`no log yet at ${file}`); return 0 }
       return pipeThrough('tail', cmd.follow ? ['-f', file] : ['-n', '200', file])

@@ -131,8 +131,8 @@ export function serviceQuestion(i: { url: string; npx: boolean; backend: 'launch
 }
 
 /** Install the service the first time someone runs `limn` with no server up. 0 on success. */
-async function installFromPrompt(port: number, io: Io, deps: OpenDeps): Promise<number> {
-  if (!deps.npx()) return deps.install({ port80: false }, io)
+async function installFromPrompt(port: number, io: Io, deps: OpenDeps, npx: boolean): Promise<number> {
+  if (!npx) return deps.install({ port80: false }, io)
   io.out('installing @glebmish/limn globally…')
   try {
     execFileSync('npm', ['i', '-g', '@glebmish/limn'], { stdio: 'inherit' })
@@ -169,9 +169,10 @@ export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = default
   if (decision.role === 'client') return openViaServer(target, cmd, io, deps)
 
   if (decision.offerService && backend) {
-    const question = serviceQuestion({ url: target.url, npx: deps.npx(), backend })
+    const npx = deps.npx()
+    const question = serviceQuestion({ url: target.url, npx, backend })
     if (await io.ask(question)) {
-      const code = await installFromPrompt(target.port, io, deps)
+      const code = await installFromPrompt(target.port, io, deps, npx)
       // The install already printed why it failed. Don't strand the user at a dead end:
       // they asked to review a directory, so fall through to the foreground server.
       if (code === 0) return openViaServer(target, cmd, io, deps)

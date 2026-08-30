@@ -25,6 +25,14 @@ describe('probeHealth', () => {
     expect(await probeHealth(v6.port, '127.0.0.1')).toBeNull()
     v6.close()
   })
+  it('gives up after the timeout it is given (a bounded wait loop needs a bounded probe)', async () => {
+    // a listener that accepts and never answers
+    const s = await listen(() => { /* hang */ })
+    const t0 = Date.now()
+    expect(await probeHealth(s.port, '127.0.0.1', 150)).toBeNull()
+    expect(Date.now() - t0).toBeLessThan(1000)
+    s.close()
+  })
   it('returns null for a non-Limn listener and for a closed port', async () => {
     const s = await listen((_req, res) => res.end('<html>hi</html>'))
     expect(await probeHealth(s.port)).toBeNull()

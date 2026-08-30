@@ -11,10 +11,11 @@ export interface StatusModel {
   url: string
   health: HealthInfo | null
   activation: Activation | null
+  /** which service manager the activation came from (null: no backend on this platform) */
+  manager: 'launchd' | 'systemd' | null
   unsupported: boolean
   dbPath: string
   logFile: string
-  foregroundPid: number | null
 }
 
 function uptime(startedAt: string): string {
@@ -34,12 +35,12 @@ export function renderStatus(m: StatusModel): { lines: string[]; exitCode: numbe
   if (m.unsupported) {
     L.push('  activation:  background service not supported on this platform — run `limn service serve`')
   } else if (svc) {
-    const unit = svc.restartCmd.startsWith('launchctl')
-      ? 'launchd agent dev.glebmish.limn — loaded, RunAtLoad+KeepAlive'
-      : 'systemd --user unit limn — enabled'
+    const unit = m.manager === 'systemd'
+      ? 'systemd --user unit limn — enabled'
+      : 'launchd agent dev.glebmish.limn — loaded, RunAtLoad+KeepAlive'
     L.push(`  activation:  ${unit}, ${svc.running ? 'running' : running ? 'respawning' : 'not running'}`)
   } else if (running) {
-    L.push(`  activation:  foreground, pid ${m.foregroundPid ?? m.health!.pid}`)
+    L.push(`  activation:  foreground, pid ${m.health!.pid}`)
   } else {
     L.push('  activation:  not running — `limn service install` (always-on) or `limn service serve` (foreground)')
   }

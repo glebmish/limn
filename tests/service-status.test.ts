@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { renderStatus } from '../src/cli/service/status'
 
 const health = { app: 'limn' as const, version: '0.4.0', pid: 4211, startedAt: new Date(Date.now() - 3 * 3600_000).toISOString(), port: 5466 }
-const base = { version: '0.4.0', port: 5466, host: '127.0.0.1', url: 'http://limn.localhost:5466', health: null, activation: null, unsupported: false, dbPath: '/Users/u/Library/Application Support/limn/limn.db', logFile: '/Users/u/Library/Logs/limn.log', foregroundPid: null }
+const base = { version: '0.4.0', port: 5466, host: '127.0.0.1', url: 'http://limn.localhost:5466', health: null, activation: null, manager: 'launchd' as const, unsupported: false, dbPath: '/Users/u/Library/Application Support/limn/limn.db', logFile: '/Users/u/Library/Logs/limn.log' }
 const loaded = { kind: 'service' as const, loaded: true as const, running: true, pid: 4211, unitPath: '/Users/u/Library/LaunchAgents/dev.glebmish.limn.plist', nodePath: '/opt/homebrew/bin/node', nodeOk: true, restartCmd: 'launchctl kickstart -k gui/501/dev.glebmish.limn', stopCmd: 'launchctl bootout gui/501/dev.glebmish.limn' }
 
 describe('renderStatus', () => {
@@ -16,13 +16,18 @@ describe('renderStatus', () => {
     expect(text).toMatch(/restart:\s+launchctl kickstart -k/)
     expect(text).toMatch(/stop:\s+launchctl bootout .*limn service uninstall/)
   })
+  it('names the unit by the backend, not by sniffing the restart command', () => {
+    // a launchd-looking restartCmd under the systemd manager must still render as systemd
+    const text = renderStatus({ ...base, manager: 'systemd', health, activation: loaded }).lines.join('\n')
+    expect(text).toMatch(/activation:\s+systemd --user unit limn — enabled, running/)
+  })
   it('service loaded but node missing → repair hint, exit 1', () => {
     const { lines, exitCode } = renderStatus({ ...base, activation: { ...loaded, running: false, pid: null, nodeOk: false } })
     expect(exitCode).toBe(1)
     expect(lines.join('\n')).toMatch(/node:\s+MISSING at \/opt\/homebrew\/bin\/node — run `limn service install` to repair/)
   })
-  it('foreground activation', () => {
-    const { lines, exitCode } = renderStatus({ ...base, health, activation: { kind: 'service', loaded: false, unitPath: '/x' }, foregroundPid: 4211 })
+  it('foreground activation reports the answering server\'s pid', () => {
+    const { lines, exitCode } = renderStatus({ ...base, health, activation: { kind: 'service', loaded: false, unitPath: '/x' } })
     expect(exitCode).toBe(0)
     expect(lines.join('\n')).toMatch(/activation:\s+foreground, pid 4211/)
     expect(lines.join('\n')).toMatch(/stop:\s+Ctrl-C in its terminal/)
@@ -44,7 +49,7 @@ describe('renderStatus', () => {
     expect(lines).toContain('http://limn.localhost:5466  ([::1]:5466)')
   })
   it('unsupported platform', () => {
-    const { lines } = renderStatus({ ...base, unsupported: true })
+    const { lines } = renderStatus({ ...base, manager: null, unsupported: true })
     expect(lines.join('\n')).toMatch(/background service not supported on this platform/)
   })
 })

@@ -12,9 +12,22 @@ describe('systemd unit', () => {
     expect(unit).toContain('[Service]')
     expect(unit).toContain('ExecStart=/usr/bin/node /usr/lib/node_modules/@glebmish/limn/dist/cli/index.js service serve')
     expect(unit).toContain('Restart=always')
-    expect(unit).toContain('Environment=PATH=/usr/bin:/bin')
+    expect(unit).toContain('Environment="PATH=/usr/bin:/bin"')
     expect(unit).toContain('WantedBy=default.target')
     expect(systemd.renderUnit({ ...spec, port80: true })).toContain('service serve --port-80')
+  })
+  // systemd splits an unquoted Environment= on whitespace and expands %-specifiers;
+  // a DB path with a space or a token with a % would otherwise be silently mangled.
+  it('quotes Environment= values so spaces and % survive systemd parsing', () => {
+    const unit = systemd.renderUnit({ ...spec, home: '/home/u', extraEnv: { LIMN_DB: '/home/u/My Files/limn.db', LIMN_WEB_TOKEN: 'a%b"c\\d' } })
+    expect(unit).toContain('Environment="LIMN_DB=/home/u/My Files/limn.db"')
+    expect(unit).toContain('Environment="LIMN_WEB_TOKEN=a%%b\\"c\\\\d"')
+    expect(unit).toContain('Environment="HOME=/home/u"')
+  })
+  it('methods do not depend on `this` (destructured use works)', () => {
+    const { renderUnit, unitPath } = systemd
+    expect(renderUnit(spec)).toContain('[Service]')
+    expect(unitPath()).toMatch(/limn\.service$/)
   })
   it('unit path is ~/.config/systemd/user/limn.service', () => {
     expect(systemd.unitPath()).toMatch(/\/\.config\/systemd\/user\/limn\.service$/)
@@ -25,7 +38,7 @@ describe('systemd unit', () => {
   })
   it('renders extraEnv entries, and none when empty', () => {
     const unit = systemd.renderUnit({ ...spec, extraEnv: { LIMN_PORT: '5477' } })
-    expect(unit).toContain('Environment=LIMN_PORT=5477')
+    expect(unit).toContain('Environment="LIMN_PORT=5477"')
     expect(systemd.renderUnit(spec)).not.toContain('LIMN_PORT')
   })
 })
@@ -44,7 +57,9 @@ describe('systemd install', () => {
         runs.push([cmd, ...args]); return { code: 0, stdout: '', stderr: '' }
       }
       const logFile = path.join(cfg, 'limn.log')
-      await systemd.install({ ...spec, logFile, extraEnv: { LIMN_WEB_TOKEN: 's3cret' } }, run)
+      // destructured on purpose: the backend must not lean on `this`
+      const { install } = systemd
+      await install({ ...spec, logFile, extraEnv: { LIMN_WEB_TOKEN: 's3cret' } }, run)
       expect(fs.readFileSync(file, 'utf8')).toContain('s3cret')
       expect(fs.statSync(file).mode & 0o777).toBe(0o600)
       expect(runs.map((r) => r.join(' '))).toContain('systemctl --user daemon-reload')

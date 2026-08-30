@@ -36,6 +36,16 @@ describe('unitSpec', () => {
     expect(segments).toContain('/opt/homebrew/bin')
   })
 
+  // Under `tsx src/cli/index.ts service install` there is no built sibling, and the
+  // argv[1] fallback would record a .ts entry that plain node cannot start.
+  it('refuses to record a TypeScript entry script', () => {
+    const savedArgv1 = process.argv[1]
+    process.argv[1] = path.resolve('src/cli/index.ts')
+    try {
+      expect(() => unitSpec(false, { loginPath: LOGIN_PATH })).toThrow(/npm run build/)
+    } finally { process.argv[1] = savedArgv1 }
+  })
+
   it('records a real node binary and passes port80 through', () => {
     const spec = unitSpec(true, { loginPath: LOGIN_PATH })
     expect(path.isAbsolute(spec.nodePath)).toBe(true)
