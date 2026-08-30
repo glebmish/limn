@@ -70,8 +70,10 @@ describe('startServer', () => {
       .rejects.toThrow(/LIMN_WEB_TOKEN/)
   })
 
-  // A browser tab holding an EventSource keeps its socket open; without
-  // closeAllConnections() the first SIGINT would hang waiting on it.
+  // Pins the SSE shutdown path: without ending the /events responses, close()
+  // waits on the live stream and the first SIGINT never stops the server.
+  // (closeAllConnections() in close() is belt-and-braces for browser sockets that
+  // outlive our FIN, and for Node versions that keep idle keep-alive sockets.)
   it('close() finishes promptly with an open SSE connection', async () => {
     const s = await boot()
     await new Promise<void>((resolve, reject) => {
