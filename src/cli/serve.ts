@@ -16,17 +16,33 @@ export function bootstrapPath(): void {
   } catch { /* keep default PATH */ }
 }
 
-export async function classifyBusyPort(port: number): Promise<'limn' | 'other' | 'free'> {
+export async function classifyBusyPort(port: number): Promise<'limn' | 'other' | 'unavailable' | 'free'> {
   // Ask about the address we are actually going to bind, not a hardcoded loopback:
   // under LIMN_WEB_HOST the service lives somewhere else entirely.
   const { host } = serviceTarget(port)
   if (await probeHealth(port, host)) return 'limn'
-  const free = await new Promise<boolean>((resolve) => {
+  const state = await new Promise<'free' | 'other' | 'unavailable'>((resolve) => {
     const s = net.createServer()
-    s.once('error', () => resolve(false))
-    s.listen(port, host, () => s.close(() => resolve(true)))
+    // EADDRNOTAVAIL is "this machine doesn't have that address" (a downed tailnet, a
+    // typo'd LIMN_WEB_HOST) — nothing to do with the port being taken.
+    s.once('error', (err) => resolve((err as NodeJS.ErrnoException).code === 'EADDRNOTAVAIL' ? 'unavailable' : 'other'))
+    s.listen(port, host, () => s.close(() => resolve('free')))
   })
-  return free ? 'free' : 'other'
+  return state
+}
+
+/** One message per bind-failure shape, shared by the pre-check and the raw startServer
+ *  error (the pre-check can lose the race for the port — TOCTOU). */
+export function startFailureMessage(err: unknown, port: number): string {
+  const code = (err as NodeJS.ErrnoException | null)?.code
+  if (code === 'EADDRINUSE') return `port ${port} is in use by another program; try --port N`
+  if (code === 'EADDRNOTAVAIL') return addressUnavailableMessage()
+  return err instanceof Error ? err.message : String(err)
+}
+
+function addressUnavailableMessage(): string {
+  const { host } = serviceTarget()
+  return `cannot bind ${host} — the address is not assigned on this machine (check LIMN_WEB_HOST, or your tailnet)`
 }
 
 export function serverOptions(port: number, port80: boolean): ServerOptions {
@@ -46,19 +62,23 @@ export function serverOptions(port: number, port80: boolean): ServerOptions {
 /** Foreground server. Resolves with an exit code only on failure; on success it
  *  runs until SIGINT/SIGTERM. `onReady` lets `open` reuse this for the server role. */
 export async function runServe(cmd: { port?: number; port80: boolean }, io: Io, onReady?: (s: RunningServer) => void): Promise<number> {
+  // LIMN_WEB_HOST / LIMN_WEB_TOKEN exist, so LIMN_WEB_PORT is a plausible guess that
+  // silently does nothing; say so once. (Plain PORT is too common in shells to nag about.)
+  if (process.env.LIMN_WEB_PORT && !process.env.LIMN_PORT) io.err('warning: LIMN_WEB_PORT is not read; set LIMN_PORT (or pass --port)')
   const port = resolvePort(cmd.port)
   // Port 0 is "pick an ephemeral one" — nothing to check, and probing it is meaningless.
   if (port !== 0) {
     const state = await classifyBusyPort(port)
     if (state === 'limn') { io.err(`error: a Limn service is already running on ${port} (limn service status)`); return 1 }
-    if (state === 'other') { io.err(`error: port ${port} is in use by another program; try --port N`); return 1 }
+    if (state === 'other') { io.err(`error: ${startFailureMessage({ code: 'EADDRINUSE' }, port)}`); return 1 }
+    if (state === 'unavailable') { io.err(`error: ${addressUnavailableMessage()}`); return 1 }
   }
   bootstrapPath()
   let server: RunningServer
   try {
-    server = await startServer({ ...serverOptions(port, cmd.port80), log: io.out })
+    server = await startServer({ ...serverOptions(port, cmd.port80), log: (l) => io.out(l) })
   } catch (err) {
-    io.err(`error: ${err instanceof Error ? err.message : String(err)}`)
+    io.err(`error: ${startFailureMessage(err, port)}`)
     return 1
   }
   onReady?.(server)
