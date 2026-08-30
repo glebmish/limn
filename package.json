@@ -1,9 +1,7 @@
 {
-  "name": "limn",
-  "version": "0.3.0",
-  "private": true,
-  "description": "Agentic local branch review — guided code review backed by Claude or Codex",
-  "main": "out/main/index.js",
+  "name": "@glebmish/limn",
+  "version": "0.4.0",
+  "description": "Agentic local branch review — guided code review backed by Claude or Codex, served to your browser",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/glebmish/limn.git"
@@ -12,18 +10,25 @@
   "bugs": {
     "url": "https://github.com/glebmish/limn/issues"
   },
+  "bin": {
+    "limn": "bin/limn.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "serve": "electron-vite build && LIMN_WEB_STATIC=out/renderer tsx src/server/index.ts",
-    "serve:start": "LIMN_WEB_STATIC=out/renderer tsx src/server/index.ts",
+    "dev": "vite",
+    "dev:server": "tsx watch src/cli/index.ts service serve",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "serve": "npm run build && node bin/limn.js service serve",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "package": "electron-vite build && electron-builder --mac"
+    "pack:smoke": "scripts/pack-smoke.sh"
   },
   "license": "MIT",
   "type": "module",
@@ -33,15 +38,18 @@
     "@agentclientprotocol/sdk": "1.1.0",
     "zod": "^4.4.3"
   },
+  "bundleDependencies": [
+    "@agentclientprotocol/claude-agent-acp",
+    "@agentclientprotocol/codex-acp",
+    "@agentclientprotocol/sdk",
+    "zod"
+  ],
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^42.4.0",
-    "electron-builder": "^26.15.2",
-    "electron-vite": "^5.0.0",
     "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",

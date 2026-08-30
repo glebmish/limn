@@ -50,22 +50,18 @@ export function resolveAdapterEntry(pkg: string, override?: string): string {
         ? Object.values(pkgJson.bin)[0]
         : pkgJson.main
   if (!binRel) throw new Error(`adapter ${pkg} has no bin/main entry`)
-  const entry = path.join(pkgDir, binRel)
-  // In a packaged app the adapter is unpacked from the asar (asarUnpack) so it can be
-  // spawned as a real file; require.resolve still returns the in-asar path, so redirect
-  // to the unpacked tree. No-op in dev/tests (no `app.asar` segment present).
-  return entry.replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+  return path.join(pkgDir, binRel)
 }
 
-/** Spawn an ACP adapter as a child process using Electron's own Node
- *  (`process.execPath` + `ELECTRON_RUN_AS_NODE`), in its own process group
- *  (`detached`) so cancel can kill the whole tree. `process.env` is inherited so
- *  the adapter finds the user's `~/.claude` creds; per-turn `env` is layered on. */
+/** Spawn an ACP adapter as a child process using the same Node that runs the
+ *  service (`process.execPath`), in its own process group (`detached`) so cancel
+ *  can kill the whole tree. `process.env` is inherited so the adapter finds the
+ *  user's `~/.claude` creds; per-turn `env` is layered on. */
 export function spawnAdapter(entry: string, env: Record<string, string>): ChildProcessWithoutNullStreams {
   return spawn(process.execPath, [entry], {
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env }
+    env: { ...process.env, ...env }
   }) as ChildProcessWithoutNullStreams
 }
 
