@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
+import { CANONICAL_HOST, isLoopbackHost, isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
 
 describe('isLoopbackName', () => {
   it('recognizes loopback hosts (with bracket/case variants)', () => {
@@ -7,14 +7,32 @@ describe('isLoopbackName', () => {
       expect(isLoopbackName(n)).toBe(true)
     }
   })
-  it('recognizes the canonical limn.localhost name and other .localhost subdomains', () => {
-    for (const n of ['limn.localhost', 'LIMN.localhost', 'a.b.localhost']) {
-      expect(isLoopbackName(n)).toBe(true)
-    }
-  })
   it('rejects non-loopback hosts', () => {
     for (const n of ['0.0.0.0', '192.168.1.5', 'evil.com', 'my-box.tailnet.ts.net', '10.0.0.1', 'localhost.evil.com']) {
       expect(isLoopbackName(n)).toBe(false)
+    }
+  })
+  it('rejects .localhost names — a bind address must be a real loopback literal', () => {
+    for (const n of [CANONICAL_HOST, 'limn.localhost', 'other.localhost', 'a.b.localhost']) {
+      expect(isLoopbackName(n)).toBe(false)
+    }
+  })
+})
+
+describe('isLoopbackHost', () => {
+  it('accepts what isLoopbackName accepts', () => {
+    for (const n of ['localhost', '127.0.0.1', '::1', '[::1]', 'LOCALHOST']) {
+      expect(isLoopbackHost(n)).toBe(true)
+    }
+  })
+  it('accepts the canonical vanity name the browser resolved for us', () => {
+    expect(isLoopbackHost(CANONICAL_HOST)).toBe(true)
+    expect(isLoopbackHost('limn.localhost')).toBe(true)
+    expect(isLoopbackHost('LIMN.localhost')).toBe(true)
+  })
+  it('accepts no other .localhost name (a DNS resolver may point one anywhere)', () => {
+    for (const n of ['other.localhost', 'a.b.localhost', 'attacker.localhost', 'localhost.evil.com', 'evil.com']) {
+      expect(isLoopbackHost(n)).toBe(false)
     }
   })
 })
@@ -35,6 +53,12 @@ describe('sameSiteOk (CSRF / DNS-rebinding guard)', () => {
 
   it('allows the canonical limn.localhost origin with no token', () => {
     expect(sameSiteOk({ host: 'limn.localhost:5466', origin: 'http://limn.localhost:5466' }, false)).toBe(true)
+    expect(sameSiteOk({ host: 'limn.localhost:5466' }, false)).toBe(true)
+  })
+
+  it('blocks any other .localhost Host with no token (rebinding through a DNS resolver)', () => {
+    expect(sameSiteOk({ host: 'other.localhost:5466' }, false)).toBe(false)
+    expect(sameSiteOk({ host: 'attacker.localhost:5466', origin: 'http://attacker.localhost:5466' }, false)).toBe(false)
   })
 
   it('allows a no-Origin request on loopback (curl / native client)', () => {

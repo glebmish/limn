@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { registerIpc } from '../main/ipc.js'
 import { openDb } from '../main/db/db.js'
 import { issueCliOpen, type CliOpenArgs } from '../main/cliOpen.js'
-import { isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
+import { CANONICAL_HOST, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
 import type { Transport, BroadcastChannel, BroadcastMsg } from '../main/transport.js'
 
 export interface ServerOptions {
@@ -15,7 +15,7 @@ export interface ServerOptions {
   token?: string
   staticRoot?: string
   dbPath: string
-  /** also listen on 127.0.0.1:80 when free, so http://limn.localhost works bare */
+  /** also listen on 127.0.0.1:80 when free, so the canonical host works bare */
   vanityPort80?: boolean
   log?: (line: string) => void
 }
@@ -220,7 +220,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     })
   }
 
-  const url = `http://${isLoopbackName(host) ? 'limn.localhost' : host}:${boundPort}`
+  const url = `http://${isLoopbackName(host) ? CANONICAL_HOST : host}:${boundPort}`
   log(`[limn] serving ${url}  (db: ${opts.dbPath})`)
   if (!fs.existsSync(path.join(staticRoot, 'index.html'))) {
     log(`[limn] WARNING: ${staticRoot}/index.html missing — run "npm run build" first.`)

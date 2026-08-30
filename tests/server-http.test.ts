@@ -62,4 +62,10 @@ describe('startServer', () => {
     await expect(startServer({ port: 0, host: '0.0.0.0', dbPath: path.join(dir, 'limn.db'), staticRoot: dir, log: () => {} }))
       .rejects.toThrow(/LIMN_WEB_TOKEN/)
   })
+
+  it('refuses a .localhost bind name without a token — the system resolver need not return loopback', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-http-'))
+    await expect(startServer({ port: 0, host: 'x.localhost', dbPath: path.join(dir, 'limn.db'), staticRoot: dir, log: () => {} }))
+      .rejects.toThrow(/LIMN_WEB_TOKEN/)
+  })
 })
