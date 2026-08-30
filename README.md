@@ -43,6 +43,14 @@ machine (`claude`, `codex`). Limn also does not use macOS Keychain. The service 
 `127.0.0.1` only; any other bind requires `LIMN_WEB_TOKEN` and refuses to start without
 it.
 
+**The trust model on loopback is the machine itself.** With the default bind there is
+no token, so any process running as any user on that machine can reach the port and
+drive Limn — read your repos, run the agent — exactly as you can. What the perimeter
+does stop is the *browser*: `/rpc/*` and `/events` refuse a cross-site or opaque
+`Origin`, refuse a `Host` that is not loopback, and require a JSON content type, so a
+web page you visit cannot reach the service. A per-install loopback token is a listed
+follow-up.
+
 Review state lives in one local SQLite database at a per-user location
 (`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
 review layer: repositories you opened, sessions, comments, chat, generated review
@@ -83,6 +91,17 @@ Edge, Arc and Firefox with no setup; Safari does not resolve it — use
 Upgrading: `npm i -g @glebmish/limn@latest`, then restart the service with the command
 `limn service status` prints (`launchctl kickstart -k gui/$UID/dev.glebmish.limn` on
 macOS, `systemctl --user restart limn` on Linux).
+
+Uninstalling — **remove the service first**, then the package:
+
+```bash
+limn service uninstall     # unload + delete the unit (the database is untouched)
+npm uninstall -g @glebmish/limn
+```
+
+The other order leaves a `KeepAlive` / `Restart=always` unit pointing at files that no
+longer exist, so launchd or systemd respawns it in a crash loop until you unload it by
+hand.
 
 Coming from the desktop app: delete `Limn.app`; your reviews are in the same database
 and `limn` offers to remove the old shell shim it installed.

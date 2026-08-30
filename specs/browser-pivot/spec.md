@@ -380,7 +380,14 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
    not a secure context, so PWA/notifications don't apply there.
 7. **`curl | sh` installer / Homebrew tap** — wrappers over `npm i -g` + first run.
 8. **Windows service** (Task Scheduler / NSSM) if there is demand.
-9. **Slim the `@modelcontextprotocol/sdk` tree** — it pulls express *and* hono for a
+9. **Per-install loopback token** — today the loopback bind has no token, so any local
+   process or user can reach `/rpc/*` and drive the agent; the guard only keeps
+   *browsers* out (cross-site/opaque Origin, non-loopback Host, JSON content type).
+   Generate a token at install time, record it in the unit, and have `limn open` hand
+   it to the tab the way it already does for `LIMN_WEB_TOKEN` — so the perimeter is the
+   user account, not the machine. Documented as the current trust model in the README's
+   Security section and docs/using-limn.md.
+10. **Slim the `@modelcontextprotocol/sdk` tree** — it pulls express *and* hono for a
    server Limn only speaks to over loopback; it dominates the ≈ 35 MB installed
    footprint. Either a narrower entry point or a hand-rolled streamable-HTTP transport.
 

@@ -84,7 +84,7 @@ do it later — or repair it — with `limn service install`.
 limn service install [--port-80]  # write + load the unit, start it, wait for /health
 limn service status               # activation, URL, pid, node path, native commands
 limn service logs [-f]            # the service log
-limn service uninstall            # unload + delete the unit; the database is untouched
+limn service uninstall            # unload + delete the unit; the database is untouched (run this BEFORE npm uninstall -g)
 limn service serve [--port N] [--port-80]   # no service at all: a foreground server, Ctrl-C to stop
 ```
 
@@ -126,6 +126,27 @@ systemctl --user restart limn                        # Linux
 
 There are deliberately no `limn service stop` / `restart` subcommands — `status` prints
 the native ones above for your platform.
+
+**Uninstalling.** Remove the service *before* the package:
+
+```bash
+limn service uninstall
+npm uninstall -g @glebmish/limn
+```
+
+The unit is `KeepAlive` (launchd) / `Restart=always` (systemd), so removing the package
+first leaves it respawning a node that can no longer find its entry script — a crash
+loop, logged every couple of seconds, until you unload it by hand. The database is not
+touched by either step.
+
+**What the loopback perimeter is, and is not.** On the default bind there is no token:
+any process running under any account on this machine can reach `127.0.0.1:5466` and do
+everything you can do through the UI — read the repos you have opened, run the agent
+with your credentials. That is the trust model, and it is the same one `git`, your SSH
+agent and the engine CLIs already assume. What the guard does buy you is that a *web
+page* cannot: `/rpc/*` and `/events` reject a cross-site or opaque `Origin`, reject a
+non-loopback `Host` (DNS rebinding), and require `Content-Type: application/json`,
+which an HTML form cannot send. A per-install loopback token is a follow-up (spec §11).
 
 **`--port-80`.** `limn service install --port-80` binds a second listener on
 `127.0.0.1:80` when that port is free, so the port-less `http://limn.localhost` works
