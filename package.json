@@ -23,7 +23,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch src/cli/index.ts service serve",
-    "build": "vite build && tsc -p tsconfig.server.json",
+    "build": "rm -rf dist && vite build && tsc -p tsconfig.server.json",
     "serve": "npm run build && node bin/limn.js service serve",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
