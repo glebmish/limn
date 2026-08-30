@@ -101,8 +101,11 @@ implements it today:
   `LIMN_WEB_TOKEN` is set. `/rpc/*` and `/events` are the only protected paths:
   they require the token (`Authorization: Bearer` or `?token=`) when one is set,
   and pass a same-site / DNS-rebinding guard (`guard.ts`) — an `Origin`, when
-  present, must match the request `Host`, and without a token perimeter the
-  `Host` must be one of `limn.localhost`, `localhost`, `127.0.0.1`, `::1`.
+  present, must match the request `Host` (and `Origin: null` is refused outright),
+  a `Sec-Fetch-Site: cross-site` request is refused, and without a token perimeter
+  the `Host` must be one of `limn.localhost`, `localhost`, `127.0.0.1`, `::1`.
+  `POST /rpc/*` additionally requires `Content-Type: application/json` (415
+  otherwise) — the one header an HTML form cannot set — and caps bodies at 8 MB.
 
 So the renderer is transport-agnostic: `renderer → api-client → Transport →
 {git, db, engines}`.
@@ -122,7 +125,7 @@ server when it is not:
 ```
 limn [DIR] …
   │
-  ├─ GET 127.0.0.1:5466/health ──► answers ──► client role
+  ├─ GET <bind host>:5466/health ─► answers ──► client role
   │                                            POST /rpc/cli:open → { ticket }
   │                                            open  …/?open=<ticket>  (new tab)
   │
@@ -131,6 +134,12 @@ limn [DIR] …
                                                ticket issued in-process,
                                                first run offers `service install`
 ```
+
+The bind host, port and token are one value — `serviceTarget()` in `src/cli/target.ts`
+(`LIMN_WEB_HOST` / `LIMN_PORT` / `LIMN_WEB_TOKEN`) — shared by the health probe, the
+port-clash check, `service install`'s readiness wait, `service status`, and `cli:open`.
+It also carries the browser-facing URL: the vanity `limn.localhost` on loopback, the
+real host (IPv6 bracketed) otherwise, plus `?token=` when there is a perimeter.
 
 The background service runs `<node> <…/dist/cli/index.js> service serve
 [--port-80]` from a generated unit — `~/Library/LaunchAgents/dev.glebmish.limn.plist`

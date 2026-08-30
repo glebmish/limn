@@ -177,10 +177,17 @@ directories. Users need no special flags.
 - `GET /health` (unauthenticated, loopback‑only semantics via `sameSiteOk`) →
   `{ app: 'limn', version, pid, startedAt, port }` (no `db` — as built). Used by the CLI role check,
   `status`, `serve`'s clash message.
+- `POST /rpc/*` **requires `Content-Type: application/json`** (415 otherwise; charset
+  and casing are free). That header is the one an HTML form cannot send, so it is what
+  stops a `<form enctype="text/plain">` drive-by whose body happens to parse as a JSON
+  args array. `sameSiteOk` correspondingly treats an opaque `Origin: null` as cross-site
+  and refuses `Sec-Fetch-Site: cross-site`. Request bodies are capped at 8 MB → 413.
 - `cli:open` becomes a real channel, delivered as a **one‑time ticket** rather than a
   push (as built): `POST /rpc/cli:open` resolves `repoRoot(dir)`, parks the resulting
   `CliOpenMsg` under a random ticket (`src/server/cliOpen.ts`) and returns `{ticket}`; the
-  CLI opens `http://limn.localhost:5466/?open=<ticket>` in a **new** browser tab; the
+  CLI opens `http://limn.localhost:5466/?open=<ticket>` in a **new** browser tab (with
+  `&token=<LIMN_WEB_TOKEN>` appended when a perimeter is set, so the tab can authenticate;
+  the CLI's own `cli:open` POST uses `Authorization: Bearer` instead); the
   booting SPA redeems it over the `takeCliOpen(ticket)` RPC channel and strips the query
   param. Tickets are single‑use with a 60 s TTL. Rationale: a CLI cannot focus a
   background browser tab, so an SSE broadcast to already‑open tabs would fire the review
@@ -236,7 +243,17 @@ StandardOutPath/StandardErrorPath ~/Library/Logs/limn.log
 is needed for "always‑on without a login session".
 
 **Windows**: `service install` prints "not supported yet; run `limn service serve`" and
-exits 2. `open` and foreground `serve` work.
+exits 2. `open` and foreground `serve` work — and bare `limn` does **not** offer the
+service there at all (`decideOpen`'s `serviceSupported`, from `serviceBackend() != null`),
+since accepting would only reach that message. Where the offer does apply, the question
+names the unit the platform would write, and an install that fails falls back to the
+foreground server rather than leaving the user with no review.
+
+**One target for every CLI surface** (`src/cli/target.ts`): `serviceTarget()` resolves
+`{ host: LIMN_WEB_HOST ?? 127.0.0.1, port, token: LIMN_WEB_TOKEN ?? '', url }`, and the
+health probe, port-clash check, install readiness wait, `status` and `cli:open` all use
+it. Without it a `LIMN_WEB_HOST` deployment probes an address the server never bound and
+reports a live service as dead. Unit files are written `0600` — they carry the token.
 
 **Upgrade path:** `npm i -g @glebmish/limn@latest` swaps the files under the same
 global path recorded in the unit; the running process still holds the old code until

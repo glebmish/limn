@@ -1,8 +1,9 @@
 import net from 'node:net'
 import { execSync } from 'node:child_process'
-import { startServer, DEFAULT_PORT, type RunningServer, type ServerOptions } from '../server/http.js'
+import { startServer, type RunningServer, type ServerOptions } from '../server/http.js'
 import { defaultDbPath } from '../server/paths.js'
 import { probeHealth } from './health.js'
+import { resolvePort, serviceTarget } from './target.js'
 import type { Io } from './main.js'
 
 /** GUI/launchd launches don't inherit the login-shell PATH; engines need git/claude/codex. */
@@ -15,18 +16,15 @@ export function bootstrapPath(): void {
   } catch { /* keep default PATH */ }
 }
 
-export function resolvePort(explicit?: number): number {
-  if (explicit !== undefined) return explicit
-  const env = Number(process.env.LIMN_PORT)
-  return Number.isInteger(env) && env > 0 ? env : DEFAULT_PORT
-}
-
 export async function classifyBusyPort(port: number): Promise<'limn' | 'other' | 'free'> {
-  if (await probeHealth(port)) return 'limn'
+  // Ask about the address we are actually going to bind, not a hardcoded loopback:
+  // under LIMN_WEB_HOST the service lives somewhere else entirely.
+  const { host } = serviceTarget(port)
+  if (await probeHealth(port, host)) return 'limn'
   const free = await new Promise<boolean>((resolve) => {
     const s = net.createServer()
     s.once('error', () => resolve(false))
-    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)))
+    s.listen(port, host, () => s.close(() => resolve(true)))
   })
   return free ? 'free' : 'other'
 }

@@ -14,6 +14,12 @@ export function isLoopbackName(name: string): boolean {
   return n === 'localhost' || n === '127.0.0.1' || n === '::1'
 }
 
+/** A host as it appears inside a URL: a bare IPv6 literal has to be bracketed
+ *  (`::1` → `[::1]`), everything else is unchanged. */
+export function hostForUrl(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+}
+
 /** A `Host` *header* we accept as same-machine. Wider than isLoopbackName by exactly
  *  one name — CANONICAL_HOST — because that is the address we tell browsers to use
  *  and they resolve it themselves. Deliberately NOT the whole `.localhost` TLD: a

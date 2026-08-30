@@ -146,16 +146,17 @@ tab stores the token in `sessionStorage`, so reloads stay authenticated. Anyone 
 reach that address and holds the token can read this machine's repos and use its agent
 credentials, so keep it to a private tailnet.
 
-> **Known limitation.** With a non-loopback `LIMN_WEB_HOST` the server binds *only* that
-> address, but `limn service install` and `limn service status` still probe
-> `127.0.0.1`. So install reports `service installed but not answering on 5466 after
-> 10s` and `status` reports `— not answering` (exit 1) even when the service is up and
-> healthy. Verify it yourself instead — open the URL above, or:
->
-> ```bash
-> curl -X POST -H 'Authorization: Bearer <the token>' -d '[]' \
->   http://<tailnet-ip>:5466/rpc/dashboard
-> ```
+`LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` also steer the CLI itself: as long as they are set in
+the shell you run it from, `limn service install`, `limn service status` and bare `limn`
+probe *that* address (not `127.0.0.1`), `status` prints the real URL, and `limn` sends
+the token with `cli:open` and appends it to the page URL it opens. To check by hand:
+
+```bash
+curl -X POST -H 'Authorization: Bearer <the token>' -H 'Content-Type: application/json' \
+  -d '[]' http://<tailnet-ip>:5466/rpc/dashboard
+```
+
+(`Content-Type: application/json` is required — `/rpc/*` answers 415 without it.)
 
 ## Safari
 

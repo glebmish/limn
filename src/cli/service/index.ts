@@ -5,7 +5,7 @@ import { execSync, spawn } from 'node:child_process'
 import type { CliCommand } from '../args.js'
 import type { Io } from '../main.js'
 import { probeHealth } from '../health.js'
-import { resolvePort } from '../serve.js'
+import { serviceTarget, type ServiceTarget } from '../target.js'
 import { APP_VERSION } from '../../server/http.js'
 import { defaultDbPath, logPath } from '../../server/paths.js'
 import { launchd } from './launchd.js'
@@ -58,10 +58,12 @@ export function unitSpec(port80: boolean, opts: { loginPath?: string } = {}): Un
   return { nodePath, entryPath, port80, pathEnv, logFile: logPath(), home: os.homedir(), extraEnv }
 }
 
-async function waitHealthy(port: number, ms: number): Promise<boolean> {
+async function waitHealthy(t: ServiceTarget, ms: number): Promise<boolean> {
   const until = Date.now() + ms
   while (Date.now() < until) {
-    if (await probeHealth(port)) return true
+    // t.host, not loopback: with LIMN_WEB_HOST set the unit binds only that address,
+    // and a loopback probe would report a perfectly healthy service as dead.
+    if (await probeHealth(t.port, t.host)) return true
     await new Promise((r) => setTimeout(r, 300))
   }
   return false
@@ -71,10 +73,10 @@ async function waitHealthy(port: number, ms: number): Promise<boolean> {
 export async function installService(opts: { port80: boolean }, io: Io): Promise<number> {
   const b = serviceBackend()
   if (!b) { io.err('error: background service is not supported on this platform yet; run `limn service serve` instead'); return 2 }
-  const port = resolvePort()
-  const fg = await probeHealth(port)
+  const t = serviceTarget()
+  const fg = await probeHealth(t.port, t.host)
   // A foreground `limn service serve` holds the port; the unit would crash-loop on EADDRINUSE.
-  if (fg && !(await isServiceInstalled())) { io.err(`error: a foreground Limn server (pid ${fg.pid}) holds port ${port}; stop it (Ctrl-C) and re-run`); return 1 }
+  if (fg && !(await isServiceInstalled())) { io.err(`error: a foreground Limn server (pid ${fg.pid}) holds port ${t.port}; stop it (Ctrl-C) and re-run`); return 1 }
   // unitSpec touches the filesystem (realpath, entry lookup): an ENOENT here is a
   // message the user can act on, not a stack trace.
   let spec: UnitSpec
@@ -82,9 +84,9 @@ export async function installService(opts: { port80: boolean }, io: Io): Promise
     spec = unitSpec(opts.port80)
     await b.install(spec, execAsync)
   } catch (err) { io.err(`error: ${err instanceof Error ? err.message : String(err)}`); return 1 }
-  if (!(await waitHealthy(port, 10_000))) { io.err(`service installed but not answering on ${port} after 10s — see ${spec.logFile}`); return 1 }
+  if (!(await waitHealthy(t, 10_000))) { io.err(`service installed but not answering on ${t.host}:${t.port} after 10s — see ${spec.logFile}`); return 1 }
   const a = await b.activation(execAsync)
-  io.out(`✓ Limn service installed and running → http://limn.localhost:${port}${opts.port80 ? ' (also http://limn.localhost)' : ''}`)
+  io.out(`✓ Limn service installed and running → ${t.url}${opts.port80 ? ' (also http://limn.localhost)' : ''}`)
   io.out(`  unit:     ${b.unitPath()}`)
   if (a.loaded) io.out(`  restart after an upgrade:  ${a.restartCmd}`)
   return 0
@@ -92,10 +94,10 @@ export async function installService(opts: { port80: boolean }, io: Io): Promise
 
 async function statusModel(): Promise<StatusModel> {
   const b = serviceBackend()
-  const port = resolvePort()
-  const health = await probeHealth(port)
+  const t = serviceTarget()
+  const health = await probeHealth(t.port, t.host)
   const activation = b ? await b.activation(execAsync) : null
-  return { version: APP_VERSION, port, health, activation, unsupported: !b, dbPath: defaultDbPath(), logFile: logPath(), foregroundPid: health?.pid ?? null }
+  return { version: APP_VERSION, port: t.port, host: t.host, url: t.url, health, activation, unsupported: !b, dbPath: defaultDbPath(), logFile: logPath(), foregroundPid: health?.pid ?? null }
 }
 
 function pipeThrough(cmd: string, args: string[]): Promise<number> {

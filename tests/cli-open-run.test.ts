@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { runOpen, type OpenDeps } from '../src/cli/open'
+import http from 'node:http'
+import { issueRemote, runOpen, type OpenDeps } from '../src/cli/open'
+import type { ServiceTarget } from '../src/cli/target'
 import type { Io } from '../src/cli/main'
+
+const loopback: ServiceTarget = { host: '127.0.0.1', port: 5466, token: '', url: 'http://limn.localhost:5466' }
 
 const health = { app: 'limn' as const, version: '0.4.0', pid: 7, startedAt: new Date().toISOString(), port: 5466 }
 const cmd = { kind: 'open' as const, dir: '/repo', hub: false, fresh: false, noService: false }
@@ -14,6 +18,8 @@ function fakeIo(answer = true): Io & { out_: string[]; err_: string[] } {
 function fakeDeps(over: Partial<OpenDeps> = {}): { deps: OpenDeps; calls: string[]; opened: string[] } {
   const calls: string[] = [], opened: string[] = []
   const deps: OpenDeps = {
+    target: () => loopback,
+    backend: () => 'launchd',
     probe: async () => null,
     issueRemote: async () => { calls.push('issueRemote'); return 'tkt' },
     install: async () => { calls.push('install'); return 0 },
@@ -57,10 +63,65 @@ describe('runOpen', () => {
     expect(patch).toEqual({ servicePromptDeclined: true })
   })
 
-  it('a failed install propagates its exit code and opens nothing', async () => {
+  it('a failed install falls back to the foreground server rather than dead-ending', async () => {
     const io = fakeIo(true)
     const { deps, calls } = fakeDeps({ install: async () => { calls.push('install'); return 3 } })
-    expect(await runOpen(cmd, io, deps)).toBe(3)
-    expect(calls).toEqual(['install'])
+    // the user asked to review a directory; a service they can't install must not cost them that
+    expect(await runOpen(cmd, io, deps)).toBe(0)
+    expect(calls).toEqual(['install', 'serve'])
+    expect(io.err_.join('\n')).toMatch(/continuing in the foreground/)
+  })
+
+  it('never offers the service on a platform with no backend', async () => {
+    const io = fakeIo(true)
+    const { deps, calls } = fakeDeps({ backend: () => null })
+    expect(await runOpen(cmd, io, deps)).toBe(0)
+    expect(calls).toEqual(['serve'])
+  })
+
+  it('a LIMN_WEB_HOST + token target: the bearer goes to the service, the token to the tab', async () => {
+    const io = fakeIo()
+    const target: ServiceTarget = { host: 'my-box.tailnet.ts.net', port: 5466, token: 's3cret', url: 'http://my-box.tailnet.ts.net:5466' }
+    let seen: ServiceTarget | null = null
+    const { deps, opened } = fakeDeps({
+      target: () => target,
+      probe: async (port, host) => (host === 'my-box.tailnet.ts.net' && port === 5466 ? health : null),
+      issueRemote: async (t) => { seen = t; return 'tkt' }
+    })
+    expect(await runOpen(cmd, io, deps)).toBe(0)
+    expect(seen).toEqual(target)
+    expect(opened[0]).toBe('http://my-box.tailnet.ts.net:5466/?open=tkt&token=s3cret')
+  })
+})
+
+describe('issueRemote', () => {
+  async function listen(): Promise<{ port: number; close(): void; seen: { auth?: string; type?: string; body: string }[] }> {
+    const seen: { auth?: string; type?: string; body: string }[] = []
+    const s = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', (c) => { body += String(c) })
+      req.on('end', () => {
+        seen.push({ auth: req.headers.authorization, type: req.headers['content-type'], body })
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ value: { ticket: 'tkt' } }))
+      })
+    })
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r))
+    return { port: (s.address() as { port: number }).port, close: () => s.close(), seen }
+  }
+
+  it('sends the token as an Authorization header, not in the URL', async () => {
+    const srv = await listen()
+    const t: ServiceTarget = { host: '127.0.0.1', port: srv.port, token: 's3cret', url: `http://limn.localhost:${srv.port}` }
+    expect(await issueRemote(t, { dir: '/repo' })).toBe('tkt')
+    expect(srv.seen[0]).toMatchObject({ auth: 'Bearer s3cret', type: 'application/json' })
+    srv.close()
+  })
+
+  it('sends no Authorization header when there is no token perimeter', async () => {
+    const srv = await listen()
+    const t: ServiceTarget = { host: '127.0.0.1', port: srv.port, token: '', url: `http://limn.localhost:${srv.port}` }
+    expect(await issueRemote(t, { dir: '/repo' })).toBe('tkt')
+    expect(srv.seen[0].auth).toBeUndefined()
+    srv.close()
   })
 })

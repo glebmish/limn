@@ -1,9 +1,14 @@
+import { hostForUrl } from '../../server/guard.js'
 import type { HealthInfo } from '../health.js'
 import type { Activation } from './types.js'
 
 export interface StatusModel {
   version: string
   port: number
+  /** the configured bind address (LIMN_WEB_HOST, else 127.0.0.1) */
+  host: string
+  /** the address to open in a browser — the vanity name on loopback, the real host otherwise */
+  url: string
   health: HealthInfo | null
   activation: Activation | null
   unsupported: boolean
@@ -38,8 +43,12 @@ export function renderStatus(m: StatusModel): { lines: string[]; exitCode: numbe
   } else {
     L.push('  activation:  not running — `limn service install` (always-on) or `limn service serve` (foreground)')
   }
-  if (m.health) L.push(`  server:      http://limn.localhost:${m.port}  (127.0.0.1:${m.port})  pid ${m.health.pid}  ${uptime(m.health.startedAt)}`.trimEnd())
-  else L.push(`  server:      http://limn.localhost:${m.port} — not answering`)
+  // On loopback the browser address (limn.localhost) and the dialable one differ, so
+  // show both; under LIMN_WEB_HOST they are the same host and one is enough.
+  const address = `${hostForUrl(m.host)}:${m.port}`
+  const where = m.url === `http://${address}` ? m.url : `${m.url}  (${address})`
+  if (m.health) L.push(`  server:      ${where}  pid ${m.health.pid}  ${uptime(m.health.startedAt)}`.trimEnd())
+  else L.push(`  server:      ${where} — not answering`)
   if (svc) L.push(svc.nodeOk ? `  node:        ${svc.nodePath} — matches unit` : `  node:        MISSING at ${svc.nodePath} — run \`limn service install\` to repair`)
   L.push(`  database:    ${m.dbPath}`)
   L.push(`  logs:        ${m.logFile}`)
