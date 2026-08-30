@@ -88,9 +88,8 @@ implements it today:
   staticRoot, dbPath, vanityPort80 })` returns `{ port, url, vanity, close() }`.
   `handle` becomes `POST /rpc/<channel>` with a JSON array of arguments;
   `broadcast` becomes one `/events` SSE stream carrying `op:event` /
-  `op:result` / `repo:changed` frames; `notify` is a no-op (browser notifications
-  are a follow-up) and `pickDirectory` returns `null` (the client prompts for a
-  path). Everything else is the built SPA, served from `dist/renderer` with an
+  `op:result` / `repo:changed` frames; `notify` is a no-op and `pickDirectory`
+  returns `null` (the client prompts for a path). Everything else is the built SPA, served from `dist/renderer` with an
   index.html fallback for client-side routes.
 - **`GET /health`** is public and unauthenticated — `{ app, version, pid,
   startedAt, port }`. It is how the CLI decides whether a service is already

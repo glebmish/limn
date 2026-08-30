@@ -48,8 +48,7 @@ no token, so any process running as any user on that machine can reach the port 
 drive Limn — read your repos, run the agent — exactly as you can. What the perimeter
 does stop is the *browser*: `/rpc/*` and `/events` refuse a cross-site or opaque
 `Origin`, refuse a `Host` that is not loopback, and require a JSON content type, so a
-web page you visit cannot reach the service. A per-install loopback token is a listed
-follow-up.
+web page you visit cannot reach the service.
 
 Review state lives in one local SQLite database at a per-user location
 (`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
@@ -116,9 +115,8 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 ## Using it
 
-1. **Open a repository** (*Open repository…*) by typing its path (the picker is a
-   follow-up) — Limn adds it to the **Dashboard**'s repository index and remembers it
-   across launches.
+1. **Open a repository** (*Open repository…*) by typing its path — Limn adds it to the
+   **Dashboard**'s repository index and remembers it across launches.
 2. On the Dashboard: type to filter the list, ↑/↓ to move, ⏎ (or click) to open a
    repo's sessions. Each row shows its current branch (click the branch chip to open
    that branch's review) and when it was last active.
@@ -137,7 +135,7 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 6. **Send N changes to agent** — it edits, commits on your branch, and reports
    per-comment resolutions. **Approve** records the reviewed SHA.
 
-Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. (Browser notifications for finished runs are a follow-up.) Diffs are syntax-highlighted with word-level change marks.
+Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks.
 
 ### The `limn` command
 

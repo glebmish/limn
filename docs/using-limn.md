@@ -146,7 +146,7 @@ with your credentials. That is the trust model, and it is the same one `git`, yo
 agent and the engine CLIs already assume. What the guard does buy you is that a *web
 page* cannot: `/rpc/*` and `/events` reject a cross-site or opaque `Origin`, reject a
 non-loopback `Host` (DNS rebinding), and require `Content-Type: application/json`,
-which an HTML form cannot send. A per-install loopback token is a follow-up (spec §11).
+which an HTML form cannot send.
 
 **`--port-80`.** `limn service install --port-80` binds a second listener on
 `127.0.0.1:80` when that port is free, so the port-less `http://limn.localhost` works
