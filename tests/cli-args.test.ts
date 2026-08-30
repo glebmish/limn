@@ -43,4 +43,11 @@ describe('parseArgs', () => {
   it('suggests `service <word>` for a bare service-command word that is not a directory', () => {
     expect(() => parseArgs(['serve'], cwd)).toThrow(/unknown command "serve" — did you mean "limn service serve"\?/)
   })
+  it('boolean flags reject a bogus `=value` suffix', () => {
+    expect(() => parseArgs(['service', 'install', '--port-80=1'], cwd)).toThrow(/takes no value/)
+    expect(() => parseArgs(['service', 'logs', '--follow=true'], cwd)).toThrow(/takes no value/)
+    expect(() => parseArgs(['open', '--hub=1'], cwd)).toThrow(/takes no value/)
+    // value-taking flags still accept `=value`
+    expect(parseArgs(['service', 'serve', '--port=7000'], cwd)).toEqual({ kind: 'serve', port: 7000, port80: false })
+  })
 })

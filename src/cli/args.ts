@@ -30,41 +30,57 @@ function parsePort(raw: string): number {
   return n
 }
 
+/** A boolean flag token that rejects a bogus `=value` suffix (it takes none). */
+function boolFlag(tok: string, name: string): boolean {
+  if (tok !== name && tok.startsWith(`${name}=`)) throw new CliUsageError(`flag ${name} takes no value`)
+  return tok === name
+}
+
 function parseOpen(argv: string[], cwd: string): CliCommand {
   const out: Extract<CliCommand, { kind: 'open' }> = { kind: 'open', dir: cwd, hub: false, fresh: false, noService: false }
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i]
     if (tok === '--base' || tok.startsWith('--base=')) { [out.base, i] = takeValue(argv, i, '--base'); continue }
     if (tok === '--branch' || tok.startsWith('--branch=')) { [out.compare, i] = takeValue(argv, i, '--branch'); continue }
-    if (tok === '--new') { out.fresh = true; continue }
-    if (tok === '--hub') { out.hub = true; continue }
-    if (tok === '--no-service') { out.noService = true; continue }
+    if (tok === '--new' || tok.startsWith('--new=')) { out.fresh = boolFlag(tok, '--new'); continue }
+    if (tok === '--hub' || tok.startsWith('--hub=')) { out.hub = boolFlag(tok, '--hub'); continue }
+    if (tok === '--no-service' || tok.startsWith('--no-service=')) { out.noService = boolFlag(tok, '--no-service'); continue }
     if (tok.startsWith('-')) throw new CliUsageError(`unknown flag ${tok}`)
     out.dir = path.resolve(cwd, tok)
   }
   return out
 }
 
+/** An allowed flag for a `service` subcommand: `takesValue: false` rejects a `=value` suffix. */
+type AllowedFlag = { name: string; takesValue: boolean }
+
 function parseService(argv: string[]): CliCommand {
   const [sub, ...rest] = argv
   if (!sub || sub === '--help' || sub === '-h') return { kind: 'help', topic: 'service' }
   const flag = (name: string): boolean => rest.includes(name)
-  const reject = (allowed: string[]): void => {
-    for (const t of rest) if (t.startsWith('-') && !allowed.some((a) => t === a || t.startsWith(`${a}=`))) throw new CliUsageError(`unknown flag ${t}`)
+  const reject = (allowed: AllowedFlag[]): void => {
+    for (const t of rest) {
+      if (!t.startsWith('-')) continue
+      const eq = t.indexOf('=')
+      const name = eq === -1 ? t : t.slice(0, eq)
+      const match = allowed.find((a) => a.name === name)
+      if (!match) throw new CliUsageError(`unknown flag ${t}`)
+      if (eq !== -1 && !match.takesValue) throw new CliUsageError(`flag ${name} takes no value`)
+    }
   }
   switch (sub) {
     case 'serve': {
-      reject(['--port', '--port-80'])
+      reject([{ name: '--port', takesValue: true }, { name: '--port-80', takesValue: false }])
       const out: Extract<CliCommand, { kind: 'serve' }> = { kind: 'serve', port80: flag('--port-80') }
       for (let i = 0; i < rest.length; i++) {
         if (rest[i] === '--port' || rest[i].startsWith('--port=')) { const [v, j] = takeValue(rest, i, '--port'); out.port = parsePort(v); i = j }
       }
       return out
     }
-    case 'install': reject(['--port-80']); return { kind: 'service-install', port80: flag('--port-80') }
+    case 'install': reject([{ name: '--port-80', takesValue: false }]); return { kind: 'service-install', port80: flag('--port-80') }
     case 'uninstall': reject([]); return { kind: 'service-uninstall' }
     case 'status': reject([]); return { kind: 'service-status' }
-    case 'logs': reject(['-f', '--follow']); return { kind: 'service-logs', follow: flag('-f') || flag('--follow') }
+    case 'logs': reject([{ name: '-f', takesValue: false }, { name: '--follow', takesValue: false }]); return { kind: 'service-logs', follow: flag('-f') || flag('--follow') }
     default: throw new CliUsageError(`unknown service command "${sub}" (serve, install, uninstall, status, logs)`)
   }
 }
