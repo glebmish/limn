@@ -15,14 +15,18 @@ function authToken(): string {
 }
 
 const TOKEN = authToken()
+
+/** EventSource cannot set headers, so the SSE stream is the one place the token has to
+ *  ride in the URL. Everything else uses the Authorization header — a query token ends
+ *  up in the browser's history, in referrers, and in any proxy log on the way. */
 function withToken(url: string): string {
   return TOKEN ? url + (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : url
 }
 
 async function rpc(channel: string, args: unknown[]): Promise<unknown> {
-  const res = await fetch(withToken('/rpc/' + encodeURIComponent(channel)), {
+  const res = await fetch('/rpc/' + encodeURIComponent(channel), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}) },
     body: JSON.stringify(args)
   })
   let payload: { value?: unknown; error?: string }

@@ -28,7 +28,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "pack:smoke": "scripts/pack-smoke.sh"
+    "pack:smoke": "scripts/pack-smoke.sh",
+    "prepack": "scripts/assert-no-platform-binaries.sh"
   },
   "license": "MIT",
   "type": "module",

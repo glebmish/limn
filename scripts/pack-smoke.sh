@@ -6,7 +6,13 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/limn-pack.XXXXXX")"
 pid=""
-trap 'kill "$pid" 2>/dev/null || true; rm -rf "$work"' EXIT
+# Restore the developer's tree on the way out: this script deliberately leaves
+# node_modules at `--omit=optional` (that is what makes the packed tarball
+# binary-free), which also strips rollup's own native binary — so vite/vitest would
+# stop working after a local run until you reinstalled by hand. Release CI re-strips
+# with its own `npm ci --omit=optional` before `npm pack`, so this restore costs it
+# nothing but a reinstall.
+trap 'kill "$pid" 2>/dev/null || true; rm -rf "$work"; (cd "$root" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null)' EXIT
 
 cd "$root"
 # Build with a full install first: vite/rollup's own native binary
@@ -19,6 +25,9 @@ cd "$root"
 npm ci --ignore-scripts --no-audit --no-fund >/dev/null
 npm run build >/dev/null
 npm ci --omit=optional --ignore-scripts --no-audit --no-fund >/dev/null
+# --ignore-scripts skips our own prepack guard, so assert the same thing directly:
+# the tarball's contents are decided by what is in node_modules right now.
+scripts/assert-no-platform-binaries.sh >/dev/null
 tgz="$(npm pack --ignore-scripts --pack-destination "$work" 2>/dev/null | tail -1)"
 echo "tarball: $tgz ($(du -h "$work/$tgz" | cut -f1))"
 

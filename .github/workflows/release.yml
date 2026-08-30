@@ -37,17 +37,16 @@ jobs:
       - name: Build + pack smoke
         run: npm run pack:smoke
       # `npm pack` below bundles whatever is on disk in node_modules for the
-      # bundleDependencies packages at pack time. pack:smoke's own last install
-      # happens to already be `npm ci --omit=optional` (it needs that to verify
-      # the tarball it builds internally is binary-free), but nothing states
-      # that invariant — a later change inside pack:smoke (e.g. restoring with
-      # `npm ci` at the end, as the brief itself suggested) would silently
-      # publish a tarball containing @anthropic-ai/claude-agent-sdk-* /
-      # @openai/codex-* platform binaries. Make it explicit here instead of
-      # relying on that side effect. rollup's own optional native binary isn't
-      # needed after this point — the build already ran, inside pack:smoke.
+      # bundleDependencies packages at pack time, and pack:smoke deliberately
+      # RESTORES a full tree in its exit trap (so a local run leaves vite/vitest
+      # working). So the strip has to happen here, after it. rollup's own optional
+      # native binary isn't needed any more — the build already ran inside
+      # pack:smoke. `npm publish` further down re-runs the prepack guard against
+      # this stripped tree.
       - name: Strip optional platform binaries before packing
         run: npm ci --omit=optional
+      - name: Assert the tree carries no platform binaries
+        run: scripts/assert-no-platform-binaries.sh
       - name: Pack
         run: npm pack --ignore-scripts
       - name: Assert tarball has no platform binaries
