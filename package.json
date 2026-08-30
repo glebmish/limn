@@ -36,12 +36,14 @@
     "@agentclientprotocol/claude-agent-acp": "0.55.0",
     "@agentclientprotocol/codex-acp": "1.1.0",
     "@agentclientprotocol/sdk": "1.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   },
   "bundleDependencies": [
     "@agentclientprotocol/claude-agent-acp",
     "@agentclientprotocol/codex-acp",
     "@agentclientprotocol/sdk",
+    "@modelcontextprotocol/sdk",
     "zod"
   ],
   "devDependencies": {

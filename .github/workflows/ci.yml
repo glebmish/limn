@@ -29,12 +29,11 @@ jobs:
 
       - name: Lint
         run: npm run lint
-
       - name: Typecheck
         run: npm run typecheck
-
       - name: Test
         run: npm test
-
       - name: Build
         run: npm run build
+      - name: Pack smoke (bundled deps, install into temp prefix, /health)
+        run: npm run pack:smoke
