@@ -21,7 +21,9 @@ kill_srv() {
   kill -9 "$srv" 2>/dev/null || true
 }
 trap kill_srv EXIT
-for _ in $(seq 1 50); do curl -sf "http://127.0.0.1:$port/health" >/dev/null && break; sleep 0.2; done
+healthy=0
+for _ in $(seq 1 50); do curl -sf "http://127.0.0.1:$port/health" >/dev/null && { healthy=1; break; }; sleep 0.2; done
+[ "$healthy" = 1 ] || { echo "server never became healthy" >&2; exit 1; }
 url="$(env LIMN_PORT="$port" LIMN_OPEN_SESSION="$sid" LIMN_FLOW=chat "$@" npx tsx scripts/dev-url.mts)"
 npx tsx scripts/cdp-shot.mts --url "$url" --out "$out" --delay "${LIMN_SHOT_DELAY:-6000}"
 echo "wrote $out" >&2
