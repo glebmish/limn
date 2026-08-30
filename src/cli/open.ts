@@ -168,8 +168,8 @@ export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = default
 
   if (decision.role === 'client') return openViaServer(target, cmd, io, deps)
 
-  if (decision.offerService) {
-    const question = serviceQuestion({ url: target.url, npx: deps.npx(), backend: backend! })
+  if (decision.offerService && backend) {
+    const question = serviceQuestion({ url: target.url, npx: deps.npx(), backend })
     if (await io.ask(question)) {
       const code = await installFromPrompt(target.port, io, deps)
       // The install already printed why it failed. Don't strand the user at a dead end:

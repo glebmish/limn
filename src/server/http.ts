@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { registerIpc, shutdownIpc } from './ipc.js'
 import { openDb } from './db/db.js'
 import { issueCliOpen, type CliOpenArgs } from './cliOpen.js'
-import { CANONICAL_HOST, isJsonContentType, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
+import { CANONICAL_HOST, hostForUrl, isJsonContentType, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
 import type { Transport, BroadcastChannel, BroadcastMsg } from './transport.js'
 
 export interface ServerOptions {
@@ -271,7 +271,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     })
   }
 
-  const url = `http://${isLoopbackName(host) ? CANONICAL_HOST : host}:${boundPort}`
+  // hostForUrl: a bare IPv6 bind (LIMN_WEB_HOST=fd7a::1) has to be bracketed, or the
+  // URL we log — and hand to `limn open`'s page — is not a URL at all.
+  const url = `http://${isLoopbackName(host) ? CANONICAL_HOST : hostForUrl(host)}:${boundPort}`
   log(`[limn] serving ${url}  (db: ${opts.dbPath})`)
   if (!fs.existsSync(path.join(staticRoot, 'index.html'))) {
     log(`[limn] WARNING: ${staticRoot}/index.html missing — run "npm run build" first.`)

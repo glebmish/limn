@@ -98,6 +98,14 @@ describe('startServer', () => {
       .rejects.toThrow(/EADDRINUSE/)
   })
 
+  // The IPv6 *bracketing* of a non-loopback bind is guard.hostForUrl's own unit test;
+  // here we pin that a v6 loopback bind still advertises the vanity name.
+  it('advertises the vanity name for an IPv6 loopback bind', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-http-'))
+    running = await startServer({ port: 0, host: '::1', dbPath: path.join(dir, 'limn.db'), staticRoot: dir, log: () => {} })
+    expect(running.url).toBe(`http://limn.localhost:${running.port}`)
+  })
+
   it('refuses a non-loopback bind without a token', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-http-'))
     await expect(startServer({ port: 0, host: '0.0.0.0', dbPath: path.join(dir, 'limn.db'), staticRoot: dir, log: () => {} }))

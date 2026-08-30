@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CANONICAL_HOST, isJsonContentType, isLoopbackHost, isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
+import { CANONICAL_HOST, hostForUrl, isJsonContentType, isLoopbackHost, isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
 
 describe('isLoopbackName', () => {
   it('recognizes loopback hosts (with bracket/case variants)', () => {
@@ -127,5 +127,15 @@ describe('isJsonContentType', () => {
   it('reads the first value when the header was sent twice', () => {
     expect(isJsonContentType(['application/json', 'text/plain'])).toBe(true)
     expect(isJsonContentType(['text/plain'])).toBe(false)
+  })
+})
+
+describe('hostForUrl', () => {
+  it('brackets a bare IPv6 literal and leaves everything else alone', () => {
+    expect(hostForUrl('::1')).toBe('[::1]')
+    expect(hostForUrl('fd7a:115c:a1e0::1')).toBe('[fd7a:115c:a1e0::1]')
+    expect(hostForUrl('[::1]')).toBe('[::1]')
+    expect(hostForUrl('127.0.0.1')).toBe('127.0.0.1')
+    expect(hostForUrl('my-box.tailnet.ts.net')).toBe('my-box.tailnet.ts.net')
   })
 })
