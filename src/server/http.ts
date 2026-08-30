@@ -15,6 +15,9 @@ export interface ServerOptions {
   token?: string
   staticRoot?: string
   dbPath: string
+  /** serve the SPA with the `limn-dev` marker so `?dev=` screenshot hooks are honoured.
+   *  Off unless the operator sets LIMN_DEV_HOOKS=1 — the hooks can run arbitrary prompts. */
+  devHooks?: boolean
   /** also listen on 127.0.0.1:80 when free, so the canonical host works bare */
   vanityPort80?: boolean
   log?: (line: string) => void
@@ -84,24 +87,40 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
-function serveStatic(pathname: string, res: http.ServerResponse, staticRoot: string): void {
+/** The marker `dev-init.ts` looks for before it will read `?dev=` hooks. Those hooks run
+ *  attacker-supplied prompts through the user's agent, so they are opt-in *server-side*
+ *  (LIMN_DEV_HOOKS=1) — a crafted link alone must never arm them. */
+const DEV_META = '<meta name="limn-dev" content="1">'
+
+/** Inject the dev marker into the SPA index. Only ever called for index.html — never
+ *  for an asset — and only when the server was started with devHooks. */
+function withDevMeta(html: Buffer): string {
+  const s = html.toString('utf8')
+  return s.includes('</head>') ? s.replace('</head>', `  ${DEV_META}\n  </head>`) : `${DEV_META}\n${s}`
+}
+
+function serveStatic(pathname: string, res: http.ServerResponse, staticRoot: string, devHooks: boolean): void {
   // resolve against staticRoot and refuse to escape it
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '')
   const full = path.join(staticRoot, rel)
   // stay within staticRoot — require an exact match or a real path-separator boundary
   // (a bare startsWith would also accept a sibling like `${staticRoot}-other`)
   if (full !== staticRoot && !full.startsWith(staticRoot + path.sep)) { res.writeHead(403).end('forbidden'); return }
+  const indexPath = path.join(staticRoot, 'index.html')
+  const sendIndex = (buf: Buffer): void => {
+    res.writeHead(200, { 'Content-Type': MIME['.html'] }).end(devHooks ? withDevMeta(buf) : buf)
+  }
 
   fs.readFile(full, (err, buf) => {
     if (err) {
       // SPA fallback for client-side routes / unknown paths
-      const indexPath = path.join(staticRoot, 'index.html')
       fs.readFile(indexPath, (e2, idx) => {
         if (e2) { res.writeHead(404).end('not found'); return }
-        res.writeHead(200, { 'Content-Type': MIME['.html'] }).end(idx)
+        sendIndex(idx)
       })
       return
     }
+    if (full === indexPath) { sendIndex(buf); return }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream' }).end(buf)
   })
 }
@@ -113,6 +132,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const host = opts.host || '127.0.0.1'
   const token = opts.token || ''
   const staticRoot = opts.staticRoot || path.join(import.meta.dirname, '../renderer')
+  const devHooks = Boolean(opts.devHooks)
   const log = opts.log ?? ((line: string) => { console.log(line) })
 
   // Fail closed: a non-loopback bind with no token is unauthenticated network
@@ -217,7 +237,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     // ── static renderer (SPA: unknown non-file paths fall back to index.html) ──
     if (req.method === 'GET' || req.method === 'HEAD') {
-      serveStatic(url.pathname, res, staticRoot)
+      serveStatic(url.pathname, res, staticRoot, devHooks)
       return
     }
 

@@ -252,8 +252,12 @@ offer to delete it. README tells users to trash `Limn.app`; the DB is untouched.
 ## 6. Renderer
 
 - `main.tsx`: always `installApiClient()` then render — the `window.api` preload branch
-  goes away. `dev.ts` / `window.limnDev` (screenshot hooks) become a query‑string /
-  `localStorage` switch instead of a preload‑injected object.
+  goes away. `dev.ts` / `window.limnDev` (screenshot hooks) become a query‑string
+  switch instead of a preload‑injected object — but a **server‑gated** one: the hooks
+  can run agent prompts and file edits, so `?dev=` is read only when the server injected
+  `<meta name="limn-dev" content="1">` into the served `index.html`, which it does only
+  under `LIMN_DEV_HOOKS=1` (`serveStatic` in `src/server/http.ts`; `readDevHooks(search,
+  enabled)` in `boot-params.ts`). A production service ignores `?dev=` entirely.
 - `api-client.ts`: `takeCliOpen` stays an RPC and is the *only* `cli:open` path —
   `onCliOpen` is **removed** from `Api` and the renderer rather than wired to SSE (see
   the ticket design in §4). `installCli` and `onSettingsOpen` are removed from `Api` and

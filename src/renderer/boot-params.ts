@@ -6,8 +6,13 @@ export function readOpenTicket(search: string): string | null {
 }
 
 /** `?dev=<json>` — screenshot/dev hooks (formerly injected by the Electron preload as
- *  window.limnDev from LIMN_* env vars). scripts/dev-url.mts builds this. */
-export function readDevHooks(search: string): Partial<DevConfig> {
+ *  window.limnDev from LIMN_* env vars). scripts/dev-url.mts builds this.
+ *
+ *  `enabled` is decided by the SERVER (the `limn-dev` meta tag it injects only under
+ *  LIMN_DEV_HOOKS=1), never by the URL: the hooks run prompts through the user's agent
+ *  and edit files, so a crafted link on its own must not be able to arm them. */
+export function readDevHooks(search: string, enabled: boolean): Partial<DevConfig> {
+  if (!enabled) return {}
   const raw = new URLSearchParams(search).get('dev')
   if (!raw) return {}
   try {

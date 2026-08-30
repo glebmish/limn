@@ -14,7 +14,7 @@ DB=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process
 SID=$(node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).sessionId))" "$seed_file")
 
 port="${LIMN_PORT:-$((20000 + RANDOM % 20000))}"
-LIMN_DB="$DB" LIMN_PORT="$port" "$limn" service serve >/tmp/limn-installed.log 2>&1 &
+LIMN_DEV_HOOKS=1 LIMN_DB="$DB" LIMN_PORT="$port" "$limn" service serve >/tmp/limn-installed.log 2>&1 &
 srv=$!
 # A session with an active live-watch timer can outlive a graceful SIGTERM's
 # server.close() (the poll interval keeps the event loop alive), so escalate

@@ -24,7 +24,7 @@ SCENARIO='[
 
 port="${LIMN_PORT:-$((20000 + RANDOM % 20000))}"
 [ -f dist/renderer/index.html ] || npm run build >/dev/null
-LIMN_DB="$DB" LIMN_PORT="$port" node bin/limn.js service serve >/tmp/limn-serve.log 2>&1 &
+LIMN_DEV_HOOKS=1 LIMN_DB="$DB" LIMN_PORT="$port" node bin/limn.js service serve >/tmp/limn-serve.log 2>&1 &
 srv=$!
 # A session with an active live-watch timer can outlive a graceful SIGTERM's
 # server.close() (the poll interval keeps the event loop alive), so escalate

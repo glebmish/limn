@@ -37,6 +37,9 @@ export function serverOptions(port: number, port80: boolean): ServerOptions {
     host: process.env.LIMN_WEB_HOST,
     token: process.env.LIMN_WEB_TOKEN,
     staticRoot: process.env.LIMN_WEB_STATIC,
+    // Dev/screenshot hooks (?dev=…) run agent prompts and file edits: opt-in per
+    // server process, never per link. scripts/shot.sh & friends set it.
+    devHooks: process.env.LIMN_DEV_HOOKS === '1',
     dbPath: defaultDbPath(),
     vanityPort80: port80
   }

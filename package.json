@@ -21,8 +21,8 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "dev": "vite",
-    "dev:server": "tsx watch src/cli/index.ts service serve",
+    "dev": "LIMN_DEV_HOOKS=1 vite",
+    "dev:server": "LIMN_DEV_HOOKS=1 tsx watch src/cli/index.ts service serve",
     "build": "rm -rf dist && vite build && tsc -p tsconfig.server.json",
     "serve": "npm run build && node bin/limn.js service serve",
     "test": "vitest run",

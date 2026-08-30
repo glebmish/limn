@@ -191,3 +191,29 @@ describe('the protected surface (CSRF / token perimeter)', () => {
     expect(rebound.status).toBe(403)
   })
 })
+
+describe('dev hooks', () => {
+  function withIndex(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-static-'))
+    fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html>\n<html>\n  <head>\n    <title>Limn</title>\n  </head>\n  <body><div id="root"></div></body>\n</html>\n')
+    fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)\n')
+    return dir
+  }
+
+  it('serves the SPA without the dev marker by default', async () => {
+    const s = await boot({ staticRoot: withIndex() })
+    expect(await (await fetch(`${s.url}/`)).text()).not.toContain('limn-dev')
+    expect(await (await fetch(`${s.url}/some/route`)).text()).not.toContain('limn-dev')
+  })
+
+  it('injects the marker into the index (and the SPA fallback) only with devHooks', async () => {
+    const s = await boot({ staticRoot: withIndex(), devHooks: true })
+    for (const p of ['/', '/index.html', '/some/spa/route']) {
+      const body = await (await fetch(`${s.url}${p}`)).text()
+      expect(body, p).toContain('<meta name="limn-dev" content="1">')
+      expect(body, p).toContain('</head>')
+    }
+    // never an asset
+    expect(await (await fetch(`${s.url}/app.js`)).text()).not.toContain('limn-dev')
+  })
+})
