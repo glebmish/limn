@@ -9,8 +9,17 @@ export interface Io {
   out(line: string): void
   err(line: string): void
   isTTY: boolean
-  /** y/N prompt; resolves false when not a TTY */
-  ask(question: string): Promise<boolean>
+  /** y/N prompt; resolves false when not a TTY. `defaultYes` (the default) decides what
+   *  a bare Enter means — set it false for anything destructive. */
+  ask(question: string, opts?: { defaultYes?: boolean }): Promise<boolean>
+}
+
+/** What a y/N answer means. A bare Enter takes the default — which is why anything
+ *  destructive passes `defaultYes: false` rather than relying on "not n". */
+export function interpretAnswer(input: string, defaultYes: boolean): boolean {
+  const t = input.trim()
+  if (t === '') return defaultYes
+  return /^y/i.test(t)
 }
 
 export function defaultIo(): Io {
@@ -19,14 +28,18 @@ export function defaultIo(): Io {
     out: (l) => { console.log(l) },
     err: (l) => { console.error(l) },
     isTTY,
-    ask: (q) => new Promise((resolve) => {
+    ask: (q, opts) => new Promise((resolve) => {
       if (!isTTY) { resolve(false); return }
+      const defaultYes = opts?.defaultYes ?? true
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
       let answer = false
       // 'close' is the single resolve path, so an answer, an EOF and a Ctrl-C at the
       // prompt all close the interface — an open one holds stdin and blocks exit.
       rl.once('close', () => { resolve(answer) })
-      rl.question(`${q} [Y/n] `, (a) => { answer = !/^n/i.test(a.trim()); rl.close() })
+      rl.question(`${q} [${defaultYes ? 'Y/n' : 'y/N'}] `, (a) => {
+        answer = interpretAnswer(a, defaultYes)
+        rl.close()
+      })
     })
   }
 }

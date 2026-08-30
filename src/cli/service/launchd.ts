@@ -67,7 +67,11 @@ ${extraEnv ? `${extraEnv}\n` : ''}  </dict>
     const file = this.unitPath()
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.mkdirSync(path.dirname(spec.logFile), { recursive: true })
-    fs.writeFileSync(file, this.renderUnit(spec))
+    // 0600: the unit records LIMN_WEB_TOKEN verbatim, and the default 0644 would put
+    // it in reach of every account on the machine. chmod after the write too — an
+    // existing file keeps its old mode, so `mode` alone does not repair a 0644 unit.
+    fs.writeFileSync(file, this.renderUnit(spec), { mode: 0o600 })
+    fs.chmodSync(file, 0o600)
     await run('launchctl', ['bootout', target()])                 // ignore failure: not loaded yet
     const boot = await run('launchctl', ['bootstrap', `gui/${uid()}`, file])
     if (boot.code !== 0) throw new Error(`launchctl bootstrap failed: ${boot.stderr.trim() || boot.stdout.trim()}`)

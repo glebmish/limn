@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { launchd, parseLaunchctlPrint, LABEL } from '../src/cli/service/launchd'
 
 const spec = { nodePath: '/opt/homebrew/bin/node', entryPath: '/opt/homebrew/lib/node_modules/@glebmish/limn/dist/cli/index.js', port80: false, pathEnv: '/opt/homebrew/bin:/usr/bin:/bin', logFile: '/Users/u/Library/Logs/limn.log', home: '/Users/u', extraEnv: {} }
@@ -35,5 +38,35 @@ describe('parseLaunchctlPrint', () => {
   it('extracts pid and running state', () => {
     expect(parseLaunchctlPrint('dev.glebmish.limn = {\n\tactive count = 1\n\tpath = /x\n\tstate = running\n\tpid = 4211\n}')).toEqual({ pid: 4211, running: true })
     expect(parseLaunchctlPrint('dev.glebmish.limn = {\n\tstate = not running\n\tlast exit code = 1\n}')).toEqual({ pid: null, running: false })
+  })
+})
+
+describe('launchd install', () => {
+  // The unit carries LIMN_WEB_TOKEN, so it must not be world-readable. A temp HOME
+  // keeps this out of the developer's real ~/Library/LaunchAgents.
+  it('writes the unit 0600, and repairs the mode of an existing 0644 one', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-home-'))
+    const saved = process.env.HOME
+    process.env.HOME = home
+    try {
+      const file = launchd.unitPath()
+      const runs: string[][] = []
+      const run = async (cmd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+        runs.push([cmd, ...args]); return { code: 0, stdout: '', stderr: '' }
+      }
+      const logFile = path.join(home, 'Library', 'Logs', 'limn.log')
+      await launchd.install({ ...spec, home, logFile, extraEnv: { LIMN_WEB_TOKEN: 's3cret' } }, run)
+      expect(fs.readFileSync(file, 'utf8')).toContain('s3cret')
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600)
+      expect(runs.map((r) => r[1])).toContain('bootstrap')
+
+      fs.chmodSync(file, 0o644)
+      await launchd.install({ ...spec, home, logFile }, run)
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600)
+    } finally {
+      if (saved === undefined) delete process.env.HOME
+      else process.env.HOME = saved
+      fs.rmSync(home, { recursive: true, force: true })
+    }
   })
 })

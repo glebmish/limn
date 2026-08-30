@@ -40,7 +40,11 @@ WantedBy=default.target
     const file = this.unitPath()
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.mkdirSync(path.dirname(spec.logFile), { recursive: true })
-    fs.writeFileSync(file, this.renderUnit(spec))
+    // 0600: the unit records LIMN_WEB_TOKEN verbatim, and the default 0644 would put
+    // it in reach of every account on the machine. chmod after the write too — an
+    // existing file keeps its old mode, so `mode` alone does not repair a 0644 unit.
+    fs.writeFileSync(file, this.renderUnit(spec), { mode: 0o600 })
+    fs.chmodSync(file, 0o600)
     const reload = await run('systemctl', ['--user', 'daemon-reload'])
     if (reload.code !== 0) throw new Error(`systemctl daemon-reload failed: ${reload.stderr.trim()}`)
     const en = await run('systemctl', ['--user', 'enable', '--now', UNIT])

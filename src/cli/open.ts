@@ -109,7 +109,8 @@ async function openViaServer(t: ServiceTarget, cmd: OpenCommand, io: Io, deps: O
 async function offerShimRemoval(io: Io, deps: OpenDeps): Promise<void> {
   const shim = deps.findShim()
   if (!shim) return
-  if (await io.ask(`Found the old desktop-app shim at ${shim}; it conflicts with this command. Delete it?`)) {
+  // defaultYes: false — this deletes a file the user may still want; a bare Enter keeps it.
+  if (await io.ask(`Found the old desktop-app shim at ${shim}; it conflicts with this command. Delete it?`, { defaultYes: false })) {
     try {
       fs.rmSync(shim, { force: true })
       io.out(`removed ${shim}`)

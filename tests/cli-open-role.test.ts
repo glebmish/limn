@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { decideOpen, isNpxInvocation, serviceQuestion } from '../src/cli/open'
+import { interpretAnswer } from '../src/cli/main'
 
 const health = { app: 'limn' as const, version: '0.4.0', pid: 1, startedAt: '', port: 5466 }
 const base = { health: null, noService: false, isTTY: true, serviceInstalled: false, declinedBefore: false, serviceSupported: true }
@@ -41,5 +42,19 @@ describe('isNpxInvocation', () => {
   it('detects the npx cache path', () => {
     expect(isNpxInvocation('/Users/x/.npm/_npx/abc123/node_modules/@glebmish/limn/dist/cli/index.js')).toBe(true)
     expect(isNpxInvocation('/opt/homebrew/lib/node_modules/@glebmish/limn/dist/cli/index.js')).toBe(false)
+  })
+})
+
+describe('interpretAnswer', () => {
+  it('a bare Enter takes the default, so a destructive prompt can keep the file', () => {
+    expect(interpretAnswer('', true)).toBe(true)
+    expect(interpretAnswer('', false)).toBe(false)
+    expect(interpretAnswer('  ', false)).toBe(false)
+  })
+  it('an explicit answer wins either way', () => {
+    for (const yes of ['y', 'Y', 'yes']) expect(interpretAnswer(yes, false)).toBe(true)
+    for (const no of ['n', 'N', 'no']) expect(interpretAnswer(no, true)).toBe(false)
+    // anything else is not a yes
+    expect(interpretAnswer('maybe', true)).toBe(false)
   })
 })
