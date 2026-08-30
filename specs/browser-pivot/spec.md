@@ -120,7 +120,7 @@ custom server; `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` keep today's Tailscale semanti
 │   ├── server/            HTTP/SSE server + orchestrator (today's src/server + src/main sans Electron)
 │   └── renderer/          built SPA (vite)
 ├── package.json           "bin": {"limn": "bin/limn.js"}, "files": ["bin","dist"], "engines": {"node": ">=22.5"}
-└── node_modules/@agentclientprotocol/*, @anthropic-ai/*   ACP adapters (runtime deps, unchanged)
+└── node_modules/…            bundled JS-only closure of the 4 runtime deps (bundleDependencies; no platform binaries)
 ```
 
 Source moves:
@@ -139,12 +139,20 @@ Build: `npm run build` = `vite build && tsc -p tsconfig.server.json`. `npm run d
 service serve --port 5466` (concurrently). `npm run package` and the Electron deps
 (`electron`, `electron-builder`, `electron-vite`) are removed.
 
-Dependency size note: the ACP adapters pull the SDKs whose platform binaries are
-`optionalDependencies` (≈220 MB Claude + ≈240 MB Codex on darwin‑arm64). Limn ignores
-them — engines resolve the user's own `claude`/`codex` via `CLAUDE_CODE_EXECUTABLE` /
-`CODEX_PATH` (`binaryRequired` preflight unchanged). Accepted for now; the README
-documents `npm i -g @glebmish/limn --omit=optional` as the slim install. Follow‑up
-§11.
+**Dependency footprint — bundled, JS‑only.** The ACP adapters depend on SDKs whose
+platform binaries are `optionalDependencies` (≈220 MB Claude + ≈240 MB Codex on
+darwin‑arm64). Limn never uses them — engines resolve the user's own `claude`/`codex`
+via `CLAUDE_CODE_EXECUTABLE` / `CODEX_PATH` (`binaryRequired` preflight unchanged), and
+the Electron build already strips them. Under npm the same is achieved with
+`bundleDependencies`: the four runtime deps (`@agentclientprotocol/claude-agent-acp`,
+`codex-acp`, `sdk`, `zod`) are listed in `bundleDependencies`, and the publish job runs
+`npm ci --omit=optional` before `npm pack`, so the tarball vendors the JS closure and
+npm installs it as‑is without resolving the optional platform packages. Verified in a
+scratch spike on 2026‑08‑30: tarball 2.5 MB, `npm i -g` with default flags → 16 MB on
+disk, <1 s, zero platform packages fetched, all adapter entries resolvable via
+`resolveAdapterEntry` (its `app.asar` → `app.asar.unpacked` rewrite is deleted). CI
+asserts the packed tarball contains no `claude-agent-sdk-*` / `codex-<platform>`
+directories. Users need no special flags.
 
 ## 4. Server changes
 
@@ -240,11 +248,13 @@ No screen/component changes otherwise.
 
 ## 7. Build, CI, release
 
-- `ci.yml`: unchanged in spirit (`lint`, `typecheck`, `test`, `build`), plus `npm pack
-  --dry-run` and a smoke that installs the tarball into a temp prefix, runs
+- `ci.yml`: unchanged in spirit (`lint`, `typecheck`, `test`, `build`, all after
+  `npm ci --omit=optional`), plus `npm pack` + an assertion that the tarball has no
+  platform-binary packages, and a smoke that installs the tarball into a temp prefix, runs
   `limn service serve --port 0` (ephemeral port, printed on stdout) and curls `/health`.
-- `release.yml`: on tag `v*` — verify tag = `package.json` version, `npm ci`, `npm run
-  build`, `npm publish --access public --provenance` (npm trusted publishing via
+- `release.yml`: on tag `v*` — verify tag = `package.json` version, `npm ci
+  --omit=optional`, `npm run build`, tarball check (no platform binaries), `npm publish
+  --access public --provenance` (npm trusted publishing via
   GitHub OIDC; fall back to `NPM_TOKEN` secret if not configured), then a GitHub
   Release with generated notes and the `.tgz` attached. All DMG/zip/Electron steps
   removed. `workflow_dispatch` dry‑run keeps `npm pack` + artifact upload.
@@ -321,11 +331,8 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
 6. **`limn.local` via mDNS** — separate LaunchAgent running `dns-sd -P` (decoupled from
    the server so restarts don't churn the name), for Safari and other LAN devices;
    not a secure context, so PWA/notifications don't apply there.
-7. **Slim dependency footprint** — stop pulling the SDKs' platform binaries (≈460 MB)
-   by default; or the inverse: use them as a fallback when no `claude`/`codex` is
-   installed.
-8. **`curl | sh` installer / Homebrew tap** — wrappers over `npm i -g` + first run.
-9. **Windows service** (Task Scheduler / NSSM) if there is demand.
+7. **`curl | sh` installer / Homebrew tap** — wrappers over `npm i -g` + first run.
+8. **Windows service** (Task Scheduler / NSSM) if there is demand.
 
 ## 12. Open questions resolved during brainstorming
 
