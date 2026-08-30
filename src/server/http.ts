@@ -3,11 +3,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
-import { registerIpc } from '../main/ipc.js'
-import { openDb } from '../main/db/db.js'
-import { issueCliOpen, type CliOpenArgs } from '../main/cliOpen.js'
+import { registerIpc } from './ipc.js'
+import { openDb } from './db/db.js'
+import { issueCliOpen, type CliOpenArgs } from './cliOpen.js'
 import { CANONICAL_HOST, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
-import type { Transport, BroadcastChannel, BroadcastMsg } from '../main/transport.js'
+import type { Transport, BroadcastChannel, BroadcastMsg } from './transport.js'
 
 export interface ServerOptions {
   port: number

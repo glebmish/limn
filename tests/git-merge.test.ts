@@ -7,7 +7,7 @@ import {
   mergeTreeProbe, isMergeTreeUnsupported,
   updateRefCas, setRef, commitTree, mergeInWorktree, deleteBranch, removeWorktree, rebaseOnto,
   isDirty, listBranches, listWorktrees, addWorktree
-} from '../src/main/git'
+} from '../src/server/git'
 
 /** Throwaway repo: main has f.txt + g.txt; feature branches off editing f.txt and
  *  adding h.txt; main stays at the merge base and is left checked out. */

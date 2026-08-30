@@ -4,7 +4,7 @@ import {
   parseScopedOutput,
   reviewWireSchema,
   type ScopedReviewPatch
-} from '../src/main/engines/schema'
+} from '../src/server/engines/schema'
 
 // Walk a JSON-schema tree collecting every node so wire-format guards can assert
 // global invariants (no tuples, no open records) over the whole projection.

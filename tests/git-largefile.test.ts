@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { workingTreeDiff } from '../src/main/git'
+import { workingTreeDiff } from '../src/server/git'
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', args, {

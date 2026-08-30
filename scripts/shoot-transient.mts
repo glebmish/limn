@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit } from '../tests/helpers/fixtureRepo'
-import { openDb } from '../src/main/db/db'
+import { openDb } from '../src/server/db/db'
 
 const fx = makeFixtureRepo()
 const SPEC = 'docs/superpowers/specs/2026-06-12-rate-limit-design.md'

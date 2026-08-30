@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit, type FixtureRepo } from './helpers/fixtureRepo'
-import { recentCommits, repoRoot, headSha, driftSummary } from '../src/main/git'
+import { recentCommits, repoRoot, headSha, driftSummary } from '../src/server/git'
 
 let fx: FixtureRepo
 beforeAll(() => { fx = makeFixtureRepo() })

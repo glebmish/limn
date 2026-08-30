@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildChatPrompt, buildSeededChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, buildScopedUpdatePrompt } from '../src/main/engines/prompts'
-import type { ScopedUpdatePromptInput } from '../src/main/engines/prompts'
-import type { ReviewRequest } from '../src/main/engines/types'
+import { buildChatPrompt, buildSeededChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, buildScopedUpdatePrompt } from '../src/server/engines/prompts'
+import type { ScopedUpdatePromptInput } from '../src/server/engines/prompts'
+import type { ReviewRequest } from '../src/server/engines/types'
 import type { Comment, CommentReply, FileDiff, ReviewAnnotations } from '../src/shared/types'
 
 const baseReq: ReviewRequest = {

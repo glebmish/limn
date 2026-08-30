@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
-import { writeCapabilityFor } from '../src/main/review'
+import { writeCapabilityFor } from '../src/server/review'
 
 describe('writeCapabilityFor', () => {
   it('distinguishes immutable refs and unchecked-out branches; dirty trees stay writable', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DiffSkeleton, FileDiff } from '../src/shared/types'
-import { SCOPE_MAX_FILES, SCOPE_MAX_LINES, SCOPE_MAX_FILE_RATIO, scopedEligible } from '../src/main/engines/scope'
+import { SCOPE_MAX_FILES, SCOPE_MAX_LINES, SCOPE_MAX_FILE_RATIO, scopedEligible } from '../src/server/engines/scope'
 
 function file(path: string, add = 0, del = 0, binary = false): FileDiff {
   return { path, status: 'modified', binary, add, del, hunks: [] }

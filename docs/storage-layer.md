@@ -2,14 +2,14 @@
 
 How Limn persists review state: SQLite schema, the session-identity model, migrations, and the data-access layer.
 
-> **Audience:** developers working on the main process. This describes architecture and the invariants you can break, not every function. See the source in `src/main/db/` and the shapes in `src/shared/types.ts`.
+> **Audience:** developers working on the main process. This describes architecture and the invariants you can break, not every function. See the source in `src/server/db/` and the shapes in `src/shared/types.ts`.
 
 ## Overview
 
 All review state — sessions, comments, chat, iterations, approvals, prefs — lives in a single SQLite file. Everything else (diffs, file content, branch SHAs) is read live from git and is **never** persisted; git is ground truth, the DB only stores the *review layer* on top of it.
 
 - **Engine:** Node's built-in `node:sqlite` (`DatabaseSync`). No third-party driver. All access is **synchronous**.
-- **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/main/index.ts` and threaded explicitly into `registerIpc(db, …)`.
+- **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/server/index.ts` and threaded explicitly into `registerIpc(db, …)`.
 - **No singleton:** the `db` handle is passed as the first argument to nearly every DAO function. There is no module-level global — this is deliberate, so tests open throwaway temp DBs.
 - **Concurrency model:** WAL mode with a 5 s `busy_timeout`. More than one Limn process can open the same file (an installed service plus a foreground `limn service serve` on another port, say); readers never block, and a writer colliding with another writer waits up to 5 s for the lock before throwing rather than failing instantly. There is no application-level `SQLITE_BUSY` retry loop beyond that wait.
 

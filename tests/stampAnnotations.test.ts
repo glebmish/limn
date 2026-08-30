@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
-import { stampAnnotationAnchors } from '../src/main/engines/stampAnnotations'
+import { stampAnnotationAnchors } from '../src/server/engines/stampAnnotations'
 import type { FocusTarget, ReviewAnnotations, SessionMeta } from '../src/shared/types'
 
 type DiffAnchor = Extract<FocusTarget, { kind: 'diff' }>

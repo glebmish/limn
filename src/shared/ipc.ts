@@ -146,7 +146,7 @@ export interface Api {
   dashboard(): Promise<DashboardData>
   refOptions(repo: string, relativeTo: string): Promise<RefOptions>
   retargetSession(sessionId: number, side: 'base' | 'compare', refInput: string): Promise<void>
-  /** Redeem a one-time cli:open ticket minted by `limn` (see src/main/cliOpen.ts).
+  /** Redeem a one-time cli:open ticket minted by `limn` (see src/server/cliOpen.ts).
    *  Null for unknown, already-redeemed, or expired tickets. */
   takeCliOpen(ticket: string): Promise<CliOpenMsg | null>
 }

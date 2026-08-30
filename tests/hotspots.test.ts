@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { mintHotspotComments, supersededHotspotIds } from '../src/main/engines/hotspots'
-import { openDb } from '../src/main/db/db'
-import { createSession, loadReviewState, upsertComment } from '../src/main/db/sessions'
+import { mintHotspotComments, supersededHotspotIds } from '../src/server/engines/hotspots'
+import { openDb } from '../src/server/db/db'
+import { createSession, loadReviewState, upsertComment } from '../src/server/db/sessions'
 import type { Hotspot, RefPair } from '../src/shared/types'
 
 const riskHotspot: Hotspot = {

@@ -24,7 +24,7 @@ read live from git, never cached as truth.
   IPC surface (`ipc.ts`: the `Api` interface and the `API_CHANNELS` list), the
   agent catalog (`agents.ts`), and the execution-mode ladder
   (`executionMode.ts`).
-- **`src/main/`** — the service core (the directory keeps its historical name).
+- **`src/server/`** — the service core.
   `ipc.ts` is the orchestrator (it owns the API handlers, per-repo locking, and
   the three flows below); `git.ts`/`exec.ts` are the git ground-truth layer;
   `review.ts` assembles diff skeletons and "since" marking; `db/` persists the
@@ -79,7 +79,7 @@ see [agent-layer.md](agent-layer.md) for the approval registry.
 ## Transport: HTTP + SSE
 
 The orchestrator (`registerIpc`) never touches the HTTP layer. It speaks a small
-`Transport` seam (`src/main/transport.ts`) — `handle` (register a request/response
+`Transport` seam (`src/server/transport.ts`) — `handle` (register a request/response
 channel), `broadcast` (fan a push message to every client), `notify` (out-of-band
 notification), `pickDirectory` (host directory picker) — and one backing
 implements it today:
@@ -110,7 +110,7 @@ So the renderer is transport-agnostic: `renderer → api-client → Transport �
 **`cli:open` is a ticket, not a push.** A CLI cannot focus a browser tab it does
 not own, so there is no broadcast for it: `POST /rpc/cli:open` resolves the repo
 root and parks the resulting message under a one-time ticket
-(`src/main/cliOpen.ts`); the CLI opens `http://limn.localhost:5466/?open=<ticket>`
+(`src/server/cliOpen.ts`); the CLI opens `http://limn.localhost:5466/?open=<ticket>`
 in a **new** tab; that tab redeems the ticket at boot with the `takeCliOpen`
 channel. Tickets are single-use and expire after 60 s.
 

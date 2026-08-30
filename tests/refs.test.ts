@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
-import { resolveRefInput, describeSide, headSha } from '../src/main/git'
+import { resolveRefInput, describeSide, headSha } from '../src/server/git'
 
 let fx: FixtureRepo
 beforeAll(() => { fx = makeFixtureRepo() })

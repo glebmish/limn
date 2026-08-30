@@ -6,7 +6,7 @@ import path from 'node:path'
 import { makeFixtureRepo, type FixtureRepo, fixtureWrite } from './helpers/fixtureRepo'
 import {
   listWorktrees, branchCheckedOutAt, checkoutBranch, workingTreeDiff, dirtyCount, repoState
-} from '../src/main/git'
+} from '../src/server/git'
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim()

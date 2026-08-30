@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openDb } from '../src/main/db/db'
-import { createSession, listChatThreads } from '../src/main/db/sessions'
-import { registerIpc } from '../src/main/ipc'
+import { openDb } from '../src/server/db/db'
+import { createSession, listChatThreads } from '../src/server/db/sessions'
+import { registerIpc } from '../src/server/ipc'
 import type { AgentRef, RefPair } from '../src/shared/types'
-import type { Transport } from '../src/main/transport'
+import type { Transport } from '../src/server/transport'
 
 const pair: RefPair = {
   base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },

@@ -1,6 +1,6 @@
 type DevConfig = NonNullable<Window['limnDev']>
 
-/** `?open=<ticket>` — a cli:open ticket minted by `limn open` (see src/main/cliOpen.ts). */
+/** `?open=<ticket>` — a cli:open ticket minted by `limn open` (see src/server/cliOpen.ts). */
 export function readOpenTicket(search: string): string | null {
   return new URLSearchParams(search).get('open')
 }

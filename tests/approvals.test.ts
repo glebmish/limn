@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { awaitDecision, resolveDecision, clearPending, pendingCount } from '../src/main/engines/approvals'
+import { awaitDecision, resolveDecision, clearPending, pendingCount } from '../src/server/engines/approvals'
 import type { ApprovalRequest, EngineEvent } from '../src/shared/types'
 
 const req = (id: string): ApprovalRequest => ({ id, engine: 'claude', kind: 'command', summary: `run ${id}` })

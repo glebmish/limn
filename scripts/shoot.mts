@@ -7,14 +7,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit } from '../tests/helpers/fixtureRepo'
-import { getDiff, resolveRefInput } from '../src/main/git'
-import { FakeEngine } from '../src/main/engines/fake'
-import { mergeAnnotations } from '../src/main/engines/validate'
-import { openDb } from '../src/main/db/db'
+import { getDiff, resolveRefInput } from '../src/server/git'
+import { FakeEngine } from '../src/server/engines/fake'
+import { mergeAnnotations } from '../src/server/engines/validate'
+import { openDb } from '../src/server/db/db'
 import {
   createSession, updateSessionMeta, addIteration, createChatThread,
   addChatMessage, setThreadAgent, setThreadEngineSession, upsertComment, setArtifacts
-} from '../src/main/db/sessions'
+} from '../src/server/db/sessions'
 import type { RefPair } from '../src/shared/types'
 import { narrationText } from '../src/shared/types'
 

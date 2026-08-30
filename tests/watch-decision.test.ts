@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, PROBE_INTERVAL_MS, FAILURE_THRESHOLD
-} from '../src/main/watch-decision'
+} from '../src/server/watch-decision'
 
 const fail = (reason = 'boom') => ({ ok: false as const, reason })
 const ok = { ok: true as const }

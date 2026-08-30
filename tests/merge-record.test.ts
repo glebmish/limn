@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { openDb } from '../src/main/db/db'
+import { openDb } from '../src/server/db/db'
 import {
   createSession, findSession, getSession, retargetSession, archiveSession,
   markSessionMerged, retargetSessionBase, dependentSessions,
   listRepoSessions, loadReviewState
-} from '../src/main/db/sessions'
+} from '../src/server/db/sessions'
 import type { MergeRecord, RefPair } from '../src/shared/types'
 
 function tmpDbFile(): string {

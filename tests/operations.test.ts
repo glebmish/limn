@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { OperationCoordinator, RepoBusyError } from '../src/main/operations'
-import { CancelledError } from '../src/main/engines/errors'
+import { OperationCoordinator, RepoBusyError } from '../src/server/operations'
+import { CancelledError } from '../src/server/engines/errors'
 
 describe('OperationCoordinator', () => {
   it('serializes operations per repository and releases the lock', async () => {

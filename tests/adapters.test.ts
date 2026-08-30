@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG, claudeEffort, codexEffort } from '../src/main/engines/adapters'
-import { setEngineBinaryPrefs } from '../src/main/engines/binaries'
+import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG, claudeEffort, codexEffort } from '../src/server/engines/adapters'
+import { setEngineBinaryPrefs } from '../src/server/engines/binaries'
 import { ENGINE_PATH_PREF_KEYS } from '../src/shared/prefs'
 
 // binaryEnv resolves through binaries.ts' module-level configured prefs; clear

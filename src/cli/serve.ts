@@ -1,7 +1,7 @@
 import net from 'node:net'
 import { execSync } from 'node:child_process'
 import { startServer, DEFAULT_PORT, type RunningServer, type ServerOptions } from '../server/http.js'
-import { defaultDbPath } from '../main/paths.js'
+import { defaultDbPath } from '../server/paths.js'
 import { probeHealth } from './health.js'
 import type { Io } from './main.js'
 

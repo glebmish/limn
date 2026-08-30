@@ -8,7 +8,7 @@ import { resolvePort, runServe } from './serve.js'
 import { readCliState, writeCliState, type CliState } from './state.js'
 import { findOldShim } from './shim.js'
 import { isServiceInstalled, installService } from './service/index.js'
-import { issueCliOpen, type CliOpenArgs } from '../main/cliOpen.js'
+import { issueCliOpen, type CliOpenArgs } from '../server/cliOpen.js'
 import type { RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
 

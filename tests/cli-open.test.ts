@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
-import { issueCliOpen, takeCliOpen, _resetTickets } from '../src/main/cliOpen'
+import { issueCliOpen, takeCliOpen, _resetTickets } from '../src/server/cliOpen'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 
 describe('cli:open tickets', () => {

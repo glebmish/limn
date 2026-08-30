@@ -7,9 +7,9 @@ import {
   similarity,
   ACCEPT_THRESHOLD,
   type EditHunk
-} from '../src/main/anchor'
+} from '../src/server/anchor'
 import type { Artifact, Comment, DiffSkeleton, AnchorContext, SessionMeta } from '../src/shared/types'
-import type { ReanchorCtx } from '../src/main/anchor'
+import type { ReanchorCtx } from '../src/server/anchor'
 
 function mkSkeleton(lines: { new: number | null; old: number | null; kind: '' | 'add' | 'del'; text: string }[]): DiffSkeleton {
   return {

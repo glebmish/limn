@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
-import { applyEditToFile, readWorkingFile, withWriteQueue } from '../src/main/fileEdits'
-import { execGit } from '../src/main/exec'
+import { applyEditToFile, readWorkingFile, withWriteQueue } from '../src/server/fileEdits'
+import { execGit } from '../src/server/exec'
 
 function lines(dir: string, rel: string): string[] {
   return fs.readFileSync(path.join(dir, rel), 'utf8').split('\n')

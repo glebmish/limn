@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentQuestion, DiffSkeleton, PlanMap, ReviewAnnotations, Section } from '../src/shared/types'
-import type { ScopedReviewPatch, WireSection } from '../src/main/engines/schema'
-import { SpliceError, spliceScopedUpdate } from '../src/main/engines/splice'
+import type { ScopedReviewPatch, WireSection } from '../src/server/engines/schema'
+import { SpliceError, spliceScopedUpdate } from '../src/server/engines/splice'
 
 // ── fixtures ───────────────────────────────────────────────────
 function psec(over: Partial<Section> & Pick<Section, 'id'>): Section {

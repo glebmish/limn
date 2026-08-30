@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildReviewPrompt } from '../src/main/engines/prompts'
-import { reviewJsonSchema } from '../src/main/engines/schema'
-import type { ReviewRequest } from '../src/main/engines/types'
+import { buildReviewPrompt } from '../src/server/engines/prompts'
+import { reviewJsonSchema } from '../src/server/engines/schema'
+import type { ReviewRequest } from '../src/server/engines/types'
 
 // The `plainNotes` lesson: a schema field the prompt never argues for goes dead —
 // the model omits it and nothing catches the drift. This test locks prompt↔schema

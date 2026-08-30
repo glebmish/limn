@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit, type FixtureRepo } from './helpers/fixtureRepo'
-import { detectArtifacts, loadArtifact, classify, normalizeArtifactPath } from '../src/main/artifacts'
+import { detectArtifacts, loadArtifact, classify, normalizeArtifactPath } from '../src/server/artifacts'
 
 let fx: FixtureRepo
 beforeAll(() => {

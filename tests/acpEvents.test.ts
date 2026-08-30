@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { RequestPermissionRequest, SessionUpdate } from '@agentclientprotocol/sdk'
-import { acpToEvents, acpPermissionToRequest, verbOf } from '../src/main/engines/acpEvents'
+import { acpToEvents, acpPermissionToRequest, verbOf } from '../src/server/engines/acpEvents'
 
 // Pure ACP session/update -> EngineEvent mapper. One event per update (folding
 // pending->completed by id is downstream, in reduceToolCalls) — mirrors the

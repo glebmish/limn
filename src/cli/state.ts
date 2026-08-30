@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { cliStatePath } from '../main/paths.js'
+import { cliStatePath } from '../server/paths.js'
 
 export interface CliState { servicePromptDeclined?: boolean }
 

@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openDb } from '../src/main/db/db'
-import { createSession, loadReviewState, upsertComment } from '../src/main/db/sessions'
-import { registerIpc } from '../src/main/ipc'
-import { resolveRefInput } from '../src/main/git'
+import { openDb } from '../src/server/db/db'
+import { createSession, loadReviewState, upsertComment } from '../src/server/db/sessions'
+import { registerIpc } from '../src/server/ipc'
+import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 import type { AgentRef, RefPair } from '../src/shared/types'
-import type { Transport } from '../src/main/transport'
+import type { Transport } from '../src/server/transport'
 
 const agent: AgentRef = { engine: 'claude' }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { assertSafeRef, resolveRefInput } from '../src/main/git'
+import { assertSafeRef, resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 
 describe('assertSafeRef', () => {

@@ -44,7 +44,7 @@ export function ctaLabel(strategy: MergeStrategy, base: string): string {
 /** The strategy option's sub-label (design boards C1/G2): the static description when
  *  available, else the reason it isn't — a disabled control must carry its reason.
  *  ff is unavailable when the base diverged; squash/merge are unavailable exactly when
- *  the conflict probe tripped (see `strategyAvailability` in src/main/merge.ts). */
+ *  the conflict probe tripped (see `strategyAvailability` in src/server/merge.ts). */
 export function strategySubLabel(
   s: MergeStrategy, strategies: Record<MergeStrategy, boolean>, base: string
 ): string {

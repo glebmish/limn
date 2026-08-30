@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSchemaVersion } from '../src/main/db/db'
+import { parseSchemaVersion } from '../src/server/db/db'
 
 describe('parseSchemaVersion', () => {
   it('parses a normal numeric version', () => {

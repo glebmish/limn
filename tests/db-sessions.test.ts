@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { openDb } from '../src/main/db/db'
+import { openDb } from '../src/server/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
   repoIndexRows,
@@ -15,7 +15,7 @@ import {
   createChatThread, addChatMessage, listChatThreads, getChatThread, setThreadAgent,
   deleteChatThread, threadIsEmpty, setThreadMode, setThreadTitle, deriveChatTitle,
   pruneEmptyUserChats, setThreadEngineSession, pruneOrphanReviewThreads, setActionResolution
-} from '../src/main/db/sessions'
+} from '../src/server/db/sessions'
 import type { AgentAction, Comment, RefPair, ToolCall } from '../src/shared/types'
 
 let db: DatabaseSync

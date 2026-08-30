@@ -153,7 +153,7 @@ directories. Users need no special flags.
 **As built (deviations from the numbers above).**
 
 - **Five runtime deps, not four.** `@modelcontextprotocol/sdk` turned out to be a
-  *direct* runtime dependency — `src/main/engines/mcpHost.ts` hosts the per‑turn MCP
+  *direct* runtime dependency — `src/server/engines/mcpHost.ts` hosts the per‑turn MCP
   server on it — so it is a `dependency` and is bundled alongside
   `@agentclientprotocol/{claude-agent-acp,codex-acp,sdk}` and `zod`.
 - **Size: ≈ 4.9 MB tarball, ≈ 35 MB installed** — not the 2.5 MB / 16 MB measured in
@@ -179,7 +179,7 @@ directories. Users need no special flags.
   `status`, `serve`'s clash message.
 - `cli:open` becomes a real channel, delivered as a **one‑time ticket** rather than a
   push (as built): `POST /rpc/cli:open` resolves `repoRoot(dir)`, parks the resulting
-  `CliOpenMsg` under a random ticket (`src/main/cliOpen.ts`) and returns `{ticket}`; the
+  `CliOpenMsg` under a random ticket (`src/server/cliOpen.ts`) and returns `{ticket}`; the
   CLI opens `http://limn.localhost:5466/?open=<ticket>` in a **new** browser tab; the
   booting SPA redeems it over the `takeCliOpen(ticket)` RPC channel and strips the query
   param. Tickets are single‑use with a 60 s TTL. Rationale: a CLI cannot focus a

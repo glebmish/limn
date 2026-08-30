@@ -6,9 +6,9 @@
    FakeAcpAgent e2e's real-adapter counterpart — a human/CI-free sanity check
    that AcpEngine talks to the real adapter correctly, not a substitute for the
    scripted e2e in tests/acp-engine.test.ts (which is the actual CI gate). */
-import { AcpEngine } from '../src/main/engines/acp'
-import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/main/engines/adapters'
-import { resolveDecision } from '../src/main/engines/approvals'
+import { AcpEngine } from '../src/server/engines/acp'
+import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/server/engines/adapters'
+import { resolveDecision } from '../src/server/engines/approvals'
 import { makeFixtureRepo } from '../tests/helpers/fixtureRepo'
 
 const ENGINES = { claude: CLAUDE_ACP_CONFIG, codex: CODEX_ACP_CONFIG } as const

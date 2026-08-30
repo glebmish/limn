@@ -8,5 +8,5 @@
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["src/main", "src/server", "src/cli", "src/shared"]
+  "include": ["src/server", "src/cli", "src/shared"]
 }

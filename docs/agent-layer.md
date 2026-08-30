@@ -2,7 +2,7 @@
 
 How Limn drives an AI agent — Claude and Codex, both through the **Agent Client Protocol (ACP)** — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
-> **Audience:** developers working on the main process. This describes the engine abstraction, the single ACP engine + its per-engine adapter configs, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/main/engines/` (with anchoring in `src/main/anchor.ts` and artifact detection in `src/main/artifacts.ts`) and is orchestrated by `src/main/ipc.ts`.
+> **Audience:** developers working on the main process. This describes the engine abstraction, the single ACP engine + its per-engine adapter configs, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/server/engines/` (with anchoring in `src/server/anchor.ts` and artifact detection in `src/server/artifacts.ts`) and is orchestrated by `src/server/ipc.ts`.
 
 > **One protocol, two adapters.** Both engines are driven by one `AcpEngine` (`acp.ts`) speaking ACP over stdio to a per-engine **adapter** — a pinned npm package (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`) that translates ACP into each engine's native CLI. Per-engine code is a small `AcpEngineConfig` record (`adapters.ts`): the mode-id mapping, per-turn spawn env, effort config-options, and which native-binary env var to feed. The adapter version *is* the pinned engine version — see [acp-adapters.md](acp-adapters.md).
 

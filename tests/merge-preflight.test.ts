@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openDb } from '../src/main/db/db'
-import { approveSessionSha, createSession, markSessionMerged } from '../src/main/db/sessions'
-import { gatherMergePreflight } from '../src/main/merge'
-import { resolveRefInput } from '../src/main/git'
+import { openDb } from '../src/server/db/db'
+import { approveSessionSha, createSession, markSessionMerged } from '../src/server/db/sessions'
+import { gatherMergePreflight } from '../src/server/merge'
+import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite, type FixtureRepo } from './helpers/fixtureRepo'
 import type { AgentRef, MergeRecord, RefPair } from '../src/shared/types'
 
@@ -179,9 +179,9 @@ describe('gatherMergePreflight', () => {
   })
 })
 
-import { registerIpc } from '../src/main/ipc'
+import { registerIpc } from '../src/server/ipc'
 import { API_CHANNELS } from '../src/shared/ipc'
-import type { Transport } from '../src/main/transport'
+import type { Transport } from '../src/server/transport'
 import type { MergePreflight } from '../src/shared/types'
 
 describe('mergePreflight handler', () => {

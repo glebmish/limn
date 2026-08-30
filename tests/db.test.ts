@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openDb, isCorruptionError } from '../src/main/db/db'
+import { openDb, isCorruptionError } from '../src/server/db/db'
 
 function tmpFile(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-db-')), 'limn.db')

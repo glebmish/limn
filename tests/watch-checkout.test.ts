@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
-import { watchState } from '../src/main/ipc'
+import { watchState } from '../src/server/ipc'
 
 describe('watchState notices checkouts (external worktree add/remove)', () => {
   it('resolves the workdir each call and folds it into the signature', async () => {

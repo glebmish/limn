@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { tagOrigins } from '../src/main/mergeDiff'
-import { mergedWorkingDiff, parseUnifiedDiff } from '../src/main/git'
+import { tagOrigins } from '../src/server/mergeDiff'
+import { mergedWorkingDiff, parseUnifiedDiff } from '../src/server/git'
 import { makeFixtureRepo, fixtureWrite } from './helpers/fixtureRepo'
-import { execGit } from '../src/main/exec'
+import { execGit } from '../src/server/exec'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 
 /** Build a one-hunk FileDiff from compact line specs. */

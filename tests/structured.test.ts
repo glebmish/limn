@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepairPrompt, parseJson, structuredEpilogue } from '../src/main/engines/structured'
+import { buildRepairPrompt, parseJson, structuredEpilogue } from '../src/server/engines/structured'
 
 describe('parseJson', () => {
   it('parses bare JSON', () => {

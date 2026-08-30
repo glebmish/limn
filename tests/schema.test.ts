@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeWireAnchor, parseReviewOutput } from '../src/main/engines/schema'
+import { normalizeWireAnchor, parseReviewOutput } from '../src/server/engines/schema'
 import type { FocusTarget } from '../src/shared/types'
 
 describe('parseReviewOutput', () => {

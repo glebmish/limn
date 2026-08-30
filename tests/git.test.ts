@@ -3,7 +3,7 @@ import { makeFixtureRepo, type FixtureRepo, fixtureWrite } from './helpers/fixtu
 import {
   listBranches, currentBranch, defaultBase, mergeBase, headSha, isDirty, log,
   getDiff, diffSince, markSince, hashObjects
-} from '../src/main/git'
+} from '../src/server/git'
 
 let fx: FixtureRepo
 
