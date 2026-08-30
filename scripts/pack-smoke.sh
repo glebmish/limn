@@ -23,15 +23,21 @@ tgz="$(npm pack --ignore-scripts --pack-destination "$work" 2>/dev/null | tail -
 echo "tarball: $tgz ($(du -h "$work/$tgz" | cut -f1))"
 
 # 1. the tarball must not carry platform binaries
-if tar -tzf "$work/$tgz" | grep -E 'claude-agent-sdk-(darwin|linux|win32)|codex-(darwin|linux|win32)'; then
+# (capture the listing first: piping straight into `if tar ... | grep ...`
+# would let a failing tar silently pass, since grep's own no-match exit
+# status masks it once both are inside the pipeline being tested)
+tar_listing="$(tar -tzf "$work/$tgz")"
+if grep -E 'claude-agent-sdk-(darwin|linux|win32)|codex-(darwin|linux|win32)' <<<"$tar_listing"; then
   echo "::error::platform binaries found in tarball"; exit 1
 fi
 
 # 2. install with default flags into an isolated prefix
 npm install -g --prefix "$work/prefix" --ignore-scripts --no-audit --no-fund "$work/$tgz" >/dev/null
 pkg="$work/prefix/lib/node_modules/@glebmish/limn"
-if find "$pkg" -maxdepth 4 -type d \( -name 'claude-agent-sdk-*' -o -name 'codex-darwin*' -o -name 'codex-linux*' -o -name 'codex-win32*' \) | grep .; then
-  echo "::error::platform binaries were fetched on install"; exit 1
+# no -maxdepth: a platform binary nested deeper than 4 levels would be missed
+install_listing="$(find "$pkg" -type d \( -name 'claude-agent-sdk-*' -o -name 'codex-darwin*' -o -name 'codex-linux*' -o -name 'codex-win32*' \))"
+if [ -n "$install_listing" ]; then
+  echo "::error::platform binaries were fetched on install"; echo "$install_listing"; exit 1
 fi
 echo "installed: $(du -sh "$pkg" | cut -f1)"
 

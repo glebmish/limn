@@ -36,8 +36,27 @@ jobs:
           test "$TAG" = "$PKG" || { echo "::error::tag $TAG != package.json version $PKG"; exit 1; }
       - name: Build + pack smoke
         run: npm run pack:smoke
+      # `npm pack` below bundles whatever is on disk in node_modules for the
+      # bundleDependencies packages at pack time. pack:smoke's own last install
+      # happens to already be `npm ci --omit=optional` (it needs that to verify
+      # the tarball it builds internally is binary-free), but nothing states
+      # that invariant — a later change inside pack:smoke (e.g. restoring with
+      # `npm ci` at the end, as the brief itself suggested) would silently
+      # publish a tarball containing @anthropic-ai/claude-agent-sdk-* /
+      # @openai/codex-* platform binaries. Make it explicit here instead of
+      # relying on that side effect. rollup's own optional native binary isn't
+      # needed after this point — the build already ran, inside pack:smoke.
+      - name: Strip optional platform binaries before packing
+        run: npm ci --omit=optional
       - name: Pack
         run: npm pack --ignore-scripts
+      - name: Assert tarball has no platform binaries
+        run: |
+          listing="$(tar -tzf *.tgz)"
+          if grep -E 'claude-agent-sdk-(darwin|linux|win32)|codex-(darwin|linux|win32)' <<<"$listing"; then
+            echo "::error::platform binaries in tarball"
+            exit 1
+          fi
       - name: Upload tarball (inspection / dry-run)
         uses: actions/upload-artifact@v7
         with:
@@ -56,3 +75,4 @@ jobs:
         with:
           files: '*.tgz'
           generate_release_notes: true
+          fail_on_unmatched_files: true
