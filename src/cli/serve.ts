@@ -67,6 +67,10 @@ export async function runServe(cmd: { port?: number; port80: boolean }, io: Io, 
     const stop = (): void => {
       if (stopping) return
       stopping = true
+      // Drop the other listener too: a second signal during a slow close must reach
+      // Node's default handler (kill the process) rather than be swallowed here.
+      process.off('SIGINT', stop)
+      process.off('SIGTERM', stop)
       io.out('[limn] shutting down')
       void server.close().then(resolve)
     }
