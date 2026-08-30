@@ -1,10 +1,10 @@
 # limn
 
 [![CI](https://github.com/glebmish/limn/actions/workflows/ci.yml/badge.svg)](https://github.com/glebmish/limn/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
+[![npm](https://img.shields.io/npm/v/%40glebmish%2Flimn)](https://www.npmjs.com/package/@glebmish/limn)
 [![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
-A macOS app for **agentic review of local git branches** that helps you understand the code.
+A local service + browser app for **agentic review of local git branches** that helps you understand the code.
 
 ![A 27-file branch under guided review in Limn: the diff grouped into logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 2 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
@@ -39,9 +39,11 @@ A macOS app for **agentic review of local git branches** that helps you understa
 Limn is a local app with no telemetry, accounts, hosted backend, or cloud sync of
 its own. It does not store Claude, Codex, Anthropic, or OpenAI credentials. It uses
 the credentials and command-line agents already installed and authorized on your
-machine (`claude`, `codex`). Limn also does not use macOS Keychain.
+machine (`claude`, `codex`). Limn also does not use macOS Keychain. The service binds
+`127.0.0.1` only; any other bind requires `LIMN_WEB_TOKEN` and refuses to start without
+it.
 
-Review state lives in one local SQLite database at the app's user-data location
+Review state lives in one local SQLite database at a per-user location
 (`~/Library/Application Support/limn/limn.db` on macOS). That database stores the
 review layer: repositories you opened, sessions, comments, chat, generated review
 notes, viewed flags, and approvals. Git remains the source of truth for code:
@@ -64,37 +66,26 @@ vetted, stay on **Ask for approval** or **Accept edits**.
 
 ## Install
 
-### Download the DMG
-
-Download the latest macOS Apple Silicon DMG from [GitHub Releases](https://github.com/glebmish/limn/releases/latest). The release asset is named `Limn-<version>-arm64.dmg`.
-
-The app is distributed as-is: ad-hoc signed, but not Developer ID signed or
-Apple-notarized. That is because Limn is a demo tool, not a production product
-distribution, and there is no active paid Apple Developer account behind these
-builds. After dragging `Limn.app` to `/Applications`, macOS may show **"Limn Not
-Opened"** with **"Apple could not verify 'Limn' is free of malware..."**. Remove
-the quarantine flag for this app, then open it again:
-
 ```bash
-xattr -dr com.apple.quarantine /Applications/Limn.app
-open /Applications/Limn.app
+npm i -g @glebmish/limn
+limn
 ```
 
-If you installed it somewhere else, replace `/Applications/Limn.app` with that
-path.
+The first `limn` offers to install Limn as a background service (a LaunchAgent on
+macOS, a `systemd --user` unit on Linux) so **http://limn.localhost:5466** is always
+there; say `n` (or pass `--no-service`) to just run it in the foreground. `npx
+@glebmish/limn` runs it once without installing anything.
 
-### Build from source
+Requires Node ≥ 22.5 and `git`. `*.localhost` resolves to your machine in Chrome,
+Edge, Arc and Firefox with no setup; Safari does not resolve it — use
+`http://127.0.0.1:5466` there.
 
-This avoids the downloaded-app quarantine path because the app is built on your
-machine.
+Upgrading: `npm i -g @glebmish/limn@latest`, then restart the service with the command
+`limn service status` prints (`launchctl kickstart -k gui/$UID/dev.glebmish.limn` on
+macOS, `systemctl --user restart limn` on Linux).
 
-```bash
-npm install
-npm run package
-open dist/mac-arm64/Limn.app
-```
-
-You can also move `dist/mac-arm64/Limn.app` to `/Applications`.
+Coming from the desktop app: delete `Limn.app`; your reviews are in the same database
+and `limn` offers to remove the old shell shim it installed.
 
 ## Prerequisites
 
@@ -106,8 +97,9 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 ## Using it
 
-1. **Open a repository** (*Open repository…* / ⌘O) via the native dialog — Limn adds
-   it to the **Dashboard**'s repository index and remembers it across launches.
+1. **Open a repository** (*Open repository…*) by typing its path (the picker is a
+   follow-up) — Limn adds it to the **Dashboard**'s repository index and remembers it
+   across launches.
 2. On the Dashboard: type to filter the list, ↑/↓ to move, ⏎ (or click) to open a
    repo's sessions. Each row shows its current branch (click the branch chip to open
    that branch's review) and when it was last active.
@@ -126,14 +118,12 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 6. **Send N changes to agent** — it edits, commits on your branch, and reports
    per-comment resolutions. **Approve** records the reviewed SHA.
 
-The app **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. You also get a **macOS notification** when an agent run finishes while the app is in the background. Diffs are syntax-highlighted with word-level change marks.
+Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. (Browser notifications for finished runs are a follow-up.) Diffs are syntax-highlighted with word-level change marks.
 
 ### The `limn` command
 
-Install it once from the app menu — **Limn → Install Command-Line Tool…** — and open
-reviews straight from a terminal. The command installs to `~/.local/bin` (or
-`/usr/local/bin`); the confirmation dialog tells you if that directory is not on your
-`PATH`. If you move the app, reinstall from the same menu item.
+The CLI ships with the package. If the service is running it opens there; otherwise it
+starts a server for you.
 
 ```bash
 limn                                 # review the current branch of the repo you're in
@@ -150,42 +140,53 @@ limn --hub                           # open the repo's saved-review list
 | `--branch BRANCH` | The branch to review — defaults to the current branch. |
 | `--new` | Force a fresh review rather than resuming the latest one for the pair. |
 | `--hub` | Open the repo hub (every saved review) instead of a review. |
+| `--no-service` | Skip the service prompt; run in the foreground. |
+
+```bash
+limn service serve [--port N]     # foreground server (default 5466)
+limn service install [--port-80]  # always-on background service (+ optional http://limn.localhost alias on :80)
+limn service status               # activation (service / foreground / not running), URL, pid, node path, native stop/restart commands
+limn service uninstall            # remove the service; database untouched
+limn service logs [-f]
+```
 
 Bare `limn` behaves exactly like opening the repo from the Dashboard: it resumes the
-most recent review for the current branch, or shows a draft review if there is none. If
-the app is already running, the command hands the request to the running window.
+most recent review for the current branch, or shows a draft review if there is none.
+The review opens in a new browser tab.
 
-More in-flow details — excluding untracked files, multiple reviews per branch, and
-dirty-worktree review — are in [docs/using-limn.md](docs/using-limn.md).
+More in-flow details — excluding untracked files, multiple reviews per branch,
+dirty-worktree review — plus the service lifecycle and the Tailscale recipe are in
+[docs/using-limn.md](docs/using-limn.md).
 
 ## Limitations
 
-- **macOS, Apple Silicon (arm64) only** — the build target is arm64; there is no Intel or non-macOS build.
-- **Not Apple-notarized** — downloaded DMGs require the quarantine-removal step above unless you build locally from source.
+- **macOS and Linux** — Windows can run `limn service serve` in the foreground; there is no Windows background service yet.
+- **Safari** does not resolve `limn.localhost`; use `127.0.0.1:5466`.
 - **Local credentials required** — a Claude and/or Codex login (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) must be present on the machine.
 - **Single-machine state** — review state is a local SQLite file; it does not sync across machines.
 - Early, active development — storage layout and APIs may change.
 
 ## Development
 
-Requires Node 20+.
+Requires Node 22.5+.
 
 ```bash
 npm install
-npm run dev        # live-reload app
-npm test           # vitest: diff parser, ref resolution, sessions DAO, launch args, anchoring, engine contract
+npm run dev        # vite on :5173, proxying /rpc, /events, /health to a server started with `npm run dev:server`
+npm test           # vitest: diff parser, ref resolution, sessions DAO, CLI args, service units, anchoring, engine contract
 npm run typecheck
 npm run lint
-npm run package    # local package: dist/mac-arm64/Limn.app, plus DMG and zip in dist/
+npm run build      # dist/renderer (vite) + dist/{server,cli} (tsc)
+npm run pack:smoke # npm pack → install into a temp prefix → /health, asserting no platform binaries shipped
 ```
 
-Release builds are created by pushing a `v*` tag that matches `package.json`
-(`v0.1.2`, for example). The release workflow builds macOS arm64 artifacts and
-attaches the DMG, zip, and blockmaps to the GitHub Release.
+Pushing a `v*` tag that matches `package.json` publishes `@glebmish/limn` to npm
+(bundled JS-only adapter closure, no platform binaries) and creates a GitHub Release
+with the tarball.
 
-Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer), `LIMN_SHOT=/path.png` (capture the window, with `LIMN_SHOT_DELAY` / `LIMN_SHOT_QUIT`). Real-engine smoke scripts: `npx tsx scripts/acp-smoke.ts` / `smoke-codex.ts`.
+Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_PORT` (server port), `LIMN_DB` (SQLite path), `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` (bind somewhere other than loopback — e.g. a Tailscale address — with a required token; the service records them when they are set in the shell that runs `limn service install`), `LIMN_OPEN_REPO` / `LIMN_OPEN_BRANCH` (open straight to the review for a repo/branch), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer). Real-engine smoke scripts: `npx tsx scripts/acp-smoke.ts` / `smoke-codex.ts`.
 
-**Screenshots:** `npx tsx scripts/shoot.mts` seeds a fixture repo + db and prints `{ repo, db, sessionId, reviewChat, userChat }`; launch Electron with `LIMN_DB` / `LIMN_OPEN_SESSION` + the dev hooks `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown) to capture a specific UI state.
+**Screenshots:** `scripts/shot.sh <out.png> [LIMN_* hooks]` seeds a fixture repo + db, serves it on an ephemeral port, and captures the page with headless Chrome over CDP (`CHROME_BIN` overrides the binary). The hooks — `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown), … — travel to the page as `?dev=<json>` built by `scripts/dev-url.mts`.
 
 Architecture: see [docs/architecture.md](docs/architecture.md), with deeper dives in [docs/agent-layer.md](docs/agent-layer.md), [docs/storage-layer.md](docs/storage-layer.md), and the [ACP adapter playbook](docs/acp-adapters.md).
 

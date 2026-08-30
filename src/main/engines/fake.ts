@@ -288,8 +288,8 @@ export class FakeEngine implements ReviewEngine {
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'run' } })
       q.push({ type: 'tool', call: { id: 't2', verb: 'read', name: 'Read', arg: 'src/a.ts · L1–40', kv: [['path', 'src/a.ts'], ['range', 'L1-40']], state: 'ok', meta: '40 lines', out: 'export function parseRefInput(input) {\n-  if (input == null) throw new Error()\n+  if (!input) return null // guard added in this branch\n  return resolve(input)\n}', outMore: 'show 31 more lines' } })
       q.push({ type: 'tool', call: { id: 't3', verb: 'grep', name: 'Grep', arg: "require('child_process')", kv: [['pattern', "require('child_process')"]], state: 'run' } })
-      // dev-only: LIMN_HOLD_STREAM leaves t3 running + the stream open, for a static
-      // capture of the live running state (electron is killed by LIMN_SHOT_QUIT).
+      // dev-only: LIMN_HOLD_STREAM (set on the server process) leaves t3 running and
+      // the stream open, for a static capture of the live running state.
       if (process.env.LIMN_HOLD_STREAM === '1') {
         q.push({ type: 'status', text: 'Reading reconcile.ts…' })
         return { value: '', sessionId: turn.engineSessionId || 'fake-chat-hold' }

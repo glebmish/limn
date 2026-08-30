@@ -8,7 +8,7 @@ import { stampAnchor } from '../anchorStamp.js'
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
 // shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
 // the same shape through a per-turn external MCP server. A handler runs in the
-// Electron main process — it may touch the DB / git, emit a live `action` event,
+// server process — it may touch the DB / git, emit a live `action` event,
 // and returns the text the model sees. Code edits + commits go through the
 // engine's own shell/edit tools (git via bash); limn hosts no write tool.
 

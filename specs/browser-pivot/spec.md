@@ -58,7 +58,7 @@ Node ≥ 22.5 is required (`node:sqlite`); `engines` is bumped from `>=20`.
 
 ```
 limn                               alias for `limn open`
-limn open [DIR] [--base REF] [--branch BRANCH] [--new] [--hub]
+limn open [DIR] [--base REF] [--branch BRANCH] [--new] [--hub] [--no-service]
 limn service serve [--port N]      foreground server (what the LaunchAgent runs)
 limn service install [--port-80]   write + load the unit, start it, print URL + native restart command
 limn service uninstall             stop, unload, delete the unit; DB untouched
@@ -120,7 +120,7 @@ custom server; `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` keep today's Tailscale semanti
 │   ├── server/            HTTP/SSE server + orchestrator (today's src/server + src/main sans Electron)
 │   └── renderer/          built SPA (vite)
 ├── package.json           "bin": {"limn": "bin/limn.js"}, "files": ["bin","dist"], "engines": {"node": ">=22.5"}
-└── node_modules/…            bundled JS-only closure of the 4 runtime deps (bundleDependencies; no platform binaries)
+└── node_modules/…            bundled JS-only closure of the runtime deps (bundleDependencies; no platform binaries)
 ```
 
 Source moves:
@@ -144,15 +144,28 @@ platform binaries are `optionalDependencies` (≈220 MB Claude + ≈240 MB Codex
 darwin‑arm64). Limn never uses them — engines resolve the user's own `claude`/`codex`
 via `CLAUDE_CODE_EXECUTABLE` / `CODEX_PATH` (`binaryRequired` preflight unchanged), and
 the Electron build already strips them. Under npm the same is achieved with
-`bundleDependencies`: the four runtime deps (`@agentclientprotocol/claude-agent-acp`,
-`codex-acp`, `sdk`, `zod`) are listed in `bundleDependencies`, and the publish job runs
-`npm ci --omit=optional` before `npm pack`, so the tarball vendors the JS closure and
-npm installs it as‑is without resolving the optional platform packages. Verified in a
-scratch spike on 2026‑08‑30: tarball 2.5 MB, `npm i -g` with default flags → 16 MB on
-disk, <1 s, zero platform packages fetched, all adapter entries resolvable via
-`resolveAdapterEntry` (its `app.asar` → `app.asar.unpacked` rewrite is deleted). CI
-asserts the packed tarball contains no `claude-agent-sdk-*` / `codex-<platform>`
+`bundleDependencies`: the runtime deps are listed in `bundleDependencies`, and the
+publish job runs `npm ci --omit=optional` before `npm pack`, so the tarball vendors the
+JS closure and npm installs it as‑is without resolving the optional platform packages.
+CI asserts the packed tarball contains no `claude-agent-sdk-*` / `codex-<platform>`
 directories. Users need no special flags.
+
+**As built (deviations from the numbers above).**
+
+- **Five runtime deps, not four.** `@modelcontextprotocol/sdk` turned out to be a
+  *direct* runtime dependency — `src/main/engines/mcpHost.ts` hosts the per‑turn MCP
+  server on it — so it is a `dependency` and is bundled alongside
+  `@agentclientprotocol/{claude-agent-acp,codex-acp,sdk}` and `zod`.
+- **Size: ≈ 4.9 MB tarball, ≈ 35 MB installed** — not the 2.5 MB / 16 MB measured in
+  the scratch spike, which predated the MCP SDK's own express/hono tree. Still no
+  platform binaries; slimming that tree is a follow‑up (§11).
+- **`npm ci --omit=optional` cannot build.** rollup's native binary
+  (`@rollup/rollup-<platform>`) is itself an `optionalDependency`, so an
+  `--omit=optional` install has no working `vite build`. `scripts/pack-smoke.sh` builds
+  under a full `npm ci`, then re‑installs with `--omit=optional` immediately before
+  `npm pack` (which is what actually determines what the bundled packages carry).
+  Job‑level installs in CI/release are therefore plain `npm ci`, with the strip step
+  placed just before packing.
 
 ## 4. Server changes
 
@@ -164,12 +177,16 @@ directories. Users need no special flags.
 - `GET /health` (unauthenticated, loopback‑only semantics via `sameSiteOk`) →
   `{ app: 'limn', version, pid, startedAt, port, db }`. Used by the CLI role check,
   `status`, `serve`'s clash message.
-- `cli:open` becomes a real channel: `POST /rpc/cli:open` (protected like all RPC)
-  resolves `repoRoot(dir)` and **broadcasts** `cli:open` over SSE (new
-  `BroadcastChannel` member) — or stashes it for `takeCliOpen()` when no SSE client is
-  connected, exactly as `pending`/`rendererReady` work today. The renderer's
-  `onCliOpen` is wired to SSE instead of a no‑op. If zero tabs are connected the CLI
-  opens the browser; the freshly loaded tab picks the message up via `takeCliOpen()`.
+- `cli:open` becomes a real channel, delivered as a **one‑time ticket** rather than a
+  push (as built): `POST /rpc/cli:open` resolves `repoRoot(dir)`, parks the resulting
+  `CliOpenMsg` under a random ticket (`src/main/cliOpen.ts`) and returns `{ticket}`; the
+  CLI opens `http://limn.localhost:5466/?open=<ticket>` in a **new** browser tab; the
+  booting SPA redeems it over the `takeCliOpen(ticket)` RPC channel and strips the query
+  param. Tickets are single‑use with a 60 s TTL. Rationale: a CLI cannot focus a
+  background browser tab, so an SSE broadcast to already‑open tabs would fire the review
+  into a tab the user is not looking at while the CLI still had to open *something*. A
+  new tab is the one delivery that is always visible, and it needs no broadcast channel —
+  so `cli:open` is not a `BroadcastChannel` member and the renderer has no `onCliOpen`.
 - `Transport.notify` stays a no‑op on the server (Web Notifications is a follow‑up);
   `pickDirectory` stays `null` (client prompts, as today); `installCli` / `settings:open`
   channels and the `cli.ts` shim installer are deleted (the npm bin *is* the CLI; the
@@ -237,8 +254,11 @@ offer to delete it. README tells users to trash `Limn.app`; the DB is untouched.
 - `main.tsx`: always `installApiClient()` then render — the `window.api` preload branch
   goes away. `dev.ts` / `window.limnDev` (screenshot hooks) become a query‑string /
   `localStorage` switch instead of a preload‑injected object.
-- `api-client.ts`: adds `onCliOpen` over SSE; `takeCliOpen` stays an RPC; `installCli`
-  and `onSettingsOpen` removed from `Api` and `API_CHANNELS`.
+- `api-client.ts`: `takeCliOpen` stays an RPC and is the *only* `cli:open` path —
+  `onCliOpen` is **removed** from `Api` and the renderer rather than wired to SSE (see
+  the ticket design in §4). `installCli` and `onSettingsOpen` are removed from `Api` and
+  `API_CHANNELS` too. The store redeems `?open=<ticket>` at boot (`boot-params.ts` →
+  `store/index.ts`).
 - `pickRepo`: unchanged `window.prompt` (server‑side picker is a follow‑up), but the
   prompt text says "on this machine" when the page origin is loopback.
 - CSP meta in `index.html` stays (`default-src 'self'`) — `fetch`/`EventSource` to the
@@ -248,16 +268,21 @@ No screen/component changes otherwise.
 
 ## 7. Build, CI, release
 
-- `ci.yml`: unchanged in spirit (`lint`, `typecheck`, `test`, `build`, all after
-  `npm ci --omit=optional`), plus `npm pack` + an assertion that the tarball has no
-  platform-binary packages, and a smoke that installs the tarball into a temp prefix, runs
-  `limn service serve --port 0` (ephemeral port, printed on stdout) and curls `/health`.
-- `release.yml`: on tag `v*` — verify tag = `package.json` version, `npm ci
-  --omit=optional`, `npm run build`, tarball check (no platform binaries), `npm publish
-  --access public --provenance` (npm trusted publishing via
-  GitHub OIDC; fall back to `NPM_TOKEN` secret if not configured), then a GitHub
-  Release with generated notes and the `.tgz` attached. All DMG/zip/Electron steps
-  removed. `workflow_dispatch` dry‑run keeps `npm pack` + artifact upload.
+- `ci.yml`: unchanged in spirit (`lint`, `typecheck`, `test`, `build` after a plain
+  `npm ci` — **not** `--omit=optional`, which would strip rollup's own native binary and
+  break `vite build`), plus `npm run pack:smoke`: it re‑installs with `--omit=optional`
+  right before `npm pack`, asserts the tarball has no platform-binary packages, installs
+  the tarball into a temp prefix with default npm flags, runs `limn service serve
+  --port 0` (ephemeral port, printed on stdout) and curls `/health`.
+- `release.yml`: on tag `v*` — plain `npm ci`, verify tag = `package.json` version,
+  `npm run pack:smoke` (build + full artifact check), then an explicit
+  `npm ci --omit=optional` strip step, `npm pack`, a second tarball assertion, `npm
+  publish --access public --provenance`, then a GitHub Release with generated notes and
+  the `.tgz` attached. All DMG/zip/Electron steps removed. `workflow_dispatch` dry‑run
+  keeps `npm pack` + artifact upload. **As built:** publishing authenticates with an
+  `NPM_TOKEN` repo secret (`NODE_AUTH_TOKEN`); npm trusted publishing via GitHub OIDC is
+  not configured, so that secret must exist before the first `v*` tag — the `id-token`
+  permission is already granted for provenance.
 - `scripts/`: `shot.sh` / `record-inplace-demo.sh` / `smoke-installed.sh` switch from
   `npx electron .` to `limn service serve --port <ephemeral>` + headless Chrome over CDP
   (the approach already used for web screenshots); `smoke-installed.sh` smokes the
@@ -269,8 +294,8 @@ No screen/component changes otherwise.
   `xattr` section and DMG download; Security section gains one paragraph on the
   service (loopback‑only by default, token required for any other bind). Screenshots
   unaffected (same UI).
-- `docs/architecture.md` §Transport: one backing; add the CLI dual‑role diagram and
-  `/health`, `cli:open` over SSE.
+- `docs/architecture.md` §Transport: one backing; add the CLI dual‑role diagram,
+  `/health`, and the `cli:open` ticket flow.
 - `docs/using-limn.md`: CLI reference (§2 above), service lifecycle, upgrade, Safari
   note, Tailscale recipe.
 - `docs/acp-adapters.md`, `docs/agent-layer.md`: drop `ELECTRON_RUN_AS_NODE`/asar
@@ -300,18 +325,19 @@ Unit (vitest, in `tests/`):
   `launchctl print` parsing → `ActivationInfo`; `status` node‑path check with a fake fs.
 - `service-systemd.test.ts` — unit generation and `systemctl show` parsing.
 - `server-http.test.ts` — `startServer` on port 0: `/health` shape, `cli:open` RPC →
-  SSE broadcast, `pending` stash when no client, guards unchanged (`guard.test.ts`
-  keeps its tests).
+  ticket, `takeCliOpen` redemption (single use, 60 s TTL), guards unchanged
+  (`guard.test.ts` keeps its tests).
 - `open-role.test.ts` — dual‑role decision table with a stubbed `/health` and a stubbed
   prompt (TTY / non‑TTY / `--no-service` / npx cache path).
-- `api-client.test.ts` — `onCliOpen` subscription and `takeCliOpen` ordering.
+- `api-client.test.ts` — RPC/SSE plumbing and the boot-time `?open=<ticket>` redemption.
 
 Integration (CI job): `npm pack` → install into a temp prefix → `limn service serve
 --port 0` in background → `curl /health` → `limn open --hub` against `LIMN_PORT` →
-assert the `cli:open` arrives on an SSE client.
+assert the RPC returns a ticket that `takeCliOpen` redeems. (`scripts/pack-smoke.sh`,
+run by CI as `npm run pack:smoke`, covers the pack/install/`/health` half.)
 
 Manual smoke (human GUI, macOS): fresh `npm i -g`, first‑run prompt → service, reboot
-survives, `limn open --branch x` from a repo focuses the review in the open tab,
+survives, `limn open --branch x` from a repo opens the review in a new tab,
 `status`/`uninstall`, Safari note verified. Existing 1092 tests must stay green; the
 Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the shim.
 
@@ -333,6 +359,13 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
    not a secure context, so PWA/notifications don't apply there.
 7. **`curl | sh` installer / Homebrew tap** — wrappers over `npm i -g` + first run.
 8. **Windows service** (Task Scheduler / NSSM) if there is demand.
+9. **Slim the `@modelcontextprotocol/sdk` tree** — it pulls express *and* hono for a
+   server Limn only speaks to over loopback; it dominates the ≈ 35 MB installed
+   footprint. Either a narrower entry point or a hand-rolled streamable-HTTP transport.
+10. **Single-signal shutdown while a review watcher is armed** — the live-watch poll
+    timer keeps the event loop alive past `server.close()`, so the first SIGINT/SIGTERM
+    can hang; `scripts/shot.sh` and `pack-smoke.sh` escalate to SIGKILL. Unref the timer
+    (or cancel the watcher in `close()`) instead.
 
 ## 12. Open questions resolved during brainstorming
 
@@ -341,4 +374,5 @@ Electron‑only tests in `tests/cli.test.ts` (shim content) are deleted with the
 - Address `limn.localhost`, port 5466; `:80` opt‑in only.
 - `serve` is foreground‑only; no `stop`/`restart` subcommands; `status` shows activation
   and native commands.
-- `cli:open` parity (open a review in the running tab) is in scope.
+- `cli:open` parity is in scope — delivered as a ticket + new tab rather than a push
+  into an already-open tab (§4).

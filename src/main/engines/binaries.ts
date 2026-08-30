@@ -6,9 +6,9 @@ import { promisify } from 'node:util'
 import { ENGINE_PATH_PREF_KEYS } from '../../shared/prefs.js'
 
 /* Engine CLI resolution: the user's system-installed `claude` / `codex` from
-   PATH. Nothing is bundled — the SDKs' platform binaries are excluded from the
-   app package (see electron-builder.yml), so the user supplies the CLIs via
-   their own installs and keeps them current.
+   PATH. Nothing is bundled — packing strips the SDKs' platform binaries (see
+   scripts/pack-smoke.sh), so the user supplies the CLIs via their own installs
+   and keeps them current.
 
    Users can override either CLI with an explicit absolute path in Settings.
    Those overrides intentionally win over PATH even when broken, so a stale

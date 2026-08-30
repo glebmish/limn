@@ -7,39 +7,49 @@ and covers the cross-process topology and event model that neither owns.
 
 ## Overview
 
-Limn is an Electron macOS app (electron-vite) with the standard three-process
-split. It turns `git diff` into an AI-guided review: git is ground truth and the
-agent only annotates — it never alters the code you see. Review state (sessions,
-comments, viewed/reviewed flags, chat) lives in one SQLite file; diff content is
-always read live from git, never cached as truth.
+Limn is a **local Node service with a browser front end**, distributed on npm as
+`@glebmish/limn`. One process serves a React SPA and answers its calls over HTTP
+POST + Server-Sent Events; the `limn` CLI is the same package (`bin/limn.js` →
+`dist/cli`) and either talks to a running service or becomes one. It turns
+`git diff` into an AI-guided review: git is ground truth and the agent only
+annotates — it never alters the code you see. Review state (sessions, comments,
+viewed/reviewed flags, chat) lives in one SQLite file; diff content is always
+read live from git, never cached as truth.
 
 ## Processes and layers
 
-- **`src/shared/`** — process-agnostic contracts, no runtime dependency on main
-  or renderer. Domain types (`types.ts`: the git skeleton, `ReviewAnnotations`,
-  `Comment`/`CommentAnchor`, the `EngineEvent` union), the IPC surface (`ipc.ts`:
-  the `Api` interface and the `API_CHANNELS` list), the agent catalog
-  (`agents.ts`), and the execution-mode ladder (`executionMode.ts`).
-- **`src/main/`** — the Node side. `index.ts` boots the app and opens the single
-  DB handle; `ipc.ts` is the orchestrator (it owns the IPC handlers, per-repo
-  locking, and the three flows below); `git.ts`/`exec.ts` are the git
-  ground-truth layer; `review.ts` assembles diff skeletons and "since" marking;
-  `db/` persists the review layer; `engines/` drives the AI.
-- **`src/preload/index.ts`** — a thin `contextBridge`. It mirrors `API_CHANNELS`
-  onto `ipcRenderer.invoke` and relays the two event streams to the renderer. It
-  exposes no arbitrary-channel escape hatch.
+- **`src/shared/`** — process-agnostic contracts, no runtime dependency on the
+  server or the renderer. Domain types (`types.ts`: the git skeleton,
+  `ReviewAnnotations`, `Comment`/`CommentAnchor`, the `EngineEvent` union), the
+  IPC surface (`ipc.ts`: the `Api` interface and the `API_CHANNELS` list), the
+  agent catalog (`agents.ts`), and the execution-mode ladder
+  (`executionMode.ts`).
+- **`src/main/`** — the service core (the directory keeps its historical name).
+  `ipc.ts` is the orchestrator (it owns the API handlers, per-repo locking, and
+  the three flows below); `git.ts`/`exec.ts` are the git ground-truth layer;
+  `review.ts` assembles diff skeletons and "since" marking; `db/` persists the
+  review layer; `engines/` drives the AI; `paths.ts` resolves the database and
+  log locations; `cliOpen.ts` mints the CLI's one-time open tickets.
+- **`src/server/`** — the HTTP carrier. `http.ts` exports `startServer(opts)`
+  (static SPA + `/rpc/*` + `/events` + `/health`, and it opens the single DB
+  handle); `guard.ts` holds the pure host/origin/auth checks so they are testable
+  without a socket.
+- **`src/cli/`** — the `limn` binary: `args.ts` (grammar), `open.ts` (the
+  dual-role entry point), `serve.ts` (foreground server), and `service/`
+  (launchd / systemd `--user` backends, `status` rendering).
 - **`src/renderer/`** — React 19 with a single Zustand store (`store.ts`) that
   owns screen routing (Dashboard, RepoHub, Review) and the op lifecycle.
+  `api-client.ts` installs `window.api` over `fetch` + `EventSource`.
 
-The dependency graph runs one way: renderer → (preload bridge) → `ipc.ts` →
+The dependency graph runs one way: renderer → (HTTP/SSE) → `ipc.ts` →
 `{git, db, engines}`, with `engines` also reaching `db` and `git`.
 
 ## Data flow: generating a review
 
 A single user action — "Generate guided review" — traces through every layer:
 
-1. The Review screen calls `api.generate(...)`; the preload bridge forwards it as
-   an IPC `invoke`.
+1. The Review screen calls `api.generate(...)`; `api-client.ts` forwards it as
+   `POST /rpc/generate` with the arguments as a JSON array.
 2. `ipc.ts` acquires the per-repo lock, reads the diff from git (`getDiff`) and
    the existing review state from the DB.
 3. It starts the chosen engine's `generateReview`, which returns an
@@ -62,41 +72,87 @@ the `op:result` channel when the operation finishes. `EngineEvent` is a tagged
 union — `status`, `tool`, `text`, `action`, `approval_request`, `done`, `error` —
 so the renderer reduces one event stream regardless of which engine produced it.
 Approvals (when an execution tier requires a go-ahead) ride this same channel as
-`approval_request` events and are answered back over a dedicated IPC call; see
-[agent-layer.md](agent-layer.md) for the approval registry.
+`approval_request` events and are answered back over a dedicated `Api` channel;
+see [agent-layer.md](agent-layer.md) for the approval registry.
 
-## Transport: Electron and the headless web server
+## Transport: HTTP + SSE
 
-The orchestrator (`registerIpc`) never touches Electron. It speaks a small
+The orchestrator (`registerIpc`) never touches the HTTP layer. It speaks a small
 `Transport` seam (`src/main/transport.ts`) — `handle` (register a request/response
 channel), `broadcast` (fan a push message to every client), `notify` (out-of-band
-OS notification), `pickDirectory` (host directory picker) — and two backings
-implement it:
+notification), `pickDirectory` (host directory picker) — and one backing
+implements it today:
 
-- **Electron** (`src/main/index.ts`) — `ipcMain.handle` / `BrowserWindow.webContents.send`
-  / `Notification` / `dialog`. The preload bridge mirrors `API_CHANNELS` onto
-  `ipcRenderer.invoke` and relays `op:event` / `op:result` / `repo:changed`.
-- **Headless web server** (`src/server/index.ts`) — the same channels over HTTP
-  **POST** (request/response) and **Server-Sent Events** (the three broadcast
-  streams). It serves the built renderer from `out/renderer` and shares the desktop
-  app's SQLite database (same userData path). Secure by default: it binds loopback
-  (`LIMN_WEB_HOST` defaults to `127.0.0.1`) and **refuses to start** a non-loopback
-  bind unless `LIMN_WEB_TOKEN` is set; `/rpc` and `/events` are additionally behind
-  a same-origin / DNS-rebinding guard. The renderer reaches it through
-  `src/renderer/web-api.ts`, which presents the identical `Api` over `fetch` +
-  `EventSource`.
+- **The HTTP service** (`src/server/http.ts`) — `startServer({ port, host, token,
+  staticRoot, dbPath, vanityPort80 })` returns `{ port, url, vanity, close() }`.
+  `handle` becomes `POST /rpc/<channel>` with a JSON array of arguments;
+  `broadcast` becomes one `/events` SSE stream carrying `op:event` /
+  `op:result` / `repo:changed` frames; `notify` is a no-op (browser notifications
+  are a follow-up) and `pickDirectory` returns `null` (the client prompts for a
+  path). Everything else is the built SPA, served from `dist/renderer` with an
+  index.html fallback for client-side routes.
+- **`GET /health`** is public and unauthenticated — `{ app, version, pid,
+  startedAt, port }`. It is how the CLI decides whether a service is already
+  running, and it deliberately leaks nothing beyond "a Limn of this version is
+  here".
+- **Secure by default.** The server binds loopback (`LIMN_WEB_HOST` defaults to
+  `127.0.0.1`) and **refuses to start** a non-loopback bind unless
+  `LIMN_WEB_TOKEN` is set. `/rpc/*` and `/events` are the only protected paths:
+  they require the token (`Authorization: Bearer` or `?token=`) when one is set,
+  and pass a same-site / DNS-rebinding guard (`guard.ts`) — an `Origin`, when
+  present, must match the request `Host`, and without a token perimeter the
+  `Host` must be one of `limn.localhost`, `localhost`, `127.0.0.1`, `::1`.
 
-So the renderer is transport-agnostic: `renderer → (preload bridge | web-api) →
-Transport → {git, db, engines}`. `cli:open` is the one exception — it's pushed
-directly by Electron main and is desktop-only.
+So the renderer is transport-agnostic: `renderer → api-client → Transport →
+{git, db, engines}`.
+
+**`cli:open` is a ticket, not a push.** A CLI cannot focus a browser tab it does
+not own, so there is no broadcast for it: `POST /rpc/cli:open` resolves the repo
+root and parks the resulting message under a one-time ticket
+(`src/main/cliOpen.ts`); the CLI opens `http://limn.localhost:5466/?open=<ticket>`
+in a **new** tab; that tab redeems the ticket at boot with the `takeCliOpen`
+channel. Tickets are single-use and expire after 60 s.
+
+## CLI and service
+
+`limn` is dual-role — the same command is a client when a service is up and a
+server when it is not:
+
+```
+limn [DIR] …
+  │
+  ├─ GET 127.0.0.1:5466/health ──► answers ──► client role
+  │                                            POST /rpc/cli:open → { ticket }
+  │                                            open  …/?open=<ticket>  (new tab)
+  │
+  └─────────────────────────────► silent ───► server role
+                                               startServer() in this process,
+                                               ticket issued in-process,
+                                               first run offers `service install`
+```
+
+The background service runs `<node> <…/dist/cli/index.js> service serve
+[--port-80]` from a generated unit — `~/Library/LaunchAgents/dev.glebmish.limn.plist`
+(launchd, `RunAtLoad` + `KeepAlive`, logging to `~/Library/Logs/limn.log`) or
+`~/.config/systemd/user/limn.service` (systemd `--user`, `Restart=always`, logs in
+the journal). Both record absolute, symlink-resolved paths for `node` and the
+entry script, a login-shell `PATH` (so the engines find `git`/`claude`/`codex`),
+and any of `LIMN_PORT` / `LIMN_DB` / `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` that were
+set in the installing shell. There are no `stop`/`restart` subcommands:
+`limn service status` prints the native `launchctl` / `systemctl` commands
+alongside the activation state, URL, pid, and a check that the recorded `node`
+still exists.
 
 ## External dependencies
 
 - **`git`** (subprocess) — the source of truth for all diff, ref, and worktree
   state. Invoked via `execFile` (never a shell) with `core.quotePath=false`.
 - **ACP adapters** (`@agentclientprotocol/claude-agent-acp`, `codex-acp`) — pinned
-  npm packages, spawned per turn, that speak the Agent Client Protocol and drive the
-  user's `claude` / `codex` CLIs. The adapters + their JS SDK glue are bundled; the
-  native CLIs are not (resolved from PATH/Settings). Authentication and billing
-  inherit from the CLI logins; Limn never stores keys. See [agent-layer.md](agent-layer.md).
+  npm packages, spawned per turn with the service's own Node, that speak the Agent
+  Client Protocol and drive the user's `claude` / `codex` CLIs. The adapters + their
+  JS SDK glue are vendored into the npm tarball (`bundleDependencies`); the native
+  CLIs are not (resolved from PATH/Settings). Authentication and billing inherit
+  from the CLI logins; Limn never stores keys. See [agent-layer.md](agent-layer.md).
+- **`@modelcontextprotocol/sdk`** — hosts the per-turn localhost MCP server that
+  exposes Limn's review tools to the adapters (`engines/mcpHost.ts`).
 - **`node:sqlite`** — the bundled SQLite binding; no third-party driver.

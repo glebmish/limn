@@ -65,7 +65,7 @@ async function withBusyThread<T>(threadId: number, run: () => Promise<OperationO
 }
 
 // Set once by registerIpc. All push/notify/dialog calls route through it, so this
-// module is identical whether it's carried by Electron IPC or the web server.
+// module knows nothing about the carrier underneath (see transport.ts).
 let transport: Transport
 
 // ── watch mode: poll the open review's branch; notify (don't auto-reload) when the

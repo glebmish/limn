@@ -31,18 +31,23 @@ Two things are decoupled from the adapter version:
 
 ## Packaging
 
-`electron-builder.yml` bundles the adapters + their JS SDK glue (`asarUnpack`'d so the
-per-turn Node children can load them) and **excludes the bundled native platform
-binaries** the SDKs pull in (`@anthropic-ai/claude-agent-sdk-*` ≈ 225 MB,
-`@openai/codex-*` ≈ 242 MB). The runtime closure that must ship is exactly two scopes —
-`@agentclientprotocol/**` and `@anthropic-ai/**` — each with zero further runtime deps.
+`package.json`'s `bundleDependencies` vendors the adapters + their JS SDK glue into the
+npm tarball, built after `npm ci --omit=optional` so the SDKs' native platform binaries
+(`@anthropic-ai/claude-agent-sdk-*` ≈ 225 MB, `@openai/codex-*` ≈ 242 MB, both declared
+as `optionalDependencies`) are **never shipped and never fetched on install**. npm
+installs the vendored subtree as-is, so a user needs no special flags.
+
+The shipped runtime closure is the two adapter scopes (`@agentclientprotocol/**`,
+`@anthropic-ai/**`), `zod`, and `@modelcontextprotocol/sdk` — the last drags in an
+express/hono tree that dominates the installed footprint (≈ 4.9 MB tarball, ≈ 35 MB on
+disk). Slimming it is a known follow-up.
 
 > ⚠ **Codex hard-requires `CODEX_PATH`.** claude-agent-acp can self-discover `claude`,
 > but codex-acp's only fallback when `CODEX_PATH` is unset is the *bundled*
 > `@openai/codex` binary — which packaging strips. `CODEX_ACP_CONFIG.binaryRequired` +
 > the `runAcpTurn` preflight catch a missing `codex` and surface the friendly
-> `engineBinaryStatus` hint instead of a raw `MODULE_NOT_FOUND`. If you ever change
-> the exclude globs, re-verify the spawn smoke below.
+> `engineBinaryStatus` hint instead of a raw `MODULE_NOT_FOUND`. If you ever change how
+> packing strips those binaries, re-verify the spawn smoke below.
 
 ## Bumping an adapter (deliberate engine upgrade)
 
@@ -73,19 +78,21 @@ binaries** the SDKs pull in (`@anthropic-ai/claude-agent-sdk-*` ≈ 225 MB,
    npx tsx scripts/acp-smoke.ts --engine=claude
    npx tsx scripts/acp-smoke.ts --engine=codex
    ```
-5. **Package + spawn-verify** — build the app and confirm the adapters still load from
-   the packaged, native-binary-stripped layout:
+5. **Package + spawn-verify** — pack the package the way release does and confirm the
+   adapters still load from the installed, native-binary-stripped layout:
    ```
-   npm run package
+   npm run pack:smoke
    ```
-   Then spawn each unpacked adapter with the packaged Electron
-   (`ELECTRON_RUN_AS_NODE=1`, `CODEX_PATH` set for codex) and confirm an `initialize`
-   handshake returns `protocolVersion: 1` — i.e. the module graph resolves with the
-   native binaries excluded. Inspect
-   `dist/mac-arm64/Limn.app/Contents/Resources/app.asar.unpacked/node_modules/` to
-   confirm the adapters are present and no `*-darwin-arm64` platform binary shipped.
-6. **Manual launch smoke** — run the packaged `.app` and exercise generate / chat /
-   batch with an approval on each engine (the GUI path the scripts can't cover).
+   It builds under a full install, re-installs with `npm ci --omit=optional`, `npm pack`s,
+   asserts the tarball carries no `claude-agent-sdk-*` / `codex-<platform>` directory,
+   installs the tarball into a throwaway prefix with **default** npm flags, and curls
+   `/health`. Then spawn each bundled adapter with plain `node` (`CODEX_PATH` set for
+   codex) and confirm an `initialize` handshake returns `protocolVersion: 1` — i.e. the
+   module graph resolves with the native binaries absent. The adapters live under
+   `<global node_modules>/@glebmish/limn/node_modules/@agentclientprotocol/…`.
+6. **Manual launch smoke** — `npm i -g` the packed tarball, run `limn`, and exercise
+   generate / chat / batch with an approval on each engine (the GUI path the scripts
+   can't cover).
 
 ## When exit criteria fail
 
