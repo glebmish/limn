@@ -4,7 +4,7 @@ declare global {
   interface Window {
     api: RendererApi
     limnDev?: {
-      flow: string | null
+      flow?: string | null
       openSession?: string | null
       /** dev-only: open the repo hub for this repo path */
       openHub?: string | null

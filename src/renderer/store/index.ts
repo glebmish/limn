@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { CliOpenMsg } from '../../shared/ipc'
 import { api } from '../lib/api'
 import { dev } from '../dev'
+import { readOpenTicket, stripQuery } from '../boot-params'
 import type { OpsSlice } from './ops'
 import { createOpsSlice } from './ops'
 import type { DashboardSlice } from './dashboard'
@@ -70,7 +71,7 @@ export type { ProgressSlice } from './progress'
 // Edits slice (in-place edits: flow-frame scope + save pipeline); re-export its type.
 export type { EditsSlice } from './edits'
 // App.tsx's push-event bridge, now named + unit-testable handlers.
-export { handleOpEvent, handleOpResult, handleRepoChanged, handleCliOpen, handleSettingsOpen } from './bridge'
+export { handleOpEvent, handleOpResult, handleRepoChanged } from './bridge'
 
 export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlice, ChatSlice, ReviewSlice, ProgressSlice, EditsSlice {
   screen: 'dashboard' | 'hub' | 'review'
@@ -111,15 +112,16 @@ export const useStore = create<AppStore>()((...a) => {
     async boot() {
       await get().loadPrefs()
       await get().loadDashboard()
-      // Apply a pending CLI open AFTER the dashboard has loaded — otherwise its
-      // error toast (e.g. "<dir> is not inside a git repository") races with,
-      // and is clobbered by, loadDashboard's `error: null` reset. takeCliOpen
-      // also marks the renderer ready, so later second-instance forwards arrive
-      // live via onCliOpen (wired in App.tsx).
-      try {
-        const cli = await api().takeCliOpen()
-        if (cli) get().applyCliOpen(cli)
-      } catch { /* no pending cli open */ }
+      // `limn open` puts a one-time ticket in the URL; redeem it after the dashboard
+      // loads so its error toast survives loadDashboard's `error: null` reset.
+      const ticket = readOpenTicket(window.location.search)
+      if (ticket) {
+        stripQuery(['open'])
+        try {
+          const cli = await api().takeCliOpen(ticket)
+          if (cli) get().applyCliOpen(cli)
+        } catch { /* expired ticket — land on the dashboard */ }
+      }
       // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
       const openSession = dev.openSession
       if (openSession) await get().resumeExisting(Number(openSession))

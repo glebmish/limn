@@ -1,9 +1,8 @@
 import { API_CHANNELS } from '../shared/ipc'
-import type { CliOpenMsg, OpEventMsg, OpResultMsg, RepoChangedMsg, RendererApi } from '../shared/ipc'
+import type { OpEventMsg, OpResultMsg, RepoChangedMsg, RendererApi } from '../shared/ipc'
 
-// Web build of `window.api`: the same RendererApi the Electron preload exposes, but
-// carried over HTTP (request/response channels) + Server-Sent Events (the push
-// streams) instead of Electron IPC. Installed by main.tsx when no preload is present.
+// The only `window.api` backing: RendererApi carried over HTTP (request/response
+// channels) + Server-Sent Events (the push streams). Installed by main.tsx before render.
 
 // A token may be passed in the page URL (?token=…); persist it so reloads keep it.
 function authToken(): string {
@@ -33,7 +32,7 @@ async function rpc(channel: string, args: unknown[]): Promise<unknown> {
 }
 
 // ── one SSE connection, fanned out to per-channel subscribers ──
-type AnyMsg = OpEventMsg | OpResultMsg | RepoChangedMsg | CliOpenMsg
+type AnyMsg = OpEventMsg | OpResultMsg | RepoChangedMsg
 const subscribers: Record<string, Set<(msg: AnyMsg) => void>> = {}
 let source: EventSource | null = null
 
@@ -56,7 +55,7 @@ function subscribe<T extends AnyMsg>(channel: string, cb: (msg: T) => void): () 
   return () => { set.delete(cb as (msg: AnyMsg) => void) }
 }
 
-export function installWebApi(): void {
+export function installApiClient(): void {
   const api: Record<string, unknown> = {}
   for (const ch of API_CHANNELS) {
     api[ch] = (...args: unknown[]) => rpc(ch, args)
@@ -64,16 +63,12 @@ export function installWebApi(): void {
   // pickRepo is inherently client-side on the web — there is no server dialog.
   // Prompt for a path on the host the server runs on.
   api.pickRepo = async () => {
-    const dir = window.prompt('Repository path (on the machine running the server):', '')
+    const dir = window.prompt('Repository path on this machine:', '')
     return dir && dir.trim() ? dir.trim() : null
   }
   api.onOpEvent = (cb: (msg: OpEventMsg) => void) => subscribe('op:event', cb)
   api.onOpResult = (cb: (msg: OpResultMsg) => void) => subscribe('op:result', cb)
   api.onRepoChanged = (cb: (msg: RepoChangedMsg) => void) => subscribe('repo:changed', cb)
-  // cli:open is desktop-only (it's driven by the `limn` CLI / second-instance
-  // forwarding), so it never fires on the web — a no-op subscription keeps App.tsx happy.
-  api.onCliOpen = (_cb: (msg: CliOpenMsg) => void) => () => {}
-  api.onSettingsOpen = (_cb: () => void) => () => {}
 
   ;(window as unknown as { api: RendererApi }).api = api as unknown as RendererApi
 }

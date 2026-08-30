@@ -1,4 +1,4 @@
-import type { CliOpenMsg, OpEventMsg, OpResultMsg, RepoChangedMsg } from '../../shared/ipc'
+import type { OpEventMsg, OpResultMsg, RepoChangedMsg } from '../../shared/ipc'
 import { useStore } from './index'
 import { anyExclusiveRunning } from './derive'
 
@@ -42,12 +42,4 @@ export function handleRepoChanged(msg: RepoChangedMsg): void {
     if (!watchStopped) st.setPendingDrift(drift, writeCapability)
     void st.refreshRepoContext()
   }
-}
-
-export function handleCliOpen(msg: CliOpenMsg): void {
-  useStore.getState().applyCliOpen(msg)
-}
-
-export function handleSettingsOpen(): void {
-  useStore.getState().openSettings()
 }
