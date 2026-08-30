@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import fs from 'node:fs'
-import { issueCliOpen, takeCliOpen, _resetTickets } from '../src/server/cliOpen'
+import { issueCliOpen, takeCliOpen, _resetTickets, _ticketCount } from '../src/server/cliOpen'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
+
+afterEach(() => { vi.useRealTimers() })
 
 describe('cli:open tickets', () => {
   it('issues a ticket whose message resolves the repo root and carries the refs', async () => {
@@ -24,8 +26,27 @@ describe('cli:open tickets', () => {
     const { ticket } = await issueCliOpen({ dir: '/' })
     expect(takeCliOpen(ticket)).toEqual({ error: '/ is not inside a git repository' })
   })
-  it('unknown / expired tickets are null', () => {
+  it('unknown tickets are null', () => {
     _resetTickets()
     expect(takeCliOpen('nope')).toBeNull()
+  })
+  it('a ticket expires after its 60s TTL', async () => {
+    _resetTickets()
+    const fx = makeFixtureRepo()
+    const { ticket } = await issueCliOpen({ dir: fx.dir })
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 60_001)
+    expect(takeCliOpen(ticket)).toBeNull()
+  })
+  it('issuing a ticket sweeps out expired ones (an unredeemed backlog cannot grow)', async () => {
+    _resetTickets()
+    const fx = makeFixtureRepo()
+    await issueCliOpen({ dir: fx.dir })
+    await issueCliOpen({ dir: fx.dir })
+    expect(_ticketCount()).toBe(2)
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 60_001)
+    await issueCliOpen({ dir: fx.dir })
+    expect(_ticketCount()).toBe(1)
   })
 })

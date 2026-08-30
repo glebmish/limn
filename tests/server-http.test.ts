@@ -55,6 +55,14 @@ function raw(port: number, opts: { method?: string; path: string; headers?: Reco
   })
 }
 
+/** A static root with a real index.html + one asset, like a built SPA. */
+function withIndex(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-static-'))
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html>\n<html>\n  <head>\n    <title>Limn</title>\n  </head>\n  <body><div id="root"></div></body>\n</html>\n')
+  fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)\n')
+  return dir
+}
+
 describe('startServer', () => {
   it('serves /health with the package version and an ephemeral port', async () => {
     const s = await boot()
@@ -89,6 +97,38 @@ describe('startServer', () => {
     const s = await boot()
     const res = await fetch(`${s.url}/some/spa/route`)
     expect(res.status).toBe(404)
+  })
+
+  it('serves index.html (200) for an unknown SPA route when a build exists', async () => {
+    const s = await boot({ staticRoot: withIndex() })
+    const res = await fetch(`${s.url}/client/side/route`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<div id="root">')
+    // a real asset is still served as itself
+    expect(await (await fetch(`${s.url}/app.js`)).text()).toBe('console.log(1)\n')
+  })
+
+  it('binds the vanity alias when its port is free and tears it down on close()', async () => {
+    const s = await boot({ staticRoot: withIndex(), vanityPort80: true, aliasPort: 0 })
+    expect(s.vanity).toBe(true)
+    expect(s.aliasPort).toBeGreaterThan(0)
+    expect((await fetch(`http://127.0.0.1:${s.aliasPort}/health`)).status).toBe(200)
+    const aliasPort = s.aliasPort!
+    await running!.close()
+    running = null
+    await expect(fetch(`http://127.0.0.1:${aliasPort}/health`)).rejects.toThrow()
+  })
+
+  it('degrades to vanity:false with a log line when the alias port is taken', async () => {
+    const blocker = http.createServer()
+    await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', () => r()))
+    const taken = (blocker.address() as { port: number }).port
+    const lines: string[] = []
+    const s = await boot({ vanityPort80: true, aliasPort: taken, log: (l) => lines.push(l) })
+    expect(s.vanity).toBe(false)
+    expect(s.aliasPort).toBeNull()
+    expect(lines.join('\n')).toMatch(/alias not bound/)
+    blocker.close()
   })
 
   it('rejects rather than hangs when the port is already taken', async () => {
@@ -202,13 +242,6 @@ describe('the protected surface (CSRF / token perimeter)', () => {
 })
 
 describe('dev hooks', () => {
-  function withIndex(): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-static-'))
-    fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html>\n<html>\n  <head>\n    <title>Limn</title>\n  </head>\n  <body><div id="root"></div></body>\n</html>\n')
-    fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)\n')
-    return dir
-  }
-
   it('serves the SPA without the dev marker by default', async () => {
     const s = await boot({ staticRoot: withIndex() })
     expect(await (await fetch(`${s.url}/`)).text()).not.toContain('limn-dev')

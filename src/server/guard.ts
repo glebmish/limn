@@ -67,9 +67,13 @@ export function sameSiteOk(headers: { host?: string; origin?: string; 'sec-fetch
 }
 
 /** Hostname of a `Host` header — `new URL` so `[::1]:5466` survives (a `split(':')`
- *  would hand back `[`). Empty when the header is missing or unparseable. */
+ *  would hand back `[`). Empty when the header is missing, unparseable, or smuggles
+ *  userinfo (`evil.com@127.0.0.1` would otherwise read back as plain 127.0.0.1). */
 function hostname(host: string): string {
-  try { return new URL(`http://${host}`).hostname } catch { return '' }
+  try {
+    const u = new URL(`http://${host}`)
+    return u.username || u.password ? '' : u.hostname
+  } catch { return '' }
 }
 
 /** `POST /rpc/*` is a JSON API, so require the JSON content type: it is the header an

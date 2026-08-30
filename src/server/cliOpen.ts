@@ -37,5 +37,6 @@ export function takeCliOpen(ticket: string): CliOpenMsg | null {
   return hit.expires < Date.now() ? null : hit.msg
 }
 
-/** test hook */
+/** test hooks */
 export function _resetTickets(): void { tickets.clear() }
+export function _ticketCount(): number { return tickets.size }

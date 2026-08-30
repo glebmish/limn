@@ -20,6 +20,9 @@ export interface ServerOptions {
   devHooks?: boolean
   /** also listen on 127.0.0.1:80 when free, so the canonical host works bare */
   vanityPort80?: boolean
+  /** the alias port (default 80) — overridable so tests can exercise the alias
+   *  without a privileged/contended port */
+  aliasPort?: number
   log?: (line: string) => void
 }
 export interface RunningServer {
@@ -27,6 +30,8 @@ export interface RunningServer {
   url: string
   /** true when the :80 alias is bound */
   vanity: boolean
+  /** the port the alias actually bound, null when it isn't up */
+  aliasPort: number | null
   close(): Promise<void>
 }
 
@@ -258,17 +263,22 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   }
   const addr = server.address()
   boundPort = typeof addr === 'object' && addr ? addr.port : opts.port
+  // Bound now: a post-listen 'error' (accept failure, EMFILE) must log, not crash —
+  // an EventEmitter 'error' with no listener takes the whole service down.
+  server.on('error', (err) => { log(`[limn] server error: ${err instanceof Error ? err.message : String(err)}`) })
 
   let vanityServer: http.Server | null = null
   if (opts.vanityPort80) {
+    const wantPort = opts.aliasPort ?? 80
     vanityServer = await new Promise<http.Server | null>((resolve) => {
       const alias = http.createServer(requestListener)
       alias.once('error', (err) => {
-        log(`[limn] :80 alias not bound (${(err as NodeJS.ErrnoException).code}); use :${boundPort}`)
+        log(`[limn] :${wantPort} alias not bound (${(err as NodeJS.ErrnoException).code}); use :${boundPort}`)
         resolve(null)
       })
-      alias.listen(80, '127.0.0.1', () => resolve(alias))
+      alias.listen(wantPort, '127.0.0.1', () => resolve(alias))
     })
+    vanityServer?.on('error', (err) => { log(`[limn] alias error: ${err instanceof Error ? err.message : String(err)}`) })
   }
 
   // hostForUrl: a bare IPv6 bind (LIMN_WEB_HOST=fd7a::1) has to be bracketed, or the
@@ -281,23 +291,27 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   if (token && !isLoopbackName(host)) log(`[limn] bound to ${host} with token auth required.`)
 
   const alias = vanityServer
+  const aliasAddr = alias?.address()
   return {
     port: boundPort,
     url,
     vanity: alias != null,
+    aliasPort: typeof aliasAddr === 'object' && aliasAddr ? aliasAddr.port : null,
     close: () => new Promise<void>((resolve) => {
       // End the push streams first, then drop every remaining socket: a browser tab
       // holding an EventSource (or a keep-alive socket that ignores our FIN) would
       // otherwise keep server.close() pending and swallow the first SIGINT/SIGTERM.
       for (const c of sseClients) c.end()
-      alias?.close()
       alias?.closeAllConnections()
       server.closeAllConnections()
       // Cancel the live-watch poll timer before the DB goes: an armed watcher would
       // otherwise keep the event loop alive long past close() and swallow the first
       // SIGINT (the reason the screenshot scripts used to need a SIGKILL escalation).
       shutdownIpc()
-      server.close(() => { db.close(); resolve() })
+      // Resolve only when BOTH listeners are down — a caller that restarts on the
+      // same ports right after close() must not race the alias's lingering socket.
+      const aliasClosed = alias ? new Promise<void>((r) => alias.close(() => r())) : Promise.resolve()
+      server.close(() => { void aliasClosed.then(() => { db.close(); resolve() }) })
     })
   }
 }

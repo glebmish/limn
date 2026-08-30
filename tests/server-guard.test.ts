@@ -111,6 +111,14 @@ describe('sameSiteOk (CSRF / DNS-rebinding guard)', () => {
     expect(sameSiteOk({ host: 'a b c' }, false)).toBe(false)
     expect(sameSiteOk({ host: '' }, false)).toBe(false)
   })
+
+  // `new URL('http://evil.com@127.0.0.1')` would happily report hostname 127.0.0.1 —
+  // userinfo must not be able to smuggle a foreign Host past the loopback check.
+  it('rejects a Host carrying userinfo with no token perimeter', () => {
+    expect(sameSiteOk({ host: 'evil.com@127.0.0.1:5466' }, false)).toBe(false)
+    expect(sameSiteOk({ host: 'user:pass@localhost:5466' }, false)).toBe(false)
+    expect(sameSiteOk({ host: 'a@limn.localhost:5466' }, false)).toBe(false)
+  })
 })
 
 describe('isJsonContentType', () => {
