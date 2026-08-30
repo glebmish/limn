@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 import { startServer, type RunningServer } from '../src/server/http'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 
@@ -67,5 +68,24 @@ describe('startServer', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-http-'))
     await expect(startServer({ port: 0, host: 'x.localhost', dbPath: path.join(dir, 'limn.db'), staticRoot: dir, log: () => {} }))
       .rejects.toThrow(/LIMN_WEB_TOKEN/)
+  })
+
+  // A browser tab holding an EventSource keeps its socket open; without
+  // closeAllConnections() the first SIGINT would hang waiting on it.
+  it('close() finishes promptly with an open SSE connection', async () => {
+    const s = await boot()
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: s.port, path: '/events' }, (res) => {
+        expect(res.statusCode).toBe(200)
+        res.once('data', () => resolve())
+        res.on('error', () => {})
+      })
+      req.on('error', reject)
+      req.end()
+    })
+    const closed = running!.close().then(() => 'closed' as const)
+    running = null
+    const timer = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2000).unref())
+    expect(await Promise.race([closed, timer])).toBe('closed')
   })
 })

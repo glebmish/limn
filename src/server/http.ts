@@ -233,8 +233,13 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     url,
     vanity: alias != null,
     close: () => new Promise<void>((resolve) => {
+      // End the push streams first, then drop every remaining socket: a browser tab
+      // holding an EventSource (or a keep-alive socket that ignores our FIN) would
+      // otherwise keep server.close() pending and swallow the first SIGINT/SIGTERM.
       for (const c of sseClients) c.end()
       alias?.close()
+      alias?.closeAllConnections()
+      server.closeAllConnections()
       server.close(() => { db.close(); resolve() })
     })
   }

@@ -5,10 +5,11 @@ import type { HealthInfo } from './health.js'
 import { probeHealth } from './health.js'
 import { openBrowser } from './browser.js'
 import { resolvePort, runServe } from './serve.js'
-import { readCliState, writeCliState } from './state.js'
+import { readCliState, writeCliState, type CliState } from './state.js'
 import { findOldShim } from './shim.js'
 import { isServiceInstalled, installService } from './service/index.js'
 import { issueCliOpen, type CliOpenArgs } from '../main/cliOpen.js'
+import type { RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
 
 export type OpenCommand = Extract<CliCommand, { kind: 'open' }>
@@ -29,13 +30,47 @@ function toArgs(cmd: OpenCommand): CliOpenArgs {
   return { dir: cmd.dir, base: cmd.base, compare: cmd.compare, hub: cmd.hub, fresh: cmd.fresh }
 }
 
-async function issueRemote(port: number, args: CliOpenArgs): Promise<string> {
+/** POST cli:open to a running service and return the one-time page ticket. */
+export async function issueRemote(port: number, args: CliOpenArgs): Promise<string> {
   const res = await fetch(`http://127.0.0.1:${port}/rpc/cli:open`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([args])
   })
-  const body = (await res.json()) as { value?: { ticket: string }; error?: string }
-  if (!res.ok || !body.value) throw new Error(body.error || `cli:open failed (${res.status})`)
+  const fallback = `cli:open failed (${res.status})`
+  // Status first: an error page (a proxy's HTML, say) must not blow up in JSON.parse.
+  if (!res.ok) {
+    const body = await res.json().catch(() => null) as { error?: string } | null
+    throw new Error(body?.error || fallback)
+  }
+  const body = (await res.json()) as { value?: { ticket: string } }
+  if (!body.value) throw new Error(fallback)
   return body.value.ticket
+}
+
+/** Everything `runOpen` reaches outside its own process, injectable for tests. */
+export interface OpenDeps {
+  probe: (port: number) => Promise<HealthInfo | null>
+  issueRemote: (port: number, args: CliOpenArgs) => Promise<string>
+  install: (opts: { port80: boolean }, io: Io) => Promise<number>
+  installed: () => Promise<boolean>
+  openBrowser: (url: string) => void
+  readState: () => CliState
+  writeState: (patch: Partial<CliState>) => void
+  npx: () => boolean
+  serve: (cmd: { port?: number; port80: boolean }, io: Io, onReady?: (s: RunningServer) => void) => Promise<number>
+  findShim: () => string | null
+}
+
+export const defaultOpenDeps: OpenDeps = {
+  probe: probeHealth,
+  issueRemote,
+  install: installService,
+  installed: isServiceInstalled,
+  openBrowser,
+  readState: readCliState,
+  writeState: writeCliState,
+  npx: () => isNpxInvocation(process.argv[1] ?? ''),
+  serve: runServe,
+  findShim: findOldShim
 }
 
 function pageUrl(port: number, ticket: string): string {
@@ -43,22 +78,22 @@ function pageUrl(port: number, ticket: string): string {
 }
 
 /** Ask a running server for a ticket and open the page. Exit code, never a stack trace. */
-async function openViaServer(port: number, cmd: OpenCommand, io: Io): Promise<number> {
+async function openViaServer(port: number, cmd: OpenCommand, io: Io, deps: OpenDeps): Promise<number> {
   let ticket: string
   try {
-    ticket = await issueRemote(port, toArgs(cmd))
+    ticket = await deps.issueRemote(port, toArgs(cmd))
   } catch (err) {
     io.err(`error: could not reach the Limn server on port ${port}: ${err instanceof Error ? err.message : String(err)}`)
     return 1
   }
   const url = pageUrl(port, ticket)
   io.out(`opening ${url}`)
-  openBrowser(url)
+  deps.openBrowser(url)
   return 0
 }
 
-async function offerShimRemoval(io: Io): Promise<void> {
-  const shim = findOldShim()
+async function offerShimRemoval(io: Io, deps: OpenDeps): Promise<void> {
+  const shim = deps.findShim()
   if (!shim) return
   if (await io.ask(`Found the old desktop-app shim at ${shim}; it conflicts with this command. Delete it?`)) {
     try {
@@ -71,8 +106,8 @@ async function offerShimRemoval(io: Io): Promise<void> {
 }
 
 /** Install the service the first time someone runs `limn` with no server up. 0 on success. */
-async function installFromPrompt(port: number, io: Io): Promise<number> {
-  if (!isNpxInvocation(process.argv[1] ?? '')) return installService({ port80: false }, io)
+async function installFromPrompt(port: number, io: Io, deps: OpenDeps): Promise<number> {
+  if (!deps.npx()) return deps.install({ port80: false }, io)
   io.out('installing @glebmish/limn globally…')
   try {
     execFileSync('npm', ['i', '-g', '@glebmish/limn'], { stdio: 'inherit' })
@@ -92,40 +127,40 @@ async function installFromPrompt(port: number, io: Io): Promise<number> {
 }
 
 /** Review a directory: hand it to a running service, or start one. */
-export async function runOpen(cmd: OpenCommand, io: Io): Promise<number> {
+export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = defaultOpenDeps): Promise<number> {
   const port = resolvePort()
-  await offerShimRemoval(io)
-  const health = await probeHealth(port)
+  await offerShimRemoval(io, deps)
+  const health = await deps.probe(port)
   const decision = decideOpen({
     health,
     noService: cmd.noService,
     isTTY: io.isTTY,
-    serviceInstalled: await isServiceInstalled(),
-    declinedBefore: Boolean(readCliState().servicePromptDeclined)
+    serviceInstalled: await deps.installed(),
+    declinedBefore: Boolean(deps.readState().servicePromptDeclined)
   })
 
-  if (decision.role === 'client') return openViaServer(port, cmd, io)
+  if (decision.role === 'client') return openViaServer(port, cmd, io, deps)
 
   if (decision.offerService) {
-    const question = isNpxInvocation(process.argv[1] ?? '')
+    const question = deps.npx()
       ? `Install Limn globally (npm i -g @glebmish/limn) and as a background service so http://limn.localhost:${port} is always available?`
       : `Install Limn as a background service so http://limn.localhost:${port} is always available? (LaunchAgent in ~/Library/LaunchAgents)`
     if (await io.ask(question)) {
-      const code = await installFromPrompt(port, io)
+      const code = await installFromPrompt(port, io, deps)
       if (code !== 0) return code
-      return openViaServer(port, cmd, io)
+      return openViaServer(port, cmd, io, deps)
     }
-    writeCliState({ servicePromptDeclined: true })
+    deps.writeState({ servicePromptDeclined: true })
     io.out('ok — running in the foreground (Ctrl-C to stop). Re-offer any time with `limn service install`.')
   }
 
   // Server role: run the server in this process and open the browser once it is up.
   // The ticket is issued in-process — no HTTP round trip to ourselves.
-  return runServe({ port80: false }, io, (server) => {
+  return deps.serve({ port80: false }, io, (server) => {
     void issueCliOpen(toArgs(cmd)).then(({ ticket }) => {
       const url = pageUrl(server.port, ticket)
       io.out(`opening ${url}`)
-      openBrowser(url)
+      deps.openBrowser(url)
     }, (err: unknown) => {
       io.err(`error: could not open the review: ${err instanceof Error ? err.message : String(err)}`)
     })
