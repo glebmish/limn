@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CANONICAL_HOST, isLoopbackHost, isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
+import { CANONICAL_HOST, isJsonContentType, isLoopbackHost, isLoopbackName, isProtectedPath, sameSiteOk } from '../src/server/guard'
 
 describe('isLoopbackName', () => {
   it('recognizes loopback hosts (with bracket/case variants)', () => {
@@ -83,5 +83,49 @@ describe('sameSiteOk (CSRF / DNS-rebinding guard)', () => {
 
   it('treats a malformed Origin as cross-site (rejected)', () => {
     expect(sameSiteOk({ host: '127.0.0.1:8787', origin: 'not a url' }, false)).toBe(false)
+  })
+
+  // An opaque origin — a sandboxed iframe, a data: URL, some redirect chains. It is
+  // never our own page (the SPA is served from a real loopback origin), so on the
+  // protected surface it is exactly the drive-by we are guarding against.
+  it('treats an opaque `Origin: null` as cross-site (rejected), token or not', () => {
+    expect(sameSiteOk({ host: '127.0.0.1:8787', origin: 'null' }, false)).toBe(false)
+    expect(sameSiteOk({ host: 'limn.localhost:5466', origin: 'null' }, false)).toBe(false)
+    expect(sameSiteOk({ host: 'my-box.tailnet.ts.net', origin: 'null' }, true)).toBe(false)
+  })
+
+  it('rejects a browser-declared cross-site fetch even when the Origin is absent', () => {
+    expect(sameSiteOk({ host: '127.0.0.1:8787', 'sec-fetch-site': 'cross-site' }, false)).toBe(false)
+    // the values our own page sends
+    expect(sameSiteOk({ host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787', 'sec-fetch-site': 'same-origin' }, false)).toBe(true)
+    expect(sameSiteOk({ host: '127.0.0.1:8787', 'sec-fetch-site': 'none' }, false)).toBe(true)
+  })
+
+  it('parses an IPv6 Host literal rather than splitting on the first colon', () => {
+    expect(sameSiteOk({ host: '[::1]:5466' }, false)).toBe(true)
+    expect(sameSiteOk({ host: '[::1]:5466', origin: 'http://[::1]:5466' }, false)).toBe(true)
+    expect(sameSiteOk({ host: '[2001:db8::1]:5466' }, false)).toBe(false)
+  })
+
+  it('rejects an unparseable Host with no token perimeter', () => {
+    expect(sameSiteOk({ host: 'a b c' }, false)).toBe(false)
+    expect(sameSiteOk({ host: '' }, false)).toBe(false)
+  })
+})
+
+describe('isJsonContentType', () => {
+  it('accepts the JSON media type with any casing or parameters', () => {
+    for (const v of ['application/json', 'application/json; charset=utf-8', 'APPLICATION/JSON', ' application/json ']) {
+      expect(isJsonContentType(v)).toBe(true)
+    }
+  })
+  it('rejects the form/plain types an HTML form can send without a preflight', () => {
+    for (const v of ['text/plain', 'text/plain;charset=UTF-8', 'application/x-www-form-urlencoded', 'multipart/form-data', 'application/json-seq', undefined, '']) {
+      expect(isJsonContentType(v)).toBe(false)
+    }
+  })
+  it('reads the first value when the header was sent twice', () => {
+    expect(isJsonContentType(['application/json', 'text/plain'])).toBe(true)
+    expect(isJsonContentType(['text/plain'])).toBe(false)
   })
 })

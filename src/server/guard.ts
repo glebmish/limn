@@ -40,13 +40,36 @@ export function isProtectedPath(pathname: string): boolean {
  *    isLoopbackHost, not isLoopbackName: the browser sends the vanity name it was
  *    given (`limn.localhost`), which is same-machine, while every other name is not.
  *    With a token set, the token is the perimeter and any Host (Tailscale name) is fine. */
-export function sameSiteOk(headers: { host?: string; origin?: string }, hasToken: boolean): boolean {
+export function sameSiteOk(headers: { host?: string; origin?: string; 'sec-fetch-site'?: string | string[] }, hasToken: boolean): boolean {
   const host = (headers.host || '').toLowerCase()
   const origin = headers.origin
-  if (typeof origin === 'string' && origin !== 'null') {
+  // `null` is an *opaque* origin — a sandboxed iframe, a data:/blob: document, some
+  // redirect chains. It is never the SPA (which is served from a real loopback
+  // origin), and a sandboxed iframe can post a text/plain form body that parses as
+  // JSON, so on this surface it is precisely the drive-by we guard against. Reject.
+  if (typeof origin === 'string') {
+    if (origin === 'null') return false
     try { if (new URL(origin).host.toLowerCase() !== host) return false }
     catch { return false }
   }
-  if (!hasToken && !isLoopbackHost(host.split(':')[0])) return false
+  // Belt-and-braces for the Origin-less cases: browsers that send Fetch Metadata tell
+  // us directly when the initiator was another site. (Absent = an old browser or a
+  // non-browser client; `none` = typed/opened directly.)
+  if (headers['sec-fetch-site'] === 'cross-site') return false
+  if (!hasToken && !isLoopbackHost(hostname(host))) return false
   return true
+}
+
+/** Hostname of a `Host` header — `new URL` so `[::1]:5466` survives (a `split(':')`
+ *  would hand back `[`). Empty when the header is missing or unparseable. */
+function hostname(host: string): string {
+  try { return new URL(`http://${host}`).hostname } catch { return '' }
+}
+
+/** `POST /rpc/*` is a JSON API, so require the JSON content type: it is the header an
+ *  HTML form (the CSRF vector that needs no preflight) cannot set. Charset and other
+ *  parameters are allowed; the media type match is case-insensitive per RFC 9110. */
+export function isJsonContentType(value: string | string[] | undefined): boolean {
+  const raw = Array.isArray(value) ? value[0] : value
+  return typeof raw === 'string' && /^application\/json\s*(;|$)/i.test(raw.trim())
 }

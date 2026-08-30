@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { registerIpc } from './ipc.js'
 import { openDb } from './db/db.js'
 import { issueCliOpen, type CliOpenArgs } from './cliOpen.js'
-import { CANONICAL_HOST, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
+import { CANONICAL_HOST, isJsonContentType, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
 import type { Transport, BroadcastChannel, BroadcastMsg } from './transport.js'
 
 export interface ServerOptions {
@@ -53,10 +53,32 @@ function authorized(req: http.IncomingMessage, url: URL, token: string): boolean
   return q != null && safeEqual(q, token)
 }
 
+/** Every RPC argument list is small (paths, ids, prompts); a body larger than this is a
+ *  mistake or a memory-exhaustion attempt, so stop reading rather than buffer it all. */
+const MAX_BODY_BYTES = 8 * 1024 * 1024
+export class BodyTooLarge extends Error {
+  constructor() { super(`request body exceeds ${MAX_BODY_BYTES} bytes`) }
+}
+
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (c) => chunks.push(c as Buffer))
+    let size = 0
+    let over = false
+    req.on('data', (c) => {
+      if (over) return
+      const buf = c as Buffer
+      size += buf.length
+      if (size > MAX_BODY_BYTES) {
+        // stop buffering and let the caller answer 413; the response itself tears the
+        // socket down (an unread request body can't be kept alive), which ends the upload.
+        over = true
+        chunks.length = 0
+        reject(new BodyTooLarge())
+        return
+      }
+      chunks.push(buf)
+    })
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     req.on('error', reject)
   })
@@ -167,6 +189,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     // ── request/response RPC: POST /rpc/<channel> with a JSON array of args ──
     if (req.method === 'POST' && url.pathname.startsWith('/rpc/')) {
+      // An HTML form — the CSRF vector that needs no CORS preflight — can only send
+      // text/plain, urlencoded or multipart, and `enctype=text/plain` can still carry
+      // a body that parses as JSON. Requiring the JSON media type shuts that door.
+      if (!isJsonContentType(req.headers['content-type'])) {
+        res.writeHead(415, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ error: 'Content-Type must be application/json' }))
+        return
+      }
       const channel = decodeURIComponent(url.pathname.slice('/rpc/'.length))
       const fn = handlers.get(channel)
       if (!fn) { res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: `unknown channel ${channel}` })); return }
@@ -177,7 +207,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           const value = await fn(...(Array.isArray(args) ? args : []))
           res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ value: value ?? null }))
         } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'application/json' })
+          const status = err instanceof BodyTooLarge ? 413 : 500
+          res.writeHead(status, { 'Content-Type': 'application/json' })
             .end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
         }
       })()
