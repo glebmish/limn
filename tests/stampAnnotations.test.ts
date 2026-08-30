@@ -1,7 +1,9 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
 import { stampAnnotationAnchors } from '../src/main/engines/stampAnnotations'
-import type { ReviewAnnotations, SessionMeta } from '../src/shared/types'
+import type { FocusTarget, ReviewAnnotations, SessionMeta } from '../src/shared/types'
+
+type DiffAnchor = Extract<FocusTarget, { kind: 'diff' }>
 
 let fx: FixtureRepo
 beforeAll(() => {
@@ -41,8 +43,8 @@ describe('stampAnnotationAnchors', () => {
 
     const [diffBlock, framingBlock, fileBlock] = ann.sections[0].narration
     expect(diffBlock.anchor).toMatchObject({ kind: 'diff' })
-    expect((diffBlock.anchor as any).stamp).toBeTruthy()
-    expect((diffBlock.anchor as any).stamp.headSha).toBe(fx.shas.head)
+    expect((diffBlock.anchor as DiffAnchor).stamp).toBeTruthy()
+    expect((diffBlock.anchor as DiffAnchor).stamp!.headSha).toBe(fx.shas.head)
     expect(framingBlock.anchor).toBeUndefined()
     expect(fileBlock.anchor).toEqual({ kind: 'file', file: 'src/a.ts' }) // non-diff anchor untouched
   })
@@ -72,8 +74,8 @@ describe('stampAnnotationAnchors', () => {
 
     const [n1, n2, n3] = ann.sections[0].diagram!.nodes
     expect(n1.anchor).toMatchObject({ kind: 'diff' })
-    expect((n1.anchor as any).stamp).toBeTruthy()
-    expect((n1.anchor as any).stamp.headSha).toBe(fx.shas.head)
+    expect((n1.anchor as DiffAnchor).stamp).toBeTruthy()
+    expect((n1.anchor as DiffAnchor).stamp!.headSha).toBe(fx.shas.head)
     expect(n2.anchor).toEqual({ kind: 'file', file: 'src/a.ts' }) // non-diff anchor untouched
     expect(n3.anchor).toBeUndefined()
   })
@@ -98,6 +100,6 @@ describe('stampAnnotationAnchors', () => {
       createdAt: 'now', updatedAt: 'now'
     }
     await expect(stampAnnotationAnchors('/nonexistent/not-a-repo', badSession, ann)).resolves.toBeUndefined()
-    expect((ann.sections[0].narration[0].anchor as any).stamp).toBeUndefined()
+    expect((ann.sections[0].narration[0].anchor as DiffAnchor).stamp).toBeUndefined()
   })
 })

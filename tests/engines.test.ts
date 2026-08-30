@@ -10,7 +10,7 @@ import { resolveDecision } from '../src/main/engines/approvals'
 import { createToolHost } from '../src/main/engines/tools'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState } from '../src/main/db/sessions'
-import type { Comment, EngineEvent, RefPair } from '../src/shared/types'
+import type { Comment, EngineEvent, RefPair, ReviewAnnotations } from '../src/shared/types'
 
 let fx: FixtureRepo
 beforeAll(() => {
@@ -75,7 +75,7 @@ describe('mergeAnnotations', () => {
       ],
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.includes('NOPE'))).toBe(true)
     const sec = annotations.sections.find((s) => s.id === 'a')!
     expect(sec.narration[0].text).toBe('keep me') // text survives
@@ -96,7 +96,7 @@ describe('mergeAnnotations', () => {
       ],
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any, untracked)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations, untracked)
     expect(warnings.some((w) => w.includes('new.ts'))).toBe(false) // not wrongly flagged
     const sec = annotations.sections.find((s) => s.id === 'a')!
     expect(sec.narration[0].anchor).toEqual({ kind: 'file', file: 'new.ts' }) // anchor kept
@@ -118,7 +118,7 @@ describe('mergeAnnotations', () => {
       ],
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.includes('src/b.ts'))).toBe(false)
     const sec = annotations.sections.find((s) => s.id === 'a')!
     expect(sec.narration[0].anchor).toEqual({ kind: 'file', file: 'src/b.ts' }) // cross-reference kept
@@ -141,7 +141,7 @@ describe('mergeAnnotations', () => {
       ],
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.includes('ghost'))).toBe(true)
     const sec = annotations.sections.find((s) => s.id === 'a')!
     expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }])
@@ -164,7 +164,7 @@ describe('mergeAnnotations', () => {
       ],
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.toLowerCase().includes('cycle'))).toBe(true)
     const sec = annotations.sections.find((s) => s.id === 'a')!
     // cyclic edges are kept (only warned about) — the renderer falls back to a list
@@ -182,7 +182,7 @@ describe('mergeAnnotations', () => {
       },
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.includes('GHOST'))).toBe(true)
     const crit = annotations.planMap!.acceptance[0]
     expect(crit.text).toBe('does the thing') // entry kept
@@ -200,7 +200,7 @@ describe('mergeAnnotations', () => {
       },
       questions: []
     } as const
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
     expect(warnings.some((w) => w.includes('src/a.ts'))).toBe(false)
     expect(annotations.planMap!.acceptance[0].source).toEqual({ path: 'src/a.ts', line: 2 })
   })
@@ -217,7 +217,7 @@ describe('mergeAnnotations', () => {
       questions: []
     } as const
     const artifactPaths = new Set(['docs/spec.md'])
-    const { annotations, warnings } = mergeAnnotations(sk, raw as any, new Set(), artifactPaths)
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations, new Set(), artifactPaths)
     expect(warnings.some((w) => w.includes('docs/spec.md'))).toBe(false)
     expect(annotations.planMap!.acceptance[0].source).toEqual({ path: 'docs/spec.md', line: 5 })
   })
