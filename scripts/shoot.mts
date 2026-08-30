@@ -1,7 +1,8 @@
 /* Screenshot seed (dev only): builds a fixture repo + a pre-seeded db with a
  * generated review and two populated chats (the review agent on Claude, plus a
  * second chat switched to Codex). Prints { repo, db, sessionId } as JSON so a
- * launcher can run Electron with LIMN_DB / LIMN_OPEN_SESSION / LIMN_FLOW=chat. */
+ * launcher can serve with `LIMN_DB=<db> node bin/limn.js service serve` and open
+ * the URL from `scripts/dev-url.mts`. */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Record the in-place-edits demo: seed via shoot.mts (caller), drive LIMN_SCENARIO,
-# capture frames via LIMN_SHOT_FRAMES. Usage: record-inplace-demo.sh <seed.json> <framesdir>
+# Record the in-place-edits demo: seed via shoot.mts (caller), serve on an ephemeral
+# port, drive LIMN_SCENARIO, capture frames via cdp-shot.mts --frames.
+# Usage: record-inplace-demo.sh <seed.json> <framesdir>
 set -euo pipefail
 seed_file="${1:?usage: record-inplace-demo.sh <seed.json> <framesdir>}"
 frames="${2:?frames dir}"
@@ -21,11 +22,25 @@ SCENARIO='[
  {"at":12200,"do":"key","sel":"textarea.ff-ta","key":"Escape"}
 ]'
 
-env LIMN_DB="$DB" LIMN_OPEN_SESSION="$SID" LIMN_FLOW=chat \
-  LIMN_SHOT_FRAMES="$frames" LIMN_SHOT_EVERY=350 LIMN_SHOT_COUNT=36 LIMN_SHOT_DELAY=2500 LIMN_SHOT_QUIT=1 \
-  LIMN_SHOW_AFFORDANCES=1 \
+port="${LIMN_PORT:-$((20000 + RANDOM % 20000))}"
+[ -f dist/renderer/index.html ] || npm run build >/dev/null
+LIMN_DB="$DB" LIMN_PORT="$port" node bin/limn.js service serve >/tmp/limn-serve.log 2>&1 &
+srv=$!
+# A session with an active live-watch timer can outlive a graceful SIGTERM's
+# server.close() (the poll interval keeps the event loop alive), so escalate
+# to SIGKILL if it doesn't exit promptly.
+kill_srv() {
+  kill "$srv" 2>/dev/null || true
+  for _ in $(seq 1 20); do kill -0 "$srv" 2>/dev/null || return 0; sleep 0.1; done
+  kill -9 "$srv" 2>/dev/null || true
+}
+trap kill_srv EXIT
+for _ in $(seq 1 50); do curl -sf "http://127.0.0.1:$port/health" >/dev/null && break; sleep 0.2; done
+
+url="$(env LIMN_PORT="$port" LIMN_OPEN_SESSION="$SID" LIMN_FLOW=chat LIMN_SHOW_AFFORDANCES=1 \
   LIMN_FOCUS='{"kind":"diff","file":"src/long.ts","side":"new","line":25}' \
   LIMN_SCENARIO="$SCENARIO" \
-  npx electron . >/tmp/limn-electron.log 2>&1
+  npx tsx scripts/dev-url.mts)"
+npx tsx scripts/cdp-shot.mts --url "$url" --frames "$frames" --every 350 --count 36 --delay 2500
 
 ls "$frames" | wc -l
