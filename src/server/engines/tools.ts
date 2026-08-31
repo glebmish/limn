@@ -113,6 +113,21 @@ function normalizeFocusTarget(a: z.infer<typeof focusTarget>): FocusTarget {
 function normalizeAnchor(a: z.infer<typeof focusTarget>): CommentAnchor {
   return normalizeFocusTarget(a)
 }
+/** Stamp a diff FocusTarget against the current surface, exactly as `add_comment`
+ *  stamps a comment anchor. Without this a `point` stop is frozen in the message's
+ *  actions with no blob/context and (models never pass one) an empty `lineContent`,
+ *  so the re-anchor pass has nothing to work with and the stop keeps naming a line
+ *  number whose code has since moved (#18). Never throws and never rejects a point:
+ *  an unstampable target degrades to today's bare target. */
+async function stampFocusTarget(ctx: ToolHostCtx, target: FocusTarget): Promise<FocusTarget> {
+  if (target.kind !== 'diff') return target
+  try {
+    // ctx.repo is already the resolved workdir; ctx has no pair → reload the session.
+    const session = getSession(ctx.db, ctx.sessionId)
+    if (!session) return target
+    return await stampAnchor(ctx.repo, session, target) as FocusTarget
+  } catch { return target }
+}
 function anchorLabel(a: CommentAnchor): string {
   switch (a.kind) {
     case 'diff': return `${a.file}:${a.line}`
@@ -161,14 +176,14 @@ const TOOL_IMPLS: ToolImpl[] = [
       'multi-stop sequence is cyclic or useful to repeat. It is the primary way to point at ' +
       'code — but when one call covers the locations, don\'t also point at them individually.',
     input: POINT_INPUT,
-    run: (_ctx, raw) => {
+    run: async (ctx, raw) => {
       const { stops, loop } = raw as z.infer<z.ZodObject<typeof POINT_INPUT>>
       const action: AgentAction = {
         kind: 'point',
-        stops: stops.map((s) => ({
-          target: normalizeFocusTarget(s.target),
+        stops: await Promise.all(stops.map(async (s) => ({
+          target: await stampFocusTarget(ctx, normalizeFocusTarget(s.target)),
           ...(s.note?.trim() ? { note: s.note.trim() } : {})
-        })),
+        }))),
         ...(loop ? { loop: true } : {})
       }
       const labels = action.stops.map((s) => describeFocus(s.target)).join(' → ')

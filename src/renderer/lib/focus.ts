@@ -126,7 +126,16 @@ function settleScrollThenFlash(main: HTMLElement, el: HTMLElement, anchor: Focus
   requestAnimationFrame(step)
 }
 
-export function focusAnchor(anchor: FocusTarget): void {
+/** The target a jump actually lands on. #18: a diff anchor the re-anchor pass could
+ *  not place on the current surface has no line to scroll to — its number is either
+ *  stale ('lost', now naming unrelated code) or off this diff — so it degrades to its
+ *  file rather than flashing whatever occupies the old line. */
+export function jumpTarget(a: FocusTarget): FocusTarget {
+  return a.kind === 'diff' && a.stale ? { kind: 'file', file: a.file } : a
+}
+
+export function focusAnchor(target: FocusTarget): void {
+  const anchor = jumpTarget(target)
   const st = useStore.getState()
   // A jump from an open spec/plan must return to the changes view first, or the
   // target diff/section/file node won't exist to scroll to (the retry loop below

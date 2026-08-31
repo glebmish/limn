@@ -23,7 +23,14 @@ function focusKind(a: FocusTarget): string {
   }
 }
 
-function focusTarget(a: FocusTarget): { text: string; mono: boolean } {
+/** The tooltip for a stop whose anchor the re-anchor pass could not place: clicking
+ *  it lands on the file (focus.ts degrades the jump), so say why. */
+const STALE_TITLE = {
+  lost: 'The code this pointed at is no longer in the review — jumps to the file instead.',
+  'off-surface': 'The line this points at is not shown in this diff — jumps to the file instead.'
+} as const
+
+function focusTarget(a: FocusTarget): { text: string; mono: boolean; staleTitle?: string } {
   switch (a.kind) {
     case 'summary': return { text: 'Review summary', mono: false }
     case 'section': {
@@ -31,7 +38,16 @@ function focusTarget(a: FocusTarget): { text: string; mono: boolean } {
       return { text: sec?.name ?? 'Review section', mono: false }
     }
     case 'file': return { text: splitPath(a.file).name, mono: true }
-    case 'diff': return { text: a.endLine ? `${splitPath(a.file).name}:${a.line}–${a.endLine}` : `${splitPath(a.file).name}:${a.line}`, mono: true }
+    case 'diff': {
+      const name = splitPath(a.file).name
+      // A 'lost' anchor's line number no longer names the code the agent pointed at
+      // (#18) — show the file alone rather than a number that reads as precise and
+      // isn't. 'off-surface' keeps its number: it is still correct in the file.
+      const text = a.stale === 'lost' ? name
+        : a.endLine ? `${name}:${a.line}–${a.endLine}`
+        : `${name}:${a.line}`
+      return { text, mono: true, ...(a.stale ? { staleTitle: STALE_TITLE[a.stale] } : {}) }
+    }
   }
 }
 
@@ -78,7 +94,7 @@ function PointCard({ action }: { action: Extract<AgentAction, { kind: 'point' }>
     const stop = action.stops[0]
     const target = focusTarget(stop.target)
     return (
-      <button className="limn-act focus" title="Re-focus this in the review" onClick={() => focusAnchor(stop.target)}>
+      <button className="limn-act focus" title={target.staleTitle ?? 'Re-focus this in the review'} onClick={() => focusAnchor(stop.target)}>
         <div className="limn-act-head">
           <I.eye className="ah-ic" />
           <span className="ah-verb">Jump to</span>
@@ -112,6 +128,7 @@ function PointCard({ action }: { action: Extract<AgentAction, { kind: 'point' }>
               key={i}
               type="button"
               className={'lt-stop' + (i === cur ? ' on' : '')}
+              {...(label.staleTitle ? { title: label.staleTitle } : {})}
               onClick={() => go(i)}
             >
               <span className="lt-n">{i + 1}</span>
@@ -156,7 +173,14 @@ function CommentActionCard({ action, engine }: {
 }) {
   const added = action.kind === 'comment_added'
   const resolved = action.kind === 'comment_resolved'
-  const anchor = added ? action.comment.anchor : action.anchor
+  const commentId = added ? action.comment.id : action.commentId
+  // The action's own anchor is a snapshot frozen at tool-call time; the comment it
+  // names is re-anchored on every load. Prefer the live one so the card's label AND
+  // its jump both follow the code (the `Quote` below already reads the live comment,
+  // so the frozen anchor used to make the two disagree). Falls back to the snapshot
+  // for a comment that no longer exists.
+  const liveAnchor = useStore((s) => s.loaded?.state.comments.find((c) => c.id === commentId)?.anchor)
+  const anchor = liveAnchor ?? (added ? action.comment.anchor : action.anchor)
   const body = added ? action.comment.text : action.kind === 'comment_replied' ? action.reply.text : action.note
   const title = added ? 'Commented' : action.kind === 'comment_replied' ? 'Replied' : 'Resolved'
   const Icon = added ? I.bubble : resolved ? I.check : I.arrow

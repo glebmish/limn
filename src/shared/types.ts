@@ -157,8 +157,20 @@ export interface AnchorContext {
   after: string[]          // up to CONTEXT_N lines below, in order
 }
 
+/** Re-anchor verdict for a diff anchor that has no owning `Comment` — a narration
+ *  block, a diagram node, or a `point` stop (`FocusTarget`). Comments record the same
+ *  two outcomes on the comment itself (`outdated` / `notInDiff`); these anchors have
+ *  nowhere else to put it, so it rides on the anchor. Recomputed on every load from
+ *  the immutable stamp (never accumulated), and cleared the moment the line is placed
+ *  on the rendered surface again.
+ *   - `'lost'`        the line could not be found at all — `line` is a stale number
+ *                     that now points at unrelated code, so the UI must not claim it.
+ *   - `'off-surface'` `line` is correct in the file but is not rendered in this diff,
+ *                     so there is nothing on screen to jump to. */
+export type AnchorStale = 'lost' | 'off-surface'
+
 export type CommentAnchor =
-  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; endLine?: number; hunkRange: string; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
+  | { kind: 'diff'; file: string; side: 'new' | 'old'; line: number; endLine?: number; hunkRange: string; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext; stale?: AnchorStale }
   | { kind: 'artifact'; path: string; line: number; lineContent: string; stamp?: AnchorStamp; context?: AnchorContext }
   | { kind: 'plan-step'; stepN: number }
   | { kind: 'section'; sectionId: string; part?: 'narration' | 'diagram' }

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolDef, type ToolHostCtx } from '../src/server/engines/tools'
 import { FakeEngine } from '../src/server/engines/fake'
+import { makeFixtureRepo } from './helpers/fixtureRepo'
 import { openDb } from '../src/server/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta, replaceUiState } from '../src/server/db/sessions'
 import type { AgentAction, Comment, EngineEvent, RefPair, ReviewAnnotations } from '../src/shared/types'
@@ -79,6 +80,43 @@ describe('createToolHost — point', () => {
     })
     expect(actionEvents(events)).toEqual([action])
     expect(host.collected()).toEqual([action])
+  })
+
+  // #18: a stop with no stamp and no quote can never be re-anchored, so it keeps
+  // naming the line number it was created at long after that code moved. `point`
+  // stamps its diff stops the same way `add_comment` stamps a comment anchor.
+  it('stamps a diff stop against the current surface (quote + blob + context)', async () => {
+    const fx2 = makeFixtureRepo()
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-point-')), 'db')).db
+    const s = createSession(db, fx2.dir, {
+      base: { kind: 'branch', symbol: 'main', anchorSha: fx2.shas.base },
+      compare: { kind: 'branch', symbol: 'feature', anchorSha: fx2.shas.head }
+    }, { engine: 'claude' })
+    const { ctx } = makeCtx({ db, sessionId: s.id, repo: fx2.dir })
+    const host = createToolHost(ctx)
+    const { action } = await host.call('point', {
+      stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } }]
+    })
+    const target = (action as Extract<AgentAction, { kind: 'point' }>).stops[0].target
+    expect(target.kind === 'diff' && target.lineContent).toBe('  return 2') // healed: the re-anchor key
+    expect(target.kind === 'diff' && target.stamp?.origLine).toBe(2)
+    expect(target.kind === 'diff' && target.context?.before).toEqual(['export function a() {'])
+  })
+
+  it('leaves non-diff stops (and an unstampable repo) alone rather than failing the call', async () => {
+    const { ctx } = makeCtx() // db: null, repo: /tmp/repo — stamping cannot run
+    const host = createToolHost(ctx)
+    const { isError, action } = await host.call('point', {
+      stops: [{ target: { kind: 'summary' } }, { target: { kind: 'diff', file: 'a.ts', side: 'new', line: 3 } }]
+    })
+    expect(isError).toBeFalsy()
+    expect(action).toEqual({
+      kind: 'point',
+      stops: [
+        { target: { kind: 'summary' } },
+        { target: { kind: 'diff', file: 'a.ts', side: 'new', line: 3, hunkRange: '', lineContent: '' } }
+      ]
+    })
   })
 
   it('preserves a diff stop\'s endLine range', async () => {

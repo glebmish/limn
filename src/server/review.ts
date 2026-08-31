@@ -9,7 +9,7 @@ import {
 } from './git.js'
 import * as dao from './db/sessions.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
-import { reanchorComments } from './anchor.js'
+import { createReanchorPass, reanchorComments, reanchorFocusTargets, reviewFocusTargets } from './anchor.js'
 
 /** Detect spec/plan artifacts for a review and load their contents. When `persist`
  *  is true and detection had to run (no cached refs), the result is cached to the
@@ -222,10 +222,17 @@ export async function assembleReview(
     : volatile.length
     ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
     : skeleton
-  await reanchorComments(
-    { workdir, wt, forAnchor, dirty, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session },
-    state.comments, artifacts
-  )
+  const reanchorCtx = { workdir, wt, forAnchor, dirty, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session }
+  // One pass for every anchor family in the review, so they share its per-load git
+  // memos (a second pass would re-probe every blob and re-run every diff).
+  const pass = createReanchorPass(reanchorCtx, artifacts)
+  await reanchorComments(reanchorCtx, state.comments, artifacts, pass)
+  // #18 (narration scope): narration blocks, diagram nodes and frozen `point` stops
+  // carry bare FocusTargets with no owning comment. They are stamped at creation and
+  // re-anchored here through the SAME pipeline — the verdict rides on the anchor
+  // (`stale`) and is recomputed from the immutable stamp every load, so unlike
+  // comments it needs no write-back.
+  await reanchorFocusTargets(pass, reviewFocusTargets(state))
   if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
   const writeCapability = await writeCapabilityFor(repo, pair.compare)
   // S12 "merged outside Limn": the approved tip is already reachable from the base

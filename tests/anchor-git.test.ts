@@ -7,9 +7,9 @@ import { makeFixtureRepo, type FixtureRepo, fixtureGit, fixtureWrite } from './h
 import * as git from '../src/server/git'
 import { blobShaAt, catBlob, showFile, hashObjectsWrite, diffContents, renameMap, hashObjects, getDiff, isDirty } from '../src/server/git'
 import { execGitDiff } from '../src/server/exec'
-import { reanchorComments, type ReanchorCtx } from '../src/server/anchor'
+import { createReanchorPass, reanchorComments, reanchorFocusTargets, reviewFocusTargets, type ReanchorCtx } from '../src/server/anchor'
 import { stampAnchor } from '../src/server/anchorStamp'
-import type { Comment, CommentAnchor, SessionMeta } from '../src/shared/types'
+import type { Comment, CommentAnchor, FocusTarget, ReviewState, SessionMeta } from '../src/shared/types'
 
 let fx: FixtureRepo
 
@@ -595,5 +595,179 @@ describe('reanchorComments — pipeline scenarios', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+// ── #18 (narration scope): the anchors that have no owning Comment ──────────
+// Narration blocks, diagram nodes and `point` stops all carry a bare FocusTarget.
+// They are stamped at creation (stampAnnotationAnchors / the point tool) and must
+// run the SAME pipeline as comments on every load — re-mapped, or explicitly
+// flagged `stale`, never left silently pointing at a stale line number.
+describe('reanchorFocusTargets — narration blocks, diagram nodes, walkthrough stops', () => {
+  /** A stamped diff FocusTarget, exactly as stampAnnotationAnchors / `point` make one. */
+  async function stampedTarget(
+    repo: string, session: SessionMeta, opts: { file: string; line: number; text: string; endLine?: number }
+  ): Promise<Extract<FocusTarget, { kind: 'diff' }>> {
+    const t: CommentAnchor = {
+      kind: 'diff', file: opts.file, side: 'new', line: opts.line,
+      ...(opts.endLine ? { endLine: opts.endLine } : {}),
+      hunkRange: '', lineContent: opts.text
+    }
+    return await stampAnchor(repo, session, t) as Extract<FocusTarget, { kind: 'diff' }>
+  }
+  async function run(repo: string, session: SessionMeta, targets: (FocusTarget | undefined)[]): Promise<void> {
+    await reanchorFocusTargets(createReanchorPass(await buildCtx(repo, session), []), targets)
+  }
+  /** repo on feature with config.ts committed; the caller mutates + re-anchors. */
+  function configRepo(): { repo: string; session: SessionMeta } {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'config.ts', lines(
+      "export const name = 'svc'", 'const head = 0', 'const timeout = 30', 'export default name'
+    )); commit(repo, 'add config')
+    return { repo, session: mkSession(repo) }
+  }
+
+  it('N1. insert above N + rewrite N: a narration anchor MOVES to the rewritten line (the brief\'s regression)', async () => {
+    const { repo, session } = configRepo()
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    // the agent's fix commit: two lines inserted ABOVE the anchor AND the anchored
+    // line itself rewritten — line 3 becomes line 5, with new text
+    fixtureWrite(repo, 'config.ts', lines(
+      '// generated header', '// do not edit', "export const name = 'svc'", 'const head = 0', 'const timeout = 60', 'export default name'
+    )); commit(repo, 'insert above + bump timeout')
+    await run(repo, session, [t])
+    expect(t.line).toBe(5)                        // followed the rewritten line
+    expect(t.lineContent).toBe('const timeout = 60')
+    expect(t.stale).toBeUndefined()               // placed on the surface — nothing to flag
+  })
+
+  it('N2. insert above only: a walkthrough stop follows its code (the dogfood stale number)', async () => {
+    const { repo, session } = configRepo()
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    fixtureWrite(repo, 'config.ts', lines(
+      '// header a', '// header b', "export const name = 'svc'", 'const head = 0', 'const timeout = 30', 'export default name'
+    )); commit(repo, 'prepend header')
+    await run(repo, session, [t])
+    expect(t.line).toBe(5)   // was frozen at 3 before this task — the "sessions.ts:14" drift
+    expect(t.stale).toBeUndefined()
+  })
+
+  it('N3. the anchored code is gone: the stop is flagged `lost`, never silently re-pointed', async () => {
+    const { repo, session } = configRepo()
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    fixtureWrite(repo, 'config.ts', lines("export const name = 'svc'", 'export default name'))
+    commit(repo, 'drop the timeout knob')
+    await run(repo, session, [t])
+    expect(t.stale).toBe('lost')
+    expect(t.lineContent).toBe('const timeout = 30') // the quote is never rewritten to whatever holds line 3 now
+  })
+
+  it('N4. a range stop keeps its span: endLine shifts by the same delta', async () => {
+    const { repo, session } = configRepo()
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 2, text: 'const head = 0', endLine: 3 })
+    fixtureWrite(repo, 'config.ts', lines(
+      '// header a', '// header b', "export const name = 'svc'", 'const head = 0', 'const timeout = 30', 'export default name'
+    )); commit(repo, 'prepend header')
+    await run(repo, session, [t])
+    expect(t.line).toBe(4)
+    expect(t.endLine).toBe(5)  // 2..3 → 4..5, not 4..3
+  })
+
+  it('N5. anchored line valid but not rendered in this diff → `off-surface`, line untouched', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n')
+    fixtureWrite(repo, 'long.ts', lines(...Array.from({ length: 30 }, (_, i) => `const v${i + 1} = ${i + 1}`)))
+    commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'long.ts', lines('const v1 = 100', ...Array.from({ length: 29 }, (_, i) => `const v${i + 2} = ${i + 2}`)))
+    commit(repo, 'touch the top only')
+    const session = mkSession(repo)
+    // line 20 is unchanged and far from the only hunk, so -U3 never renders it
+    const t = await stampedTarget(repo, session, { file: 'long.ts', line: 20, text: 'const v20 = 20' })
+    await run(repo, session, [t])
+    expect(t.line).toBe(20)          // still the right line IN THE FILE
+    expect(t.stale).toBe('off-surface') // …but there is nothing on screen to jump to
+  })
+
+  it('N6. a re-placed anchor clears a stale flag left by an earlier load', async () => {
+    const { repo, session } = configRepo()
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    t.stale = 'lost' // verdict from an earlier load; the file is untouched now
+    await run(repo, session, [t])
+    expect(t.stale).toBeUndefined()
+    expect(t.line).toBe(3)
+  })
+
+  it('N7. a legacy stop (no stamp, no quote) is left completely untouched', async () => {
+    const { repo, session } = configRepo()
+    // pre-fix `point` froze stops with lineContent: '' and no stamp. There is no
+    // evidence to re-anchor from, and an empty quote matches every blank line —
+    // the pass must decline rather than move it onto one.
+    const t: FocusTarget = { kind: 'diff', file: 'config.ts', side: 'new', line: 3, hunkRange: '', lineContent: '' }
+    fixtureWrite(repo, 'config.ts', lines("export const name = 'svc'", '', '', 'export default name'))
+    commit(repo, 'blank it out')
+    await run(repo, session, [t])
+    expect(t).toEqual({ kind: 'diff', file: 'config.ts', side: 'new', line: 3, hunkRange: '', lineContent: '' })
+  })
+
+  it('N8. non-diff stops (summary/section/file) are never touched', async () => {
+    const { repo, session } = configRepo()
+    const targets: FocusTarget[] = [{ kind: 'summary' }, { kind: 'section', sectionId: 's1' }, { kind: 'file', file: 'config.ts' }]
+    await run(repo, session, [...targets, undefined])
+    expect(targets).toEqual([{ kind: 'summary' }, { kind: 'section', sectionId: 's1' }, { kind: 'file', file: 'config.ts' }])
+  })
+
+  it('N9. shares one pass (and its memos) with the comment pass — no duplicate diff calls', async () => {
+    const { repo, session } = configRepo()
+    const c = await stampedComment(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 2, text: 'const head = 0' })
+    fixtureWrite(repo, 'config.ts', lines(
+      '// header a', '// header b', "export const name = 'svc'", 'const head = 0', 'const timeout = 30', 'export default name'
+    )); commit(repo, 'prepend header')
+    const ctx = await buildCtx(repo, session)
+    const pass = createReanchorPass(ctx, [])
+    const spy = vi.spyOn(git, 'diffContents')
+    try {
+      await reanchorComments(ctx, [c], [], pass)
+      await reanchorFocusTargets(pass, [t])
+      expect(spy).toHaveBeenCalledTimes(1) // one edit list for the file, shared by both passes
+    } finally {
+      spy.mockRestore()
+    }
+    expect(anchorLine(c)).toBe(5)
+    expect(t.line).toBe(4)
+  })
+})
+
+describe('reviewFocusTargets', () => {
+  const diffTarget = (line: number): FocusTarget => ({ kind: 'diff', file: 'a.ts', side: 'new', line, hunkRange: '', lineContent: `l${line}` })
+
+  it('collects narration, diagram-node and point-stop anchors (and nothing else)', () => {
+    const state = {
+      annotations: {
+        title: 't', summary: 's', questions: [],
+        sections: [{
+          id: 's1', name: 'S', files: ['a.ts'],
+          narration: [{ text: 'framing' }, { text: 'anchored', anchor: diffTarget(1) }],
+          diagram: { why: 'w', caption: 'c', edges: [], nodes: [{ id: 'n1', label: 'N', kind: 'plain' as const, anchor: diffTarget(2) }] }
+        }]
+      },
+      chats: [{
+        id: 1, kind: 'user' as const, agent: { engine: 'claude' as const }, createdAt: 'now',
+        messages: [
+          { role: 'agent' as const, text: '', at: 'now', actions: [{ kind: 'point' as const, stops: [{ target: diffTarget(3) }, { target: { kind: 'summary' as const } }] }] },
+          { role: 'agent' as const, text: '', at: 'now', actions: [{ kind: 'suggest_viewed' as const, files: ['a.ts'] }] },
+          { role: 'user' as const, text: 'hi', at: 'now' }
+        ]
+      }]
+    } as unknown as ReviewState
+    const targets = reviewFocusTargets(state)
+    expect(targets).toEqual([diffTarget(1), diffTarget(2), diffTarget(3), { kind: 'summary' }])
+  })
+
+  it('is empty for a review with no annotations and no chats', () => {
+    expect(reviewFocusTargets({ comments: [], chats: [] } as unknown as ReviewState)).toEqual([])
   })
 })

@@ -1,4 +1,6 @@
-import type { AnchorContext, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, SessionMeta } from '../shared/types.js'
+import type {
+  AnchorContext, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, FocusTarget, ReviewState, SessionMeta
+} from '../shared/types.js'
 import { blobShaAt, catBlob, diffContents, hashObjects, renameMap, showFile } from './git.js'
 import { readOnDisk, splitLines, stampAnchor } from './anchorStamp.js'
 
@@ -232,18 +234,36 @@ function findRenderedByLine(file: FileDiff | undefined, side: 'new' | 'old', lin
   return null
 }
 
-/** Re-anchor positional comments against the current surface (mutates comments &
- *  artifacts in place — callers persist afterward). Skips every non-positional
- *  anchor.
- *
- *  `resolved` comments are re-anchored too (#18: the agent's fix commit rewrites
- *  the very lines it was asked about and then calls `resolve_comment`, so the most
- *  drift-prone comments in a review are exactly the resolved ones), but their
- *  STATUS is frozen: a resolution is a historical record, never re-stated to
- *  'outdated' by a later load. When a resolved comment's anchor can no longer be
- *  located, it is flagged `notInDiff` instead — anchored nowhere, so the UI stops
- *  rendering it inline at a line that no longer holds the commented code. */
-export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], artifacts: Artifact[]): Promise<void> {
+/** What one re-anchor attempt concluded about one anchor. The anchor's positional
+ *  fields (`line`/`endLine`/`hunkRange`/`lineContent`/`file`) are already updated in
+ *  place; the verdict carries only what the anchor's OWNER has to record — a
+ *  `Comment` maps it onto status/`notInDiff`/`anchorEdited`, a bare `FocusTarget`
+ *  (narration block, diagram node, `point` stop) onto `stale`. */
+export interface AnchorVerdict {
+  /** the anchor was located: stage 0/1/2 placed it, or stage 3 found its exact text */
+  located: boolean
+  /** located, but the line is not present in any rendered hunk of the surface */
+  offSurface: boolean
+  /** stage 1 proved the anchored line ITSELF was rewritten since the stamp. Says
+   *  nothing about where the anchor ended up (see `Comment.anchorEdited`). */
+  edited: boolean
+  /** a freshly stamped anchor for a legacy (unstamped) one that healed forward */
+  stamped?: CommentAnchor
+}
+
+/** One load's re-anchor pass, bound to a surface. Create it once per load and feed
+ *  it every anchor family (comments, then the bare FocusTargets) so they share the
+ *  per-pass git memos — a second pass would re-run every blob probe and diff. */
+export interface ReanchorPass {
+  /** Re-anchor one positional anchor in place. `null` = the attempt failed outright
+   *  (a git error on this anchor); the anchor is untouched and the caller must draw
+   *  no conclusion from it. Never throws. */
+  reanchor(a: PositionalAnchor): Promise<AnchorVerdict | null>
+}
+
+/** Build the three-stage pass (spec §3, §4) against `ctx`'s surface. `artifacts`
+ *  supplies the content for `kind: 'artifact'` anchors. */
+export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): ReanchorPass {
   const fileMap = new Map(ctx.forAnchor.files.map((f) => [f.path, f]))
   const filePaths = new Set(ctx.forAnchor.files.map((f) => f.path))
   const artMap = new Map(artifacts.map((a) => [a.path, a]))
@@ -303,36 +323,29 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
   }
 
   /** Render placement (spec §3): the mapped line is correct in FILE space; attach
-   *  the thread to the rendered hunk it lives in. Off-diff → notInDiff (never
-   *  outdated). Never marks outdated. */
-  function renderPlace(c: Comment, a: PositionalAnchor): void {
+   *  the thread to the rendered hunk it lives in. Returns whether the line is
+   *  OFF-SURFACE (valid in the file, absent from every rendered hunk). */
+  function renderPlace(a: PositionalAnchor): boolean {
     if (a.kind === 'artifact') {
       const art = artMap.get(a.path)
-      const visible = !!art && a.line >= 1 && a.line <= art.lines.length
-      if (c.status === 'outdated') c.status = 'queued'
-      c.notInDiff = visible ? undefined : true
-      return
+      return !(!!art && a.line >= 1 && a.line <= art.lines.length)
     }
     const range = findRenderedByLine(fileMap.get(a.file), a.side, a.line)
     if (range !== null) a.hunkRange = range
-    if (c.status === 'outdated') c.status = 'queued'
-    c.notInDiff = range !== null ? undefined : true
+    return range === null
   }
+  const placed = (a: PositionalAnchor, edited: boolean): AnchorVerdict =>
+    ({ located: true, offSurface: renderPlace(a), edited })
 
-  /** Stages 0→1→2 for a stamped anchor. Returns true when it placed the comment
-   *  (any of stage 0/1/2 succeeded → render placement done); false to fall through
-   *  to stage 3. */
-  async function tryStamped(c: Comment, a: PositionalAnchor): Promise<boolean> {
+  /** Stages 0→1→2 for a stamped anchor. Returns a verdict when it placed the anchor
+   *  (any of stage 0/1/2 succeeded); `null` to fall through to stage 3, reporting
+   *  through `out.edited` whether stage 1 saw the line rewritten. */
+  async function tryStamped(a: PositionalAnchor, out: { edited: boolean }): Promise<AnchorVerdict | null> {
     const stamp = a.stamp!
-    // `anchorEdited` is a per-load verdict, not accumulated state: clear it up front so
-    // the ONLY thing that can set it is this pass's own stage-1 'EDITED' below. Without
-    // the reset a stale `true` would survive any load where stage 1 can't run at all
-    // (no blobSha / a gc'd blob ⇒ oldContent === null) and stage 2 places the comment.
-    c.anchorEdited = undefined
     // Stage 0 — identity short-circuit: byte-identical content ⇒ stored line is
     // already correct in file space ⇒ NO diff call.
     const curBlob = await currentBlob(a)
-    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { renderPlace(c, a); return true }
+    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) return placed(a, false)
 
     // Stage 1 prep — recover old content from the stamped blob.
     const oldContent = stamp.blobSha
@@ -350,41 +363,40 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     }
 
     const resolved = await resolveNew(a)
-    if (!resolved) return false // nothing to map/fuzz against → stage 3
+    if (!resolved) return null // nothing to map/fuzz against → stage 3
     const { content: newContent, lines: contentLines } = resolved
 
     let hint = stamp.origLine ?? a.line
     // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
-      if (editList === null) { renderPlace(c, a); return true } // identical → line unchanged
+      if (editList === null) return placed(a, false) // identical → line unchanged
       // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
       // edit list is built from), NOT the already-mutated a.line — else the shift delta
       // compounds on every reload once stage 0 stops short-circuiting.
       const origLine = stamp.origLine ?? a.line
       const mapped = mapLine(editList, origLine)
-      if (typeof mapped === 'number') { a.line = mapped; renderPlace(c, a); return true }
-      // 'EDITED': the commented line itself was rewritten. The flag records THAT — not
-      // where the thread ends up; stage 2 may re-place it on the replacement code, or
-      // it may stay put and be flagged notInDiff/outdated below (#18).
-      c.anchorEdited = true
+      if (typeof mapped === 'number') { setLine(a, mapped); return placed(a, false) }
+      // 'EDITED': the anchored line itself was rewritten. The flag records THAT — not
+      // where the anchor ends up; stage 2 may re-place it on the replacement code, or
+      // it may stay put and be flagged notInDiff/outdated/stale below (#18).
+      out.edited = true
       hint = editedHint(editList, origLine, origLine) // 'EDITED' → stage 2 hint
     }
 
     // Stage 2 — fuzzy context fallback over the FULL new content.
     const hit = fuzzyFind(contentLines, a.lineContent, a.context, hint)
     if (hit) {
-      a.line = hit.line
+      setLine(a, hit.line)
       a.lineContent = contentLines[hit.line - 1] // keep the outdated-card quote honest
-      renderPlace(c, a)
-      return true
+      return placed(a, out.edited)
     }
-    return false // → stage 3
+    return null // → stage 3
   }
 
-  /** Stage 3 — exact-text floor (today's algorithm, verbatim), then outdated. On a
-   *  legacy (unstamped) success, heal forward against the current surface. */
-  async function stage3(c: Comment, a: PositionalAnchor): Promise<void> {
+  /** Stage 3 — exact-text floor (today's algorithm, verbatim), then "not located".
+   *  On a legacy (unstamped) success, heal forward against the current surface. */
+  async function stage3(a: PositionalAnchor, edited: boolean): Promise<AnchorVerdict> {
     const candidates: { line: number; range: string }[] = []
     if (a.kind === 'diff') {
       const file = fileMap.get(a.file)
@@ -405,13 +417,67 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
       if (art) art.lines.forEach((text, idx) => { if (text === a.lineContent) candidates.push({ line: idx + 1, range: '' }) })
     }
     const best = pickNearest(candidates, a.line)
-    if (best) {
-      a.line = best.line
-      if (a.kind === 'diff') a.hunkRange = best.range
+    if (!best) return { located: false, offSurface: false, edited }
+    setLine(a, best.line)
+    if (a.kind === 'diff') a.hunkRange = best.range
+    // the exact quote is on a rendered line — nothing was rewritten
+    const stamped = a.stamp ? undefined : await stampAnchor(ctx.workdir, ctx.session, a) // heal-forward (legacy only)
+    return { located: true, offSurface: false, edited: false, ...(stamped ? { stamped } : {}) }
+  }
+
+  return {
+    async reanchor(a: PositionalAnchor): Promise<AnchorVerdict | null> {
+      try {
+        const out = { edited: false }
+        if (a.stamp) {
+          const done = await tryStamped(a, out)
+          if (done) return done
+        }
+        return await stage3(a, out.edited)
+      } catch {
+        return null // a git failure on one anchor must never abort the pass — leave it
+      }
+    }
+  }
+}
+
+/** Move an anchor to `line`, carrying an `endLine` range with it — a range whose
+ *  start moved but whose end stayed would silently mis-span the code it points at. */
+function setLine(a: PositionalAnchor, line: number): void {
+  if (a.kind === 'diff' && a.endLine !== undefined) a.endLine = Math.max(line, a.endLine + (line - a.line))
+  a.line = line
+}
+
+/** Re-anchor positional comments against the current surface (mutates comments &
+ *  artifacts in place — callers persist afterward). Skips every non-positional
+ *  anchor. Pass a shared `pass` to reuse one load's git memos across anchor families.
+ *
+ *  `resolved` comments are re-anchored too (#18: the agent's fix commit rewrites
+ *  the very lines it was asked about and then calls `resolve_comment`, so the most
+ *  drift-prone comments in a review are exactly the resolved ones), but their
+ *  STATUS is frozen: a resolution is a historical record, never re-stated to
+ *  'outdated' by a later load. When a resolved comment's anchor can no longer be
+ *  located, it is flagged `notInDiff` instead — anchored nowhere, so the UI stops
+ *  rendering it inline at a line that no longer holds the commented code. */
+export async function reanchorComments(
+  ctx: ReanchorCtx, comments: Comment[], artifacts: Artifact[], pass: ReanchorPass = createReanchorPass(ctx, artifacts)
+): Promise<void> {
+  for (const c of comments) {
+    if (c.anchor.kind !== 'diff' && c.anchor.kind !== 'artifact') continue
+    // all non-positional anchors are stable — untouched: section, summary, file,
+    // question, plan-step, title, acceptance, deviation, hunk, and selection
+    // (content-addressed via its own quote)
+    const v = await pass.reanchor(c.anchor)
+    // `anchorEdited` is a per-load verdict, not accumulated state: the pass's own
+    // stage-1 'EDITED' is the ONLY thing that may set it. Without clearing it here a
+    // stale `true` would survive any load that cannot re-derive it (no blobSha, a
+    // gc'd blob, a git failure) and outlive its own evidence.
+    c.anchorEdited = v?.edited || undefined
+    if (!v) continue // attempt failed — leave the comment exactly as it was
+    if (v.located) {
       if (c.status === 'outdated') c.status = 'queued'
-      c.notInDiff = undefined
-      c.anchorEdited = undefined // the exact quote is on a rendered line — nothing was rewritten
-      if (!a.stamp) c.anchor = await stampAnchor(ctx.workdir, ctx.session, a) // heal-forward (legacy only)
+      c.notInDiff = v.offSurface || undefined
+      if (v.stamped) c.anchor = v.stamped
     } else if (c.status === 'resolved') {
       // Status frozen (see the fn doc): a resolution outlives its anchor. The anchor
       // is nowhere on the surface, so flag it off-diff rather than leaving it to
@@ -422,18 +488,47 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
       c.notInDiff = undefined
     }
   }
+}
 
-  for (const c of comments) {
-    if (c.anchor.kind !== 'diff' && c.anchor.kind !== 'artifact') continue
-    // all non-positional anchors are stable — untouched: section, summary, file,
-    // question, plan-step, title, acceptance, deviation, hunk, and selection
-    // (content-addressed via its own quote)
-    const a = c.anchor
-    try {
-      if (a.stamp && (await tryStamped(c, a))) continue
-      await stage3(c, a)
-    } catch { /* a git failure on one comment must never abort the pass — leave it */ }
+/** Re-anchor the bare `FocusTarget`s of a review — narration blocks, diagram nodes
+ *  and `point`/walkthrough stops (#18, narration scope). Same pipeline, same
+ *  guarantee as comments: the anchor is re-mapped onto the code it was written
+ *  against, or explicitly flagged `stale` — never left pointing at a line number
+ *  whose meaning has changed underneath it. Mutates the targets in place; the
+ *  verdict is recomputed from the immutable stamp on every load, so nothing has to
+ *  be persisted for it. */
+export async function reanchorFocusTargets(pass: ReanchorPass, targets: Iterable<FocusTarget | undefined>): Promise<void> {
+  for (const t of targets) {
+    if (t?.kind !== 'diff') continue
+    // A legacy stop (pre-stamp `point` froze `lineContent: ''` with no stamp) carries
+    // no evidence at all: stage 3 would exact-match its empty quote against every
+    // blank line on the surface and pickNearest would move it onto one. Decline.
+    if (!t.stamp && normalizeWs(t.lineContent) === '') continue
+    const v = await pass.reanchor(t)
+    if (!v) continue
+    if (v.stamped?.kind === 'diff') Object.assign(t, v.stamped) // heal-forward (legacy only)
+    t.stale = !v.located ? 'lost' : v.offSurface ? 'off-surface' : undefined
   }
+}
+
+/** Every `FocusTarget` in a review that the re-anchor pass owns: the anchors of
+ *  narration blocks and diagram nodes (persisted in the annotations) plus the stops
+ *  of every `point` action frozen on a chat message. Non-diff targets are returned
+ *  too and simply skipped by the pass — the caller does no filtering. */
+export function reviewFocusTargets(state: ReviewState): FocusTarget[] {
+  const out: FocusTarget[] = []
+  for (const s of state.annotations?.sections ?? []) {
+    for (const b of s.narration) if (b.anchor) out.push(b.anchor)
+    for (const n of s.diagram?.nodes ?? []) if (n.anchor) out.push(n.anchor)
+  }
+  for (const thread of state.chats ?? []) {
+    for (const m of thread.messages) {
+      for (const action of m.actions ?? []) {
+        if (action.kind === 'point') for (const stop of action.stops) out.push(stop.target)
+      }
+    }
+  }
+  return out
 }
 
 function pickNearest(candidates: { line: number; range: string }[], target: number): { line: number; range: string } | null {
