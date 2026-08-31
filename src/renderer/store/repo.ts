@@ -99,16 +99,11 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
         api().listRepoSessions(repoPath)
       ])
       set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
-      // land on the latest session for the checked-out branch; if that branch has
-      // none, fall back to the repo's most recent session on any branch
-      // (repoSessions is updated_at DESC). Only a repo with no sessions at all
-      // opens a fresh transient review for the current branch.
-      const onBranch = repoState.current !== 'HEAD'
-        ? repoSessions.find((s) => s.compareKind === 'branch' && s.compareSymbol === repoState.current)
-        : undefined
-      const match = onBranch ?? repoSessions[0]
-      if (match) { await get().resumeExisting(match.id); return }
-      await get().openReview(repoPath)              // none → transient review for the current branch
+      // a repo with saved sessions lands on the hub (the session list) — resuming
+      // one unasked surprises more than it saves. Only a repo with no live
+      // sessions opens a fresh transient review for the current branch.
+      if (repoSessions.length > 0) { await get().enterHub(repoPath); return }
+      await get().openReview(repoPath)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), screen: 'dashboard' })
     }

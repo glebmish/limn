@@ -167,9 +167,9 @@ limn service uninstall            # remove the service; database untouched
 limn service logs [-f]
 ```
 
-Bare `limn` behaves exactly like opening the repo from the Dashboard: it resumes the
-most recent review for the current branch, or shows a draft review if there is none.
-The review opens in a new browser tab.
+Bare `limn` behaves exactly like opening the repo from the Dashboard: a repo with
+saved reviews lands on its session list, and one with none shows a draft review of
+the current branch. Either way it opens in a new browser tab.
 
 More in-flow details — excluding untracked files, multiple reviews per branch,
 dirty-worktree review — plus the service lifecycle and the Tailscale recipe are in

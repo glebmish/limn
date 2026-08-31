@@ -140,8 +140,8 @@ export const useStore = create<AppStore>()((...a) => {
       if (msg.hub) { void get().enterHub(repo); return }              // `limn --hub` → session list
       if (msg.fresh) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }, { fresh: true }); return }
       if (msg.baseInput || msg.compareInput) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }); return }
-      // bare `limn` → behave like opening from the dashboard (resume the latest session
-      // on the current branch, else a transient review)
+      // bare `limn` → behave like opening from the dashboard (the session hub if the
+      // repo has sessions, else a transient review of the current branch)
       void get().openRepo(repo)
     },
 

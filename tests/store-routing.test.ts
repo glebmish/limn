@@ -69,37 +69,38 @@ describe('applyCliOpen dispatch table', () => {
   })
 })
 
-describe('openRepo resume-vs-transient choice', () => {
+describe('openRepo hub-vs-transient choice', () => {
   beforeEach(() => {
     openRepoApi.mockClear(); repoState.mockClear(); listRepoSessions.mockClear()
     useStore.setState({ repo: null, repoState: null })
     useStore.setState({
+      enterHub: vi.fn(async () => {}) as never,
       resumeExisting: vi.fn(async () => {}) as never,
       openReview: vi.fn(async () => {}) as never,
     })
   })
 
-  it('resumes the latest session on the current branch (branch match wins)', async () => {
+  it('opens the session hub when the repo has sessions, even off-branch ones', async () => {
     repoState.mockResolvedValueOnce({ current: 'feat', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
     listRepoSessions.mockResolvedValueOnce([
-      { id: 1, compareKind: 'branch', compareSymbol: 'main' },
+      { id: 1, compareKind: 'branch', compareSymbol: 'other' },
+    ])
+    await useStore.getState().openRepo('/r')
+    await flush()
+    expect(useStore.getState().enterHub).toHaveBeenCalledWith('/r')
+    expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
+    expect(useStore.getState().openReview).not.toHaveBeenCalled()
+  })
+
+  it('opens the hub rather than resuming when a session matches the current branch', async () => {
+    repoState.mockResolvedValueOnce({ current: 'feat', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
+    listRepoSessions.mockResolvedValueOnce([
       { id: 2, compareKind: 'branch', compareSymbol: 'feat' },
     ])
     await useStore.getState().openRepo('/r')
     await flush()
-    expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(2)
-    expect(useStore.getState().openReview).not.toHaveBeenCalled()
-  })
-
-  it('falls back to the most-recent session (DESC) when no branch match', async () => {
-    repoState.mockResolvedValueOnce({ current: 'HEAD', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
-    listRepoSessions.mockResolvedValueOnce([
-      { id: 5, compareKind: 'branch', compareSymbol: 'other' },
-      { id: 6, compareKind: 'branch', compareSymbol: 'older' },
-    ])
-    await useStore.getState().openRepo('/r')
-    await flush()
-    expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(5)
+    expect(useStore.getState().enterHub).toHaveBeenCalledWith('/r')
+    expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
   })
 
   it('opens a transient review when the repo has no sessions', async () => {
@@ -107,6 +108,7 @@ describe('openRepo resume-vs-transient choice', () => {
     listRepoSessions.mockResolvedValueOnce([])
     await useStore.getState().openRepo('/r')
     await flush()
+    expect(useStore.getState().enterHub).not.toHaveBeenCalled()
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
     expect(useStore.getState().openReview).toHaveBeenCalledWith('/r')
   })

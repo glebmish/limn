@@ -36,9 +36,12 @@ the saved session.
 
 ## Multiple reviews per branch
 
-Opening a repo — or a specific base/compare pair — **resumes the most-recently-touched
-live review** for that exact pair. The *button* to start another is discoverable; the
-resume rule ("which review opens when I open this repo?") is the invisible part.
+Opening a **specific base/compare pair** (`limn --base <ref> [--branch <ref>]`)
+**resumes the most-recently-touched live review** for that exact pair. Opening a
+repo without refs — bare `limn`, or picking it on the Dashboard — lands on the repo
+hub when it has live reviews, so you choose; only a repo with none opens a draft
+review of the current branch. The *button* to start another review is discoverable;
+the pair-resume rule ("which review opens for this pair?") is the invisible part.
 
 Several live reviews can share one pair. In the repo hub (the **Sessions** button),
 **New review** creates another live review **without archiving or overwriting** the
