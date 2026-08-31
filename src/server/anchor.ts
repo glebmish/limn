@@ -324,10 +324,15 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
    *  to stage 3. */
   async function tryStamped(c: Comment, a: PositionalAnchor): Promise<boolean> {
     const stamp = a.stamp!
+    // `anchorEdited` is a per-load verdict, not accumulated state: clear it up front so
+    // the ONLY thing that can set it is this pass's own stage-1 'EDITED' below. Without
+    // the reset a stale `true` would survive any load where stage 1 can't run at all
+    // (no blobSha / a gc'd blob ⇒ oldContent === null) and stage 2 places the comment.
+    c.anchorEdited = undefined
     // Stage 0 — identity short-circuit: byte-identical content ⇒ stored line is
     // already correct in file space ⇒ NO diff call.
     const curBlob = await currentBlob(a)
-    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { c.anchorEdited = undefined; renderPlace(c, a); return true }
+    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { renderPlace(c, a); return true }
 
     // Stage 1 prep — recover old content from the stamped blob.
     const oldContent = stamp.blobSha
@@ -352,15 +357,16 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
-      if (editList === null) { c.anchorEdited = undefined; renderPlace(c, a); return true } // identical → line unchanged
+      if (editList === null) { renderPlace(c, a); return true } // identical → line unchanged
       // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
       // edit list is built from), NOT the already-mutated a.line — else the shift delta
       // compounds on every reload once stage 0 stops short-circuiting.
       const origLine = stamp.origLine ?? a.line
       const mapped = mapLine(editList, origLine)
-      if (typeof mapped === 'number') { a.line = mapped; c.anchorEdited = undefined; renderPlace(c, a); return true }
-      // 'EDITED': the commented line itself was rewritten. Whatever stage 2/3 makes of
-      // it, the reviewer's quote no longer exists verbatim — say so (#18).
+      if (typeof mapped === 'number') { a.line = mapped; renderPlace(c, a); return true }
+      // 'EDITED': the commented line itself was rewritten. The flag records THAT — not
+      // where the thread ends up; stage 2 may re-place it on the replacement code, or
+      // it may stay put and be flagged notInDiff/outdated below (#18).
       c.anchorEdited = true
       hint = editedHint(editList, origLine, origLine) // 'EDITED' → stage 2 hint
     }

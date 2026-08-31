@@ -188,11 +188,14 @@ export interface Comment {
    *  diff" bucket by the UI. Cleared on any load where it lands on a rendered line. */
   notInDiff?: boolean;
   /** Set by the re-anchor pipeline when the commented line ITSELF was rewritten
-   *  since the comment was made (stage-1 `mapLine` → 'EDITED'): the anchor was
-   *  moved to the rewritten line by stage 2/3 rather than mapped positionally, so
-   *  the quote the reviewer wrote against no longer exists verbatim. Recomputed
-   *  from the immutable stamp on every load (cleared when the line maps cleanly);
-   *  the UI shows a "line edited since comment" marker. */
+   *  since the comment was made (stage-1 `mapLine` → 'EDITED'): the text the
+   *  reviewer wrote against no longer exists in the file. It says nothing about
+   *  where the thread ended up — stage 2 may re-place it on the code that replaced
+   *  the line, or nothing may match and it stays at its old line, flagged
+   *  `notInDiff` (resolved) or `outdated`. Recomputed from the immutable stamp on
+   *  every load: cleared whenever the line proves intact (identical content, a
+   *  clean positional map, or a stage-3 exact-text hit) and left unset when stage 1
+   *  can't run. The UI shows a "line edited since comment" marker. */
   anchorEdited?: boolean;
   resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string; agentRef?: AgentRef };
   replies: CommentReply[]; createdAt: string; iteration: number;

@@ -95,9 +95,10 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
           {c.anchorEdited && c.status !== 'outdated' && (
             // The commented line itself was rewritten since the comment was made (the
-            // re-anchor pipeline's stage-1 'EDITED'), so the card sits on the code that
-            // replaced it — say so rather than letting it read as the original quote.
-            <span className="agentq" style={{ color: 'var(--amber)' }} title="The line this comment was written against has been rewritten since; the anchor was moved to the code that replaced it.">
+            // re-anchor pipeline's stage-1 'EDITED'). The marker claims only that — where
+            // the card ended up is a separate question (re-placed on the replacement code,
+            // or left behind and bucketed), so the copy must not promise either.
+            <span className="agentq" style={{ color: 'var(--amber)' }} title="The line this comment was written against was rewritten after the comment was made — the text it quoted is no longer in the file.">
               line edited since comment
             </span>
           )}

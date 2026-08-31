@@ -479,7 +479,7 @@ describe('reanchorComments — pipeline scenarios', () => {
     // than dropped onto the doc-comment opener that now holds line 14.
     expect(c.status).toBe('outdated')
     expect(c.anchorEdited).toBe(true)
-    expect(anchorText(c)).not.toBe(NEW_LINE_14)
+    expect(anchorText(c)).toBe(OLD_SIGNATURE) // untouched — never re-quoted to line 14's doc comment
   })
 
   it('18b. …and a RESOLVED comment (agent called resolve_comment) does too — the #18 drift', async () => {
@@ -490,15 +490,19 @@ describe('reanchorComments — pipeline scenarios', () => {
     await reanchorComments(await buildCtx(repo, session), [c], [])
     expect(c.status).toBe('resolved')          // a resolution is never un-made by re-anchoring
     expect(c.resolution?.verdict).toBe('addressed')
-    // the drift: the card used to keep rendering at line 14, now the doc-comment opener
+    // the drift: the card used to keep rendering at line 14, now the doc-comment opener.
+    // Nothing matches the old signature any more, so the anchor stays put — but it is
+    // flagged off-diff, which is what stops it rendering inline over line 14.
+    expect(anchorText(c)).toBe(OLD_SIGNATURE)
     expect(anchorText(c)).not.toBe(NEW_LINE_14)
-    expect(anchorLine(c) === 14 && !c.notInDiff).toBe(false)
+    expect(c.notInDiff).toBe(true)
     expect(c.anchorEdited).toBe(true)          // the commented line itself was rewritten
   })
 
   it('18c. a resolved comment whose line is untouched keeps its exact anchor (no false edit flag)', async () => {
     const { repo, session, c } = await dogfoodRepo()
     c.status = 'resolved'
+    c.anchorEdited = true // a stale verdict from an earlier load: the clean map must clear it
     // insert two lines at the very top only — line 14 shifts to 16, content unchanged
     fixtureWrite(repo, 'src/main/db/sessions.ts', lines('// header a', '// header b') + OLD_SESSIONS)
     commit(repo, 'prepend header')
@@ -547,6 +551,31 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorText(c)).toBe('const timeout = 60')  // quote refreshed to what's there now
     expect(c.anchorEdited).toBe(true)                 // …and marked, since the quote changed
     expect(c.notInDiff).toBeFalsy()
+  })
+
+  // anchorEdited is a per-load verdict, never accumulated state: every path that shows
+  // the line is intact must clear a value left by an earlier load.
+  it('18f. stage 0 (file untouched) clears a stale anchorEdited', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    c.anchorEdited = true
+    await reanchorComments(await buildCtx(repo, session), [c], []) // nothing changed since the stamp
+    expect(c.anchorEdited).toBeFalsy()
+    expect(anchorLine(c)).toBe(14)
+  })
+
+  it('18g. stage 1 unrunnable (gc\'d blob) + stage-2 placement clears a stale anchorEdited', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    // simulate a GC'd blob: catBlob fails, so oldContent is null and stage 1 never runs.
+    // Without an up-front reset the flag from a previous load would survive the load
+    // that re-places the comment — the flag would then outlive its own evidence.
+    ;(c.anchor as { stamp?: { blobSha?: string } }).stamp!.blobSha = '0'.repeat(40)
+    c.anchorEdited = true
+    fixtureWrite(repo, 'src/main/db/sessions.ts', lines('// header a', '// header b') + OLD_SESSIONS)
+    commit(repo, 'prepend header')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).not.toBe('outdated')
+    expect(anchorLine(c)).toBe(16)       // stage 2 found it via the stored context
+    expect(c.anchorEdited).toBeFalsy()   // …and the stale verdict is gone
   })
 
   it('10. regression guard: an unchanged second load makes ZERO diff --no-index calls (stage 0)', async () => {
