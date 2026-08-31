@@ -2,7 +2,7 @@ import type { FocusTarget } from '../../shared/types'
 import { dev } from '../dev'
 
 /** CSS attribute-value escape (quotes + backslashes); paths/ids are otherwise safe. */
-export function attr(v: string): string {
+function attr(v: string): string {
   return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
@@ -18,8 +18,12 @@ export function limnSelector(a: FocusTarget): string {
   }
 }
 
-/** Hard cap on the rows one jump highlights: a `endLine` far past `line` (a bad
- *  agent range, or an anchor whose end never re-mapped) must not paint a whole file. */
+/** Hard cap on the rows one jump highlights. A bad `endLine` (a nonsense agent range,
+ *  or an anchor whose end never re-mapped) must not paint a whole file — and the cap
+ *  cannot tell that case from a genuinely long range, so a legitimate 100+ line anchor
+ *  is truncated too. That is the deliberate trade: a truncated highlight still starts
+ *  on the right line and still reads as "this region", where an uncapped one can wash
+ *  out the whole file and hide the jump it was meant to point at. */
 export const MAX_FOCUS_LINES = 100
 
 /** Every node a jump highlights, the one it scrolls to and badges first. A diff
@@ -50,10 +54,11 @@ export function focusSelectors(a: FocusTarget): string[] {
 export const SETTLE_TOL = 1
 /** consecutive frames the goal must hold before the jump is considered landed */
 export const SETTLE_STABLE_FRAMES = 3
-/** frames spent settling *after* the target first had a box, before landing anyway */
+/** frames spent settling *after* the target first had a box, before landing anyway
+ *  (≈800ms at 60Hz — a budget in frames, since it is layout frames we are waiting on) */
 export const SETTLE_MAX_FRAMES = 48
 /** frames to keep waiting for a target that has no box yet (a doc view closing, a
- *  section force-opening, a skipped subtree laying out) before giving up */
+ *  section force-opening, a skipped subtree laying out) before giving up (≈1.5s at 60Hz) */
 export const SETTLE_MISSING_FRAMES = 90
 
 export type SettleState = {

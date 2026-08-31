@@ -3,6 +3,7 @@ import type { RefObject } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { FileDiff, Section } from '../../shared/types'
 import { fileViewed, useStore } from '../store'
+import { cancelFocusJump } from './focusScroll'
 import { dev } from '../dev'
 
 /** All review scroll behavior in one hook: the scroll/head/section refs, the
@@ -115,7 +116,13 @@ export function useReviewScroll({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections])
 
+  // Every navigation below drives the same `.gmain` a focus jump drives, so each one
+  // starts by cancelling the jump in flight (#19). Without that, the focus loop's
+  // next frame re-applies its own goal and yanks the view back — it keeps
+  // re-scrolling until its target settles, so a sidebar click landing inside that
+  // window would simply be discarded.
   const jumpTo = (id: string): void => {
+    cancelFocusJump()
     // Selecting a section while a spec/plan doc is open exits the doc back to
     // the changes view — the changes list then has to remount before its
     // section refs exist, so the scroll retries across a few frames.
@@ -144,6 +151,7 @@ export function useReviewScroll({
   // jump straight to a file's diff (not just its section): force-open the section
   // so a collapsed/completed one still renders, then scroll its file header to top.
   const jumpToFile = (sectionId: string, path: string): void => {
+    cancelFocusJump()
     if (docPath) {
       if (scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
       closeDoc()
@@ -164,6 +172,7 @@ export function useReviewScroll({
   }
 
   const jumpToRawFile = (path: string): void => {
+    cancelFocusJump()
     if (docPath) {
       if (scrollRef.current) docScrollRef.current[docPath] = scrollRef.current.scrollTop
       closeDoc()
