@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ToolCallLog } from '../src/renderer/components/ToolCallLog'
+import { mcpToolInfo, ToolCallLog, unwrapMcpOutput } from '../src/renderer/components/ToolCallLog'
 import { inferSubmittedCommentRefs, SegmentBody, SubmittedCommentRefs } from '../src/renderer/components/ChatDrawer'
 import type { AgentAction, MessageSegment, ToolCall } from '../src/shared/types'
 
@@ -15,6 +15,81 @@ describe('ToolCallLog', () => {
 
     expect(out).toContain('reply_to_comment')
     expect(out).toContain('>edit</span>')
+  })
+
+  it('titles a Codex-proxied MCP tool call by tool name, not the bash verb, and drops the server row (#12)', () => {
+    const calls: ToolCall[] = [
+      {
+        id: 'mcp-1',
+        verb: 'bash',
+        name: '',
+        kv: [['server', 'limn'], ['tool', 'list_comments']],
+        state: 'ok',
+        out: '{"result":{"content":[{"type":"text","text":"[]"}]}}',
+      },
+    ]
+
+    const out = renderToStaticMarkup(<ToolCallLog calls={calls} />)
+
+    expect(out).toContain('>list_comments</span>')
+    expect(out).not.toContain('>bash</span>')
+    expect(out).not.toContain('server')
+    expect(out).not.toContain('limn')
+  })
+
+  it('recognizes the server+tool kv shape and strips it from the displayed kv rows (#12)', () => {
+    const call: ToolCall = {
+      id: 'mcp-1', verb: 'bash', name: '',
+      kv: [['server', 'limn'], ['tool', 'list_comments'], ['status', 'queued']],
+      state: 'ok',
+    }
+
+    expect(mcpToolInfo(call)).toEqual({ tool: 'list_comments', kv: [['status', 'queued']] })
+  })
+
+  it('does not misfire on an unrelated tool call that merely has a "tool" kv key', () => {
+    const call: ToolCall = { id: 'x', verb: 'other', name: 'weird', kv: [['tool', 'x']], state: 'ok' }
+    expect(mcpToolInfo(call)).toBeUndefined()
+  })
+
+  it('unwraps the MCP result envelope and pretty-prints the inner JSON payload (#13)', () => {
+    const raw = '{"result":{"content":[{"type":"text","text":"[{\\"id\\":\\"c-1\\",\\"text\\":\\"hi\\"}]"}]}}'
+
+    const result = unwrapMcpOutput(raw)
+
+    expect(result).not.toContain('\\"')
+    expect(result).toBe(JSON.stringify([{ id: 'c-1', text: 'hi' }], null, 2))
+  })
+
+  it('unwraps the envelope but leaves non-JSON inner text as plain text (still de-escaped)', () => {
+    const raw = '{"result":{"content":[{"type":"text","text":"Added a comment on src/a.ts:1."}]}}'
+    expect(unwrapMcpOutput(raw)).toBe('Added a comment on src/a.ts:1.')
+  })
+
+  it('falls back to the original text for non-envelope or non-JSON output, without throwing', () => {
+    expect(unwrapMcpOutput('not json at all')).toBe('not json at all')
+    expect(unwrapMcpOutput('{"foo":"bar"}')).toBe('{"foo":"bar"}')
+    expect(unwrapMcpOutput('{"result":{"content":[]}}')).toBe('{"result":{"content":[]}}')
+    expect(unwrapMcpOutput('')).toBe('')
+  })
+
+  it('leaves non-MCP tool calls (real bash) rendered as before', () => {
+    const calls: ToolCall[] = [
+      { id: 'b1', verb: 'bash', name: 'Bash', arg: 'npm test', kv: [['description', 'run tests']], state: 'ok' },
+    ]
+
+    const out = renderToStaticMarkup(<ToolCallLog calls={calls} />)
+
+    expect(out).toContain('>bash</span>')
+    expect(out).toContain('npm test')
+  })
+
+  it('falls back to the raw text when the output is not the MCP envelope shape', () => {
+    const calls: ToolCall[] = [
+      { id: 'b2', verb: 'other', name: 'weird', kv: [['tool', 'x']], state: 'ok', out: 'not json at all' },
+    ]
+
+    expect(() => renderToStaticMarkup(<ToolCallLog calls={calls} />)).not.toThrow()
   })
 
   it('uses action cards instead of generic rows for action-producing Limn tools', () => {

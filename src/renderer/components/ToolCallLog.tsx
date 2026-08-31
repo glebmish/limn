@@ -20,6 +20,43 @@ function rowLabel(c: ToolCall): string {
   return c.name.replace(/^mcp__[^_]+__/, '') || 'other'
 }
 
+/** Codex (via ACP) reports a generic MCP tool call — including Limn's own
+ *  loopback "limn" server — as a plain `execute` tool_call whose `rawInput` is
+ *  `{ server, tool, arguments }` rather than a resolved title (see
+ *  `acpEvents.ts`'s `primaryArg`, which lifts unrecognised string/number
+ *  rawInput fields into `kv`). Left alone that renders as a card titled "bash"
+ *  with a `server limn` / `tool list_comments` body — the tool name is present,
+ *  just not where the header looks. Detect the shape from `kv` (both `server`
+ *  and `tool` keys present) and recover the real tool name + the kv rows minus
+ *  that plumbing, without any data-model change. */
+export function mcpToolInfo(c: ToolCall): { tool: string; kv: [string, string][] } | undefined {
+  const tool = c.kv?.find(([k]) => k === 'tool')?.[1]
+  if (!tool || !c.kv!.some(([k]) => k === 'server')) return undefined
+  return { tool, kv: c.kv!.filter(([k]) => k !== 'tool' && k !== 'server') }
+}
+
+/** Best-effort unwrap of an MCP result envelope (`{"result":{"content":[{"type":
+ *  "text","text":"…"}]}}`) plus a pretty-print of the inner JSON payload, so
+ *  tool output isn't a wall of double-escaped JSON. Defensive: any shape
+ *  mismatch or parse failure falls back to the original text untouched — never
+ *  throws, never renders blank. Semantic per-tool rendering of the unwrapped
+ *  payload is a deliberate non-goal (follow-up work). */
+export function unwrapMcpOutput(text: string): string {
+  let envelope: unknown
+  try { envelope = JSON.parse(text) } catch { return text }
+  if (!envelope || typeof envelope !== 'object') return text
+  const result = (envelope as Record<string, unknown>).result
+  if (!result || typeof result !== 'object') return text
+  const content = (result as Record<string, unknown>).content
+  if (!Array.isArray(content) || !content.length) return text
+  const inner = content
+    .filter((b): b is { type: string; text: string } => Boolean(b) && typeof b === 'object' && b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('')
+  if (!inner) return text
+  try { return JSON.stringify(JSON.parse(inner), null, 2) } catch { return inner }
+}
+
 /** Dev-only: LIMN_EXPAND_TOOL force-opens rows for a static screenshot
  *  ("all" or a comma list of indices like "1,4"). */
 function devExpanded(): Set<number> {
@@ -44,25 +81,28 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
         const isOpen = open.has(i)
         const cls = 'tcall' + (c.state === 'run' ? ' run' : c.state === 'err' ? ' err' : '')
         const Caret = isOpen ? I.chevD : I.chevR
+        const mcp = mcpToolInfo(c)
+        const kv = mcp?.kv ?? c.kv
+        const out = c.out ? unwrapMcpOutput(c.out) : c.out
         return (
           <div key={c.id || i} className={cls}>
             <div className="tcall-head" {...clickable(() => toggle(i), { expanded: isOpen })}>
               <Ico className="tcall-ico" />
-              <span className="tcall-verb">{rowLabel(c)}</span>
+              <span className="tcall-verb">{mcp?.tool ?? rowLabel(c)}</span>
               <span className="tcall-arg" title={c.arg}>{c.arg}</span>
               {c.state === 'run' && <span className="tcall-stat run"><span className="limn-spin" />running</span>}
               {c.state === 'ok' && <span className="tcall-stat ok">{c.meta ?? 'done'}</span>}
               {c.state === 'err' && <span className="tcall-stat err"><I.warn style={{ width: 10, height: 10 }} />failed</span>}
               <Caret className="tcall-cv" />
             </div>
-            {isOpen && (c.arg || c.kv?.length || c.out) && (
+            {isOpen && (c.arg || kv?.length || out) && (
               <div className="tcall-body">
                 {/* full command/arg, untruncated (the collapsed header ellipsizes it) */}
                 {c.arg ? <div className="tcall-cmd">{c.arg}</div> : null}
-                {c.kv?.length ? (
-                  <div className="tcall-kv">{c.kv.map(([k, v], j) => <div key={j}><span className="tk">{k} </span>{v}</div>)}</div>
+                {kv?.length ? (
+                  <div className="tcall-kv">{kv.map(([k, v], j) => <div key={j}><span className="tk">{k} </span>{v}</div>)}</div>
                 ) : null}
-                {c.out ? <div className="tcall-out">{c.out}</div> : null}
+                {out ? <div className="tcall-out">{out}</div> : null}
                 {c.outMore && <div className="tcall-more">{c.outMore}</div>}
               </div>
             )}
