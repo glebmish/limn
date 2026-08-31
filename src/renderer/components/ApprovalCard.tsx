@@ -9,14 +9,18 @@ import type { ApprovalDecision, ApprovalRequest } from '../../shared/types'
  *  plus a collapsed-by-default diff preview — approve/deny is uninformed consent
  *  otherwise. Defensive throughout: a request with no `detail` at all (e.g. a
  *  degraded turn with no opId) still renders the summary/kind it always has. */
-export function ApprovalCard({ request, index, total, onDecide, onStop }: {
+export function ApprovalCard({ request, index, total, onDecide, onStop, initialOpen = false }: {
   request: ApprovalRequest
   index: number
   total: number
   onDecide: (d: ApprovalDecision) => void
   onStop: () => void
+  /** Test seam only — lets renderToStaticMarkup-based tests pin the expanded
+   *  diff body without simulating a click (no jsdom/@testing-library in this
+   *  repo). Not used by any production caller; defaults to collapsed. */
+  initialOpen?: boolean
 }) {
-  const [diffOpen, setDiffOpen] = useState(false)
+  const [diffOpen, setDiffOpen] = useState(initialOpen)
   const files = request.detail?.files
   const diffs = request.detail?.diffs ?? []
   return (
@@ -60,6 +64,9 @@ export function ApprovalCard({ request, index, total, onDecide, onStop }: {
                   </div>
                 </div>
               ))}
+              {!!request.detail?.moreFiles && (
+                <div className="ac-diff-more">+{request.detail.moreFiles} more files</div>
+              )}
             </div>
           )}
         </div>

@@ -63,11 +63,13 @@ describe('SectionView contrast + verify rendering', () => {
     expect(out).toContain('gsec-verify')
   })
 
-  it('the verify chip label and command render as separate elements even for a glued fixture string', () => {
+  it('guards markup structure: the verify label and command are distinct elements, not merged into one text node', () => {
     // the generator emits `verify` as a bare command with no leading label text
     // of its own ("Run `npm test` ..."), so the "Verify" label butts directly
-    // against the command in the markup — the gap has to come from CSS, not
-    // from the two being merged into one text node.
+    // against the command with no separator of its own in the fixture. This
+    // test only guards that the two stay separate elements (<span>/<code>) in
+    // the markup — the visual gap between them is a CSS concern, covered by
+    // the next test, not this one.
     const out = html({ verify: 'Run `npm test — tests/db.test.ts`' })
     expect(out).toContain('<span class="gv-label">Verify</span>')
     expect(out).toContain('<code class="gv-cmd">Run `npm test — tests/db.test.ts`</code>')
@@ -82,7 +84,7 @@ describe('SectionView contrast + verify rendering', () => {
     const css = readFileSync(path.join(__dirname, '../src/renderer/styles/review.css'), 'utf8')
     const rule = /\.gsec-verify\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
     expect(rule).toMatch(/display:\s*inline-flex/)
-    expect(rule).toMatch(/gap:\s*\d/)
+    expect(rule).toMatch(/gap:\s*[1-9]/)
   })
 
   it('a section with neither contrast nor verify renders no strip/chip', () => {

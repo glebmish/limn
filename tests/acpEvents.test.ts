@@ -354,6 +354,27 @@ describe('acpPermissionToRequest', () => {
     })
   })
 
+  it('an edit toolCall with locations but no diff content still uses the correlated toolDiffs entry (fallback fires on empty own-diff, not empty locations)', () => {
+    // Some engines send locations (so `files` is already non-empty) but never
+    // put the actual diff content on the permission-request's own toolCall —
+    // the old `locationPaths.length === 0` guard would skip correlation here
+    // and the reviewer would see the path with no diff preview at all.
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'tc-loc-1', kind: 'edit', status: 'pending', locations: [{ path: '/repo/src/d.ts' }] },
+      options: []
+    }
+    const toolDiffs = new Map([['tc-loc-1', [{ path: '/repo/src/d.ts', oldText: 'a', newText: 'b' }]]])
+    const result = acpPermissionToRequest(req, 'codex', undefined, toolDiffs)
+    expect(result).toEqual({
+      id: 'tc-loc-1',
+      engine: 'codex',
+      kind: 'file_change',
+      summary: 'Edit /repo/src/d.ts',
+      detail: { files: ['/repo/src/d.ts'], diffs: [{ path: '/repo/src/d.ts', oldText: 'a', newText: 'b' }] }
+    })
+  })
+
   it('a bare edit toolCall with no correlated toolDiffs entry falls back to the title, still renders defensively', () => {
     const req: RequestPermissionRequest = {
       sessionId: 's1',
@@ -368,6 +389,35 @@ describe('acpPermissionToRequest', () => {
       summary: 'Edit Editing files',
       detail: { files: [] }
     })
+  })
+
+  it('caps a huge multi-file diff at 20 files and surfaces the omitted count as detail.moreFiles', () => {
+    const blocks = Array.from({ length: 25 }, (_, i) => ({
+      type: 'diff' as const, path: `/repo/src/f${i}.ts`, oldText: 'old', newText: 'new'
+    }))
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'tc-many', title: 'Apply patch', content: blocks },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'claude')
+    expect(result.detail?.diffs).toHaveLength(20)
+    expect(result.detail?.moreFiles).toBe(5)
+    expect(result.detail?.files).toHaveLength(25) // paths themselves aren't capped, only the diff bodies
+  })
+
+  it('does not set detail.moreFiles when the file count is within the cap', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: {
+        toolCallId: 'tc-few',
+        title: 'Apply patch',
+        content: [{ type: 'diff', path: '/repo/src/one.ts', oldText: 'a', newText: 'b' }]
+      },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'claude')
+    expect(result.detail?.moreFiles).toBeUndefined()
   })
 
   it('normalizes a plain tool call to kind tool_use with toolName', () => {

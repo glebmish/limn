@@ -254,6 +254,10 @@ export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 
 export interface AgentRef { engine: EngineId; model?: string; reasoningEffort?: ReasoningEffort }
 // ── interactive approvals ─────────────────────────────────────
 export type ApprovalKind = 'command' | 'file_change' | 'tool_use'
+/** A diff, as carried in `ApprovalRequest.detail.diffs` — one per changed file.
+ *  Defined here (not in acpEvents.ts) so both the ACP mapper and the shared
+ *  request shape reference the same type. */
+export type ApprovalDiff = { path: string; oldText?: string; newText: string }
 /** An agent wants to do something that needs the reviewer's go-ahead. Emitted as an
  *  EngineEvent and surfaced as a blocking card in chat; the decision routes back to
  *  the engine. Transient (per-turn) — not persisted as state. */
@@ -271,7 +275,11 @@ export interface ApprovalRequest {
     // toolCallId) carried a diff — lets the card show an expandable preview
     // instead of just the path. Truncated (see acpEvents.ts) to keep the
     // approval payload small.
-    diffs?: Array<{ path: string; oldText?: string; newText: string }>
+    diffs?: ApprovalDiff[]
+    // Count of files omitted because `diffs` was capped (see acpEvents.ts's
+    // `toApprovalDiffs`) — ApprovalCard renders this as a "+N more files" note
+    // so a huge multi-file change doesn't silently look complete.
+    moreFiles?: number
     toolName?: string
     reason?: string
     [k: string]: unknown

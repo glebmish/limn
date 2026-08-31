@@ -12,9 +12,9 @@ import {
   type SessionNotification
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
-import type { ReasoningEffort, ExecutionMode } from '../../shared/types.js'
+import type { ReasoningEffort, ExecutionMode, ApprovalDiff } from '../../shared/types.js'
 import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
-import { acpToEvents, acpPermissionToRequest, diffBlocks, toApprovalDiffs, type ApprovalDiff } from './acpEvents.js'
+import { acpToEvents, acpPermissionToRequest, diffBlocks, toApprovalDiffs } from './acpEvents.js'
 import { CancelledError, EngineSessionLostError } from './errors.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'

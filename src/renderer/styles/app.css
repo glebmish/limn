@@ -171,6 +171,7 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .approval-card .ac-diff-old pre { color: var(--red); }
 .approval-card .ac-diff-new .ac-diff-label { color: var(--accent-ink); }
 .approval-card .ac-diff-new pre { color: var(--accent-ink); }
+.approval-card .ac-diff-more { font-family: var(--mono); font-size: 9.5px; color: var(--muted); padding: 5px 7px; border-top: 1px solid var(--line); }
 .approval-card .ac-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
 .approval-card .ac-deny { border-color: var(--red-line); color: var(--red); }
 

@@ -54,6 +54,72 @@ describe('ApprovalCard — file_change with a path and diff', () => {
   })
 })
 
+describe('ApprovalCard — expanded diff body (via the initialOpen test seam)', () => {
+  it('a single-file diff omits the per-file path header, and shows before/after blocks', () => {
+    const request: ApprovalRequest = {
+      id: 'r1', engine: 'codex', kind: 'file_change', summary: 'Edit src/a.ts',
+      detail: { files: ['src/a.ts'], diffs: [{ path: 'src/a.ts', oldText: 'const x = 1', newText: 'const x = 2' }] }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} initialOpen />)
+    expect(out).toContain('aria-expanded="true"')
+    expect(out).not.toContain('class="ac-diff-path"')
+    expect(out).toContain('− before')
+    expect(out).toContain('const x = 1')
+    expect(out).toContain('+ after')
+    expect(out).toContain('const x = 2')
+  })
+
+  it('a multi-file diff shows a per-file path header for each file', () => {
+    const request: ApprovalRequest = {
+      id: 'r6', engine: 'codex', kind: 'file_change', summary: 'Edit 2 files',
+      detail: {
+        files: ['src/a.ts', 'src/b.ts'],
+        diffs: [
+          { path: 'src/a.ts', oldText: 'old a', newText: 'new a' },
+          { path: 'src/b.ts', oldText: 'old b', newText: 'new b' }
+        ]
+      }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} initialOpen />)
+    expect(out).toContain('<div class="ac-diff-path">src/a.ts</div>')
+    expect(out).toContain('<div class="ac-diff-path">src/b.ts</div>')
+    expect(out).toContain('old a')
+    expect(out).toContain('new a')
+    expect(out).toContain('old b')
+    expect(out).toContain('new b')
+  })
+
+  it('a new-file diff (no oldText / create case) omits the "before" block entirely', () => {
+    const request: ApprovalRequest = {
+      id: 'r7', engine: 'codex', kind: 'file_change', summary: 'Edit src/new.ts',
+      detail: { files: ['src/new.ts'], diffs: [{ path: 'src/new.ts', newText: 'export const y = 1' }] }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} initialOpen />)
+    expect(out).not.toContain('− before')
+    expect(out).not.toContain('ac-diff-old')
+    expect(out).toContain('+ after')
+    expect(out).toContain('export const y = 1')
+  })
+
+  it('renders the "+N more files" marker when detail.moreFiles is set', () => {
+    const request: ApprovalRequest = {
+      id: 'r8', engine: 'codex', kind: 'file_change', summary: 'Edit 20 files',
+      detail: { files: ['src/a.ts'], diffs: [{ path: 'src/a.ts', newText: 'x' }], moreFiles: 5 }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} initialOpen />)
+    expect(out).toContain('+5 more files')
+  })
+
+  it('omits the "+N more files" marker when detail.moreFiles is absent', () => {
+    const request: ApprovalRequest = {
+      id: 'r9', engine: 'codex', kind: 'file_change', summary: 'Edit src/a.ts',
+      detail: { files: ['src/a.ts'], diffs: [{ path: 'src/a.ts', newText: 'x' }] }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} initialOpen />)
+    expect(out).not.toContain('more files')
+  })
+})
+
 describe('ApprovalCard — command and tool_use requests', () => {
   it('shows the command for a command-kind request', () => {
     const request: ApprovalRequest = {
