@@ -158,6 +158,19 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .approval-card .ac-cmd { font-family: var(--mono); font-size: 11px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 7px; display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-card .ac-cwd { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
 .approval-card .ac-files { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-card .ac-diff { margin-top: 6px; }
+.approval-card .ac-diff-toggle { display: flex; align-items: center; gap: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--muted-2); cursor: pointer; width: fit-content; }
+.approval-card .ac-diff-toggle:hover { color: var(--ink-2); }
+.approval-card .ac-diff-cv { width: 10px; height: 10px; flex: 0 0 auto; }
+.approval-card .ac-diff-body { margin-top: 5px; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.approval-card .ac-diff-file + .ac-diff-file { border-top: 1px solid var(--line); }
+.approval-card .ac-diff-path { font-family: var(--mono); font-size: 9.5px; color: var(--muted); padding: 4px 7px 0; overflow-wrap: anywhere; }
+.approval-card .ac-diff-block pre { margin: 0; padding: 3px 7px; font-family: var(--mono); font-size: 10.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-card .ac-diff-label { font-family: var(--mono); font-size: 9px; font-weight: 700; padding: 3px 7px 0; }
+.approval-card .ac-diff-old .ac-diff-label { color: var(--red); }
+.approval-card .ac-diff-old pre { color: var(--red); }
+.approval-card .ac-diff-new .ac-diff-label { color: var(--accent-ink); }
+.approval-card .ac-diff-new pre { color: var(--accent-ink); }
 .approval-card .ac-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
 .approval-card .ac-deny { border-color: var(--red-line); color: var(--red); }
 

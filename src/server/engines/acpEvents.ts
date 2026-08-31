@@ -78,9 +78,40 @@ function toolCallEvent(tc: ToolCall): EngineEvent {
 }
 
 /** The typed diff blocks of a tool call's content — the one filter every
- *  diff-aware branch (update folding, permission classification) shares. */
-function diffBlocks(blocks: ToolCallContent[] | null | undefined): Array<ToolCallContent & { type: 'diff'; path: string }> {
+ *  diff-aware branch (update folding, permission classification) shares.
+ *  Exported for `acp.ts`'s live tool_call correlation (see `toolDiffs`). */
+export function diffBlocks(blocks: ToolCallContent[] | null | undefined): Array<ToolCallContent & { type: 'diff'; path: string }> {
   return (blocks ?? []).filter((b): b is ToolCallContent & { type: 'diff'; path: string } => b.type === 'diff')
+}
+
+/** A diff, as carried in `ApprovalRequest.detail.diffs` — one per changed file. */
+export type ApprovalDiff = { path: string; oldText?: string; newText: string }
+
+/** Correlation store keyed by toolCallId; `acp.ts` fills this from live
+ *  tool_call(_update) session notifications so a permission request whose own
+ *  toolCall omits content (codex-acp's file-change approvals arrive as bare
+ *  `{ toolCallId, kind: 'edit', status: 'pending' }`, per its
+ *  buildFileChangePermissionRequest) can still recover the diff the agent
+ *  already reported for the same id. */
+export type ToolDiffs = ReadonlyMap<string, ApprovalDiff[]>
+
+const MAX_DIFF_CHARS = 4000
+
+/** Cap a diff's old/new text so a huge file rewrite doesn't bloat the
+ *  approval payload — the reviewer sees a bounded preview, not the whole file. */
+function truncateDiffText(text: string): string {
+  return text.length > MAX_DIFF_CHARS ? text.slice(0, MAX_DIFF_CHARS) + '\n… (truncated)' : text
+}
+
+/** Diff content blocks -> the truncated `ApprovalDiff[]` shape carried in
+ *  `ApprovalRequest.detail.diffs`. Exported so `acp.ts` can pre-truncate when
+ *  it stashes a live tool_call's diff into `toolDiffs` for later correlation. */
+export function toApprovalDiffs(blocks: Array<ToolCallContent & { type: 'diff'; path: string }>): ApprovalDiff[] {
+  return blocks.map((b) => ({
+    path: b.path,
+    ...(b.oldText != null ? { oldText: truncateDiffText(b.oldText) } : {}),
+    newText: truncateDiffText(b.newText)
+  }))
 }
 
 /** Concatenated text of `content`-type ToolCallContent blocks (diff/terminal
@@ -207,8 +238,11 @@ function isMcpToolApproval(req: RequestPermissionRequest): boolean {
  *  `RequestPermissionRequest` carries no separate top-level correlation id, and
  *  the AcpEngine pairs the reviewer's decision back to the same tool call.
  *  `toolTitles` (toolCallId -> title of previously seen tool_call updates) lets an
- *  MCP-tool approval that arrives with no title recover the tool name. */
-export function acpPermissionToRequest(req: RequestPermissionRequest, engine: EngineId, toolTitles?: ReadonlyMap<string, string>): ApprovalRequest {
+ *  MCP-tool approval that arrives with no title recover the tool name.
+ *  `toolDiffs` is the same idea for file changes: toolCallId -> diff blocks
+ *  from a previously seen tool_call(_update), for engines (codex-acp) whose
+ *  permission-request toolCall itself carries no content/locations. */
+export function acpPermissionToRequest(req: RequestPermissionRequest, engine: EngineId, toolTitles?: ReadonlyMap<string, string>, toolDiffs?: ToolDiffs): ApprovalRequest {
   const tc = req.toolCall
   const title = tc.title ?? ''
   const hasDiff = diffBlocks(tc.content).length > 0
@@ -243,9 +277,16 @@ export function acpPermissionToRequest(req: RequestPermissionRequest, engine: En
   } else if (tc.kind === 'edit' || tc.kind === 'delete' || tc.kind === 'move' || hasDiff) {
     kind = 'file_change'
     const locationPaths = (tc.locations ?? []).map((l) => l.path)
-    const diffPaths = diffBlocks(tc.content).map((b) => b.path)
+    const ownDiffBlocks = diffBlocks(tc.content)
+    // codex-acp's file-change permission request omits content/locations
+    // entirely (see doc comment above) — fall back to the diff reported for
+    // this toolCallId by the item/started tool_call that preceded it.
+    const seenDiffs = ownDiffBlocks.length === 0 && locationPaths.length === 0 ? toolDiffs?.get(tc.toolCallId) : undefined
+    const diffPaths = ownDiffBlocks.length ? ownDiffBlocks.map((b) => b.path) : (seenDiffs ?? []).map((d) => d.path)
     const files = Array.from(new Set([...locationPaths, ...diffPaths]))
     detail.files = files
+    const diffs = ownDiffBlocks.length ? toApprovalDiffs(ownDiffBlocks) : seenDiffs
+    if (diffs && diffs.length) detail.diffs = diffs
     summary = `Edit ${files[0] ?? title}`
   } else {
     kind = 'tool_use'

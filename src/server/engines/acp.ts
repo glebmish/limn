@@ -14,7 +14,7 @@ import {
 import { ZodError } from 'zod'
 import type { ReasoningEffort, ExecutionMode } from '../../shared/types.js'
 import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
-import { acpToEvents, acpPermissionToRequest } from './acpEvents.js'
+import { acpToEvents, acpPermissionToRequest, diffBlocks, toApprovalDiffs, type ApprovalDiff } from './acpEvents.js'
 import { CancelledError, EngineSessionLostError } from './errors.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
@@ -209,10 +209,20 @@ export class AcpEngine implements ReviewEngine {
         // approval that arrives with no title (codex-acp's correlated elicitation
         // shape) can recover the tool name for the limn auto-allow.
         const toolTitles = new Map<string, string>()
+        // toolCallId → diff blocks of the last tool_call(_update) that carried
+        // one, so a file-change permission request whose own toolCall omits
+        // content (codex-acp's bare `{ toolCallId, kind: 'edit' }` approvals —
+        // see acpPermissionToRequest's doc comment) can still show a path/diff
+        // preview from the item/started update that preceded it.
+        const toolDiffs = new Map<string, ApprovalDiff[]>()
         const client: Client = {
           sessionUpdate: (params: SessionNotification): void => {
             const u = params.update
             if (u.sessionUpdate === 'tool_call' && u.title) toolTitles.set(u.toolCallId, u.title)
+            if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
+              const diffs = diffBlocks(u.content)
+              if (diffs.length) toolDiffs.set(u.toolCallId, toApprovalDiffs(diffs))
+            }
             // Drop everything until session/new|load resolves — replay is history
             // Limn already holds in its own DB (spec §D1 step 4).
             if (replaying) return
@@ -225,7 +235,7 @@ export class AcpEngine implements ReviewEngine {
             }
           },
           requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
-            const req = acpPermissionToRequest(params, this.config.id, toolTitles)
+            const req = acpPermissionToRequest(params, this.config.id, toolTitles, toolDiffs)
             const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(mode, req, write)
             // 'ask' parks on the reviewer's decision, racing cancel so a pending
             // request gets the ACP-required `cancelled` outcome. A turn with no opId

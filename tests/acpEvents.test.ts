@@ -282,7 +282,7 @@ describe('acpPermissionToRequest', () => {
     })
   })
 
-  it('normalizes a tool call carrying a diff content block (no kind) to kind file_change', () => {
+  it('normalizes a tool call carrying a diff content block (no kind) to kind file_change, with old/new text in detail.diffs', () => {
     const req: RequestPermissionRequest = {
       sessionId: 's1',
       toolCall: {
@@ -298,7 +298,75 @@ describe('acpPermissionToRequest', () => {
       engine: 'claude',
       kind: 'file_change',
       summary: 'Edit /repo/src/b.ts',
-      detail: { files: ['/repo/src/b.ts'] }
+      detail: { files: ['/repo/src/b.ts'], diffs: [{ path: '/repo/src/b.ts', oldText: 'x', newText: 'y' }] }
+    })
+  })
+
+  it('an add-file diff (no oldText) omits oldText from detail.diffs', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: {
+        toolCallId: 'tc3b',
+        title: 'Apply patch',
+        content: [{ type: 'diff', path: '/repo/src/new.ts', newText: 'brand new file' }]
+      },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'claude')
+    expect(result.detail).toEqual({ files: ['/repo/src/new.ts'], diffs: [{ path: '/repo/src/new.ts', newText: 'brand new file' }] })
+  })
+
+  it('truncates an oversized diff text and marks it truncated', () => {
+    const huge = 'x'.repeat(5000)
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: {
+        toolCallId: 'tc3c',
+        title: 'Apply patch',
+        content: [{ type: 'diff', path: '/repo/src/big.ts', oldText: 'short', newText: huge }]
+      },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'claude')
+    const newText = result.detail?.diffs?.[0]?.newText ?? ''
+    expect(newText.length).toBeLessThan(5000)
+    expect(newText.endsWith('(truncated)')).toBe(true)
+  })
+
+  it('codex-acp style: bare edit toolCall with no content/locations falls back to a correlated toolDiffs entry', () => {
+    // Mirrors codex-acp's buildFileChangePermissionRequest, which sends only
+    // { toolCallId, kind: 'edit', status: 'pending' } — the diff was already
+    // reported via a preceding tool_call (item/started) session/update, which
+    // acp.ts stashes into `toolDiffs` keyed by the same toolCallId.
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'tc-codex-1', kind: 'edit', status: 'pending' },
+      options: []
+    }
+    const toolDiffs = new Map([['tc-codex-1', [{ path: '/repo/src/c.ts', oldText: 'a', newText: 'b' }]]])
+    const result = acpPermissionToRequest(req, 'codex', undefined, toolDiffs)
+    expect(result).toEqual({
+      id: 'tc-codex-1',
+      engine: 'codex',
+      kind: 'file_change',
+      summary: 'Edit /repo/src/c.ts',
+      detail: { files: ['/repo/src/c.ts'], diffs: [{ path: '/repo/src/c.ts', oldText: 'a', newText: 'b' }] }
+    })
+  })
+
+  it('a bare edit toolCall with no correlated toolDiffs entry falls back to the title, still renders defensively', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'tc-mystery', kind: 'edit', status: 'pending', title: 'Editing files' },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result).toEqual({
+      id: 'tc-mystery',
+      engine: 'codex',
+      kind: 'file_change',
+      summary: 'Edit Editing files',
+      detail: { files: [] }
     })
   })
 

@@ -266,6 +266,12 @@ export interface ApprovalRequest {
     command?: string
     cwd?: string
     files?: string[]
+    // Per-file before/after text for a file_change request, when the engine's
+    // permission-request payload (or a prior tool_call update for the same
+    // toolCallId) carried a diff — lets the card show an expandable preview
+    // instead of just the path. Truncated (see acpEvents.ts) to keep the
+    // approval payload small.
+    diffs?: Array<{ path: string; oldText?: string; newText: string }>
     toolName?: string
     reason?: string
     [k: string]: unknown

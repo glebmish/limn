@@ -1,0 +1,91 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it } from 'vitest'
+import { ApprovalCard } from '../src/renderer/components/ApprovalCard'
+import type { ApprovalRequest } from '../src/shared/types'
+
+// #15: the approval card gave no context beyond the tool kind — no path, no
+// diff. These tests pin path visibility for a file_change request and the
+// collapsed-by-default diff disclosure, plus the no-payload fallback that
+// must keep rendering (never blank/crash) when detail is absent entirely.
+
+const noop = (): void => {}
+
+describe('ApprovalCard — file_change with a path and diff', () => {
+  const request: ApprovalRequest = {
+    id: 'r1',
+    engine: 'codex',
+    kind: 'file_change',
+    summary: 'Edit src/a.ts',
+    detail: {
+      files: ['src/a.ts'],
+      diffs: [{ path: 'src/a.ts', oldText: 'const x = 1', newText: 'const x = 2' }]
+    }
+  }
+
+  it('always shows the file path', () => {
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('class="ac-detail ac-files"')
+    expect(out).toContain('src/a.ts')
+  })
+
+  it('collapses the diff by default, behind a "Show diff" disclosure', () => {
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('Show diff')
+    expect(out).toContain('aria-expanded="false"')
+    // the diff body is not in the initial (collapsed) markup
+    expect(out).not.toContain('const x = 1')
+    expect(out).not.toContain('const x = 2')
+  })
+
+  it('omits the diff disclosure entirely when there is no diff, even with files present', () => {
+    const noDiff: ApprovalRequest = { ...request, detail: { files: ['src/a.ts'] } }
+    const out = renderToStaticMarkup(<ApprovalCard request={noDiff} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).not.toContain('Show diff')
+    expect(out).toContain('src/a.ts')
+  })
+
+  it('a new-file diff (no oldText) still renders the disclosure', () => {
+    const added: ApprovalRequest = {
+      ...request,
+      detail: { files: ['src/new.ts'], diffs: [{ path: 'src/new.ts', newText: 'export const y = 1' }] }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={added} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('Show diff')
+  })
+})
+
+describe('ApprovalCard — command and tool_use requests', () => {
+  it('shows the command for a command-kind request', () => {
+    const request: ApprovalRequest = {
+      id: 'r2', engine: 'claude', kind: 'command', summary: 'Run `npm test`', detail: { command: 'npm test' }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('npm test')
+    expect(out).not.toContain('Show diff')
+  })
+
+  it('shows the tool name via the summary for a tool_use request', () => {
+    const request: ApprovalRequest = {
+      id: 'r3', engine: 'claude', kind: 'tool_use', summary: 'Use add_comment', detail: { toolName: 'add_comment' }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('Use add_comment')
+  })
+})
+
+describe('ApprovalCard — defensive no-payload fallback', () => {
+  it('renders the kind and summary without crashing when detail is entirely absent', () => {
+    const request: ApprovalRequest = { id: 'r4', engine: 'codex', kind: 'file_change', summary: 'Edit' }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('Edit')
+    expect(out).not.toContain('Show diff')
+    expect(out).not.toContain('class="ac-detail ac-files"')
+  })
+
+  it('renders with an empty files array (no path recovered) without crashing', () => {
+    const request: ApprovalRequest = { id: 'r5', engine: 'codex', kind: 'file_change', summary: 'Edit', detail: { files: [] } }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('Edit')
+    expect(out).not.toContain('Show diff')
+  })
+})
