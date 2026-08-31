@@ -49,8 +49,11 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     line: number; tag?: 'div' | 'li'; className?: string; children: ReactNode
   }) => {
     const lineContent = art.lines[line - 1] ?? ''
+    // `notInDiff` is excluded for the same reason as 'outdated': the re-anchor pass
+    // could not place the comment's quote in this doc, so `line` is a leftover number.
+    // Mounting the thread here would park it under whatever block now holds that line.
     const threads = comments.filter(
-      (c) => c.anchor.kind === 'artifact' && c.anchor.line === line && c.status !== 'outdated'
+      (c) => c.anchor.kind === 'artifact' && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
     )
     return (
       <Tag className={'cmt' + (className ? ` ${className}` : '')}>
@@ -88,6 +91,9 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
   }
 
   const outdated = comments.filter((c) => c.status === 'outdated')
+  // anchored nowhere in the doc (a resolved comment whose quote vanished) — shown in
+  // its own bucket at the bottom, exactly as DiffBody does for a file's comments
+  const notShown = comments.filter((c) => c.notInDiff && c.status !== 'outdated')
 
   return (
     <>
@@ -155,6 +161,12 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
           <ReactMarkdown remarkPlugins={MD_PLUGINS} components={components}>{art.lines.join('\n')}</ReactMarkdown>
         </Commentable>
         <SelectionThreads scope={{ region: 'artifact', path }} />
+        {notShown.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div className="pdoc-eyebrow">comments no longer anchored in this {art.role}</div>
+            {notShown.map((c) => <InlineThread key={c.id} c={c} locLabel="not shown here" />)}
+          </div>
+        )}
         {outdated.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div className="pdoc-eyebrow">outdated comments</div>

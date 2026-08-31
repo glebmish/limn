@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { windowMessages } from '../src/renderer/components/ChatDrawer'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { SubmittedCommentRefs, windowMessages } from '../src/renderer/components/ChatDrawer'
+import type { Comment } from '../src/shared/types'
 
 /** The chat list only mounts the last `shown` messages; everything older is hidden
  *  behind a "Show earlier messages (N hidden)" button. `windowMessages` is the pure
@@ -43,5 +45,31 @@ describe('windowMessages', () => {
     expect(three.start).toBe(0)
     expect(three.hidden).toBe(0)
     expect(three.visible).toHaveLength(250)
+  })
+})
+
+// The submitted-batch rows jump to each comment. A comment the re-anchor pass could
+// not place (`notInDiff` / status 'outdated') has no line to land on, so the row must
+// name the file alone and say why — same rule the point/comment cards follow.
+describe('SubmittedCommentRefs — comments the re-anchor pass could not place', () => {
+  const cmt = (over: Partial<Comment> = {}): Comment => ({
+    id: 'c1', author: 'user', text: 'why this?', status: 'sent', replies: [], createdAt: 'now', iteration: 1,
+    anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 14, hunkRange: '', lineContent: 'x' },
+    ...over
+  })
+  const render = (c: Comment): string =>
+    renderToStaticMarkup(<SubmittedCommentRefs commentRefs={[c.id]} comments={[c]} />)
+
+  it('keeps file:line for a comment that is still placed', () => {
+    expect(render(cmt())).toContain('a.ts:14')
+  })
+
+  it('drops the stale line and explains the degraded jump', () => {
+    const lost = render(cmt({ notInDiff: true }))
+    expect(lost).not.toContain('a.ts:14')
+    expect(lost).toContain('not shown in this diff')
+    const stale = render(cmt({ status: 'outdated' }))
+    expect(stale).not.toContain('a.ts:14')
+    expect(stale).toContain('changed since this comment')
   })
 })

@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, willRunReadOnly, genSessionLost, pendingApprovals, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
-import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
+import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionChips } from './ActionChips'
@@ -15,7 +15,7 @@ import { queuedComments } from '../lib/comments'
 import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 import { dev } from '../dev'
-import { focusAnchor } from '../lib/focus'
+import { COMMENT_JUMP_TITLE, commentJumpReason, commentJumpTarget, focusAnchor } from '../lib/focus'
 import type { ChatMessage as ChatMsg, Comment } from '../../shared/types'
 
 /** Default number of trailing messages the drawer mounts; each "Show earlier" click
@@ -503,10 +503,13 @@ export function SegmentBody({ segments, calls, actions, engine, threadId }: {
   )
 }
 
+/** The row's location label. A comment whose line the re-anchor pass could not place
+ *  (`commentJumpReason`) shows the file alone — its jump lands there too, and a stale
+ *  number that reads as precise is worse than no number (same rule as a `lost` stop). */
 function commentRefLabel(c: Comment): string {
   const a = c.anchor
   switch (a.kind) {
-    case 'diff': return `${splitPath(a.file).name}:${a.line}`
+    case 'diff': return commentJumpReason(c) ? splitPath(a.file).name : `${splitPath(a.file).name}:${a.line}`
     case 'file': return splitPath(a.file).name
     case 'section': return 'section'
     case 'summary': return 'summary'
@@ -518,10 +521,6 @@ function commentRefLabel(c: Comment): string {
     case 'deviation': return `deviation ${a.index + 1}`
     case 'selection': return a.quote.length > 24 ? a.quote.slice(0, 23) + '...' : a.quote
   }
-}
-
-function focusableAnchor(anchor: CommentAnchor): FocusTarget | null {
-  return anchor.kind === 'summary' || anchor.kind === 'section' || anchor.kind === 'file' || anchor.kind === 'diff' ? anchor : null
 }
 
 export function SubmittedCommentRefs({ commentRefs, comments }: { commentRefs: string[]; comments: Comment[] }) {
@@ -536,18 +535,26 @@ export function SubmittedCommentRefs({ commentRefs, comments }: { commentRefs: s
         <span className="ah-anchor">{refs.length} comment{refs.length === 1 ? '' : 's'}</span>
       </div>
       <div className="limn-submit-list">
-        {refs.map((c, i) => (
-          <button key={c.id} className="limn-submit-ref" onClick={() => {
-            const anchor = focusableAnchor(c.anchor)
-            if (anchor) focusAnchor(anchor)
-          }}>
+        {refs.map((c, i) => {
+          const degraded = commentJumpReason(c)
+          return (
+          <button
+            key={c.id}
+            className="limn-submit-ref"
+            {...(degraded ? { title: COMMENT_JUMP_TITLE[degraded] } : {})}
+            onClick={() => {
+              const target = commentJumpTarget(c)
+              if (target) focusAnchor(target)
+            }}
+          >
             <span className="sr-n">{i + 1}</span>
             <span className="sr-body">
               <span className="sr-loc">{commentRefLabel(c)}</span>
               <span className="sr-text">{c.text}</span>
             </span>
           </button>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

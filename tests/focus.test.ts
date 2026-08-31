@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { jumpTarget, limnSelector } from '../src/renderer/lib/focus'
-import type { FocusTarget } from '../src/shared/types'
+import { commentJumpTarget, jumpTarget, limnSelector } from '../src/renderer/lib/focus'
+import type { Comment, FocusTarget } from '../src/shared/types'
 
 describe('limnSelector', () => {
   it('maps each FocusTarget kind to its data-limn-* selector', () => {
@@ -31,5 +31,33 @@ describe('jumpTarget', () => {
     expect(jumpTarget(diff())).toEqual(diff())
     expect(jumpTarget({ kind: 'summary' })).toEqual({ kind: 'summary' })
     expect(jumpTarget({ kind: 'file', file: 'src/a.ts' })).toEqual({ kind: 'file', file: 'src/a.ts' })
+  })
+})
+
+// A comment records the same "could not place it" verdict as `stale`, only under
+// different names (`notInDiff` / status 'outdated'). Its jumps must degrade the same
+// way, or a lost comment still flashes whatever code now holds its old line.
+describe('commentJumpTarget', () => {
+  const cmt = (over: Partial<Comment> = {}): Comment => ({
+    id: 'c1', author: 'user', text: 't', status: 'queued', replies: [], createdAt: 'now', iteration: 1,
+    anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 14, hunkRange: '', lineContent: 'x' },
+    ...over
+  })
+
+  it('degrades a notInDiff or outdated diff comment to its file', () => {
+    expect(commentJumpTarget(cmt({ notInDiff: true }))).toEqual({ kind: 'file', file: 'src/a.ts' })
+    expect(commentJumpTarget(cmt({ status: 'outdated' }))).toEqual({ kind: 'file', file: 'src/a.ts' })
+  })
+
+  it('passes a located diff comment and the other focusable kinds through', () => {
+    expect(commentJumpTarget(cmt())).toEqual(cmt().anchor)
+    expect(commentJumpTarget(cmt({ anchor: { kind: 'summary' } }))).toEqual({ kind: 'summary' })
+    expect(commentJumpTarget(cmt({ anchor: { kind: 'file', file: 'src/a.ts' } }))).toEqual({ kind: 'file', file: 'src/a.ts' })
+    expect(commentJumpTarget(cmt({ anchor: { kind: 'section', sectionId: 's1' } }))).toEqual({ kind: 'section', sectionId: 's1' })
+  })
+
+  it('returns null for anchors no jump can land on (artifact, plan-step, …)', () => {
+    expect(commentJumpTarget(cmt({ anchor: { kind: 'artifact', path: 'spec.md', line: 3, lineContent: 'x' } }))).toBeNull()
+    expect(commentJumpTarget(cmt({ anchor: { kind: 'question', questionId: 'q1' } }))).toBeNull()
   })
 })

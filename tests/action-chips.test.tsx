@@ -156,3 +156,63 @@ describe('comment action cards follow the live comment anchor', () => {
     expect(out).toContain('a.ts:14')
   })
 })
+
+// A comment the re-anchor pass could not place records it as `notInDiff` (resolved)
+// or status 'outdated' — the same verdict `stale` carries on a bare stop. The card
+// must degrade its label and its jump exactly as PointCard does.
+describe('comment action cards on a comment the re-anchor pass could not place', () => {
+  const action: AgentAction = {
+    kind: 'comment_resolved',
+    commentId: 'c1',
+    anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 14, hunkRange: '', lineContent: 'old' },
+    verdict: 'addressed',
+    note: 'Rewrote the helper.'
+  }
+  const seed = (over: { notInDiff?: boolean; status?: 'resolved' | 'outdated' }): void => {
+    seedLoaded({
+      state: {
+        comments: [{
+          id: 'c1', author: 'user', text: 'q', status: over.status ?? 'resolved', replies: [], createdAt: 'now', iteration: 0,
+          ...(over.notInDiff ? { notInDiff: true } : {}),
+          anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 14, hunkRange: '', lineContent: 'old' }
+        }],
+        chats: []
+      }
+    } as unknown as LoadedReview)
+  }
+
+  it('drops the stale line number and explains the degraded jump (notInDiff)', () => {
+    seed({ notInDiff: true })
+    try {
+      const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+      expect(out).not.toContain('a.ts:14')
+      expect(out).toContain('a.ts')
+      expect(out).toContain('not shown in this diff')
+      expect(out).not.toContain('Show in the review')
+    } finally {
+      seedLoaded(null)
+    }
+  })
+
+  it('does the same for an outdated comment', () => {
+    seed({ status: 'outdated' })
+    try {
+      const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+      expect(out).not.toContain('a.ts:14')
+      expect(out).toContain('changed since this comment')
+    } finally {
+      seedLoaded(null)
+    }
+  })
+
+  it('keeps the line and the plain title for a comment that is still placed', () => {
+    seed({})
+    try {
+      const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+      expect(out).toContain('a.ts:14')
+      expect(out).toContain('Show in the review')
+    } finally {
+      seedLoaded(null)
+    }
+  })
+})

@@ -257,8 +257,13 @@ export interface AnchorVerdict {
 export interface ReanchorPass {
   /** Re-anchor one positional anchor in place. `null` = the attempt failed outright
    *  (a git error on this anchor); the anchor is untouched and the caller must draw
-   *  no conclusion from it. Never throws. */
-  reanchor(a: PositionalAnchor): Promise<AnchorVerdict | null>
+   *  no conclusion from it. Never throws.
+   *
+   *  `heal` (default true): stamp a legacy (unstamped) anchor that stage 3 placed, so
+   *  later loads run the full pipeline. Callers that cannot PERSIST the fresh stamp
+   *  must pass `false` — stamping costs ~6 git spawns and would be recomputed and
+   *  thrown away on every single load. */
+  reanchor(a: PositionalAnchor, opts?: { heal?: boolean }): Promise<AnchorVerdict | null>
 }
 
 /** Build the three-stage pass (spec §3, §4) against `ctx`'s surface. `artifacts`
@@ -387,16 +392,27 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
     // Stage 2 — fuzzy context fallback over the FULL new content.
     const hit = fuzzyFind(contentLines, a.lineContent, a.context, hint)
     if (hit) {
+      // Stage 1's 'EDITED' only means the line fell inside a hunk's OLD range, and git
+      // routinely parks an untouched line (`}`, a blank, a duplicated import) on the
+      // deleted side of a replace to keep the rest of its alignment. The flag claims
+      // the quoted text is gone, so only assert it when the text really changed —
+      // whitespace-insensitively, since re-indentation rewrites nothing.
+      const changed = normalizeWs(contentLines[hit.line - 1]) !== normalizeWs(a.lineContent)
       setLine(a, hit.line)
       a.lineContent = contentLines[hit.line - 1] // keep the outdated-card quote honest
-      return placed(a, out.edited)
+      return placed(a, out.edited && changed)
     }
     return null // → stage 3
   }
 
   /** Stage 3 — exact-text floor (today's algorithm, verbatim), then "not located".
-   *  On a legacy (unstamped) success, heal forward against the current surface. */
-  async function stage3(a: PositionalAnchor, edited: boolean): Promise<AnchorVerdict> {
+   *  On a legacy (unstamped) success, heal forward against the current surface when
+   *  `heal` (the caller can persist the fresh stamp). */
+  async function stage3(a: PositionalAnchor, edited: boolean, heal: boolean): Promise<AnchorVerdict> {
+    // An empty/whitespace-only quote is not evidence: it exact-matches EVERY blank
+    // rendered line, and pickNearest would then move the anchor onto whichever one
+    // sits closest and call it located. Nothing to match on ⇒ not located.
+    if (normalizeWs(a.lineContent) === '') return { located: false, offSurface: false, edited }
     const candidates: { line: number; range: string }[] = []
     if (a.kind === 'diff') {
       const file = fileMap.get(a.file)
@@ -421,19 +437,19 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
     setLine(a, best.line)
     if (a.kind === 'diff') a.hunkRange = best.range
     // the exact quote is on a rendered line — nothing was rewritten
-    const stamped = a.stamp ? undefined : await stampAnchor(ctx.workdir, ctx.session, a) // heal-forward (legacy only)
+    const stamped = heal && !a.stamp ? await stampAnchor(ctx.workdir, ctx.session, a) : undefined // heal-forward (legacy only)
     return { located: true, offSurface: false, edited: false, ...(stamped ? { stamped } : {}) }
   }
 
   return {
-    async reanchor(a: PositionalAnchor): Promise<AnchorVerdict | null> {
+    async reanchor(a: PositionalAnchor, opts?: { heal?: boolean }): Promise<AnchorVerdict | null> {
       try {
         const out = { edited: false }
         if (a.stamp) {
           const done = await tryStamped(a, out)
           if (done) return done
         }
-        return await stage3(a, out.edited)
+        return await stage3(a, out.edited, opts?.heal ?? true)
       } catch {
         return null // a git failure on one anchor must never abort the pass — leave it
       }
@@ -468,12 +484,13 @@ export async function reanchorComments(
     // question, plan-step, title, acceptance, deviation, hunk, and selection
     // (content-addressed via its own quote)
     const v = await pass.reanchor(c.anchor)
-    // `anchorEdited` is a per-load verdict, not accumulated state: the pass's own
-    // stage-1 'EDITED' is the ONLY thing that may set it. Without clearing it here a
-    // stale `true` would survive any load that cannot re-derive it (no blobSha, a
-    // gc'd blob, a git failure) and outlive its own evidence.
+    // `anchorEdited` is a per-load verdict, not accumulated state: this load's own
+    // stage-1 'EDITED' is the ONLY thing that may set it, so it is cleared here
+    // UNCONDITIONALLY — including on a failed attempt (`v === null`). A load that
+    // cannot re-derive the verdict (no blobSha, a gc'd blob, a git failure) has no
+    // evidence for it, and a stale `true` would otherwise outlive that evidence.
     c.anchorEdited = v?.edited || undefined
-    if (!v) continue // attempt failed — leave the comment exactly as it was
+    if (!v) continue // attempt failed — the anchor and every other field stay as they were
     if (v.located) {
       if (c.status === 'outdated') c.status = 'queued'
       c.notInDiff = v.offSurface || undefined
@@ -496,17 +513,22 @@ export async function reanchorComments(
  *  against, or explicitly flagged `stale` — never left pointing at a line number
  *  whose meaning has changed underneath it. Mutates the targets in place; the
  *  verdict is recomputed from the immutable stamp on every load, so nothing has to
- *  be persisted for it. */
+ *  be persisted for it.
+ *
+ *  Heal-forward is OFF here for exactly that reason: nothing on this path writes the
+ *  annotations/chat rows back, so a stamp minted for a legacy target would be
+ *  discarded and re-minted (~6 git spawns) on every load. Legacy targets keep running
+ *  stage 3 only. */
 export async function reanchorFocusTargets(pass: ReanchorPass, targets: Iterable<FocusTarget | undefined>): Promise<void> {
   for (const t of targets) {
     if (t?.kind !== 'diff') continue
     // A legacy stop (pre-stamp `point` froze `lineContent: ''` with no stamp) carries
-    // no evidence at all: stage 3 would exact-match its empty quote against every
-    // blank line on the surface and pickNearest would move it onto one. Decline.
+    // no evidence at all — nothing to re-anchor from, and no stamp whose absence a
+    // verdict could be pinned on. Skip it entirely (stage 3 declines empty quotes too,
+    // but that would flag it `lost`; a legacy stop is left exactly as it was).
     if (!t.stamp && normalizeWs(t.lineContent) === '') continue
-    const v = await pass.reanchor(t)
+    const v = await pass.reanchor(t, { heal: false })
     if (!v) continue
-    if (v.stamped?.kind === 'diff') Object.assign(t, v.stamped) // heal-forward (legacy only)
     t.stale = !v.located ? 'lost' : v.offSurface ? 'off-surface' : undefined
   }
 }

@@ -8,6 +8,7 @@ import * as git from '../src/server/git'
 import { blobShaAt, catBlob, showFile, hashObjectsWrite, diffContents, renameMap, hashObjects, getDiff, isDirty } from '../src/server/git'
 import { execGitDiff } from '../src/server/exec'
 import { createReanchorPass, reanchorComments, reanchorFocusTargets, reviewFocusTargets, type ReanchorCtx } from '../src/server/anchor'
+import * as anchorStamp from '../src/server/anchorStamp'
 import { stampAnchor } from '../src/server/anchorStamp'
 import type { Comment, CommentAnchor, FocusTarget, ReviewState, SessionMeta } from '../src/shared/types'
 
@@ -185,6 +186,9 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorLine(c)).toBe(3)
     expect(anchorText(c)).toBe('    return y * 2') // stage-2 refresh keeps the quote honest
     expect(c.notInDiff).toBeFalsy()
+    // whitespace-only churn is not a rewrite: the quoted code is still there, so the
+    // "line edited since you commented" flag must stay off
+    expect(c.anchorEdited).toBeFalsy()
   })
 
   it('2a. duplicate braces: insertion above keeps the comment on ITS brace via stage-1 positional map', async () => {
@@ -295,6 +299,60 @@ describe('reanchorComments — pipeline scenarios', () => {
     fixtureWrite(repo, 'calc.ts', lines('const head = 1', 'while (running) { flush() }', 'const tail = 2')); commit(repo, 'rewrite line')
     await reanchorComments(await buildCtx(repo, session), [c], [])
     expect(c.status).toBe('outdated')
+  })
+
+  it('5c. an UNCHANGED line git parked on the deleted side of a hunk is not flagged edited', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    // Two identical guards; the commented `}` closes the SECOND one, at line 16.
+    const before = lines(
+      "import { log } from './log'",
+      "import type { Row } from './rows'",
+      '',
+      '// Summarize a row set for the status line.',
+      'export function summarize(rows: Row[]): string {',
+      '  const names = rows.map((r) => r.name)',
+      '  const head = names[0]',
+      '',
+      '  if (head === undefined) {',
+      "    return 'none'",
+      '  }',
+      '',
+      "  log('legacy path')",
+      '  if (head === undefined) {',
+      "    return 'none'",
+      '  }',
+      '',
+      "  return names.join(', ')",
+      '}'
+    )
+    fixtureWrite(repo, 'sum.ts', before); commit(repo, 'add sum')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'sum.ts', line: 16, text: '  }' })
+    // Drop the legacy path (its log + the duplicated guard). Real git reports this as
+    // deleting lines 13–17, which SWEEPS UP the commented `}` at 16 even though a
+    // byte-identical `}` is still right there — the duplicate-line alignment quirk.
+    fixtureWrite(repo, 'sum.ts', lines(
+      "import { log } from './log'",
+      "import type { Row } from './rows'",
+      '',
+      '// Summarize a row set for the status line.',
+      'export function summarize(rows: Row[]): string {',
+      '  const names = rows.map((r) => r.name)',
+      '  const head = names[0]',
+      '',
+      '  if (head === undefined) {',
+      "    return 'none'",
+      '  }',
+      '',
+      "  return names.join(', ')",
+      '}'
+    )); commit(repo, 'drop the legacy path')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).not.toBe('outdated')
+    expect(anchorText(c)).toBe('  }')     // the quoted text is still exactly what it was…
+    expect(c.anchorEdited).toBeFalsy()    // …so nothing may claim it was rewritten
   })
 
   it('6. old-side comment on a deleted line: base unchanged → stable, not outdated', async () => {
@@ -710,6 +768,47 @@ describe('reanchorFocusTargets — narration blocks, diagram nodes, walkthrough 
     commit(repo, 'blank it out')
     await run(repo, session, [t])
     expect(t).toEqual({ kind: 'diff', file: 'config.ts', side: 'new', line: 3, hunkRange: '', lineContent: '' })
+  })
+
+  it('N7b. a STAMPED stop with an empty quote is declined too, never parked on a blank line', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'config.ts', lines(
+      "export const name = 'svc'", '', 'const timeout = 30', 'const retries = 2', 'export default name'
+    )); commit(repo, 'add config')
+    const session = mkSession(repo)
+    // a stop on the genuinely blank line 2 — stamped, but its quote carries no signal
+    const t = await stampedTarget(repo, session, { file: 'config.ts', line: 2, text: '' })
+    expect(t.lineContent).toBe('')
+    expect(t.stamp).toBeDefined()
+    // rewrite the head of the file: line 2's blank is gone, and stage 2's context gate
+    // fails — but a blank line still exists further down, which stage 3's exact-text
+    // floor used to match ('' === '') and pickNearest used to move the stop onto.
+    fixtureWrite(repo, 'config.ts', lines(
+      'const timeout = 30', 'const retries = 2', 'export default name', '', 'export const version = 2'
+    )); commit(repo, 'rewrite the head')
+    await run(repo, session, [t])
+    expect(t.line).toBe(2)      // untouched — no blank line is "the" blank line
+    expect(t.stale).toBe('lost')
+  })
+
+  it('N10. a legacy (unstamped) stop is re-anchored without paying for a stamp it throws away', async () => {
+    const { repo, session } = configRepo()
+    // no stamp, but a real quote: stage 3's exact-text floor places it. The pass used
+    // to stamp it (≈6 git spawns) purely to discard the result — focus targets never
+    // persist a heal-forward.
+    const t: FocusTarget = { kind: 'diff', file: 'config.ts', side: 'new', line: 3, hunkRange: '', lineContent: 'const timeout = 30' }
+    const spy = vi.spyOn(anchorStamp, 'stampAnchor')
+    try {
+      await run(repo, session, [t])
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+    expect(t.line).toBe(3)                                    // still placed by stage 3…
+    expect(t.stale).toBeUndefined()
+    expect((t as { stamp?: unknown }).stamp).toBeUndefined()   // …and still unstamped
   })
 
   it('N8. non-diff stops (summary/section/file) are never touched', async () => {

@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
-import { focusAnchor } from '../lib/focus'
+import { COMMENT_JUMP_TITLE, commentJumpReason, commentJumpTarget, focusAnchor, type CommentJump } from '../lib/focus'
 import { agentLabel } from '../../shared/agents'
 import { splitPath } from './FileHeader'
 
@@ -51,9 +51,12 @@ function focusTarget(a: FocusTarget): { text: string; mono: boolean; staleTitle?
   }
 }
 
-function anchorShort(a: CommentAnchor): string {
+/** The comment's location, short. `degraded` (the comment's line is no longer
+ *  trustworthy — see `commentJumpReason`) drops the line number, exactly as a `lost`
+ *  stop's label does: a number that reads as precise and isn't is worse than none. */
+function anchorShort(a: CommentAnchor, degraded = false): string {
   switch (a.kind) {
-    case 'diff': return `${splitPath(a.file).name}:${a.line}`
+    case 'diff': return degraded ? splitPath(a.file).name : `${splitPath(a.file).name}:${a.line}`
     case 'file': return splitPath(a.file).name
     case 'section': return 'a section'
     case 'summary': return 'the summary'
@@ -65,10 +68,6 @@ function anchorShort(a: CommentAnchor): string {
     case 'deviation': return `deviation ${a.index + 1}`
     case 'selection': return `“${a.quote.length > 24 ? a.quote.slice(0, 23) + '…' : a.quote}”`
   }
-}
-
-function focusableAnchor(anchor: CommentAnchor): FocusTarget | null {
-  return anchor.kind === 'summary' || anchor.kind === 'section' || anchor.kind === 'file' || anchor.kind === 'diff' ? anchor : null
 }
 
 export function nextStopIndex(current: number, delta: number, count: number): number {
@@ -161,7 +160,7 @@ function Quote({ commentId }: { commentId?: string }) {
   if (!comment) return null
   return (
     <div className="limn-quote">
-      <div className="q-who"><Ava ai={comment.author === 'agent'}>{comment.author === 'agent' ? 'AI' : 'me'}</Ava>{comment.author === 'agent' ? 'Agent' : 'You'} · {anchorShort(comment.anchor)}</div>
+      <div className="q-who"><Ava ai={comment.author === 'agent'}>{comment.author === 'agent' ? 'AI' : 'me'}</Ava>{comment.author === 'agent' ? 'Agent' : 'You'} · {anchorShort(comment.anchor, Boolean(commentJumpReason(comment)))}</div>
       <div className="q-text">{comment.text}</div>
     </div>
   )
@@ -178,13 +177,15 @@ function CommentActionCard({ action, engine }: {
   // names is re-anchored on every load. Prefer the live one so the card's label AND
   // its jump both follow the code (the `Quote` below already reads the live comment,
   // so the frozen anchor used to make the two disagree). Falls back to the snapshot
-  // for a comment that no longer exists.
-  const liveAnchor = useStore((s) => s.loaded?.state.comments.find((c) => c.id === commentId)?.anchor)
-  const anchor = liveAnchor ?? (added ? action.comment.anchor : action.anchor)
+  // for a comment that no longer exists — a bare anchor with no re-anchor verdict.
+  const live = useStore((s) => s.loaded?.state.comments.find((c) => c.id === commentId))
+  const jump: CommentJump = live ?? { anchor: added ? action.comment.anchor : action.anchor }
+  const anchor = jump.anchor
   const body = added ? action.comment.text : action.kind === 'comment_replied' ? action.reply.text : action.note
   const title = added ? 'Commented' : action.kind === 'comment_replied' ? 'Replied' : 'Resolved'
   const Icon = added ? I.bubble : resolved ? I.check : I.arrow
-  const target = focusableAnchor(anchor)
+  const target = commentJumpTarget(jump)
+  const degraded = commentJumpReason(jump)
   const content = (
     <>
       <div className="limn-act-head">
@@ -192,7 +193,7 @@ function CommentActionCard({ action, engine }: {
         <span className="ah-verb">{title}</span>
         {resolved
           ? <span className={'ah-verdict ' + action.verdict}>{VERDICT_ICON[action.verdict]} {action.verdict}</span>
-          : <span className="ah-anchor">on {anchorShort(anchor)}</span>}
+          : <span className="ah-anchor">on {anchorShort(anchor, Boolean(degraded))}</span>}
       </div>
       {!added && <Quote commentId={action.commentId} />}
       <div className="limn-cmtbody">
@@ -202,7 +203,7 @@ function CommentActionCard({ action, engine }: {
     </>
   )
   return target ? (
-    <button className="limn-act cmt" title="Show in the review" onClick={() => focusAnchor(target)}>
+    <button className="limn-act cmt" title={degraded ? COMMENT_JUMP_TITLE[degraded] : 'Show in the review'} onClick={() => focusAnchor(target)}>
       {content}
     </button>
   ) : (
