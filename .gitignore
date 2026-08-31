@@ -18,6 +18,9 @@ docs/superpowers/
 .env.*
 !.env.example
 
+# local pack output (npm run pack:local)
+*.tgz
+
 # db + coverage safety nets
 *.db
 *.sqlite

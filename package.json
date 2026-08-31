@@ -28,6 +28,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "pack:local": "scripts/pack-local.sh",
     "pack:smoke": "scripts/pack-smoke.sh",
     "prepack": "scripts/assert-no-platform-binaries.sh"
   },
