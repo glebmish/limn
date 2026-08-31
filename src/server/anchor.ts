@@ -233,8 +233,16 @@ function findRenderedByLine(file: FileDiff | undefined, side: 'new' | 'old', lin
 }
 
 /** Re-anchor positional comments against the current surface (mutates comments &
- *  artifacts in place — callers persist afterward). Skips `resolved` and every
- *  non-positional anchor exactly as before. */
+ *  artifacts in place — callers persist afterward). Skips every non-positional
+ *  anchor.
+ *
+ *  `resolved` comments are re-anchored too (#18: the agent's fix commit rewrites
+ *  the very lines it was asked about and then calls `resolve_comment`, so the most
+ *  drift-prone comments in a review are exactly the resolved ones), but their
+ *  STATUS is frozen: a resolution is a historical record, never re-stated to
+ *  'outdated' by a later load. When a resolved comment's anchor can no longer be
+ *  located, it is flagged `notInDiff` instead — anchored nowhere, so the UI stops
+ *  rendering it inline at a line that no longer holds the commented code. */
 export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], artifacts: Artifact[]): Promise<void> {
   const fileMap = new Map(ctx.forAnchor.files.map((f) => [f.path, f]))
   const filePaths = new Set(ctx.forAnchor.files.map((f) => f.path))
@@ -319,7 +327,7 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     // Stage 0 — identity short-circuit: byte-identical content ⇒ stored line is
     // already correct in file space ⇒ NO diff call.
     const curBlob = await currentBlob(a)
-    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { renderPlace(c, a); return true }
+    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) { c.anchorEdited = undefined; renderPlace(c, a); return true }
 
     // Stage 1 prep — recover old content from the stamped blob.
     const oldContent = stamp.blobSha
@@ -344,13 +352,16 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
     // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
-      if (editList === null) { renderPlace(c, a); return true } // identical → line unchanged
+      if (editList === null) { c.anchorEdited = undefined; renderPlace(c, a); return true } // identical → line unchanged
       // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
       // edit list is built from), NOT the already-mutated a.line — else the shift delta
       // compounds on every reload once stage 0 stops short-circuiting.
       const origLine = stamp.origLine ?? a.line
       const mapped = mapLine(editList, origLine)
-      if (typeof mapped === 'number') { a.line = mapped; renderPlace(c, a); return true }
+      if (typeof mapped === 'number') { a.line = mapped; c.anchorEdited = undefined; renderPlace(c, a); return true }
+      // 'EDITED': the commented line itself was rewritten. Whatever stage 2/3 makes of
+      // it, the reviewer's quote no longer exists verbatim — say so (#18).
+      c.anchorEdited = true
       hint = editedHint(editList, origLine, origLine) // 'EDITED' → stage 2 hint
     }
 
@@ -393,7 +404,13 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
       if (a.kind === 'diff') a.hunkRange = best.range
       if (c.status === 'outdated') c.status = 'queued'
       c.notInDiff = undefined
+      c.anchorEdited = undefined // the exact quote is on a rendered line — nothing was rewritten
       if (!a.stamp) c.anchor = await stampAnchor(ctx.workdir, ctx.session, a) // heal-forward (legacy only)
+    } else if (c.status === 'resolved') {
+      // Status frozen (see the fn doc): a resolution outlives its anchor. The anchor
+      // is nowhere on the surface, so flag it off-diff rather than leaving it to
+      // render inline at whatever code now occupies its old line number.
+      c.notInDiff = true
     } else {
       c.status = 'outdated'
       c.notInDiff = undefined
@@ -401,7 +418,6 @@ export async function reanchorComments(ctx: ReanchorCtx, comments: Comment[], ar
   }
 
   for (const c of comments) {
-    if (c.status === 'resolved') continue
     if (c.anchor.kind !== 'diff' && c.anchor.kind !== 'artifact') continue
     // all non-positional anchors are stable — untouched: section, summary, file,
     // question, plan-step, title, acceptance, deviation, hunk, and selection

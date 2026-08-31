@@ -186,7 +186,7 @@ describe('DiffBody "not shown in this diff" bucket', () => {
     expect(out).toContain('off-screen note')
   })
 
-  it('excludes a resolved comment from the bucket (its stale notInDiff flag is never cleared)', () => {
+  it('includes a resolved comment in the bucket (#18: the pipeline now maintains its notInDiff)', () => {
     const f = makeFile({
       path: 'src/a.ts',
       hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
@@ -194,7 +194,19 @@ describe('DiffBody "not shown in this diff" bucket', () => {
     const resolved = makeComment({ id: 'c1', status: 'resolved', notInDiff: true, text: 'resolved off-screen note', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 99, hunkRange: '@@', lineContent: 'gone' } })
     seed(makeLoaded({ files: [f], comments: [resolved] }))
     const out = render(f)
-    expect(out).not.toContain('not shown in this diff')
-    expect(out).not.toContain('resolved off-screen note')
+    // a resolved comment whose anchor was lost is flagged notInDiff rather than
+    // re-statused to 'outdated' — the bucket is where it stays visible
+    expect(out).toContain('1 comment anchored to lines not shown in this diff:')
+    expect(out).toContain('resolved off-screen note')
+  })
+
+  it('shows the "line edited since comment" marker when the anchored line was rewritten', () => {
+    const f = makeFile({
+      path: 'src/a.ts',
+      hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'const x = 1' }] }],
+    })
+    const edited = makeComment({ id: 'c1', anchorEdited: true, text: 'why so many options?', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 1, hunkRange: '@@ -1,1 +1,1 @@', lineContent: 'const x = 1' } })
+    seed(makeLoaded({ files: [f], comments: [edited] }))
+    expect(render(f)).toContain('line edited since comment')
   })
 })

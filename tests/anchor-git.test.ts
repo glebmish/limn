@@ -401,6 +401,154 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorLine(c)).toBe(9) // STABLE — no compounding drift
   })
 
+  // ── #18: the agent's fix commit rewrites the commented lines ────────────────
+  // Dogfood scenario, verbatim in shape: a comment on a function signature; the
+  // agent commits a fix that BOTH inserts lines above it and reshapes the
+  // signature itself, then calls resolve_comment (status → 'resolved'). The
+  // comment must not keep rendering at its stale line number.
+  const OLD_SESSIONS = lines(
+    "import type { DatabaseSync } from 'node:sqlite'",
+    'import type {',
+    '  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,',
+    '  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark',
+    "} from '../../shared/types.js'",
+    "import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'",
+    "import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'",
+    '',
+    'function now(): string { return new Date().toISOString() }',
+    '',
+    '',
+    '/** Parse a persisted JSON blob; on failure record a warning and return undefined',
+    ' *  (the caller drops the field or skips the row — never the whole session). */',
+    'function safeJson<T>(raw: unknown, warning?: string, warnings?: string[]): T | undefined {',
+    '  if (raw == null) return undefined',
+    '  try { return JSON.parse(raw as string) as T } catch {',
+    '    if (warning) warnings?.push(warning)',
+    '    return undefined',
+    '  }',
+    '}'
+  )
+  /** The commented line: the single overload-free signature at line 14 of OLD_SESSIONS. */
+  const OLD_SIGNATURE = 'function safeJson<T>(raw: unknown, warning?: string, warnings?: string[]): T | undefined {'
+  const NEW_SESSIONS = lines(
+    "import type { DatabaseSync } from 'node:sqlite'",
+    'import type {',
+    '  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,',
+    '  MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,',
+    "  ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark",
+    "} from '../../shared/types.js'",
+    "import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'",
+    "import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'",
+    '',
+    'function now(): string { return new Date().toISOString() }',
+    '',
+    "type LoadWarningKind = 'annotations' | 'chat' | 'comment' | 'iteration'",
+    '',
+    '/** Parse a persisted JSON blob; on failure record a warning and return undefined',
+    ' *  (the caller drops the field or skips the row — never the whole session). */',
+    'function safeJson<T>(raw: string | null): T | undefined',
+    'function safeJson<T>(raw: string | null, warning: LoadWarningKind, warnings?: LoadWarningKind[]): T | undefined',
+    'function safeJson<T>(raw: string | null, warning?: LoadWarningKind, warnings?: LoadWarningKind[]): T | undefined {',
+    '  if (raw === null) return undefined',
+    '  try { return JSON.parse(raw) as T } catch {',
+    '    if (warning) warnings?.push(warning)',
+    '    return undefined',
+    '  }',
+    '}'
+  )
+  /** Line 14 of NEW_SESSIONS — the doc-comment opener the drifted card landed on. */
+  const NEW_LINE_14 = '/** Parse a persisted JSON blob; on failure record a warning and return undefined'
+
+  /** repo + session with sessions.ts committed on feature and a stamped comment on line 14. */
+  async function dogfoodRepo(): Promise<{ repo: string; session: SessionMeta; c: Comment }> {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'src/main/db/sessions.ts', OLD_SESSIONS); commit(repo, 'add sessions')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'src/main/db/sessions.ts', line: 14, text: OLD_SIGNATURE })
+    return { repo, session, c }
+  }
+
+  it('18a. agent commit rewrites the commented line: a QUEUED comment leaves the stale line', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    fixtureWrite(repo, 'src/main/db/sessions.ts', NEW_SESSIONS); commit(repo, 'tighten safeJson')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    // stage 1 says EDITED; the reshaped 3-overload set is too far from the old
+    // one-line signature for stage 2, so the comment is explicitly marked rather
+    // than dropped onto the doc-comment opener that now holds line 14.
+    expect(c.status).toBe('outdated')
+    expect(c.anchorEdited).toBe(true)
+    expect(anchorText(c)).not.toBe(NEW_LINE_14)
+  })
+
+  it('18b. …and a RESOLVED comment (agent called resolve_comment) does too — the #18 drift', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    c.status = 'resolved'
+    c.resolution = { verdict: 'addressed', note: 'Tightened safeJson to the actual DB input shape.' }
+    fixtureWrite(repo, 'src/main/db/sessions.ts', NEW_SESSIONS); commit(repo, 'tighten safeJson')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).toBe('resolved')          // a resolution is never un-made by re-anchoring
+    expect(c.resolution?.verdict).toBe('addressed')
+    // the drift: the card used to keep rendering at line 14, now the doc-comment opener
+    expect(anchorText(c)).not.toBe(NEW_LINE_14)
+    expect(anchorLine(c) === 14 && !c.notInDiff).toBe(false)
+    expect(c.anchorEdited).toBe(true)          // the commented line itself was rewritten
+  })
+
+  it('18c. a resolved comment whose line is untouched keeps its exact anchor (no false edit flag)', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    c.status = 'resolved'
+    // insert two lines at the very top only — line 14 shifts to 16, content unchanged
+    fixtureWrite(repo, 'src/main/db/sessions.ts', lines('// header a', '// header b') + OLD_SESSIONS)
+    commit(repo, 'prepend header')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).toBe('resolved')
+    expect(anchorLine(c)).toBe(16)
+    expect(anchorText(c)).toBe(OLD_SIGNATURE)
+    expect(c.anchorEdited).toBeFalsy()
+    expect(c.notInDiff).toBeFalsy()
+  })
+
+  it('18d. a resolved comment whose line vanished is flagged, never re-statused to outdated', async () => {
+    const { repo, session, c } = await dogfoodRepo()
+    c.status = 'resolved'
+    c.resolution = { verdict: 'addressed', note: 'gone' }
+    // delete the whole safeJson block — nothing to re-anchor to
+    fixtureWrite(repo, 'src/main/db/sessions.ts', lines(
+      "import type { DatabaseSync } from 'node:sqlite'",
+      'function now(): string { return new Date().toISOString() }'
+    ))
+    commit(repo, 'drop safeJson')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).toBe('resolved')  // NOT 'outdated' — the resolution survives
+    expect(c.notInDiff).toBe(true)     // …and it stops rendering inline at a stale line
+  })
+
+  it('18e. insert above N + rewrite N: the anchor MOVES to the rewritten line, quote refreshed, flagged edited', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'config.ts', lines(
+      "export const name = 'svc'", 'const head = 0', 'const timeout = 30', 'export default name'
+    )); commit(repo, 'add config')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'config.ts', line: 3, text: 'const timeout = 30' })
+    c.status = 'resolved'
+    c.resolution = { verdict: 'addressed', note: 'raised the timeout' }
+    // the agent's fix commit: two lines inserted ABOVE the comment AND the commented
+    // line itself rewritten — line 3 becomes line 5, with new text
+    fixtureWrite(repo, 'config.ts', lines(
+      '// generated header', '// do not edit', "export const name = 'svc'", 'const head = 0', 'const timeout = 60', 'export default name'
+    )); commit(repo, 'insert above + bump timeout')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).toBe('resolved')
+    expect(anchorLine(c)).toBe(5)                     // followed the rewritten line
+    expect(anchorText(c)).toBe('const timeout = 60')  // quote refreshed to what's there now
+    expect(c.anchorEdited).toBe(true)                 // …and marked, since the quote changed
+    expect(c.notInDiff).toBeFalsy()
+  })
+
   it('10. regression guard: an unchanged second load makes ZERO diff --no-index calls (stage 0)', async () => {
     const repo = mkRepo()
     fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')

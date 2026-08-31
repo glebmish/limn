@@ -58,7 +58,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const lang = langForPath(f.path)
   const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
   const outdated = fileComments.filter((c) => c.status === 'outdated')
-  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated' && c.status !== 'resolved')
+  // resolved comments are included: the re-anchor pipeline now maintains their
+  // notInDiff too (#18), so the flag is current rather than a stale leftover — and a
+  // resolved comment whose anchor was lost must stay visible somewhere in the file.
+  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated')
 
   // ── in-place edits (specs/inplace-edits): the flow frame replaces the rows it
   // covers; a hover pencil / double-click on any working-tree row opens it.

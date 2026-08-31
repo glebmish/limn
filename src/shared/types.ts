@@ -187,6 +187,13 @@ export interface Comment {
    *  is anchored-but-not-visible: NOT outdated, shown in a per-file "not in this
    *  diff" bucket by the UI. Cleared on any load where it lands on a rendered line. */
   notInDiff?: boolean;
+  /** Set by the re-anchor pipeline when the commented line ITSELF was rewritten
+   *  since the comment was made (stage-1 `mapLine` → 'EDITED'): the anchor was
+   *  moved to the rewritten line by stage 2/3 rather than mapped positionally, so
+   *  the quote the reviewer wrote against no longer exists verbatim. Recomputed
+   *  from the immutable stamp on every load (cleared when the line maps cleanly);
+   *  the UI shows a "line edited since comment" marker. */
+  anchorEdited?: boolean;
   resolution?: { verdict: 'addressed' | 'reworked' | 'skipped'; note: string; commit?: string; agentRef?: AgentRef };
   replies: CommentReply[]; createdAt: string; iteration: number;
 }

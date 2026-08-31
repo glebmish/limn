@@ -83,7 +83,7 @@ describe('reanchorComments', () => {
     expect(c.status).toBe('queued')
   })
 
-  it('leaves non-positional and resolved comments untouched', async () => {
+  it('leaves non-positional comments untouched; re-anchors resolved ones without re-statusing them', async () => {
     const sk = mkSkeleton([])
     const sec = mkComment({ id: 's', anchor: { kind: 'section', sectionId: 's1' } })
     const resolved = mkComment({
@@ -92,8 +92,27 @@ describe('reanchorComments', () => {
     })
     await reanchorComments(mkCtx(sk), [sec, resolved], [])
     expect(sec.status).toBe('queued')
+    // #18: a resolved comment IS re-anchored, but a resolution is a historical record —
+    // it never becomes 'outdated'. An unlocatable anchor is flagged notInDiff instead.
     expect(resolved.status).toBe('resolved')
+    expect(resolved.notInDiff).toBe(true)
     expect((resolved.anchor as { line: number }).line).toBe(5)
+  })
+
+  it('re-anchors a resolved comment onto the line its content moved to', async () => {
+    const sk = mkSkeleton([
+      { old: 1, new: 1, kind: '', text: 'context' },
+      { old: null, new: 2, kind: 'add', text: 'const x = 1' },
+      { old: null, new: 3, kind: 'add', text: 'target line' }
+    ])
+    const c = mkComment({
+      id: 'r', status: 'resolved', resolution: { verdict: 'addressed', note: 'done' },
+      anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 9, hunkRange: '@@ old @@', lineContent: 'target line' }
+    })
+    await reanchorComments(mkCtx(sk), [c], [])
+    expect(c.status).toBe('resolved')
+    expect(c.resolution?.verdict).toBe('addressed')
+    expect(c.anchor).toMatchObject({ line: 3, hunkRange: '@@ -1,3 +1,4 @@' })
   })
 })
 

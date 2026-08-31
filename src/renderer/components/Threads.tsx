@@ -93,6 +93,14 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             )
           })()}
           {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
+          {c.anchorEdited && c.status !== 'outdated' && (
+            // The commented line itself was rewritten since the comment was made (the
+            // re-anchor pipeline's stage-1 'EDITED'), so the card sits on the code that
+            // replaced it — say so rather than letting it read as the original quote.
+            <span className="agentq" style={{ color: 'var(--amber)' }} title="The line this comment was written against has been rewritten since; the anchor was moved to the code that replaced it.">
+              line edited since comment
+            </span>
+          )}
           {c.status === 'resolved' && c.resolution && (
             <span
               className="agentq"
