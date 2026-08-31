@@ -257,6 +257,13 @@
 .gnar-block{line-height:1.6}
 .gnar-block + .gnar-block{margin-top:12px}
 
+/* verify chip: icon, label and command are adjacent inline children with no
+   whitespace between them in the markup (same reasoning as the was/now strip
+   above) — a plain <button> lays those out with zero gap, gluing "Verify" to
+   the command text, so the gap has to come from CSS, not a space that would
+   show up when the command is copy-pasted */
+.gsec-verify{display:inline-flex;align-items:center;gap:6px}
+
 /* ---- regenerate: file-level trigger + composer ---- */
 .gfile-regen{display:inline-flex;align-items:center;gap:5px;font-family:var(--sans);font-size:11px;
   font-weight:600;color:var(--muted);background:none;border:none;cursor:pointer;padding:0;white-space:nowrap}

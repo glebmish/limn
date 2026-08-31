@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { BehaviorContrast, FileDiff, Section } from '../src/shared/types'
@@ -59,6 +61,28 @@ describe('SectionView contrast + verify rendering', () => {
     const out = html({ verify: 'npm test' })
     expect(out).toContain('npm test')
     expect(out).toContain('gsec-verify')
+  })
+
+  it('the verify chip label and command render as separate elements even for a glued fixture string', () => {
+    // the generator emits `verify` as a bare command with no leading label text
+    // of its own ("Run `npm test` ..."), so the "Verify" label butts directly
+    // against the command in the markup — the gap has to come from CSS, not
+    // from the two being merged into one text node.
+    const out = html({ verify: 'Run `npm test — tests/db.test.ts`' })
+    expect(out).toContain('<span class="gv-label">Verify</span>')
+    expect(out).toContain('<code class="gv-cmd">Run `npm test — tests/db.test.ts`</code>')
+  })
+
+  it('.gsec-verify gets a flex gap in CSS so the label and command are never glued', () => {
+    // regression guard for #3: unlike .gsec-contrast's .gc-label (fixed via
+    // margin-right), VerifyChip's icon/label/command previously had no CSS at
+    // all — a plain <button> renders them with zero gap. Assert the rule
+    // exists rather than re-deriving pixel layout (jsdom/SSR here has no
+    // layout engine to measure against).
+    const css = readFileSync(path.join(__dirname, '../src/renderer/styles/review.css'), 'utf8')
+    const rule = /\.gsec-verify\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(rule).toMatch(/display:\s*inline-flex/)
+    expect(rule).toMatch(/gap:\s*\d/)
   })
 
   it('a section with neither contrast nor verify renders no strip/chip', () => {
