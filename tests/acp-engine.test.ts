@@ -505,6 +505,65 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
       setEngineBinaryPrefs({})
     }
   })
+
+  it('13. auto tier selects the native "auto" mode when the session advertises it', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'chat-auto',
+      availableModes: ['default', 'acceptEdits', 'auto', 'bypassPermissions'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    await drain(run.events)
+    await run.result
+    expect(readRecords().find((r) => r.event === 'setSessionMode')?.modeId).toBe('auto')
+  })
+
+  it('14. auto tier falls back to acceptEdits when the session-advertised modes lack "auto"', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'chat-auto-fallback',
+      availableModes: ['default', 'acceptEdits', 'bypassPermissions'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    await drain(run.events)
+    await run.result
+    expect(readRecords().find((r) => r.event === 'setSessionMode')?.modeId).toBe('acceptEdits')
+  })
+
+  it('15. a rejected setSessionMode retries once with the tier\'s fallback id, and the turn still completes', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'chat-mode-retry',
+      // no availableModes advertised -> modeFor optimistically tries 'auto'; the fake
+      // rejects it, so acp.ts must retry with modeFor's fallback ('acceptEdits').
+      rejectSetSessionMode: ['auto'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    const { value } = await run.result
+    expect(value).toBe('ok')
+    const modeAttempts = readRecords().filter((r) => r.event === 'setSessionMode').map((r) => r.modeId)
+    expect(modeAttempts).toEqual(['auto', 'acceptEdits']) // rejected once, then the fallback succeeded
+    expect(events.some((e) => e.type === 'status' && /mode/i.test(e.text))).toBe(false) // fallback succeeded — no note needed
+  })
+
+  it("16. when BOTH the primary and fallback session mode are rejected, the turn still completes with a status note (no silent degradation)", async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'chat-mode-retry-both-fail',
+      rejectSetSessionMode: ['auto', 'acceptEdits'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    const events = await drain(run.events)
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    const { value } = await run.result
+    expect(value).toBe('ok') // the turn is not failed by a mode-set rejection
+    const modeAttempts = readRecords().filter((r) => r.event === 'setSessionMode').map((r) => r.modeId)
+    expect(modeAttempts).toEqual(['auto', 'acceptEdits'])
+    // forward-compat note, at debug/status level, not a hard turn error.
+    expect(events.some((e) => e.type === 'status' && /mode/i.test(e.text))).toBe(true)
+  })
 })
 
 /** Minimal poll helper (avoids importing vitest's fake timers). */

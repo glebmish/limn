@@ -11,8 +11,14 @@ export interface AcpEngineConfig {
   id: EngineId
   /** absolute node_modules path to the adapter's `dist/index.js`. */
   adapterEntry: string
-  /** ACP session mode id for a tier + write flag (spike-measured, spec §D3). */
-  modeFor: (mode: ExecutionMode, writeEnabled: boolean) => string
+  /** ACP session mode id for a tier + write flag (spike-measured, spec §D3).
+   *  `availableModes` (the session's advertised mode ids, when known) lets an
+   *  engine pick its native `auto` only when the session actually offers it
+   *  (Claude's `auto` is gated on `modelInfo.supportsAutoMode` and rejects an
+   *  unlisted mode id outright); omitted (`undefined`) means "unknown" and the
+   *  implementation optimistically tries the native id, trusting `acp.ts`'s
+   *  retry-once-with-fallback to correct a rejection. */
+  modeFor: (mode: ExecutionMode, writeEnabled: boolean, availableModes?: string[]) => string
   /** per-turn spawn env (e.g. `ANTHROPIC_MODEL`); one process per turn makes it exact. */
   env?: (turn: { model?: string; reasoningEffort?: ReasoningEffort }) => Record<string, string>
   /** per-turn ACP session config options applied post-session via
@@ -77,8 +83,11 @@ export function claudeEffort(effort: ReasoningEffort): string {
 export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   id: 'claude',
   adapterEntry: resolveAdapterEntry('@agentclientprotocol/claude-agent-acp', process.env.LIMN_CLAUDE_ADAPTER),
-  modeFor: (mode, writeEnabled) =>
-    !writeEnabled ? 'default' : ({ ask: 'default', edits: 'acceptEdits', auto: 'acceptEdits', full: 'bypassPermissions' }[mode] ?? 'default'),
+  modeFor: (mode, writeEnabled, availableModes) => {
+    if (!writeEnabled) return 'default'
+    if (mode === 'auto') return !availableModes || availableModes.includes('auto') ? 'auto' : 'acceptEdits'
+    return { ask: 'default', edits: 'acceptEdits', full: 'bypassPermissions' }[mode] ?? 'default'
+  },
   env: (t): Record<string, string> => (t.model ? { ANTHROPIC_MODEL: t.model } : {}),
   configOptions: (t) => (t.reasoningEffort ? [{ configId: 'effort', value: claudeEffort(t.reasoningEffort) }] : []),
   binaryEnv: (): Record<string, string> => {
@@ -105,6 +114,8 @@ export function codexEffort(effort: ReasoningEffort): string {
 export const CODEX_ACP_CONFIG: AcpEngineConfig = {
   id: 'codex',
   adapterEntry: resolveAdapterEntry('@agentclientprotocol/codex-acp', process.env.LIMN_CODEX_ADAPTER),
+  // availableModes is ignored: codex-acp has no distinct native "auto" mode id —
+  // 'agent' (workspace-write sandbox + on-request) already IS the native auto.
   modeFor: (mode, writeEnabled) =>
     !writeEnabled ? 'read-only' : ({ ask: 'read-only', edits: 'agent', auto: 'agent', full: 'agent-full-access' }[mode] ?? 'read-only'),
   configOptions: (t) => [

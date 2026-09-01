@@ -28,12 +28,25 @@ describe('CLAUDE_ACP_CONFIG', () => {
     expect(claudeEffort('max')).toBe('max')
   })
 
-  it('modeFor is unchanged (ask/edits/auto/full -> default/acceptEdits/acceptEdits/bypassPermissions)', () => {
+  it('modeFor is unchanged for ask/edits/full, and for auto with no availableModes info (spike default)', () => {
     expect(CLAUDE_ACP_CONFIG.modeFor('ask', true)).toBe('default')
     expect(CLAUDE_ACP_CONFIG.modeFor('edits', true)).toBe('acceptEdits')
-    expect(CLAUDE_ACP_CONFIG.modeFor('auto', true)).toBe('acceptEdits')
     expect(CLAUDE_ACP_CONFIG.modeFor('full', true)).toBe('bypassPermissions')
     expect(CLAUDE_ACP_CONFIG.modeFor('edits', false)).toBe('default')
+    // no availableModes passed (undefined) -> optimistically try the engine's native auto
+    expect(CLAUDE_ACP_CONFIG.modeFor('auto', true)).toBe('auto')
+  })
+
+  it('modeFor auto selects the native "auto" mode when the session advertises it', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('auto', true, ['default', 'acceptEdits', 'auto', 'bypassPermissions'])).toBe('auto')
+  })
+
+  it('modeFor auto falls back to acceptEdits when availableModes is present but lacks "auto"', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('auto', true, ['default', 'acceptEdits', 'bypassPermissions'])).toBe('acceptEdits')
+  })
+
+  it('modeFor auto with no write access still forces default, regardless of availableModes', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('auto', false, ['default', 'acceptEdits', 'auto', 'bypassPermissions'])).toBe('default')
   })
 
   it('binaryEnv points CLAUDE_CODE_EXECUTABLE at the resolved (Settings-configured) binary', () => {
@@ -51,6 +64,12 @@ describe('CODEX_ACP_CONFIG', () => {
     // no write -> read-only regardless of tier
     expect(CODEX_ACP_CONFIG.modeFor('edits', false)).toBe('read-only')
     expect(CODEX_ACP_CONFIG.modeFor('full', false)).toBe('read-only')
+  })
+
+  it('modeFor ignores availableModes (codex has no distinct native "auto" mode id)', () => {
+    expect(CODEX_ACP_CONFIG.modeFor('auto', true, ['read-only', 'agent'])).toBe('agent')
+    expect(CODEX_ACP_CONFIG.modeFor('auto', true, [])).toBe('agent')
+    expect(CODEX_ACP_CONFIG.modeFor('auto', true, undefined)).toBe('agent')
   })
 
   it('has no model/effort spawn env (both go through config options)', () => {

@@ -9,6 +9,7 @@ import {
   type PermissionOption,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
+  type SessionModeState,
   type SessionNotification
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
@@ -58,6 +59,12 @@ function optionFor(options: PermissionOption[], decision: 'allow' | 'deny'): str
   const wanted = decision === 'allow' ? 'allow_once' : 'reject_once'
   const match = options.find((o) => o.kind === wanted)
   return (match ?? options[0])?.optionId
+}
+
+/** Session/new|load|resume responses carry the session's advertised mode ids on
+ *  `modes.availableModes` (spec §D3 addendum) — reduce to bare ids for `modeFor`. */
+function modeIdsFrom(modes: SessionModeState | null | undefined): string[] | undefined {
+  return modes?.availableModes.map((m) => m.id)
 }
 
 interface AcpTurnOptions<T> {
@@ -288,11 +295,17 @@ export class AcpEngine implements ReviewEngine {
         // fresh session for a failed resume: chat() already built a non-seeded prompt
         // (engineSessionId was truthy) and ipc passes no context, so a fresh session
         // would answer with no review/diff context.
+        // The session's advertised mode ids (when the adapter returns them) so
+        // `modeFor` can pick the engine's native `auto` only when it is actually on
+        // offer, instead of guessing (spec §D3 addendum). `loadSession` may resolve
+        // `void` (no modes reported) — `modeIdsFrom(undefined)` is `undefined`, same
+        // as "unknown", which keeps `modeFor`'s optimistic-then-fallback behaviour.
+        let availableModes: string[] | undefined
         if (opts.engineSessionId) {
           if (!canResume && !canLoad) throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
           try {
-            if (canResume) await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
-            else await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })
+            if (canResume) availableModes = modeIdsFrom((await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })).modes)
+            else availableModes = modeIdsFrom((await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers }))?.modes)
           } catch (err) {
             throw new EngineSessionLostError(opts.engineSessionId, err)
           }
@@ -300,16 +313,41 @@ export class AcpEngine implements ReviewEngine {
         } else {
           const fresh = await conn.newSession({ cwd: opts.repo, mcpServers })
           sessionId = fresh.sessionId
+          availableModes = modeIdsFrom(fresh.modes)
         }
         replaying = false // post-setup updates are live turn output, not replay
 
         // (f) set mode + config options (best-effort; swallow method-not-found / no-ops).
-        try {
-          // Negotiated ONCE, from the START-TIME tier, and never re-negotiated
-          // mid-turn (no respawn, no second set_mode) — see the requestPermission
-          // comment for what a mid-turn tier change can and cannot reach.
-          await conn.setSessionMode({ sessionId, modeId: this.config.modeFor(mode, write) })
-        } catch { /* forward-compat: modes are slated for removal */ }
+        // Negotiated ONCE, from the START-TIME tier, and never re-negotiated mid-turn
+        // (no respawn, no second set_mode) — see the requestPermission comment for
+        // what a mid-turn tier change can and cannot reach.
+        //
+        // A rejected/unavailable mode id must not silently degrade the tier (no
+        // self-rolled classification, no bare-catch either): try the id `modeFor`
+        // picks from the session's advertised `availableModes` (or, when those
+        // weren't reported, its optimistic guess); on rejection retry ONCE with
+        // `modeFor`'s definitively-conservative id (an explicit empty
+        // `availableModes` — for claude `auto` that's the spike-measured
+        // `acceptEdits` fallback); if that ALSO fails, note it at status level
+        // instead of failing the turn (session modes are slated for removal from
+        // the protocol, so a permanently-rejecting adapter is forward-compat, not
+        // a bug to crash on).
+        const primaryModeId = this.config.modeFor(mode, write, availableModes)
+        const trySetMode = async (modeId: string): Promise<boolean> => {
+          try {
+            await conn!.setSessionMode({ sessionId, modeId })
+            return true
+          } catch {
+            return false
+          }
+        }
+        if (!(await trySetMode(primaryModeId))) {
+          const fallbackModeId = this.config.modeFor(mode, write, [])
+          const recovered = fallbackModeId !== primaryModeId && (await trySetMode(fallbackModeId))
+          if (!recovered) {
+            q.push({ type: 'status', text: `Couldn't set the "${primaryModeId}" session mode — continuing in the adapter's own default.` })
+          }
+        }
         for (const opt of this.config.configOptions?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? []) {
           try {
             await conn.setSessionConfigOption({ sessionId, configId: opt.configId, value: opt.value })

@@ -76,6 +76,13 @@ export interface FakeScript {
   failLoad?: boolean
   /** updates replayed DURING session/load, before it resolves (replay suppression). */
   loadReplayUpdates?: SessionUpdate[]
+  /** advertise `modes.availableModes` on the session/new response (T2: proves
+   *  `AcpEngine` threads the session's advertised mode ids into `modeFor`). Mapped
+   *  to `{ id, name: id }`; `currentModeId` is the first entry (unused by the test). */
+  availableModes?: string[]
+  /** mode ids on which `session/set_mode` throws (T2: proves the retry-once-with-
+   *  fallback path, not just the bare-catch it replaces). */
+  rejectSetSessionMode?: string[]
   /** the scripted prompt turns, consumed in order. */
   turns: FakeTurn[]
 }
@@ -133,7 +140,11 @@ class FakeAgent implements Agent {
 
   newSession(params: Parameters<Agent['newSession']>[0]): NewSessionResponse {
     record({ event: 'newSession', cwd: params.cwd, mcpServers: params.mcpServers })
-    return { sessionId: this.script.sessionId ?? 'fake-new' }
+    const ids = this.script.availableModes
+    return {
+      sessionId: this.script.sessionId ?? 'fake-new',
+      ...(ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {})
+    }
   }
 
   async loadSession(params: Parameters<NonNullable<Agent['loadSession']>>[0]): Promise<LoadSessionResponse> {
@@ -148,6 +159,7 @@ class FakeAgent implements Agent {
 
   setSessionMode(params: Parameters<NonNullable<Agent['setSessionMode']>>[0]): Record<string, never> {
     record({ event: 'setSessionMode', modeId: params.modeId })
+    if (this.script.rejectSetSessionMode?.includes(params.modeId)) throw new Error(`fake: mode ${params.modeId} rejected`)
     return {}
   }
 
