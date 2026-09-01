@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { api } from '../lib/api'
-import { frameGutter, frameKeyAction, narrowEdit } from '../lib/edits'
+import { frameGutter, frameKeyAction, lineColToCaret, narrowEdit } from '../lib/edits'
 
-interface FrameScope { file: string; start: number; end: number }
+interface FrameScope { file: string; start: number; end: number; caretCol?: number }
 
 /** Caret position inside a textarea, as (line, column) plus the line count. */
 function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCount: number } {
@@ -58,6 +58,27 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     taRef.current.setSelectionRange(caretRef.current, caretRef.current)
     caretRef.current = null
   }, [text])
+
+  // #5: focus the textarea once it becomes usable, and put the caret at (or near)
+  // the double-clicked position. Root cause of the bug this replaces: the textarea
+  // mounts `disabled` (fileLines hasn't loaded yet) and a disabled control cannot
+  // receive focus, so the `autoFocus` prop React used to set was a no-op at mount —
+  // and nothing ever re-focused it once `fileLines` arrived and the control enabled.
+  // This effect fires once, the first time `fileLines` is non-null: `frame.caretCol`
+  // (raw-text units, captured from the double-click that opened the frame — see
+  // DiffBody's `caretColumnFromEvent`) places the caret precisely; its absence
+  // (opened via the pencil button, the post-save ⏎, or a browser with neither
+  // caret-from-point API) falls back to end-of-line via `lineColToCaret`'s clamping
+  // (`Infinity` clamps to the line's length).
+  const focusedOnce = useRef(false)
+  useEffect(() => {
+    if (focusedOnce.current || fileLines == null || !taRef.current) return
+    focusedOnce.current = true
+    const ta = taRef.current
+    ta.focus()
+    const pos = lineColToCaret(text.split('\n'), 0, frame.caretCol ?? Infinity)
+    ta.setSelectionRange(pos, pos)
+  }, [fileLines, text, frame.caretCol])
 
   async function save(value: string): Promise<void> {
     if (!fileLines) { setEditFrame(null); return }
@@ -144,7 +165,6 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
           rows={lineCount}
           value={text}
           spellCheck={false}
-          autoFocus
           disabled={fileLines == null}
           aria-label={`Edit ${f.path}, ${chip}`}
           onChange={(e) => setText(e.target.value)}

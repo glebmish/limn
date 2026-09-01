@@ -6,7 +6,7 @@ import { Composer, InlineThread } from './Threads'
 import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
 import { highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
-import { discardSpanAt, fileEditable } from '../lib/edits'
+import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
 import { gapLines, hunkGaps, type Gap } from '../lib/expand'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
@@ -14,6 +14,47 @@ import { FlowFrame } from './FlowFrame'
 /** tabs → spaces so ch-offset word marks align with the monospace text */
 function disp(text: string): string {
   return text.replace(/\t/g, '  ')
+}
+
+/** The raw-text column under a double-click, for placing the caret when a flow frame
+ *  opens (#5). Best-effort and browser-only (no jsdom equivalent exists to test
+ *  against, hence no unit test): `caretRangeFromPoint`
+ *  (Chrome/Safari) or `caretPositionFromPoint` (Firefox) finds the exact text node
+ *  under the pointer inside the row's `.code` span, a `TreeWalker` sums the text
+ *  nodes before it to get a *display* column (the DOM here is tab-expanded — see
+ *  `disp()` above), and `rawOffsetFromDisplayColumn` (lib/edits.ts, unit-tested) maps
+ *  that back to the raw line. Returns undefined — FlowFrame's end-of-line fallback —
+ *  when neither API exists, the point misses the code span, or it resolves outside
+ *  it (e.g. the gutter or the comment-gutter button). */
+function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string): number | undefined {
+  const root = e.currentTarget.querySelector('.code')
+  if (!root) return undefined
+  const doc = root.ownerDocument as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  let node: Node | null
+  let offset: number
+  if (doc.caretRangeFromPoint) {
+    const range = doc.caretRangeFromPoint(e.clientX, e.clientY)
+    if (!range) return undefined
+    node = range.startContainer
+    offset = range.startOffset
+  } else if (doc.caretPositionFromPoint) {
+    const pos = doc.caretPositionFromPoint(e.clientX, e.clientY)
+    if (!pos) return undefined
+    node = pos.offsetNode
+    offset = pos.offset
+  } else {
+    return undefined
+  }
+  if (!root.contains(node)) return undefined
+  let displayCol = offset
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let cur = walker.nextNode(); cur && cur !== node; cur = walker.nextNode()) {
+    displayCol += cur.textContent?.length ?? 0
+  }
+  return rawOffsetFromDisplayColumn(rawText, displayCol)
 }
 
 function hunkWordMarks(lines: DiffLine[]): Map<number, CharRange[]> {
@@ -80,9 +121,9 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     frameMounted = true
     return <FlowFrame key={key} f={f} frame={frame} />
   }
-  const openFrameAt = (l: DiffLine): void => {
+  const openFrameAt = (l: DiffLine, e?: React.MouseEvent<HTMLElement>): void => {
     if (!editable || l.new == null) return
-    setEditFrame({ file: f.path, start: l.new, end: l.new })
+    setEditFrame({ file: f.path, start: l.new, end: l.new, caretCol: e ? caretColumnFromEvent(e, l.text) : undefined })
   }
 
   // ── rail ↺: discard a contiguous unstaged span — git checkout --, surfaced.
@@ -196,7 +237,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
             <div
               className={'dline' + (selected && l.new === selected.line ? ' line-selected' : '')}
               data-limn-line={`${f.path}:new:${l.new}`}
-              onDoubleClick={editable ? () => openFrameAt(l) : undefined}
+              onDoubleClick={editable ? (e) => openFrameAt(l, e) : undefined}
             >
               <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
               <span className="sign"></span>
@@ -277,7 +318,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                     <div
                       className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
                       data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
-                      onDoubleClick={editable && l.new != null ? () => openFrameAt(l) : undefined}
+                      onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
                     >
                       <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
                       <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>

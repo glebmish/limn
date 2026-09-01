@@ -69,6 +69,39 @@ export function frameGutter(start: number, original: string[], typed: string[]):
   })
 }
 
+/** Turn a (line index within the frame's own lines, raw-text column) pair into a
+ *  caret offset in the `\n`-joined text FlowFrame's textarea holds (#5 — placing the
+ *  caret at the double-clicked position when a frame opens). Both inputs are clamped,
+ *  so an out-of-range line or column — including `Infinity`, the deliberate
+ *  end-of-line fallback when no column was captured — still lands somewhere sane
+ *  rather than throwing or producing a negative/overlong `selectionStart`. */
+export function lineColToCaret(lines: string[], lineIdx: number, col: number): number {
+  const li = Math.max(0, Math.min(lineIdx, lines.length - 1))
+  let offset = 0
+  for (let i = 0; i < li; i++) offset += lines[i].length + 1 // +1 for the '\n'
+  const lineLen = lines[li]?.length ?? 0
+  return offset + Math.max(0, Math.min(col, lineLen))
+}
+
+/** Map a column measured against a tab-expanded *display* string back to an offset
+ *  in the corresponding *raw* line (#5). The diff view renders every line through
+ *  `disp()` (tabs → two spaces, DiffBody.tsx) so word-diff marks line up in the
+ *  monospace grid, but the frame edits the raw text — a caret column read off the
+ *  rendered DOM via `caretRangeFromPoint` is in display units and would drift on any
+ *  tabbed line if used verbatim. Greedily consumes raw characters (a tab costs 2
+ *  display columns, everything else costs 1) until their display width reaches
+ *  `displayCol`; a click inside a tab's two-column span snaps to just past the tab,
+ *  since the raw text has no finer position to offer there. */
+export function rawOffsetFromDisplayColumn(raw: string, displayCol: number): number {
+  let disp = 0
+  let i = 0
+  while (i < raw.length && disp < displayCol) {
+    disp += raw[i] === '\t' ? 2 : 1
+    i++
+  }
+  return i
+}
+
 /** Frame/pencil availability for a whole file. Rows additionally need working-tree
  *  text behind them (`l.new != null` — never a − row). */
 export function fileEditable(loaded: LoadedReview | null, f: FileDiff): boolean {

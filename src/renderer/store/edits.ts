@@ -9,8 +9,12 @@ import { fileViewed, renderedFiles } from './derive'
  *  only the scope, so DiffBody can hide the covered rows and enforce "at most one
  *  frame per review". */
 export interface EditsSlice {
-  /** the open flow frame's scope in working-tree (new-side) line numbers, or null */
-  editFrame: { file: string; start: number; end: number } | null
+  /** the open flow frame's scope in working-tree (new-side) line numbers, or null.
+   *  `caretCol` (raw-text units, only meaningful for `start`'s line) carries the
+   *  double-clicked column through to FlowFrame's initial focus (#5) — absent when
+   *  the frame opened another way (pencil button, post-save ⏎) or the browser gave
+   *  no caret-from-point reading, in which case FlowFrame falls back to end-of-line. */
+  editFrame: { file: string; start: number; end: number; caretCol?: number } | null
   setEditFrame(frame: EditsSlice['editFrame']): void
 
   /** The post-save keyboard round trip (board 12): saving leaves a selection on the

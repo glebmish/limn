@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
-import { discardSpanAt, fileEditable, frameGutter, frameKeyAction, narrowEdit } from '../src/renderer/lib/edits'
+import {
+  discardSpanAt, fileEditable, frameGutter, frameKeyAction, lineColToCaret, narrowEdit,
+  rawOffsetFromDisplayColumn
+} from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
   it('returns null when nothing changed', () => {
@@ -115,6 +118,60 @@ describe('frameGutter', () => {
     const typed = ['l11', 'l12a', 'l12b', 'l13']
     const marked = typed.filter((_, i) => frameGutter(11, region, typed)[i] === '+')
     expect(narrowEdit(11, region, typed)?.newLines).toEqual(marked)
+  })
+})
+
+// ── #5: double-click focus + caret placement
+describe('lineColToCaret', () => {
+  it('a single-line frame is just the (clamped) column', () => {
+    expect(lineColToCaret(['hello'], 0, 2)).toBe(2)
+    expect(lineColToCaret(['hello'], 0, 0)).toBe(0)
+  })
+
+  it('clamps a column past the end of the line', () => {
+    expect(lineColToCaret(['hello'], 0, 99)).toBe(5)
+    expect(lineColToCaret(['hello'], 0, Infinity)).toBe(5) // the end-of-line fallback
+  })
+
+  it('clamps a negative column to the start of the line', () => {
+    expect(lineColToCaret(['hello'], 0, -3)).toBe(0)
+  })
+
+  it('adds a newline for every line before the target', () => {
+    // 'ab\ncd\nef' — line 2 ("ef"), column 1 → offset 6 ('a','b','\n','c','d','\n') + 1
+    expect(lineColToCaret(['ab', 'cd', 'ef'], 2, 1)).toBe(7)
+  })
+
+  it('clamps an out-of-range line index to the last line', () => {
+    expect(lineColToCaret(['ab', 'cd'], 5, 0)).toBe(3) // start of "cd"
+    expect(lineColToCaret(['ab', 'cd'], -1, 0)).toBe(0) // start of "ab"
+  })
+})
+
+describe('rawOffsetFromDisplayColumn', () => {
+  it('is the identity when the line has no tabs', () => {
+    expect(rawOffsetFromDisplayColumn('hello world', 5)).toBe(5)
+    expect(rawOffsetFromDisplayColumn('hello world', 0)).toBe(0)
+  })
+
+  it('a tab costs two display columns but one raw character', () => {
+    // raw "\tfoo" displays as "  foo" (disp() in DiffBody.tsx)
+    expect(rawOffsetFromDisplayColumn('\tfoo', 2)).toBe(1) // click right after the tab
+    expect(rawOffsetFromDisplayColumn('\tfoo', 4)).toBe(3) // click after "  fo"
+  })
+
+  it('a click inside a tab expansion snaps to just past the tab', () => {
+    expect(rawOffsetFromDisplayColumn('\tfoo', 1)).toBe(1)
+  })
+
+  it('clamps a display column past the end of the line', () => {
+    expect(rawOffsetFromDisplayColumn('abc', 99)).toBe(3)
+  })
+
+  it('handles several leading tabs', () => {
+    // "\t\tx" displays as "    x" (4 spaces + x)
+    expect(rawOffsetFromDisplayColumn('\t\tx', 4)).toBe(2)
+    expect(rawOffsetFromDisplayColumn('\t\tx', 5)).toBe(3)
   })
 })
 
