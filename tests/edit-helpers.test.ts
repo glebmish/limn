@@ -4,7 +4,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 import {
   caretAfterGrowth, discardSpanAt, fileEditable, frameDeletesLines, frameGutter, frameHint,
   frameKeyAction, lineColToCaret, narrowEdit, rawOffsetFromDisplayColumn, seedFrameCaret,
-  seedFrameText
+  seedFrameText, selectionAfterSave
 } from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
@@ -90,6 +90,32 @@ describe('narrowEdit', () => {
   })
 })
 
+describe('selectionAfterSave', () => {
+  // a 20-line file throughout
+  it('an ordinary or growing save selects the line just edited', () => {
+    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['a'], newLines: ['b'] }, 20)).toBe(5)
+    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['a'], newLines: ['b', 'c'] }, 20)).toBe(5)
+    // pure insertion (end = start − 1, empty snapshot)
+    expect(selectionAfterSave({ start: 6, end: 5, snapshot: [], newLines: ['new'] }, 20)).toBe(6)
+  })
+
+  it('a deletion mid-file selects the line that moved up into its place (#8)', () => {
+    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['a'], newLines: [] }, 20)).toBe(5)
+    expect(selectionAfterSave({ start: 5, end: 7, snapshot: ['a', 'b', 'c'], newLines: [] }, 20)).toBe(5)
+  })
+
+  it('a deletion running to EOF clamps to the file’s new last line (#8)', () => {
+    // deleting line 20 of 20: nothing moves up, so the selection falls back to 19
+    expect(selectionAfterSave({ start: 20, end: 20, snapshot: ['a'], newLines: [] }, 20)).toBe(19)
+    // deleting 18–20: new EOF is 17
+    expect(selectionAfterSave({ start: 18, end: 20, snapshot: ['a', 'b', 'c'], newLines: [] }, 20)).toBe(17)
+  })
+
+  it('deleting every line leaves nothing to select', () => {
+    expect(selectionAfterSave({ start: 1, end: 3, snapshot: ['a', 'b', 'c'], newLines: [] }, 3)).toBeNull()
+  })
+})
+
 describe('frameDeletesLines', () => {
   it('is true only once the whole region is typed away to nothing (#8)', () => {
     expect(frameDeletesLines('', true)).toBe(true)
@@ -148,6 +174,21 @@ describe('frameKeyAction', () => {
     expect(frameKeyAction({ key: 'Backspace', metaKey: true }, true)).toBeNull()
     expect(frameKeyAction({ key: 'Backspace', ctrlKey: true }, true)).toBeNull()
     expect(frameKeyAction({ key: 'Backspace', altKey: true }, true)).toBeNull()
+  })
+
+  // The cue is only a cue if a human can see it: a held ⌫ arms the frame on the
+  // keystroke that clears the last character (React flushes onChange's setText before
+  // the next browser event) and auto-repeats 15–90 ms later — far below reaction time.
+  // Only a fresh press deletes, so the cue is always on screen first.
+  it('a held ⌫ never deletes — the repeat is a no-op, a fresh press deletes', () => {
+    expect(frameKeyAction({ key: 'Backspace', repeat: true }, true)).toBeNull()
+    expect(frameKeyAction({ key: 'Backspace', repeat: false }, true)).toBe('delete')
+    expect(frameKeyAction({ key: 'Backspace' }, true)).toBe('delete') // absent ⇒ fresh
+  })
+
+  it('key repeat gates only the delete — a held esc still cancels', () => {
+    expect(frameKeyAction({ key: 'Escape', repeat: true }, true)).toBe('cancel')
+    expect(frameKeyAction({ key: 'Enter', metaKey: true, repeat: true }, true)).toBe('save')
   })
 
   it('esc and ⌘⏎ still win over the delete state', () => {

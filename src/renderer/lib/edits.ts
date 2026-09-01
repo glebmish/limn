@@ -37,6 +37,21 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
   }
 }
 
+/** Which working-tree line the post-save keyboard selection should land on, given the
+ *  edit that was just written and how many lines the file held *before* it. Normally
+ *  `edit.start` — the line the user just edited. A deletion has no such line, so the
+ *  selection falls on whatever moved up into its place; when the deleted span ran to
+ *  the end of the file there is nothing to move up, so it clamps to the new last line.
+ *  `null` when the file has no lines left at all (everything was deleted) — there is
+ *  nothing to select, and a selection past EOF would leave ⏎ reopening a frame on a
+ *  line that does not exist. A no-op (returns `edit.start`) for every save that does
+ *  not shrink the file. */
+export function selectionAfterSave(edit: FileEdit, fileLineCount: number): number | null {
+  const eof = fileLineCount - edit.snapshot.length + edit.newLines.length
+  const line = Math.min(edit.start, eof)
+  return line >= 1 ? line : null
+}
+
 /** Is the frame at the point where the next ⌫ removes its lines from the file
  *  (#8)? A textarea can never hold *zero* lines — `''.split('\n')` is `['']`, one
  *  empty row — so "typed away to nothing" is exactly `text === ''`, whether the
@@ -63,7 +78,11 @@ export function frameDeletesLines(text: string, ready: boolean): boolean {
 export function frameKeyAction(
   // shiftKey is accepted and deliberately ignored: shift is not a save modifier,
   // so shift+⏎ is a newline like a bare ⏎ and shift+⌫ is a plain ⌫.
-  e: { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean },
+  e: {
+    key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean
+    /** the OS auto-repeat from a *held* key, not a fresh press */
+    repeat?: boolean
+  },
   deletesLines = false
 ): 'save' | 'cancel' | 'delete' | null {
   if (e.key === 'Escape') return 'cancel'
@@ -71,7 +90,18 @@ export function frameKeyAction(
   // ⌘⌫/ctrl+⌫/⌥⌫ are the textarea's own delete-to-start / delete-word: no-ops on an
   // empty value, and not the single keystroke the ⌫ hint promises — left alone so
   // the cue and the gesture describe exactly the same thing.
-  if (e.key === 'Backspace' && deletesLines && !e.metaKey && !e.ctrlKey && !e.altKey) return 'delete'
+  //
+  // `repeat` is the load-bearing one: a held ⌫ clearing the last character arms the
+  // frame synchronously (React flushes the onChange setText before the next browser
+  // event), and the next auto-repeat keydown lands 15–90 ms later — an order of
+  // magnitude faster than anyone can read the cue, so holding ⌫ to clear a line
+  // would run straight through into a working-tree write nobody was warned about.
+  // Requiring a *fresh* press means the cue is always on screen, and the release is
+  // the user's own acknowledgement of it. Repeats are a no-op, not a fall-through:
+  // the textarea has nothing left to delete anyway.
+  if (e.key === 'Backspace' && deletesLines && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    return e.repeat === true ? null : 'delete'
+  }
   return null
 }
 

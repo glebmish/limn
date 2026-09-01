@@ -5,7 +5,7 @@ import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
-  narrowEdit, seedFrameCaret, seedFrameText
+  narrowEdit, seedFrameCaret, seedFrameText, selectionAfterSave
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
@@ -127,12 +127,10 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     if (res.ok) {
       // keyboard round trip: the save leaves a selection on the edited line —
       // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody). A deletion
-      // has no edited line, so the selection lands on whatever took its place,
-      // clamped to the file's new length (a no-op for every non-shrinking save).
+      // has no edited line; `selectionAfterSave` picks what took its place.
       setEditFrame(null)
-      const eof = fileLines.length - edit.snapshot.length + edit.newLines.length
-      const line = Math.min(edit.start, eof)
-      useStore.getState().setLineSelect(line >= 1 ? { file: f.path, line } : null)
+      const line = selectionAfterSave(edit, fileLines.length)
+      useStore.getState().setLineSelect(line == null ? null : { file: f.path, line })
       return
     }
     // Same-line conflict: the review refreshes around the frame, which reopens on
@@ -161,7 +159,12 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const ta = e.currentTarget
-    const action = frameKeyAction(e, deletesLines)
+    // Destructured rather than passed whole so every field the keymap reads — the
+    // held-⌫ gate's `repeat` above all — is a checked read off React's event type:
+    // `frameKeyAction`'s fields are optional, so a silently missing one would
+    // disable a branch instead of failing the build.
+    const { key, metaKey, ctrlKey, shiftKey, altKey, repeat } = e
+    const action = frameKeyAction({ key, metaKey, ctrlKey, shiftKey, altKey, repeat }, deletesLines)
     if (action === 'cancel') { e.preventDefault(); setEditFrame(null); return }
     if (action === 'save') { e.preventDefault(); void save(text); return }
     if (action === 'delete') { e.preventDefault(); void save(text, true); return }
