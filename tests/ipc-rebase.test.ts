@@ -65,7 +65,7 @@ async function waitForHold(h: Harness, opId: string): Promise<void> {
 describe('sendRebase — the agent rebase turn (merge §6)', () => {
   it('hands buildRebasePrompt to engine.chat write-enabled and settles with reload', async () => {
     const h = await setup()
-    const t = createChatThread(h.db, h.sessionId, { kind: 'review', agent }).id
+    const t = createChatThread(h.db, h.sessionId, { kind: 'review', agent, executionMode: 'ask' }).id
     await h.handlers.get('sendRebase')!(t, 'op-r', ['src/a.ts'])
 
     // the exact prompt reached the engine, write-enabled, at the thread's tier

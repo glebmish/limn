@@ -5,7 +5,7 @@ import type {
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
-import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
+import { DEFAULT_EXECUTION_MODE, isExecutionMode, LEGACY_EXECUTION_MODE } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
 
@@ -384,7 +384,7 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarnin
     messages,
     title: row.title ?? undefined,
     createdAt: row.created_at,
-    executionMode: isExecutionMode(row.execution_mode) ? row.execution_mode : DEFAULT_EXECUTION_MODE
+    executionMode: isExecutionMode(row.execution_mode) ? row.execution_mode : LEGACY_EXECUTION_MODE
   }
 }
 

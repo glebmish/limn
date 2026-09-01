@@ -8,7 +8,13 @@ export const EXECUTION_TIERS: ExecutionTier[] = [
   { key: 'full', label: 'Full access', desc: 'Unrestricted — network and any file.' },
 ]
 
-export const DEFAULT_EXECUTION_MODE: ExecutionMode = 'ask'
+export const DEFAULT_EXECUTION_MODE: ExecutionMode = 'auto'
+
+/** Threads created before the `execution_mode` column existed carry a NULL value in
+ *  the DB; on read they keep the tier those chats always ran with rather than
+ *  inheriting the new-thread default — "existing user choices respected" means
+ *  exactly this: a pre-column thread was, in effect, always on `ask`. */
+export const LEGACY_EXECUTION_MODE: ExecutionMode = 'ask'
 
 export function isExecutionMode(v: unknown): v is ExecutionMode {
   return v === 'ask' || v === 'edits' || v === 'auto' || v === 'full'

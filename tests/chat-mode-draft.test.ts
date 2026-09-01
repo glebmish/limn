@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { makeLoaded } from './helpers/loaded'
 
 // The store reads window.api lazily inside actions, so a minimal stub is enough.
 const setChatMode = vi.fn(async () => [])
@@ -29,5 +30,18 @@ describe('setChatMode on a draft chat', () => {
   it('calls IPC for a real (persisted) thread id', async () => {
     await useStore.getState().setChatMode(42, 'full')
     expect(setChatMode).toHaveBeenCalledWith(42, 'full')
+  })
+})
+
+describe('newChat', () => {
+  beforeEach(() => {
+    useStore.setState({
+      sessionId: 1, loaded: makeLoaded({}), draftChat: null, activeChatId: null,
+    })
+  })
+
+  it('a fresh draft chat defaults to auto mode', async () => {
+    await useStore.getState().newChat()
+    expect(useStore.getState().draftChat?.executionMode).toBe('auto')
   })
 })

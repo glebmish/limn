@@ -140,7 +140,7 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 
 ## Execution modes & approvals
 
-One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `ask`) — is enforced in **two deliberate layers**, so the tiers finally mean the *same thing on both engines* (the old `auto`-tier divergence — Claude's `permissionMode:auto` vs Codex's `on-failure` — was a product bug this migration fixes).
+One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `auto` for new chats — pre-existing threads created before this column carried a value keep `ask`) — is enforced in **two deliberate layers**, so the tiers finally mean the *same thing on both engines* (the old `auto`-tier divergence — Claude's `permissionMode:auto` vs Codex's `on-failure` — was a product bug this migration fixes).
 
 **(a) Baseline engine mode** — set once per session via `session/set_mode` (`AcpEngineConfig.modeFor`), chosen so the engine is permissive enough to allow anything Limn might allow, yet restrictive enough that anything Limn might gate produces a `session/request_permission` rather than executing silently:
 

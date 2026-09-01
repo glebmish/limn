@@ -385,13 +385,20 @@ describe('chat threads DAO', () => {
     expect(msgs[1].actions).toBeUndefined() // no actions → no key, not []
   })
 
-  it('defaults executionMode to ask and round-trips setThreadMode', () => {
+  it('defaults executionMode to auto and round-trips setThreadMode', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
-    expect(getChatThread(db, t.id)!.executionMode).toBe('ask')
+    expect(getChatThread(db, t.id)!.executionMode).toBe('auto')
     setThreadMode(db, t.id, 'full')
     expect(getChatThread(db, t.id)!.executionMode).toBe('full')
     expect(listChatThreads(db, s.id).find((c) => c.id === t.id)!.executionMode).toBe('full')
+  })
+
+  it('a pre-existing thread with NULL execution_mode (created before the tier column existed) reads back as ask, not the new auto default', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    db.prepare('UPDATE chat_threads SET execution_mode = NULL WHERE id = ?').run(t.id)
+    expect(getChatThread(db, t.id)!.executionMode).toBe('ask')
   })
 
   it('setActionResolution persists a dismissal onto the matching suggest_viewed action; unrelated ids no-op', () => {
