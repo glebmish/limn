@@ -115,23 +115,41 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     frame != null && l.new != null && l.new >= frame.start && l.new <= frame.end
   // The frame mounts exactly once, at the first covered row in document order
   // (hunk rows and expanded context rows alike) — a per-render flag, not state.
-  // Its key is a single literal, not derived from that row's position (line number,
-  // hunk/row index…): the ↑/↓ growth gesture (#6) can move which row is "first" from
-  // one render to the next (extending upward admits a new, earlier row), and a
-  // position-derived key would make React treat that as a different element —
-  // unmounting the live FlowFrame (losing focus, the caret, and the fetched file
-  // lines) and mounting a fresh one in its place. A stable key lets React match the
-  // old and new elements across the move and reuse the same component instance —
-  // and, since it's a DOM move rather than remove+insert, the browser keeps focus on
-  // the textarea inside it for free. Returned bare (no wrapping element) so this
-  // literal is the key React actually reconciles by — a wrapping <Fragment key=…>
-  // would still pin the *inner* <FlowFrame> to whatever key mountFrame gave it, which
-  // was exactly as position-derived as the outer key it replaced.
+  //
+  // Its key is `frame.frameId` — the edit *session*'s identity, not the row's
+  // position (line number, hunk/row index…) and, just as deliberately, not a bare
+  // constant either. Two competing needs, both real:
+  //  - The ↑/↓ growth gesture (#6) can move which row is "first" from one render to
+  //    the next (extending upward admits a new, earlier row). A position-derived key
+  //    would make React treat that as a different element — unmounting the live
+  //    FlowFrame (losing focus, the caret, the fetched file lines, and whatever was
+  //    typed) and mounting a fresh one. Growth spreads the current frame
+  //    (`{ ...frame, start: frame.start - 1 }`), so `frameId` rides along and the key
+  //    stays put — React matches old and new across the move and reuses the same
+  //    instance; being a DOM move rather than remove+insert, the browser keeps focus
+  //    on the textarea inside it for free.
+  //  - A single hardcoded literal key (this file's fix-round-1 Critical finding) goes
+  //    too far the other way: `openFrameAt` can retarget `editFrame` to an unrelated
+  //    line — a double-click or pencil click while a frame is already open, with no
+  //    guard against it — and a constant key would let React reuse the *same live
+  //    instance* for that unrelated line too, since old and new positions can land in
+  //    the same flattened row array. The reused instance's `fetched`/`focusedOnce`
+  //    latches (FlowFrame.tsx) are keyed to *mount*, not to `frame.start`/`end`, so
+  //    they'd never re-fire — the old line's typed text would sit in the textarea
+  //    while `frame.start`/`end` quietly pointed at the new line, and ⌘⏎ would CAS-
+  //    write that stale text under the new line numbers. Silent, wrong-line writes.
+  //    `openFrameAt` mints a fresh `frameId` on every open (store/edits.ts,
+  //    `setEditFrame`) precisely so an unrelated re-open is a different key — a full,
+  //    safe remount, same as it always was.
+  // Returned bare (no wrapping element) so `frameId` is the key React actually
+  // reconciles by — a wrapping <Fragment key=…> would still pin the *inner*
+  // <FlowFrame> to whatever key mountFrame gave it, one level removed from the key
+  // that matters.
   let frameMounted = false
   const mountFrame = (): React.ReactNode => {
     if (!frame || frameMounted) return null
     frameMounted = true
-    return <FlowFrame key="flow-frame" f={f} frame={frame} />
+    return <FlowFrame key={`flow-${frame.frameId}`} f={f} frame={frame} />
   }
   const openFrameAt = (l: DiffLine, e?: React.MouseEvent<HTMLElement>): void => {
     if (!editable || l.new == null) return

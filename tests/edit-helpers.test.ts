@@ -3,7 +3,7 @@ import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import {
   caretAfterGrowth, discardSpanAt, fileEditable, frameGutter, frameKeyAction, lineColToCaret,
-  narrowEdit, rawOffsetFromDisplayColumn
+  narrowEdit, rawOffsetFromDisplayColumn, seedFrameCaret, seedFrameText
 } from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
@@ -175,6 +175,43 @@ describe('caretAfterGrowth', () => {
   it('an empty admitted line always lands at its own (zero-width) position', () => {
     expect(caretAfterGrowth(0, '', 5)).toBe(0)
     expect(caretAfterGrowth(4, '', 5)).toBe(4)
+  })
+})
+
+// ── #6 fix-round-1: the live draft that lets a forced remount (growth crossing a
+// real git-hunk boundary) restore what the user typed instead of silently
+// re-seeding from disk.
+describe('seedFrameText', () => {
+  it('no draft at all — falls back to disk', () => {
+    expect(seedFrameText(null, 1, 'disk content')).toBe('disk content')
+  })
+
+  it('a draft for this exact session wins over disk', () => {
+    expect(seedFrameText({ frameId: 1, text: 'typed content', caret: 3 }, 1, 'disk content'))
+      .toBe('typed content')
+  })
+
+  it('a draft for a DIFFERENT session is ignored — never leaks into a new edit', () => {
+    expect(seedFrameText({ frameId: 1, text: 'stale from another edit', caret: 3 }, 2, 'disk content'))
+      .toBe('disk content')
+  })
+})
+
+describe('seedFrameCaret', () => {
+  it('no draft — falls back', () => {
+    expect(seedFrameCaret(null, 1, 7)).toBe(7)
+  })
+
+  it('a draft for this session with a recorded caret wins over the fallback', () => {
+    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: 4 }, 1, 7)).toBe(4)
+  })
+
+  it('a draft for this session with no recorded caret (null) still falls back', () => {
+    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: null }, 1, 7)).toBe(7)
+  })
+
+  it('a draft for a different session is ignored', () => {
+    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: 4 }, 2, 7)).toBe(7)
   })
 })
 

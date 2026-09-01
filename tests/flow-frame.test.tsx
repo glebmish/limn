@@ -33,7 +33,7 @@ function seed(over: { writable: boolean; frame?: { file: string; start: number; 
   }
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
-  ;(init as { editFrame: unknown }).editFrame = over.frame ?? null
+  ;(init as { editFrame: unknown }).editFrame = over.frame ? { ...over.frame, frameId: 1 } : null
 }
 
 afterEach(() => {

@@ -83,6 +83,29 @@ export function lineColToCaret(lines: string[], lineIdx: number, col: number): n
   return offset + Math.max(0, Math.min(col, lineLen))
 }
 
+/** A flow frame's live draft (#6 fix-round-1): the typed text plus the caret, kept in
+ *  the store under the edit session's `frameId` so it survives a forced remount that
+ *  is still, conceptually, the same edit — the ↑/↓ growth gesture (#6) can cross a
+ *  real git-hunk boundary that DiffBody's key-matched reconciliation can't reach
+ *  (that reconciliation only spans one hunk's own flattened row array), forcing a
+ *  fresh `FlowFrame` instance. Without the draft, that fresh instance would silently
+ *  re-seed from disk and discard whatever the user had typed. */
+export interface FrameDraft { frameId: number; text: string; caret: number | null }
+
+/** Which text a (re)mounting frame should seed with: the draft, only when it belongs
+ *  to this exact session (`frameId` matches) — a genuinely new edit (a different
+ *  session) always starts from the on-disk region, never a stale leftover draft. */
+export function seedFrameText(draft: FrameDraft | null, frameId: number, diskText: string): string {
+  return draft && draft.frameId === frameId ? draft.text : diskText
+}
+
+/** Which caret offset a (re)mounting frame should place: the draft's, when it
+ *  belongs to this session and actually recorded one — otherwise `fallback` (the
+ *  double-click column, or end-of-line — see `lineColToCaret`). */
+export function seedFrameCaret(draft: FrameDraft | null, frameId: number, fallback: number): number {
+  return draft && draft.frameId === frameId && draft.caret != null ? draft.caret : fallback
+}
+
 /** Caret offset inside the frame's textarea text right after the ↑/↓ past-the-edge
  *  growth gesture (#6) admits a neighbouring file line. `joined` is the admitted
  *  line; `col` is the caret's column on the row it was on just before growth,

@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { api } from '../lib/api'
-import { caretAfterGrowth, frameGutter, frameKeyAction, lineColToCaret, narrowEdit } from '../lib/edits'
+import {
+  caretAfterGrowth, frameGutter, frameKeyAction, lineColToCaret, narrowEdit, seedFrameCaret, seedFrameText
+} from '../lib/edits'
 
-interface FrameScope { file: string; start: number; end: number; caretCol?: number }
+/** `frameId` identifies the edit session, not the region — see `EditFrame` in
+ *  store/edits.ts for the full rationale (#6 fix-round-1). */
+interface FrameScope { file: string; start: number; end: number; caretCol?: number; frameId: number }
 
 /** Caret position inside a textarea, as (line, column) plus the line count. */
 function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCount: number } {
@@ -32,6 +36,16 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const alive = useRef(true)
   useEffect(() => () => { alive.current = false }, [])
 
+  /** Persist the live draft under this session's `frameId` (#6 fix-round-1) — a
+   *  plain store write, not React state, so it survives even when *this* component
+   *  instance is about to be torn down (growth crossing a real git-hunk boundary
+   *  still forces a remount; DiffBody's key-matched reconciliation only reaches
+   *  within one hunk's own flattened row array). Called at every point `text`
+   *  intentionally changes: typing and the ↑/↓ growth gesture. */
+  const draft = (nextText: string, caret: number | null): void => {
+    useStore.getState().setEditDraft({ frameId: frame.frameId, text: nextText, caret })
+  }
+
   // fetch the working file once per open frame; growth reuses the fetched lines.
   // Deliberately not re-run on scope growth — hence the ref guard, not a dep list.
   const fetched = useRef(false)
@@ -44,7 +58,11 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         if (!alive.current) return
         if (!wf.ok) { setEditFrame(null); return }
         setFileLines(wf.lines)
-        setText(wf.lines.slice(frame.start - 1, frame.end).join('\n'))
+        // a remount that preserved this session's frameId (growth across a real
+        // hunk boundary) restores the live draft instead of re-reading disk and
+        // silently discarding what was typed — see seedFrameText's doc comment.
+        const diskText = wf.lines.slice(frame.start - 1, frame.end).join('\n')
+        setText(seedFrameText(useStore.getState().editDraft, frame.frameId, diskText))
       } catch {
         if (alive.current) setEditFrame(null)
       }
@@ -76,9 +94,12 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     focusedOnce.current = true
     const ta = taRef.current
     ta.focus()
-    const pos = lineColToCaret(text.split('\n'), 0, frame.caretCol ?? Infinity)
+    // a restored draft's own caret wins over the double-click column — the text it
+    // was captured against no longer matches what's on screen otherwise
+    const fallback = lineColToCaret(text.split('\n'), 0, frame.caretCol ?? Infinity)
+    const pos = seedFrameCaret(useStore.getState().editDraft, frame.frameId, fallback)
     ta.setSelectionRange(pos, pos)
-  }, [fileLines, text, frame.caretCol])
+  }, [fileLines, text, frame.caretCol, frame.frameId])
 
   async function save(value: string): Promise<void> {
     if (!fileLines) { setEditFrame(null); return }
@@ -102,7 +123,9 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     setYours(value)
     setFileLines(res.current)
     setText(res.current.slice(start - 1, end).join('\n'))
-    setEditFrame({ file: f.path, start, end })
+    // same edit session, re-anchored after a conflict — carry the id forward so
+    // this stays the live instance (no remount) and no draft gets dropped under it
+    setEditFrame({ file: f.path, start, end, frameId: frame.frameId })
     await refreshLoaded()
   }
 
@@ -119,15 +142,24 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         e.preventDefault()
         const joined = fileLines[frame.start - 2]
         // prepended above everything else — nothing comes before it in the new text
-        caretRef.current = caretAfterGrowth(0, joined, col)
-        setText(`${joined}\n${text}`)
+        const pos = caretAfterGrowth(0, joined, col)
+        caretRef.current = pos
+        const next = `${joined}\n${text}`
+        setText(next)
+        // written directly (not via an effect on `text`) so it lands even if this
+        // very growth step crosses a real git-hunk boundary and tears this instance
+        // down before any of its effects get to run
+        draft(next, pos)
         setEditFrame({ ...frame, start: frame.start - 1 })
       } else if (e.key === 'ArrowDown' && line === lineCount - 1 && frame.end < fileLines.length) {
         e.preventDefault()
         const joined = fileLines[frame.end]
         // appended after the old text plus its joining '\n'
-        caretRef.current = caretAfterGrowth(text.length + 1, joined, col)
-        setText(`${text}\n${joined}`)
+        const pos = caretAfterGrowth(text.length + 1, joined, col)
+        caretRef.current = pos
+        const next = `${text}\n${joined}`
+        setText(next)
+        draft(next, pos)
         setEditFrame({ ...frame, end: frame.end + 1 })
       }
     }
@@ -168,7 +200,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
           spellCheck={false}
           disabled={fileLines == null}
           aria-label={`Edit ${f.path}, ${chip}`}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); draft(e.target.value, e.target.selectionStart) }}
           onKeyDown={onKeyDown}
         />
       </div>
