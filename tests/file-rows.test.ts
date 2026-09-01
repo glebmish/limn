@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Hunk } from '../src/shared/types'
 import { hunkGaps } from '../src/renderer/lib/expand'
-import { buildFileRows, fnLabel, rowKey } from '../src/renderer/lib/rows'
+import { buildFileRows, fnLabel, lineRow, rowKey } from '../src/renderer/lib/rows'
 
 // @@ -12,4 +12,5 @@ : one add at new 14
 const h1: Hunk = {
@@ -33,6 +33,20 @@ describe('rowKey', () => {
   it('never collides between a deletion and a working-tree row of the same number', () => {
     expect(rowKey({ old: 31, new: null, kind: 'del', text: 'y' }))
       .not.toBe(rowKey({ old: 20, new: 31, kind: '', text: 'z' }))
+  })
+
+  // a line with neither side has no address; keying it `old:undefined` would emit a
+  // `data-limn-line` target the focus/anchor machinery could resolve to the wrong row
+  it('has no key for a line with neither side, and such a row is dropped', () => {
+    const sideless = { old: null, new: null, kind: '' as const, text: 'nowhere' }
+    expect(rowKey(sideless)).toBeNull()
+    expect(lineRow([sideless], 0, { hunkRange: '@@', fromHunk: true })).toBeNull()
+    const h: Hunk = { range: '@@ -1,1 +1,1 @@', header: '', lines: [
+      { old: 1, new: 1, kind: '', text: 'a' }, sideless
+    ] }
+    const built = buildFileRows([h], [])
+    expect(built.map((r) => r.key)).toEqual(['new:1'])
+    expect(built.every((r) => !String(r.key).includes('undefined'))).toBe(true)
   })
 })
 
@@ -105,7 +119,7 @@ describe('buildFileRows', () => {
     expect(add?.type === 'line' && add.runIdx).toBe(2)
   })
 
-  it('emits no gap rows when expand context is unavailable', () => {
+  it('emits no gap rows when given no gaps (a binary file — the only caller case)', () => {
     expect(buildFileRows([h1, h2], []).every((r) => r.type === 'line')).toBe(true)
   })
 

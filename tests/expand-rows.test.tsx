@@ -30,17 +30,20 @@ const file: FileDiff = {
   ]
 }
 
-function seed(writable: boolean) {
-  const loaded = makeLoaded({ files: [file] })
+function seed(writable: boolean, f: FileDiff = file, diffMode: 'branch' | 'approved' | 'viewed' = 'branch') {
+  const loaded = makeLoaded({ files: [f] })
   ;(loaded as { writeCapability?: unknown }).writeCapability = {
     enabled: writable, reason: writable ? 'available' : 'not-checked-out', branch: 'feat', workdir: writable ? '/wt' : null
   }
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
+  ;(init as { diffMode: string }).diffMode = diffMode
 }
 
 afterEach(() => {
-  ;(initial() as { loaded: LoadedReview | null }).loaded = null
+  const init = initial()
+  ;(init as { loaded: LoadedReview | null }).loaded = null
+  ;(init as { diffMode: string }).diffMode = 'branch'
 })
 
 describe('expand-context rows', () => {
@@ -96,9 +99,82 @@ describe('expand-context rows', () => {
     }
   })
 
-  it('no expanders when the worktree is not available (read-only review)', () => {
+  it('no clickable expanders when the worktree is not available (read-only review)', () => {
     seed(false)
     const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).not.toContain('<button class="expander-row"')
+    expect(out).not.toContain('Expand hidden lines')
+    expect(out).not.toContain('expand 11 unchanged')
+  })
+})
+
+// Fix round 1, Important: with the `@@` head gone, the collapsed run is the ONLY
+// thing marking a discontinuity — and `.dline` has no top border, so dropping it made
+// hunks at 12–16 and 31–33 render as eight adjacent rows with the gutter silently
+// jumping 16 → 31. The run is now always modelled; only *opening* it needs a worktree.
+describe('discontinuity markers where the run cannot be opened', () => {
+  const markers = (out: string): string[] =>
+    [...out.matchAll(/<div class="expander-row gap-static">(.*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''))
+
+  it('read-only review still marks every run, inertly', () => {
+    seed(false)
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(markers(out)).toEqual(['11 unchanged lines above', '16 unchanged lines', 'unchanged lines below'])
+    // and the marker sits between the two runs of rows, not after them
+    expect(out.indexOf('src/a.ts:new:14')).toBeLessThan(out.indexOf('16 unchanged lines<'))
+    expect(out.indexOf('16 unchanged lines<')).toBeLessThan(out.indexOf('src/a.ts:new:31'))
+  })
+
+  it('the marker is not interactive: no button, no chevron, no aria-label, no handler', () => {
+    seed(false)
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).not.toMatch(/<button[^>]*expander-row/)
+    expect(out).not.toContain('Expand hidden lines')
+    // the marker element itself carries no interactive affordance: no role, no
+    // tabindex, no chevron — those all ride the clickable variant only
+    const marker = out.slice(out.indexOf('<div class="expander-row gap-static"'))
+      .slice(0, out.slice(out.indexOf('<div class="expander-row gap-static"')).indexOf('</div>'))
+    expect(marker).not.toContain('role=')
+    expect(marker).not.toContain('tabindex')
+    expect(marker).not.toContain('<svg')
+  })
+
+  it('"Since approved" / "Since viewed" mark the runs too, and keep the fn label', () => {
+    const sinceHunks = [
+      { range: '@@ -12,2 +12,3 @@', header: 'def alpha(x):', lines: [
+        { old: 12, new: 12, kind: '', text: 'a' },
+        { old: null, new: 13, kind: 'add', text: 'b' },
+        { old: 13, new: 14, kind: '', text: 'c' }
+      ] },
+      { range: '@@ -30,1 +31,1 @@', header: 'class Beta:', lines: [{ old: 30, new: 31, kind: '', text: 'd' }] }
+    ]
+    // 'approved' reads sinceHunks, 'viewed' reads sinceViewedHunks (store/derive.ts)
+    const since = { ...file, sinceHunks, sinceViewedHunks: sinceHunks } as unknown as FileDiff
+    for (const mode of ['approved', 'viewed'] as const) {
+      // writable, so this isolates the mode gate from the worktree gate
+      seed(true, since, mode)
+      const out = renderToStaticMarkup(<DiffView f={since} />)
+      // the fn label survives on the inert marker too (rendered in its own span, so
+      // the stripped text runs the two together)
+      expect(markers(out)).toEqual(['11 unchanged lines abovein alpha', '16 unchanged linesin Beta', 'unchanged lines below'])
+      expect(out).not.toMatch(/<button[^>]*expander-row/)
+      expect(out).not.toContain('@@')
+    }
+  })
+
+  it('branch mode on a writable review still renders the clickable expander', () => {
+    seed(true)
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).toContain('<button class="expander-row"')
+    expect(out).toContain('aria-label="Expand hidden lines above"')
+    expect(out).not.toContain('gap-static')
+  })
+
+  it('a binary file gets no runs at all', () => {
+    const bin = { ...file, binary: true, hunks: [] } as unknown as FileDiff
+    seed(true, bin)
+    const out = renderToStaticMarkup(<DiffView f={bin} />)
+    expect(out).toContain('Binary file')
     expect(out).not.toContain('expander-row')
   })
 

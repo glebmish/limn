@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import type { FileDiff } from '../../shared/types'
+import type { DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { useStore } from '../store'
 import { FileGlyph } from './FileGlyph'
 import { splitPath } from './FileHeader'
 import { disp, highlightLine, langForPath } from '../lib/highlight'
+import { rowKey } from '../lib/rows'
 
 /** staged → solid rail, unstaged → dotted rail (untracked files are always unstaged). */
 function originCls(origin: string | undefined): string {
@@ -45,13 +46,15 @@ function UntrackedRow({ f }: { f: FileDiff }) {
             {!f.binary && f.hunks.length === 0 && <div className="nodiff">No textual changes.</div>}
             {/* an untracked file is wholly new, so its peek is just the file — no
                 `@@` header, here or anywhere else in the UI (#11) */}
-            {f.hunks.flatMap((h) => h.lines.map((l) => (
-              <div key={`${l.new ?? ''}:${l.old ?? ''}`} className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls(l.origin)}>
-                <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
-                <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                <span className="code"><span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(disp(l.text), lang) }} /></span>
-              </div>
-            )))}
+            {f.hunks.flatMap((h) => h.lines.map((l) => ({ l, key: rowKey(l) })))
+              .filter((r): r is { l: DiffLine; key: string } => r.key != null)
+              .map(({ l, key }) => (
+                <div key={key} className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls(l.origin)}>
+                  <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
+                  <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
+                  <span className="code"><span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(disp(l.text), lang) }} /></span>
+                </div>
+              ))}
           </div>
         </div>
       )}

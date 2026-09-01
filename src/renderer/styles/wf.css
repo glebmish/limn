@@ -251,10 +251,14 @@ body.limn-show-affordances .pencil-btn,body.limn-show-affordances .rail-undo{opa
 
 /* collapsed runs of unchanged file lines (#11: the body reads as the file, so the
    only break in it is a fold you can open) */
-.expander-row{display:flex;align-items:center;gap:6px;width:100%;border:none;cursor:pointer;
+.expander-row{display:flex;align-items:center;gap:6px;width:100%;border:none;
   background:var(--panel-2);color:var(--muted);font:500 11px var(--sans);padding:3px 14px;
   border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);text-align:left}
-.expander-row:hover{background:var(--accent-soft);color:var(--accent-ink)}
+button.expander-row{cursor:pointer}
+button.expander-row:hover{background:var(--accent-soft);color:var(--accent-ink)}
+/* no worktree to read the lines from (read-only review, the "Since ..." tabs): the
+   run still has to mark that the file jumps here, it just cannot be opened */
+.expander-row.gap-static{color:var(--faint);cursor:default;user-select:none}
 /* where the run leads — the useful half of the old `@@ … @@ ctx` header, as prose */
 .expander-row .gap-fn{color:var(--faint);font-family:var(--mono);font-size:10.5px}
 /* covered − rows ride inside the frame's span as inert grey slivers */

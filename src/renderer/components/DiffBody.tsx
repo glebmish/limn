@@ -176,12 +176,18 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const [expandedGaps, setExpandedGaps] = useState<Record<string, DiffLine[]>>({})
   const fileLinesRef = useRef<string[] | null>(null)
   useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f])
-  // needs a worktree to read from — same availability as editing (v1)
-  const gaps = useMemo(() => (editable && mode === 'branch' && !f.binary ? hunkGaps(hunks) : []), [editable, mode, f.binary, hunks])
+  // The runs themselves are pure arithmetic over the hunks and are ALWAYS modelled:
+  // they are the only thing marking a discontinuity now that the `@@` head is gone,
+  // and a `.dline` has no top border, so leaving them out makes two distant hunks
+  // read as one continuous block with the gutter quietly jumping. *Opening* one needs
+  // a worktree to read from (same availability as editing, v1) — where that is
+  // missing the run renders as an inert marker instead of a button.
+  const gaps = useMemo(() => (f.binary ? [] : hunkGaps(hunks)), [f.binary, hunks])
+  const canExpand = editable && mode === 'branch' && !f.binary
   /** the file's row model: changed rows and collapsed runs, in file order */
   const rows = useMemo(() => buildFileRows(hunks, gaps), [hunks, gaps])
   const expand = async (gap: Gap): Promise<void> => {
-    if (!loaded) return
+    if (!loaded || !canExpand) return
     try {
       if (!fileLinesRef.current) {
         const wf = await api().readWorkingFile(loaded.state.repo, loaded.session.pair.compare, f.path)
@@ -192,9 +198,9 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
       if (revealed.length) setExpandedGaps((prev) => ({ ...prev, [gap.key]: revealed }))
     } catch { /* worktree read failed — leave the fold closed */ }
   }
-  /** the fold (unrevealed run) whose span contains working-tree line `n` */
+  /** the fold (unrevealed, openable run) whose span contains working-tree line `n` */
   const hiddenGapContaining = (n: number): Gap | undefined =>
-    gaps.find((g) => !expandedGaps[g.key] && n >= g.from && (g.to == null || n <= g.to))
+    canExpand ? gaps.find((g) => !expandedGaps[g.key] && n >= g.from && (g.to == null || n <= g.to)) : undefined
 
   // Growth across a fold (board 01): when the frame's edge enters a fold, the
   // fold's lines reveal in one batch — only the adjacent line joined the frame.
@@ -259,7 +265,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     if (r.type === 'gap') {
       const revealed = expandedGaps[r.gap.key]
       if (revealed) {
-        revealed.forEach((_l, j) => view.push(lineRow(revealed, j, { hunkRange: '', fromHunk: false })))
+        revealed.forEach((_l, j) => {
+          const row = lineRow(revealed, j, { hunkRange: '', fromHunk: false })
+          if (row) view.push(row)
+        })
         continue
       }
     }
@@ -270,11 +279,20 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     return r && r.type === 'line' ? r.l : null
   }
 
+  /** A collapsed run of unchanged file lines. Openable where there is a worktree to
+   *  read the lines from; everywhere else (a read-only review, the "Since …" tabs)
+   *  the same hairline renders as an inert marker — it still has to say the file
+   *  jumps here, which is the job the `@@` head used to do by accident. */
   const gapNode = (r: Extract<FileRow, { type: 'gap' }>): React.ReactNode => {
     const count = r.gap.to != null ? r.gap.to - r.gap.from + 1 : null
-    const what = count != null
-      ? `expand ${count} unchanged line${count === 1 ? '' : 's'}`
-      : 'expand unchanged lines'
+    const lines = count != null ? `${count} unchanged line${count === 1 ? '' : 's'}` : 'unchanged lines'
+    const text = r.where ? `${lines} ${r.where}` : lines
+    // the one genuinely useful half of the old `@@ … @@ ctx` header, as plain prose:
+    // where in the file this collapsed run leads
+    const fn = r.fn ? <span className="gap-fn">in {r.fn}</span> : null
+    if (!canExpand) {
+      return <div key={r.key} className="expander-row gap-static">{text}{fn}</div>
+    }
     return (
       <button
         key={r.key}
@@ -283,10 +301,8 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
         aria-label={r.where ? `Expand hidden lines ${r.where}` : 'Expand hidden lines'}
       >
         <I.chevR style={{ width: 10, height: 10, transform: 'rotate(90deg)' }} />
-        {r.where ? `${what} ${r.where}` : what}
-        {/* the one genuinely useful half of the old `@@ … @@ ctx` header, as plain
-            prose: where in the file this collapsed run leads */}
-        {r.fn && <span className="gap-fn">in {r.fn}</span>}
+        {`expand ${text}`}
+        {fn}
       </button>
     )
   }

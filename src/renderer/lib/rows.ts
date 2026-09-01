@@ -19,9 +19,17 @@ import { pairHunkLines, wordDiffRanges, type CharRange } from './worddiff'
  *  because a file's hunks cover disjoint, ordered line ranges. This is exactly the
  *  `side:line` half of the `data-limn-line` attribute the focus/anchor machinery
  *  already jumps by, so one scheme now serves React keys, the comment composer's
- *  position, and DOM addressing alike. */
-export function rowKey(l: DiffLine): string {
-  return l.new != null ? `new:${l.new}` : `old:${l.old}`
+ *  position, and DOM addressing alike.
+ *
+ *  Null for a line with neither side — which `parseUnifiedDiff` does not produce
+ *  today, but a keyless row is exactly the case that must NOT be papered over with a
+ *  non-null assertion: it would key `old:undefined` and emit a `data-limn-line`
+ *  target that the focus/anchor machinery could resolve to the wrong row. Callers
+ *  drop such a row instead. */
+export function rowKey(l: DiffLine): string | null {
+  if (l.new != null) return `new:${l.new}`
+  if (l.old != null) return `old:${l.old}`
+  return null
 }
 
 export interface LineRow {
@@ -94,24 +102,33 @@ function runWordMarks(lines: DiffLine[]): Map<number, CharRange[]> {
   return marks
 }
 
-/** One LineRow for `run[idx]`. Exported so DiffBody can build rows for a gap the
- *  reader just expanded — those lines arrive from the working tree at render time,
- *  long after the model was built, and must land in the same key space. */
+/** One LineRow for `run[idx]`, or null when the line has no side to address it by
+ *  (see `rowKey`) — an unaddressable row is dropped rather than rendered under a
+ *  fabricated key. Exported so DiffBody can build rows for a gap the reader just
+ *  expanded: those lines arrive from the working tree at render time, long after the
+ *  model was built, and must land in the same key space. */
 export function lineRow(
   run: DiffLine[], idx: number, opts: { hunkRange: string; fromHunk: boolean; marks?: CharRange[] }
-): LineRow {
+): LineRow | null {
   const l = run[idx]
+  const key = rowKey(l)
+  if (key == null) return null
   const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
   return {
-    type: 'line', key: rowKey(l), side, lineNo: (l.new ?? l.old)!, l,
+    type: 'line', key, side, lineNo: (l.new ?? l.old) as number, l,
     hunkRange: opts.hunkRange, fromHunk: opts.fromHunk, marks: opts.marks, run, runIdx: idx
   }
 }
 
 /** The file's rows in file order: each collapsed run (from `hunkGaps`) as one gap
  *  row, each hunk's lines as plain line rows, with no hunk boundary of any kind
- *  between them. Pass `gaps: []` where expand-context is unavailable (a read-only
- *  review) and the result is line rows only.
+ *  between them.
+ *
+ *  Gap rows are built from `hunkGaps` unconditionally — the caller decides whether
+ *  each one is *expandable* (that needs a worktree) or renders as an inert marker.
+ *  They are never omitted: a `.dline` has no top border, so without them two hunks
+ *  render as adjacent rows with the gutter silently jumping (12–16 straight into
+ *  31–33), which is worse than the `@@` header this task removed.
  *
  *  The result is ONE flat array for the whole file, which is the point: React
  *  reconciles the body as a single key-matched list, so an edit frame growing from
@@ -130,7 +147,10 @@ export function buildFileRows(hunks: Hunk[], gaps: Gap[]): FileRow[] {
       rows.push({ type: 'gap', key: `gap:${g.key}`, gap: g, fn: fnLabel(h.header), where: i === 0 ? 'above' : '' })
     }
     const marks = runWordMarks(h.lines)
-    h.lines.forEach((_l, j) => rows.push(lineRow(h.lines, j, { hunkRange: h.range, fromHunk: true, marks: marks.get(j) })))
+    h.lines.forEach((_l, j) => {
+      const row = lineRow(h.lines, j, { hunkRange: h.range, fromHunk: true, marks: marks.get(j) })
+      if (row) rows.push(row)
+    })
     let end = 0
     for (const l of h.lines) if (l.new != null) end = l.new
     cursor = end + 1
