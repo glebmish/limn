@@ -27,6 +27,11 @@ const DANGEROUS_TOKEN_PATTERNS: RegExp[] = [
   />>?/, // redirection: > or >>
   /`/, // command substitution (backtick)
   /\$\(/, // command substitution $(
+  /<\(/, // process substitution <( — runs a command the same way $( does
+  // `find` is allowlisted as a read-only verb, but its action flags execute their own
+  // arguments (-exec/-execdir/-ok/-okdir), delete matches (-delete), or write files
+  // (-fprint/-fprintf/-fls) — none of which any other token here would catch.
+  /\bfind\b[\s\S]*\s-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)\b/,
   /\bsudo\b/,
   /\brm\b/,
   /\bmv\b/,
@@ -71,11 +76,15 @@ const SAFE_SCRIPT_PATTERNS: RegExp[] = [
   /^node\s+--version\b/,
 ]
 
-/** Split a shell command into segments on `&&`, `||`, `;`, `|`. Every segment must
- *  be independently safe for the whole command to be safe. */
+/** Split a shell command into segments on every separator that starts a new command:
+ *  `&&`, `||`, `;`, `|`, `&` (background) and a newline. Every segment must be
+ *  independently safe for the whole command to be safe — miss a separator and a
+ *  benign-looking head (`ls\n…`, `ls & …`) covers whatever follows it. `&&` is listed
+ *  before the single `&` so it splits as one separator rather than leaving an empty
+ *  fragment (either way both halves are classified). */
 function splitSegments(cmd: string): string[] {
   return cmd
-    .split(/&&|\|\||;|\|/)
+    .split(/&&|\|\||;|\||&|\r\n|\n|\r/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 }

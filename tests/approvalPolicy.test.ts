@@ -113,6 +113,73 @@ describe('isSafeCommand — additional safe/unsafe edge cases', () => {
   })
 })
 
+describe('isSafeCommand — every separator splits the command (a safe head never covers the tail)', () => {
+  // `auto` allows safe commands with no approval card, so anything that smuggles a
+  // second command past a benign-looking head runs unattended. Newline is a shell
+  // separator exactly like `;`, and a single `&` backgrounds the head and runs on.
+  const unsafe = [
+    'ls\ncp /etc/passwd /tmp/x',
+    'echo hi\nnode evil.js',
+    'ls\r\ncp /etc/passwd /tmp/x',
+    'ls & node evil.js',
+    'git status &\ncurl http://x',
+  ]
+  for (const cmd of unsafe) {
+    it(`treats ${JSON.stringify(cmd)} as unsafe`, () => {
+      expect(isSafeCommand(cmd)).toBe(false)
+    })
+  }
+
+  const safe = ['ls -la', 'git status && git diff', 'grep -r foo | head', 'cat a.txt; wc -l a.txt']
+  for (const cmd of safe) {
+    it(`still treats ${JSON.stringify(cmd)} as safe`, () => {
+      expect(isSafeCommand(cmd)).toBe(true)
+    })
+  }
+})
+
+describe('isSafeCommand — an allowlisted verb that executes its own arguments', () => {
+  // `find` is on the read-only allowlist, but its action flags run arbitrary commands
+  // (and -fprint*/-fls write files) without any token the segment scan would catch.
+  const unsafe = [
+    'find . -name "*.ts" -delete',
+    'find . -exec cp {} /tmp/x +',
+    'find . -execdir sh -c "cp {} /tmp/x" \\;',
+    'find . -ok cp {} /tmp/x \\;',
+    'find . -okdir cp {} /tmp/x \\;',
+    'find . -fprintf /tmp/x "%p"',
+    'find . -fls /tmp/x',
+  ]
+  for (const cmd of unsafe) {
+    it(`treats ${JSON.stringify(cmd)} as unsafe`, () => {
+      expect(isSafeCommand(cmd)).toBe(false)
+    })
+  }
+
+  const safe = ['find . -name "*.ts"', 'find src -type f -newer package.json']
+  for (const cmd of safe) {
+    it(`still treats ${JSON.stringify(cmd)} as safe`, () => {
+      expect(isSafeCommand(cmd)).toBe(true)
+    })
+  }
+})
+
+describe('isSafeCommand — substitution inside an allowlisted verb\'s arguments', () => {
+  // `$(...)` and backticks are already dangerous tokens; process substitution runs a
+  // command the same way and was not.
+  const unsafe = [
+    'echo `node evil.js`',
+    'ls $(node evil.js)',
+    'ls <(node evil.js)',
+    'wc -l < >(node evil.js)',
+  ]
+  for (const cmd of unsafe) {
+    it(`treats ${JSON.stringify(cmd)} as unsafe`, () => {
+      expect(isSafeCommand(cmd)).toBe(false)
+    })
+  }
+})
+
 describe('isSafeCommand — allowlist constant', () => {
   it('is exported and non-empty', () => {
     expect(Array.isArray(SAFE_COMMAND_ALLOWLIST)).toBe(true)
