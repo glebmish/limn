@@ -55,13 +55,42 @@ describe('expand-context rows', () => {
   // final review, finding 4: a hunk's leading gap block is returned straight into the
   // hunk's flattened row array, so the expander needs its own key like every other row
   // there — otherwise React warns once per hunk with a collapsed gap above it.
-  it('renders without a missing-key warning', () => {
+  // ...and #11 put every row of the file — folds included — into ONE keyed array, so
+  // a duplicate key would now be a whole-file hazard rather than a within-hunk one.
+  it('renders without a missing- or duplicate-key warning', () => {
     seed(true)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       renderToStaticMarkup(<DiffView f={file} />)
-      const warnings = spy.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /unique "key"/.test(m))
+      const warnings = spy.mock.calls.map((c) => c.map(String).join(' '))
+        .filter((m) => /unique "key"|same key/.test(m))
       expect(warnings).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('renders a del row and a same-numbered context row under distinct keys', () => {
+    // old:12 (a deletion) and new:12 (a context row) coexist; keyed by side they
+    // cannot collide, which is what makes one flat key space per file safe
+    const withDel: FileDiff = {
+      ...file,
+      hunks: [{
+        range: '@@ -12,2 +12,2 @@', header: '', lines: [
+          { old: 12, new: null, kind: 'del', text: 'gone' },
+          { old: 13, new: 12, kind: '', text: 'kept' }
+        ]
+      }]
+    }
+    const loaded = makeLoaded({ files: [withDel] })
+    ;(loaded as { writeCapability?: unknown }).writeCapability = { enabled: true, reason: 'available', branch: 'feat', workdir: '/wt' }
+    ;(initial() as { loaded: LoadedReview | null }).loaded = loaded
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const out = renderToStaticMarkup(<DiffView f={withDel} />)
+      expect(out).toContain('data-limn-line="src/a.ts:old:12"')
+      expect(out).toContain('data-limn-line="src/a.ts:new:12"')
+      expect(spy.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /key/.test(m))).toEqual([])
     } finally {
       spy.mockRestore()
     }
