@@ -54,6 +54,20 @@ describe('readWorkingFile / applyEdit handlers', () => {
     expect(read.lines.length).toBe(6)
   })
 
+  it('applies a line-deleting edit through the handler (#8)', async () => {
+    const h = await setup()
+    const result = await h.handlers.get('applyEdit')!(h.dir, h.compareSide, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 2'], newLines: []
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+
+    // the re-read sees the line gone and the tail ridden up, so the next frame anchors right
+    const read = await h.handlers.get('readWorkingFile')!(h.dir, h.compareSide, 'src/a.ts') as { ok: true; lines: string[] }
+    expect(read.lines).not.toContain('  return 2')
+    expect(read.lines.slice(0, 2)).toEqual(['export function a() {', '}'])
+    expect(read.lines.length).toBe(4)
+  })
+
   it('refuses when the compare branch is not checked out anywhere', async () => {
     const h = await setup()
     const main: RefSide = { kind: 'branch', symbol: 'main', anchorSha: 'b'.repeat(40) }

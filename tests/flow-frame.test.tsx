@@ -83,6 +83,16 @@ describe('in-place edit affordances', () => {
     expect(out).not.toContain('>⏎ save')
   })
 
+  it('a frame that has not loaded its file yet never advertises ⌫ (#8)', () => {
+    // the frame mounts with empty text and a disabled textarea — an empty region is
+    // only *deletable* once the file (and so the CAS snapshot) is there
+    seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).toContain('⌘⏎ save · ⏎ new line · esc cancel')
+    expect(out).not.toContain('⌫')
+    expect(out).not.toContain('ff-emptied')
+  })
+
   it('a frame for another file leaves this one untouched', () => {
     seed({ writable: true, frame: { file: 'src/other.ts', start: 1, end: 1 } })
     const out = renderToStaticMarkup(<DiffView f={file} />)

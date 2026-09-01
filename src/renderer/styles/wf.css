@@ -272,6 +272,15 @@ body.limn-show-affordances .pencil-btn,body.limn-show-affordances .rail-undo{opa
 .ff-btn{border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:5px;
   font:600 11px var(--sans);padding:2px 8px;cursor:pointer}
 .ff-btn.ff-ok{background:var(--accent);border-color:var(--accent);color:#fff}
+.ff-btn.ff-del{border-color:var(--red-line);background:var(--red-soft);color:var(--red)}
+/* #8: the region is typed away to nothing — the next ⌫ removes its lines. Cued with
+   the diff's own deletion tint (not an alarm colour): intended, and reversible by esc. */
+.flow-frame.ff-emptied{border-color:var(--red-line)}
+.flow-frame.ff-emptied .ff-head{background:var(--red-soft);border-bottom-color:var(--red-line)}
+.flow-frame.ff-emptied .ff-chip{color:var(--red)}
+.flow-frame.ff-emptied .ff-hint{color:var(--del-ink)}
+.flow-frame.ff-emptied .ff-body{background:var(--del-bg)}
+.flow-frame.ff-emptied .ff-gutter{color:var(--red);border-right-color:var(--red-line)}
 .ff-yours{display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--amber-soft,#fdf4e3);
   border-bottom:1px solid var(--line);font-family:var(--sans);font-size:11.5px;color:var(--ink)}
 .ff-yours code{font-family:var(--mono);font-size:11px;white-space:pre;overflow-x:auto;

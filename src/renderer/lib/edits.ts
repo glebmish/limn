@@ -18,7 +18,12 @@ function commonEdges(a: string[], b: string[]): { prefix: number; suffix: number
 
 /** Narrow a frame save to its changed core: the common prefix and suffix between the
  *  on-screen snapshot and the typed lines are dropped, so the CAS anchors to exactly
- *  the lines that changed. Returns null when nothing changed (a no-op save). */
+ *  the lines that changed. Returns null when nothing changed (a no-op save).
+ *
+ *  `newLines` is free to be longer than `snapshot` (#10 — ⏎ grew the region), shorter
+ *  (#8 — a joined row), or **empty** (#8 — the delete gesture passes `typed = []`,
+ *  which no textarea value can produce on its own): an empty `newLines` with a
+ *  non-empty `snapshot` is a pure deletion, spliced straight out by the server. */
 export function narrowEdit(start: number, snapshot: string[], typed: string[]): FileEdit | null {
   const { prefix, suffix } = commonEdges(snapshot, typed)
   const core = snapshot.slice(prefix, snapshot.length - suffix)
@@ -32,18 +37,54 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
   }
 }
 
-/** The flow frame's keymap (#10). ⏎ is a plain newline like in any editor, so the
- *  only keys the frame claims are the commit (⌘⏎ / ctrl+⏎ — both accepted on every
- *  platform) and the cancel (esc). Everything else, arrow-key region growth
- *  included, is left to the textarea / the caller. */
+/** Is the frame at the point where the next ⌫ removes its lines from the file
+ *  (#8)? A textarea can never hold *zero* lines — `''.split('\n')` is `['']`, one
+ *  empty row — so "typed away to nothing" is exactly `text === ''`, whether the
+ *  region started as one line or as several backspaced together. From there the
+ *  textarea itself has nothing left to delete, so ⌫ is free to mean the next thing
+ *  a normal editor would do: take the line out.
+ *
+ *  `ready` is "the working file has arrived": a frame mounts empty and disabled
+ *  while it fetches, and an empty *unloaded* frame must neither advertise nor
+ *  accept a deletion — there is no snapshot yet to anchor the CAS on.
+ *
+ *  Deliberately strict about emptiness: a space or a stray blank row is content the
+ *  user typed, and ⌫ there is an ordinary character delete. */
+export function frameDeletesLines(text: string, ready: boolean): boolean {
+  return ready && text === ''
+}
+
+/** The flow frame's keymap (#10, #8). ⏎ is a plain newline like in any editor, so
+ *  the keys the frame claims are the commit (⌘⏎ / ctrl+⏎ — both accepted on every
+ *  platform), the cancel (esc), and — only once `deletesLines` says the region is
+ *  empty (#8) — ⌫, which removes the region's lines from the file instead of
+ *  beeping at the start of an empty buffer. Everything else, arrow-key region
+ *  growth included, is left to the textarea / the caller. */
 export function frameKeyAction(
   // shiftKey is accepted and deliberately ignored: shift is not a save modifier,
-  // so shift+⏎ is a newline like a bare ⏎.
-  e: { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }
-): 'save' | 'cancel' | null {
+  // so shift+⏎ is a newline like a bare ⏎ and shift+⌫ is a plain ⌫.
+  e: { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean },
+  deletesLines = false
+): 'save' | 'cancel' | 'delete' | null {
   if (e.key === 'Escape') return 'cancel'
   if (e.key === 'Enter' && (e.metaKey === true || e.ctrlKey === true)) return 'save'
+  // ⌘⌫/ctrl+⌫/⌥⌫ are the textarea's own delete-to-start / delete-word: no-ops on an
+  // empty value, and not the single keystroke the ⌫ hint promises — left alone so
+  // the cue and the gesture describe exactly the same thing.
+  if (e.key === 'Backspace' && deletesLines && !e.metaKey && !e.ctrlKey && !e.altKey) return 'delete'
   return null
+}
+
+/** The frame's keymap hint. Normally the whole keymap; once ⌫ would take the lines
+ *  out (#8) it names *what* is about to go and what ⌘⏎ would do instead — the
+ *  distinction the empty frame otherwise hides, since saving empty text writes a
+ *  blank line where deleting writes no line at all. `chip` is the region label the
+ *  head already shows ("line 11" / "lines 11–13"), so the cue points at the same
+ *  lines the user is looking at. */
+export function frameHint(deletesLines: boolean, chip: string): string {
+  return deletesLines
+    ? `⌫ deletes ${chip} · ⌘⏎ leaves a blank line · esc cancel`
+    : '⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends'
 }
 
 /** Gutter labels for the frame's rows, aligned against the region as it stands on

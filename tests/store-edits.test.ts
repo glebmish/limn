@@ -84,6 +84,16 @@ describe('saveEdit', () => {
     expect(applyEdit).toHaveBeenCalledWith('/repo', expect.anything(), 'src/a.ts', insert)
   })
 
+  it('forwards a line-deleting edit (empty newLines) verbatim and re-stamps viewed (#8)', async () => {
+    seed({ sessionId: 5, viewed: true })
+    const remove = { start: 2, end: 2, snapshot: ['old'], newLines: [] as string[] }
+    const res = await useStore.getState().saveEdit('src/a.ts', remove)
+    expect(res).toMatchObject({ ok: true })
+    expect(applyEdit).toHaveBeenCalledWith('/repo', expect.anything(), 'src/a.ts', remove)
+    expect(saveUiState).toHaveBeenCalledWith(5, { viewedAt: { 'src/a.ts': { sha: 'HEAD', hash: 'newhash' } } })
+    expect(loadSession).toHaveBeenCalled() // the diff refreshes with the line gone
+  })
+
   it('returns a conflict without refreshing (the frame reopens with kept text)', async () => {
     seed({ sessionId: 5, viewed: true })
     applyEdit.mockResolvedValueOnce({ ok: false, reason: 'conflict', current: ['x'] })

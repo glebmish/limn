@@ -49,6 +49,8 @@ export function readWorkingFile(workdir: string, rel: string): WorkingFile {
 /** Apply one line-anchored edit. The compare-and-swap is against the edited lines
  *  only: `edit.snapshot` must equal the file's current lines start..end, otherwise
  *  the write is refused and the caller gets the file's current content back.
+ *  `edit.newLines` may hold more lines than the span it replaces, fewer, or none at
+ *  all — an empty `newLines` splices the anchored lines out of the file (#8).
  *  Writes are atomic (temp file + rename) and preserve the file mode. */
 export async function applyEditToFile(workdir: string, rel: string, edit: FileEdit): Promise<ApplyEditResult> {
   const current = readWorkingFile(workdir, rel)
@@ -65,7 +67,12 @@ export async function applyEditToFile(workdir: string, rel: string, edit: FileEd
   const real = containedPath(workdir, rel)
   const mode = fs.statSync(real).mode
   const tmp = `${real}.limn-edit-${process.pid}.tmp`
-  fs.writeFileSync(tmp, next.join('\n') + (trailingNewline ? '\n' : ''))
+  // An edit that removes every line (#8: newLines is empty and the span was the whole
+  // file) leaves *no* content — writing the trailing newline anyway would leave one
+  // blank line behind and not round-trip through readWorkingFile, which reads an
+  // empty file back as zero lines.
+  const content = next.length === 0 ? '' : next.join('\n') + (trailingNewline ? '\n' : '')
+  fs.writeFileSync(tmp, content)
   fs.chmodSync(tmp, mode)
   fs.renameSync(tmp, real)
   const fileHash = (await execGit(workdir, ['hash-object', '--', rel])).trim()

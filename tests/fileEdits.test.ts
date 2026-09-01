@@ -116,6 +116,78 @@ describe('applyEditToFile', () => {
     expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')).toBe(before)
   })
 
+  // ── #8: a region whose *line count* shrank — joined rows, and the zero-line
+  // case where the anchored lines leave the file entirely.
+  it('shrinks a 3-line region to 2 and rides the tail up', async () => {
+    const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 1, end: 3, snapshot: before.slice(0, 3), newLines: [before[0], `${before[1]}${before[2]}`]
+    })
+    expect(result.ok).toBe(true)
+    const after = lines(fx.dir, 'src/a.ts')
+    expect(after.slice(0, 2)).toEqual([before[0], `${before[1]}${before[2]}`])
+    expect(after.slice(2)).toEqual(before.slice(3))
+    expect(after.length).toBe(before.length - 1)
+  })
+
+  it('an empty newLines deletes the anchored line outright', async () => {
+    const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 2'], newLines: []
+    })
+    expect(result.ok).toBe(true)
+    const after = lines(fx.dir, 'src/a.ts')
+    expect(after).not.toContain('  return 2')
+    expect(after).toEqual([before[0], ...before.slice(2)])
+    expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8').endsWith('\n')).toBe(true)
+  })
+
+  it('an empty newLines deletes a whole multi-line span', async () => {
+    const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 1, end: 3, snapshot: before.slice(0, 3), newLines: []
+    })
+    expect(result.ok).toBe(true)
+    expect(lines(fx.dir, 'src/a.ts')).toEqual(before.slice(3))
+  })
+
+  it('deleting the only line of a file leaves it empty, not blank', async () => {
+    const fx = makeFixtureRepo()
+    const p = path.join(fx.dir, 'solo.txt')
+    fs.writeFileSync(p, 'the only line\n')
+    const result = await applyEditToFile(fx.dir, 'solo.txt', {
+      start: 1, end: 1, snapshot: ['the only line'], newLines: []
+    })
+    expect(result.ok).toBe(true)
+    expect(fs.readFileSync(p, 'utf8')).toBe('')
+    // and it round-trips: an empty file reads back as zero lines
+    expect(readWorkingFile(fx.dir, 'solo.txt')).toMatchObject({ ok: true, lines: [] })
+  })
+
+  it('deleting the last line of a no-trailing-newline file keeps it that way', async () => {
+    const fx = makeFixtureRepo()
+    const p = path.join(fx.dir, 'noeol2.txt')
+    fs.writeFileSync(p, 'keep\ndrop')
+    const result = await applyEditToFile(fx.dir, 'noeol2.txt', {
+      start: 2, end: 2, snapshot: ['drop'], newLines: []
+    })
+    expect(result.ok).toBe(true)
+    expect(fs.readFileSync(p, 'utf8')).toBe('keep')
+  })
+
+  it('a deleting edit still CAS-refuses on a stale snapshot', async () => {
+    const fx = makeFixtureRepo()
+    const before = fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 999'], newLines: []
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'conflict' })
+    expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')).toBe(before)
+  })
+
   it('preserves a missing trailing newline', async () => {
     const fx = makeFixtureRepo()
     const result = await applyEditToFile(fx.dir, 'noeol.txt', {

@@ -69,6 +69,10 @@ One editor — the **flow frame** — reached by every entry gesture:
 - **Save/cancel**: ⏎ always makes a new line (so a region can be split or grown
   like in any editor); ✓/⌘⏎ (or ctrl+⏎) saves — the written region may hold more
   or fewer lines than it replaced. Esc cancels (pure DOM restore — no disk read).
+  **Delete**: once the region is typed away to nothing, ⌫ (or the ⌫ button)
+  removes its lines from the file outright — the save writes zero lines, where
+  ⌘⏎ on the same empty frame would write one blank line. The head cues which is
+  which before the keystroke lands (hint text + the diff's deletion tint).
   Blur never saves and never closes. Batched multi-spot save is dropped (a
   pending-edits set would violate invariant 1).
 - **Keyboard round trip**: a save leaves a line selection; ↑/↓ move it (folds
@@ -156,7 +160,9 @@ closes the frame and writes nothing (an unchanged save is a cancel).
 ### Save pipeline (renderer)
 
 `save(scope, newLines)`:
-1. Trim → empty ⇒ close frame, done.
+1. Unchanged text ⇒ close frame, done (a no-op save is a cancel). Empty text is
+   *not* a no-op: ⌘⏎ writes one blank line, ⌫ writes zero lines (`newLines: []`,
+   a pure deletion — see Save/cancel).
 2. `applyEdit` → on `conflict`: run `refreshFile`, splice, reopen the frame on
    the fresh content with the typed text held in a "yours" bar — Re-apply
    re-runs the pipeline anchored to the new lines; Esc keeps theirs.

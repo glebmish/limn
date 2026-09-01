@@ -4,7 +4,8 @@ import { useStore } from '../store'
 import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
 import {
-  caretAfterGrowth, frameGutter, frameKeyAction, lineColToCaret, narrowEdit, seedFrameCaret, seedFrameText
+  caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
+  narrowEdit, seedFrameCaret, seedFrameText
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
@@ -26,13 +27,18 @@ function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCou
  *  line — splitting a line and inserting lines are ordinary edits (#10) — and ⌘⏎
  *  (or ctrl+⏎) saves. Saving narrows to the changed core and CAS-writes via the
  *  store's save pipeline; the written region may hold more (or fewer) lines than it
- *  replaced. A same-line conflict keeps the typed text with one-keystroke re-apply. */
+ *  replaced — including none, when the region is typed away to nothing and ⌫ takes
+ *  its lines out of the file (#8, cued in the head before the keystroke lands).
+ *  A same-line conflict keeps the typed text with one-keystroke re-apply. */
 export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const { loaded, setEditFrame, saveEdit, refreshLoaded } = useStore()
   const [fileLines, setFileLines] = useState<string[] | null>(null)
   const [text, setText] = useState('')
-  /** typed text held across a CAS conflict, offered back via Re-apply */
-  const [yours, setYours] = useState<string | null>(null)
+  /** the save held across a CAS conflict, offered back via Re-apply. `removes` carries
+   *  the #8 delete intent with it: an emptied frame's typed text is '' either way, so
+   *  without it Re-apply after a conflicted deletion would write a blank line instead
+   *  of removing the lines — a different edit than the one the user asked for. */
+  const [yours, setYours] = useState<{ text: string; removes: boolean } | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const caretRef = useRef<number | null>(null)
   const alive = useRef(true)
@@ -105,9 +111,14 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     ta.setSelectionRange(pos, pos)
   }, [fileLines, text, frame.caretCol, frame.frameId])
 
-  async function save(value: string): Promise<void> {
+  /** Commit the frame. `removeLines` (#8 — the ⌫ gesture on an emptied region) is the
+   *  one thing the textarea's own value cannot express: it saves *zero* lines, so the
+   *  narrowed payload has an empty `newLines` and the server splices the region out
+   *  of the file. Saving the empty value instead would write a blank line — a
+   *  different, also-legitimate outcome, which is why the hint names both. */
+  async function save(value: string, removeLines = false): Promise<void> {
     if (!fileLines) { setEditFrame(null); return }
-    const typed = value.split('\n')
+    const typed = removeLines ? [] : value.split('\n')
     const snapshot = fileLines.slice(frame.start - 1, frame.end)
     const edit = narrowEdit(frame.start, snapshot, typed)
     if (!edit) { setEditFrame(null); return } // unchanged save is a cancel
@@ -115,9 +126,13 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     if (!res) { setEditFrame(null); return } // transport error already surfaced
     if (res.ok) {
       // keyboard round trip: the save leaves a selection on the edited line —
-      // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody)
+      // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody). A deletion
+      // has no edited line, so the selection lands on whatever took its place,
+      // clamped to the file's new length (a no-op for every non-shrinking save).
       setEditFrame(null)
-      useStore.getState().setLineSelect({ file: f.path, line: edit.start })
+      const eof = fileLines.length - edit.snapshot.length + edit.newLines.length
+      const line = Math.min(edit.start, eof)
+      useStore.getState().setLineSelect(line >= 1 ? { file: f.path, line } : null)
       return
     }
     // Same-line conflict: the review refreshes around the frame, which reopens on
@@ -125,7 +140,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     const end = Math.min(frame.end, res.current.length)
     const start = Math.max(1, Math.min(frame.start, end || 1))
     const fresh = res.current.slice(start - 1, end).join('\n')
-    setYours(value)
+    setYours({ text: value, removes: removeLines })
     setFileLines(res.current)
     setText(fresh)
     // the draft must move with `text` here too (fix-round-2 minor): `refreshLoaded`
@@ -139,11 +154,17 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     await refreshLoaded()
   }
 
+  /** #8: the region is typed away to nothing, so the next ⌫ takes its lines out of
+   *  the file. Drives the keymap and the cue together — one predicate, so what the
+   *  head advertises and what the keystroke does can never disagree. */
+  const deletesLines = frameDeletesLines(text, fileLines != null)
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const ta = e.currentTarget
-    const action = frameKeyAction(e)
+    const action = frameKeyAction(e, deletesLines)
     if (action === 'cancel') { e.preventDefault(); setEditFrame(null); return }
     if (action === 'save') { e.preventDefault(); void save(text); return }
+    if (action === 'delete') { e.preventDefault(); void save(text, true); return }
     // plain ⏎ falls through to the textarea: it inserts a newline (#10)
     if (!fileLines) return
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -181,21 +202,27 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   // Before the working file arrives the frame is empty and disabled — nothing has
   // been typed, so the rows are trivially the region's own lines.
   const original = fileLines ? fileLines.slice(frame.start - 1, frame.end) : typedLines
-  const gutter = frameGutter(frame.start, original, typedLines)
+  // The emptied frame holds exactly one (blank) row, and it is not a row that will
+  // survive — '+' would promise a line the next ⌫ is about to remove, so it wears
+  // the key that removes it instead (#8).
+  const gutter = deletesLines ? ['⌫'] : frameGutter(frame.start, original, typedLines)
   return (
-    <div className="flow-frame" data-limn-frame={f.path}>
+    <div className={`flow-frame${deletesLines ? ' ff-emptied' : ''}`} data-limn-frame={f.path}>
       <div className="ff-head">
         <span className="ff-chip">editing {chip}</span>
-        <span className="ff-hint">⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends</span>
+        <span className="ff-hint">{frameHint(deletesLines, chip)}</span>
         <span className="grow" />
+        {deletesLines && (
+          <button className="ff-btn ff-del" title={`Remove ${chip} from the file (⌫)`} aria-label={`Delete ${chip}`} onClick={() => void save(text, true)}>⌫</button>
+        )}
         <button className="ff-btn ff-ok" title="Save (⌘⏎) — writes the working tree" aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
       {yours != null && (
         <div className="ff-yours">
-          <span>These lines changed while you were editing — refreshed to the new version; your text is kept:</span>
-          <code>{yours}</code>
-          <button className="ff-btn ff-ok" onClick={() => { const t = yours; setYours(null); setText(t); draft(t, null); void save(t) }}>Re-apply</button>
+          <span>These lines changed while you were editing — refreshed to the new version; {yours.removes ? 'your deletion is kept' : 'your text is kept'}:</span>
+          <code>{yours.removes ? '⌫ delete these lines' : yours.text}</code>
+          <button className="ff-btn ff-ok" onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null); void save(y.text, y.removes) }}>Re-apply</button>
         </div>
       )}
       <div className="ff-body">

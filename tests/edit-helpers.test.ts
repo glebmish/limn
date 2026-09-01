@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import {
-  caretAfterGrowth, discardSpanAt, fileEditable, frameGutter, frameKeyAction, lineColToCaret,
-  narrowEdit, rawOffsetFromDisplayColumn, seedFrameCaret, seedFrameText
+  caretAfterGrowth, discardSpanAt, fileEditable, frameDeletesLines, frameGutter, frameHint,
+  frameKeyAction, lineColToCaret, narrowEdit, rawOffsetFromDisplayColumn, seedFrameCaret,
+  seedFrameText
 } from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
@@ -55,6 +56,64 @@ describe('narrowEdit', () => {
     expect(narrowEdit(11, ['a'], ['a1', 'a2', 'a3']))
       .toEqual({ start: 11, end: 11, snapshot: ['a'], newLines: ['a1', 'a2', 'a3'] })
   })
+
+  // ── #8: a region that *shrinks*. Backspacing a newline joins two rows, so the
+  // typed text routinely has fewer lines than the snapshot it replaces.
+  it('shrinks a 3-line region to 2 by joining its last two rows', () => {
+    expect(narrowEdit(11, ['a', 'b', 'c'], ['a', 'bc']))
+      .toEqual({ start: 12, end: 13, snapshot: ['b', 'c'], newLines: ['bc'] })
+  })
+
+  it('shrinks a 3-line region to 2 by emptying its middle row', () => {
+    expect(narrowEdit(11, ['a', 'b', 'c'], ['a', 'c']))
+      .toEqual({ start: 12, end: 12, snapshot: ['b'], newLines: [] })
+  })
+
+  // ── #8: zero lines. A textarea can never *hold* zero lines ('' splits to ['']),
+  // so the delete gesture hands narrowEdit an explicit empty `typed`; the result is
+  // a pure deletion — the region's lines leave the file entirely.
+  it('a zero-line result deletes the whole one-line region', () => {
+    expect(narrowEdit(11, ['  return 2'], []))
+      .toEqual({ start: 11, end: 11, snapshot: ['  return 2'], newLines: [] })
+  })
+
+  it('a zero-line result deletes every line of a multi-line region', () => {
+    expect(narrowEdit(11, ['a', 'b', 'c'], []))
+      .toEqual({ start: 11, end: 13, snapshot: ['a', 'b', 'c'], newLines: [] })
+  })
+
+  it('an emptied region is NOT a deletion — it leaves one blank line', () => {
+    // the distinction the ⌫ cue exists to make: ⌘⏎ on empty text writes a blank
+    // line, ⌫ removes the line
+    expect(narrowEdit(11, ['  return 2'], ['']))
+      .toEqual({ start: 11, end: 11, snapshot: ['  return 2'], newLines: [''] })
+  })
+})
+
+describe('frameDeletesLines', () => {
+  it('is true only once the whole region is typed away to nothing (#8)', () => {
+    expect(frameDeletesLines('', true)).toBe(true)
+    expect(frameDeletesLines('x', true)).toBe(false)
+    expect(frameDeletesLines(' ', true)).toBe(false) // whitespace is content
+    expect(frameDeletesLines('\n', true)).toBe(false) // two blank lines, still rows
+  })
+
+  it('never arms while the frame is still loading its file', () => {
+    // a frame mounts with text '' and no file yet — the disabled textarea must not
+    // advertise (or accept) a deletion it has no snapshot to anchor
+    expect(frameDeletesLines('', false)).toBe(false)
+  })
+})
+
+describe('frameHint', () => {
+  it('the ordinary keymap hint', () => {
+    expect(frameHint(false, 'line 11')).toBe('⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends')
+  })
+
+  it('names what ⌫ is about to remove, and what ⌘⏎ would do instead (#8)', () => {
+    expect(frameHint(true, 'line 11')).toBe('⌫ deletes line 11 · ⌘⏎ leaves a blank line · esc cancel')
+    expect(frameHint(true, 'lines 11–13')).toBe('⌫ deletes lines 11–13 · ⌘⏎ leaves a blank line · esc cancel')
+  })
 })
 
 describe('frameKeyAction', () => {
@@ -73,6 +132,28 @@ describe('frameKeyAction', () => {
     expect(frameKeyAction({ key: 'a' })).toBeNull()
     expect(frameKeyAction({ key: 'ArrowDown' })).toBeNull()
     expect(frameKeyAction({ key: 'Tab', metaKey: true })).toBeNull()
+  })
+
+  // ── #8: ⌫ on an already-empty region removes its lines from the file
+  it('⌫ deletes only once the region is empty', () => {
+    expect(frameKeyAction({ key: 'Backspace' }, true)).toBe('delete')
+    expect(frameKeyAction({ key: 'Backspace' }, false)).toBeNull()
+    expect(frameKeyAction({ key: 'Backspace' })).toBeNull() // default: never
+  })
+
+  it('shift+⌫ still deletes; a modified ⌫ is left to the textarea', () => {
+    expect(frameKeyAction({ key: 'Backspace', shiftKey: true }, true)).toBe('delete')
+    // ⌘⌫ / ⌥⌫ are the textarea's own delete-to-start / delete-word — no-ops on an
+    // empty value, and not the gesture the ⌫ cue advertises
+    expect(frameKeyAction({ key: 'Backspace', metaKey: true }, true)).toBeNull()
+    expect(frameKeyAction({ key: 'Backspace', ctrlKey: true }, true)).toBeNull()
+    expect(frameKeyAction({ key: 'Backspace', altKey: true }, true)).toBeNull()
+  })
+
+  it('esc and ⌘⏎ still win over the delete state', () => {
+    expect(frameKeyAction({ key: 'Escape' }, true)).toBe('cancel')
+    expect(frameKeyAction({ key: 'Enter', metaKey: true }, true)).toBe('save')
+    expect(frameKeyAction({ key: 'Delete' }, true)).toBeNull() // ⌦ is not the gesture
   })
 })
 
