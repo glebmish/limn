@@ -68,10 +68,24 @@ describe('boot() with a cli:open ticket in the URL', () => {
     expect(replaceState).not.toHaveBeenCalled()
   })
 
-  it('the ticket outranks a route in the URL — the deep link is not dispatched', async () => {
+  it('a REDEEMED ticket outranks a route in the URL — the deep link is not dispatched', async () => {
     win.location.pathname = '/review/12'
     await useStore.getState().boot()
     expect(takeCliOpen).toHaveBeenCalledWith('tkt')
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
+  })
+
+  it('a spent ticket hands the boot back to the URL rather than stranding the address bar', async () => {
+    win.location.pathname = '/review/12'
+    takeCliOpen.mockResolvedValueOnce(null)
+    await useStore.getState().boot()
+    expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(12)
+  })
+
+  it('a failed redeem also falls through to the URL route', async () => {
+    win.location.pathname = '/review/12'
+    takeCliOpen.mockRejectedValueOnce(new Error('fetch failed'))
+    await useStore.getState().boot()
+    expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(12)
   })
 })

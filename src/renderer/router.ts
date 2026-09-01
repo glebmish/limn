@@ -140,6 +140,7 @@ export function routeFromState(s: Pick<RouterState, 'screen' | 'sessionId' | 're
 }
 
 let initialDispatch: (() => Promise<boolean>) | null = null
+let installed = false
 
 /** Boot seam: `store.boot()` calls this once per page load to apply whatever route
  *  the URL carries. Resolves `true` when a non-dashboard route was dispatched (so
@@ -150,22 +151,29 @@ export function dispatchInitialRoute(): Promise<boolean> {
 }
 
 /** Keep the address bar and the store in step, both ways. Called ONCE from main.tsx
- *  at module scope — never from an effect, where StrictMode would double-install it. */
+ *  at module scope — never from an effect, where StrictMode would double-install it.
+ *  A repeat call is ignored (Vite HMR re-evaluating main.tsx would otherwise stack a
+ *  second subscription + popstate listener on the same page). */
 export function installRouter(store: RouterStore, win: RouterWindow): void {
+  if (installed) return
+  installed = true
   // The URL is authoritative only for the initial dispatch (below). `last` therefore
   // starts at the store's own route — dashboard — so the state churn boot causes
   // before that dispatch can't push a bare `/` over the deep link we're about to open.
   let last: Route = routeFromState(store.getState())
-  // set while a popstate or the initial dispatch is being applied: the address bar
-  // already says where we're going, so the subscription only records the route.
-  let suppress = false
+  // How many URL-initiated navigations are in flight. A counter, not a flag: two Back
+  // presses inside one round trip overlap, and the first one to finish must not
+  // un-suppress the other's state landing (which would push during popstate handling).
+  let suppressDepth = 0
+  // Bumped per URL-initiated navigation so a superseded one can tell it lost the race.
+  let navGen = 0
 
   store.subscribe(() => {
     const next = routeFromState(store.getState())
     if (sameRoute(next, last)) return
     const prev = last
     last = next
-    if (suppress) return
+    if (suppressDepth > 0) return
     const url = routeUrl(next, win.location.search)
     // materialize: the transient review already on screen just got a session id.
     // Same page, new address — upgrade the entry rather than adding a history step
@@ -189,10 +197,16 @@ export function installRouter(store: RouterStore, win: RouterWindow): void {
    *  if the store landed somewhere else — a dead /review/<id> leaves us on the
    *  dashboard, a transient pair resolves to a live session — replace the URL with
    *  where we actually are. `target` is what the address bar currently reads, which
-   *  is `null` for a path no route can parse (always worth rewriting). */
+   *  is `null` for a path no route can parse (always worth rewriting).
+   *
+   *  A navigation that was superseded while it awaited skips its reconcile entirely:
+   *  the store it would read is halfway through someone else's dispatch, so both the
+   *  URL it would write and the `last` it would record are about a page nobody is on. */
   async function apply(route: Route, target: Route | null): Promise<void> {
-    suppress = true
-    try { await dispatch(route) } finally { suppress = false }
+    const gen = ++navGen
+    suppressDepth++
+    try { await dispatch(route) } finally { suppressDepth-- }
+    if (gen !== navGen) return
     const landed = routeFromState(store.getState())
     last = landed
     if (!sameRoute(landed, target)) win.history.replaceState(null, '', routeUrl(landed, win.location.search))

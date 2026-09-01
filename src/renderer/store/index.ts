@@ -133,9 +133,11 @@ export const useStore = create<AppStore>()((...a) => {
         stripQuery(['open'])
         try {
           const cli = await api().takeCliOpen(ticket)
-          if (cli) get().applyCliOpen(cli)
-        } catch { /* expired ticket — land on the dashboard */ }
-        return
+          // only a REDEEMED ticket claims the boot. A spent or unknown one (null) and a
+          // failed redeem fall through, so `/review/12?open=<expired>` still opens the
+          // review the URL names instead of stranding the address bar on a dead link.
+          if (cli) { get().applyCliOpen(cli); return }
+        } catch { /* server gone — fall through to whatever the URL says */ }
       }
       // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
       // router reconciles the address bar if it turns out to be dead.

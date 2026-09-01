@@ -66,10 +66,29 @@ describe('boot() applies the URL route exactly once', () => {
     expect(useStore.getState().resumeExisting).toHaveBeenCalledTimes(1)
   })
 
+  it('a live deep link costs ZERO history entries — the URL is already right', async () => {
+    win.location.pathname = '/review/12'
+    useStore.setState({
+      resumeExisting: vi.fn(async (id: number) => {
+        useStore.setState({ screen: 'review', sessionId: id, repo: '/r' })
+      }) as never
+    })
+    await useStore.getState().boot()
+    expect(useStore.getState().screen).toBe('review')
+    expect(pushState).not.toHaveBeenCalled()
+    expect(replaceState).not.toHaveBeenCalled()
+  })
+
   it('a dead /review/<id> stays on the dashboard and rewrites the URL to /', async () => {
     win.location.pathname = '/review/12'
+    // exactly what review.ts's resumeExisting does when loadSession throws: surface the
+    // error, leave the screen alone. The address bar is then the only thing out of step.
+    useStore.setState({
+      resumeExisting: vi.fn(async () => { useStore.setState({ error: 'no such session' }) }) as never
+    })
     await useStore.getState().boot()
     expect(useStore.getState().screen).toBe('dashboard')
+    expect(useStore.getState().error).toBe('no such session')
     expect(replaceState).toHaveBeenCalledWith(null, '', '/')
     expect(pushState).not.toHaveBeenCalled()
   })
@@ -123,6 +142,39 @@ describe('popstate', () => {
     expect(useStore.getState().screen).toBe('hub')
     expect(pushState).not.toHaveBeenCalled()
     // the store landed exactly where the URL said → nothing to reconcile
+    expect(replaceState).not.toHaveBeenCalled()
+  })
+
+  it('two Back presses inside one round trip still push nothing', async () => {
+    useStore.setState({ screen: 'review', sessionId: 5, repo: '/r' })
+    // the first dispatch is held open so the second starts while it is still in flight
+    let releaseFirst: () => void = () => {}
+    const held = new Promise<void>((r) => { releaseFirst = r })
+    useStore.setState({
+      resumeExisting: vi.fn(async (id: number) => {
+        await held
+        useStore.setState({ screen: 'review', sessionId: id, repo: '/r' })
+      }) as never,
+      enterHub: vi.fn(async (repoPath?: string) => {
+        useStore.setState({ screen: 'hub', repo: repoPath ?? null, sessionId: null })
+      }) as never
+    })
+    pushState.mockClear(); replaceState.mockClear()
+
+    win.location.pathname = '/review/7'; win.location.search = ''
+    popstate!()
+    win.location.pathname = '/hub'; win.location.search = '?repo=%2Fr'
+    popstate!()
+    await flush()
+    // the FIRST dispatch lands last — with a boolean flag the second one's `finally`
+    // would already have un-suppressed the subscription, pushing a history entry the
+    // user never asked for (and needing an extra Back press to undo).
+    releaseFirst()
+    await flush()
+
+    expect(pushState).not.toHaveBeenCalled()
+    // the superseded dispatch must not reconcile either — it would rewrite the URL to
+    // a page the user navigated away from.
     expect(replaceState).not.toHaveBeenCalled()
   })
 
