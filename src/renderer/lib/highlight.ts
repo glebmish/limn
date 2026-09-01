@@ -70,6 +70,13 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/** Tabs → spaces, so a rendered line's *display* columns match the ch-offset word
+ *  marks (and the caret-from-point column mapping) laid over it. Every diff row
+ *  renders through this. */
+export function disp(text: string): string {
+  return text.replace(/\t/g, '  ')
+}
+
 /** Whole fenced code block → safe highlighted HTML. `lang` is the fence info
  *  string (e.g. "ts", "bash", "typescript"); resolves hljs aliases and our
  *  extension map, falls back to auto-detect, then to escaped text. */
