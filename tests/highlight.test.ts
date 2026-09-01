@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { highlightRun } from '../src/renderer/lib/highlight'
+import { highlightRun, splitHighlightedHtml } from '../src/renderer/lib/highlight'
 
 /** #7: syntax highlighting must be aware of state that spans a diff-visible line
  *  boundary — a block comment or a template literal — not just tokenize each line
@@ -87,5 +87,31 @@ describe('highlightRun', () => {
     const a = highlightRun(lines, 'typescript')
     const b = highlightRun([...lines], 'typescript')
     expect(a).toBe(b)
+  })
+})
+
+// final review, finding 5: the splitter's token alphabet is hljs core's own output.
+// Anything else — a tag hljs never emits today, or would start emitting tomorrow —
+// is *skipped* by `exec`, which silently eats the `<` and the characters after it.
+// The line-count guard can't see that: the output has the right number of lines and
+// the wrong text on them. Totality is checked directly instead.
+describe('splitHighlightedHtml', () => {
+  it('splits hljs output into one balanced fragment per source line', () => {
+    const out = splitHighlightedHtml('<span class="hljs-comment">/* a\n b */</span>;')
+    expect(out).toEqual([
+      '<span class="hljs-comment">/* a</span>',
+      '<span class="hljs-comment"> b */</span>;'
+    ])
+  })
+
+  it('consumes plain escaped text whole', () => {
+    expect(splitHighlightedHtml('a &lt;b&gt; c')).toEqual(['a &lt;b&gt; c'])
+  })
+
+  it('refuses html it cannot account for rather than swallowing characters', () => {
+    // `<b>` matches no alternative, so the regex skips past `<` and reads `b>bold`
+    // as text — garbage, not misalignment
+    expect(splitHighlightedHtml('<b>bold</b>')).toBeNull()
+    expect(splitHighlightedHtml('<span class="hljs-x">ok</span><br/>')).toBeNull()
   })
 })

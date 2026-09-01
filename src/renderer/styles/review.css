@@ -209,6 +209,9 @@
 .fh-pop .rail-sw.com{background:var(--line-2)}
 .fh-pop .rail-sw.staged{background:var(--amber)}
 .fh-pop .rail-sw.unstaged{background:repeating-linear-gradient(to bottom,var(--amber) 0 3px,transparent 3px 6px)}
+/* since = same amber family as staged (both mean "needs your attention"), told apart
+   by a diagonal hatch — see .dline.since in wf.css, which draws the identical rail */
+.fh-pop .rail-sw.since{background:repeating-linear-gradient(135deg,var(--amber) 0 2px,var(--amber-line) 2px 4px)}
 .fh-pop .rail-tx{font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.4}
 .fh-pop .rail-tx b{display:block;font-size:12px;color:var(--ink);font-weight:650;letter-spacing:-.1px}
 .fh-pop .rail-tx em{font-style:normal;color:var(--muted-2)}

@@ -78,11 +78,14 @@ export interface GapRow {
 
 export type FileRow = LineRow | GapRow
 
-/** Control-flow words git's default funcname pattern happily picks as "context".
- *  Naming a collapsed run "in if" is worse than not labelling it. */
+/** Control-flow and declaration words git's default funcname pattern happily picks as
+ *  "context". Naming a collapsed run "in if" is worse than not labelling it — and so
+ *  is "in func", which is what a Go method (`func (s *S) Method(`, where the receiver
+ *  parenthesis follows the keyword directly) yields without `func` listed here. */
 const CTRL = new Set([
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'catch', 'try', 'with',
-  'return', 'function', 'fn', 'def', 'sub', 'match', 'when', 'elif', 'until'
+  'return', 'function', 'fn', 'func', 'def', 'lambda', 'sub', 'match', 'when',
+  'elif', 'until'
 ])
 
 /** A plain function/type name out of a git hunk header's context text
@@ -194,11 +197,20 @@ export function lineRow(
  *  `lang` (an hljs language id, or null when the file has none) drives the
  *  cross-line-aware highlight pass (#7) attached to each row as `html`; it defaults
  *  to null so existing callers/tests that don't care about highlighting are
- *  unaffected. */
-export function buildFileRows(hunks: Hunk[], gaps: Gap[], lang: string | null = null): FileRow[] {
+ *  unaffected.
+ *
+ *  `opts.trailing` is the caller's answer to "is there any file below the last shown
+ *  row?" — false for a wholly-new file, whose single hunk *is* the file (an added
+ *  file's `@@ -0,0 +1,N @@` covers every line there is). Defaults to true; the other
+ *  no-tail case — a wholly-deleted file, where the new side is empty — is detected
+ *  here, since it is visible in the hunks themselves. */
+export function buildFileRows(
+  hunks: Hunk[], gaps: Gap[], lang: string | null = null, opts: { trailing?: boolean } = {}
+): FileRow[] {
   const rows: FileRow[] = []
   const byFrom = new Map(gaps.map((g) => [g.from, g]))
   let cursor = 1
+  let anyNewSide = false
   hunks.forEach((h, i) => {
     const g = byFrom.get(cursor)
     // a bounded run before this hunk; `hunkGaps` emits one only where there is
@@ -209,12 +221,55 @@ export function buildFileRows(hunks: Hunk[], gaps: Gap[], lang: string | null = 
     rows.push(...linesForRun(h.lines, lang, { hunkRange: h.range, fromHunk: true, marks: runWordMarks(h.lines) }))
     let end = 0
     for (const l of h.lines) if (l.new != null) end = l.new
+    if (end > 0) anyNewSide = true
     cursor = end + 1
   })
-  // the trailing run to EOF — its length is unknown until the working file is read,
-  // so it is offered even when the last hunk already reaches the end (expanding it
-  // then reveals nothing and the fold stays closed)
-  const tail = hunks.length > 0 ? byFrom.get(cursor) : undefined
+  // The trailing run to EOF — its length is unknown until the working file is read, so
+  // it is offered even when the last hunk already reaches the end (expanding it then
+  // reveals nothing and the fold stays closed). But "unknown" is not "unbounded": on a
+  // file with no new side at all (every line deleted — the cursor never left 1) or one
+  // the caller tells us is wholly new, there IS no file below, and asserting a run of
+  // hidden lines under it is a plain lie the reader can't disprove.
+  const hasTail = opts.trailing !== false && anyNewSide
+  const tail = hasTail ? byFrom.get(cursor) : undefined
   if (tail && tail.to == null) rows.push({ type: 'gap', key: `gap:${tail.key}`, gap: tail, fn: '', where: 'below' })
   return rows
+}
+
+/** The rows as they actually render: a revealed run replaces its collapsed-run row
+ *  with plain context rows, in the same file-line key space as everything else.
+ *
+ *  `canExpand` gates BOTH halves, and that is the point rather than an optimization.
+ *  `expandedGaps` is DiffBody's own state, keyed by the gap's `g<from>` — and `g1` is
+ *  the leading gap's key in *every* diff mode, while the rows either side of it differ
+ *  wildly between "Full diff" and "Since approved". Splicing branch-mode lines into a
+ *  since-mode view produced duplicate React keys (or a silent hole in the file's line
+ *  numbering) on a tab switch. Folds can only be *opened* in branch mode, so a
+ *  revealed run that survives into any other mode is by definition stale and is
+ *  ignored here; DiffBody additionally drops the state when the mode changes.
+ *
+ *  The trailing run's inert marker is dropped for the same "say only true things"
+ *  reason as `buildFileRows`'s tail guard: it marks no discontinuity *between shown
+ *  rows* (nothing follows it), and with no worktree to read, its length is unknowable
+ *  — so it can only ever read "there is more file", forever. Where it can be opened
+ *  (branch mode, writable) it stays exactly as it was. */
+export function viewRows(
+  rows: FileRow[], expandedGaps: Record<string, DiffLine[]>, canExpand: boolean, lang: string | null = null
+): FileRow[] {
+  const view: FileRow[] = []
+  for (const r of rows) {
+    if (r.type === 'gap') {
+      const revealed = canExpand ? expandedGaps[r.gap.key] : undefined
+      if (revealed?.length) {
+        // same cross-line highlight treatment as a hunk's own lines (#7) — a revealed
+        // run is real, contiguous file content and can itself contain a block comment
+        // or template literal spanning its lines
+        view.push(...linesForRun(revealed, lang, { hunkRange: '', fromHunk: false }))
+        continue
+      }
+      if (!canExpand && r.where === 'below') continue
+    }
+    view.push(r)
+  }
+  return view
 }

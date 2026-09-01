@@ -8,7 +8,7 @@ import { disp, highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
 import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
 import { gapLines, hunkGaps, type Gap } from '../lib/expand'
-import { buildFileRows, linesForRun, type FileRow, type LineRow } from '../lib/rows'
+import { buildFileRows, viewRows, type FileRow, type LineRow } from '../lib/rows'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
 
@@ -70,13 +70,15 @@ function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string)
  *  language. Falls back to the old per-line highlighter only when it's absent (no
  *  language for this file), never re-deriving it from `text` when it is. */
 function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | null; ranges?: CharRange[]; html?: string }) {
-  const t = disp(text)
   return (
     <span className="code">
       {ranges?.map((r, i) => (
         <i key={i} className="wd" style={{ left: `${r.start}ch`, width: `${r.len}ch` }} />
       ))}
-      <span className="code-syn" dangerouslySetInnerHTML={{ __html: html ?? highlightLine(t, lang) }} />
+      {/* `disp` only in the fallback: where `html` is present it already went through
+          `disp` in the run pass, and re-deriving it here would be per-row work thrown
+          away every render */}
+      <span className="code-syn" dangerouslySetInnerHTML={{ __html: html ?? highlightLine(disp(text), lang) }} />
     </span>
   )
 }
@@ -179,7 +181,14 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // reset when the file re-renders after a save (line numbers may have shifted).
   const [expandedGaps, setExpandedGaps] = useState<Record<string, DiffLine[]>>({})
   const fileLinesRef = useRef<string[] | null>(null)
-  useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f])
+  // Reset on the MODE too, not just the file: `diffMode` is independent store state,
+  // so `f` keeps its identity across a "Since approved/viewed" tab switch — while the
+  // gap keys (`g<from>`, and the leading gap is `g1` in every mode) do not change with
+  // it. A fold opened in branch mode would otherwise still be "open" in the since view,
+  // over rows that start somewhere else entirely. `viewRows` refuses to splice a stale
+  // reveal regardless (folds open only in branch mode); this keeps the state honest so
+  // re-entering branch mode starts from a closed body rather than a half-remembered one.
+  useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f, mode])
   // The runs themselves are pure arithmetic over the hunks and are ALWAYS modelled:
   // they are the only thing marking a discontinuity now that the `@@` head is gone,
   // and a `.dline` has no top border, so leaving them out makes two distant hunks
@@ -192,7 +201,12 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
    *  the deps: it's a pure function of `f.path`, so it never actually changes without
    *  `hunks`/`gaps` also changing, but exhaustive-deps wants it named since the
    *  highlight pass (#7) now depends on it directly. */
-  const rows = useMemo(() => buildFileRows(hunks, gaps, lang), [hunks, gaps, lang])
+  const rows = useMemo(
+    // an added file's hunks ARE the whole file, so there is no run trailing off below
+    // its last line to offer (lib/rows.ts spots the wholly-deleted case itself)
+    () => buildFileRows(hunks, gaps, lang, { trailing: f.status !== 'added' }),
+    [hunks, gaps, lang, f.status]
+  )
   const expand = async (gap: Gap): Promise<void> => {
     if (!loaded || !canExpand) return
     try {
@@ -265,22 +279,15 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
       c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
     )
 
-  // The rows as they actually render: a revealed run replaces its collapsed-run row
-  // with plain context rows, in the same file-line key space as everything else.
-  const view: FileRow[] = []
-  for (const r of rows) {
-    if (r.type === 'gap') {
-      const revealed = expandedGaps[r.gap.key]
-      if (revealed) {
-        // same cross-line highlight treatment as a hunk's own lines (#7) — a
-        // revealed run is real, contiguous file content and can itself contain a
-        // block comment or template literal spanning its lines
-        view.push(...linesForRun(revealed, lang, { hunkRange: '', fromHunk: false }))
-        continue
-      }
-    }
-    view.push(r)
-  }
+  // The rows as they actually render — revealed runs spliced in, stale reveals and
+  // the un-openable trailing marker dropped (lib/rows.ts `viewRows`, which is where
+  // the reasoning and the tests for both live). Memoized: it re-runs the per-run
+  // highlight join for every expanded fold, which has no business happening on a
+  // render that only moved the line selection.
+  const view = useMemo(
+    () => viewRows(rows, expandedGaps, canExpand, lang),
+    [rows, expandedGaps, canExpand, lang]
+  )
   const lineAt = (i: number): DiffLine | null => {
     const r = view[i]
     return r && r.type === 'line' ? r.l : null

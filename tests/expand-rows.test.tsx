@@ -116,10 +116,15 @@ describe('discontinuity markers where the run cannot be opened', () => {
   const markers = (out: string): string[] =>
     [...out.matchAll(/<div class="expander-row gap-static">(.*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''))
 
-  it('read-only review still marks every run, inertly', () => {
+  // the trailing run is the one marker that marks no discontinuity *between shown
+  // rows* — there is nothing after it — and its length is unknowable without the
+  // working file, so the inert variant would say only "there is more file", forever.
+  // It exists to be opened; where it can't be, it isn't drawn (final review, finding 2).
+  it('read-only review still marks every run between/above rows, inertly', () => {
     seed(false)
     const out = renderToStaticMarkup(<DiffView f={file} />)
-    expect(markers(out)).toEqual(['11 unchanged lines above', '16 unchanged lines', 'unchanged lines below'])
+    expect(markers(out)).toEqual(['11 unchanged lines above', '16 unchanged lines'])
+    expect(out).not.toContain('unchanged lines below')
     // and the marker sits between the two runs of rows, not after them
     expect(out.indexOf('src/a.ts:new:14')).toBeLessThan(out.indexOf('16 unchanged lines<'))
     expect(out.indexOf('16 unchanged lines<')).toBeLessThan(out.indexOf('src/a.ts:new:31'))
@@ -156,7 +161,7 @@ describe('discontinuity markers where the run cannot be opened', () => {
       const out = renderToStaticMarkup(<DiffView f={since} />)
       // the fn label survives on the inert marker too (rendered in its own span, so
       // the stripped text runs the two together)
-      expect(markers(out)).toEqual(['11 unchanged lines abovein alpha', '16 unchanged linesin Beta', 'unchanged lines below'])
+      expect(markers(out)).toEqual(['11 unchanged lines abovein alpha', '16 unchanged linesin Beta'])
       expect(out).not.toMatch(/<button[^>]*expander-row/)
       expect(out).not.toContain('@@')
     }
@@ -176,6 +181,43 @@ describe('discontinuity markers where the run cannot be opened', () => {
     const out = renderToStaticMarkup(<DiffView f={bin} />)
     expect(out).toContain('Binary file')
     expect(out).not.toContain('expander-row')
+  })
+
+  // final review, finding 2: a wholly-new or wholly-deleted file has no file below
+  // its last shown row, so the to-EOF run is a phantom — it was asserted for every
+  // file with hunks regardless.
+  it('an added file gets no trailing run — the hunk is the whole file', () => {
+    const added: FileDiff = {
+      ...file, status: 'added', add: 3, del: 0,
+      hunks: [{ range: '@@ -0,0 +1,3 @@', header: '', lines: [
+        { old: null, new: 1, kind: 'add', text: 'one' },
+        { old: null, new: 2, kind: 'add', text: 'two' },
+        { old: null, new: 3, kind: 'add', text: 'three' }
+      ] }]
+    }
+    for (const writable of [true, false]) {
+      seed(writable, added)
+      const out = renderToStaticMarkup(<DiffView f={added} />)
+      expect(out).not.toContain('unchanged lines below')
+      expect(out).not.toContain('expander-row')
+    }
+  })
+
+  it('a deleted file gets no trailing run — nothing remains on the new side', () => {
+    const deleted: FileDiff = {
+      ...file, status: 'deleted', add: 0, del: 3,
+      hunks: [{ range: '@@ -1,3 +0,0 @@', header: '', lines: [
+        { old: 1, new: null, kind: 'del', text: 'one' },
+        { old: 2, new: null, kind: 'del', text: 'two' },
+        { old: 3, new: null, kind: 'del', text: 'three' }
+      ] }]
+    }
+    for (const writable of [true, false]) {
+      seed(writable, deleted)
+      const out = renderToStaticMarkup(<DiffView f={deleted} />)
+      expect(out).not.toContain('unchanged lines below')
+      expect(out).not.toContain('expander-row')
+    }
   })
 
   // #11: the collapsed runs are the ONLY break in the body — the hunk boxes and their

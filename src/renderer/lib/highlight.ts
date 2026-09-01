@@ -126,15 +126,24 @@ const RUN_CACHE_MAX = 4000
  *  already-escaped text, and nothing else — which is all `hljs.highlight(...).value`
  *  ever emits. Splitting on raw `\n` is safe because hljs never introduces a literal
  *  newline of its own; every `\n` in the output came from the source text (HTML
- *  entities never contain one). */
-function splitHighlightedHtml(html: string): string[] {
+ *  entities never contain one).
+ *
+ *  That assumption is *checked*, not trusted: `exec` silently skips anything matching
+ *  no alternative, so a tag outside the alphabet (hljs gaining a new output form, a
+ *  future wrapper) would lose its `<` and read the rest as text — garbage on the line
+ *  rather than a wrong line count, which `highlightRun`'s length guard cannot see.
+ *  Returns null when the tokens don't account for every character of `html`, so the
+ *  caller can fall back to plain escaped text. */
+export function splitHighlightedHtml(html: string): string[] | null {
   const tokenRe = /<span class="([^"]*)">|<\/span>|[^<]+/g
   const stack: string[] = []
   const lines: string[] = []
   let cur = ''
+  let consumed = 0
   let m: RegExpExecArray | null
   while ((m = tokenRe.exec(html)) !== null) {
     const tok = m[0]
+    consumed += tok.length
     if (tok === '</span>') {
       stack.pop()
       cur += tok
@@ -152,6 +161,7 @@ function splitHighlightedHtml(html: string): string[] {
       })
     }
   }
+  if (consumed !== html.length) return null
   lines.push(cur)
   return lines
 }
@@ -181,10 +191,11 @@ export function highlightRun(lines: string[], lang: string | null): string[] {
   let result: string[]
   try {
     const html = hljs.highlight(lines.join('\n'), { language: lang, ignoreIllegals: true }).value
-    result = splitHighlightedHtml(html)
+    const split = splitHighlightedHtml(html)
     // defensive: a mismatch here would misalign every row after it against the
-    // wrong highlighted line — never render that, fall back instead
-    if (result.length !== lines.length) result = lines.map(escapeHtml)
+    // wrong highlighted line (and a null split means characters were dropped
+    // outright) — never render that, fall back instead
+    result = split && split.length === lines.length ? split : lines.map(escapeHtml)
   } catch {
     result = lines.map(escapeHtml)
   }

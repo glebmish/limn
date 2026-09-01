@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Hunk } from '../src/shared/types'
+import type { DiffLine, Hunk } from '../src/shared/types'
 import { hunkGaps } from '../src/renderer/lib/expand'
-import { buildFileRows, fnLabel, lineRow, rowKey } from '../src/renderer/lib/rows'
+import { buildFileRows, fnLabel, lineRow, rowKey, viewRows } from '../src/renderer/lib/rows'
 
 // @@ -12,4 +12,5 @@ : one add at new 14
 const h1: Hunk = {
@@ -68,6 +68,16 @@ describe('fnLabel', () => {
     expect(fnLabel('if (cond) {')).toBe('')
     expect(fnLabel('} else {')).toBe('')
   })
+
+  // final review, finding 6: `func` is Go's declaration keyword, and a method's
+  // receiver puts it right before a `(` — "in func" is exactly the non-label the
+  // control-flow set exists to suppress.
+  it('skips a declaration keyword that happens to sit before a paren', () => {
+    expect(fnLabel('func (s *Server) Handle(w http.ResponseWriter) {')).toBe('Handle')
+    expect(fnLabel('func Parse(raw string) (*Doc, error) {')).toBe('Parse')
+    expect(fnLabel('func (s *Server) {')).toBe('')
+    expect(fnLabel('lambda (x) {')).toBe('')
+  })
 })
 
 describe('buildFileRows', () => {
@@ -125,6 +135,89 @@ describe('buildFileRows', () => {
 
   it('emits nothing for a file with no hunks', () => {
     expect(buildFileRows([], hunkGaps([]))).toEqual([])
+  })
+})
+
+// final review, finding 2: the trailing run is emitted for *every* file with hunks,
+// so a wholly-new or wholly-deleted file grows an "unchanged lines below" run under
+// content that has nothing below it — a phantom discontinuity, and in the read-only /
+// "Since …" modes an inert one the reader can't even open to disprove.
+describe('buildFileRows trailing run', () => {
+  // @@ -0,0 +1,3 @@ — the whole file is the hunk
+  const added: Hunk = {
+    range: '@@ -0,0 +1,3 @@', header: '', lines: [
+      { old: null, new: 1, kind: 'add', text: 'one' },
+      { old: null, new: 2, kind: 'add', text: 'two' },
+      { old: null, new: 3, kind: 'add', text: 'three' }
+    ]
+  }
+  // @@ -1,3 +0,0 @@ — every line deleted; no new side at all
+  const deleted: Hunk = {
+    range: '@@ -1,3 +0,0 @@', header: '', lines: [
+      { old: 1, new: null, kind: 'del', text: 'one' },
+      { old: 2, new: null, kind: 'del', text: 'two' },
+      { old: 3, new: null, kind: 'del', text: 'three' }
+    ]
+  }
+
+  it('emits no trailing run for an added file — the hunk IS the file', () => {
+    const rows = buildFileRows([added], hunkGaps([added]), null, { trailing: false })
+    expect(rows.every((r) => r.type === 'line')).toBe(true)
+  })
+
+  it('emits no trailing run when the last hunk has no new-side line (a deleted file)', () => {
+    // no `trailing` flag needed: with nothing on the new side there is no file left
+    // for a run to trail off into
+    const rows = buildFileRows([deleted], hunkGaps([deleted]))
+    expect(rows.every((r) => r.type === 'line')).toBe(true)
+  })
+
+  it('still emits it for an ordinary modified file', () => {
+    const rows = buildFileRows([h1, h2], hunkGaps([h1, h2]))
+    const last = rows[rows.length - 1]
+    expect(last.type === 'gap' && last.where).toBe('below')
+  })
+})
+
+// final review, finding 1: `expandedGaps` is component state keyed by `g<from>`, and
+// the leading gap is `g1` in every diff mode — so a fold opened in branch mode used to
+// splice its (branch-mode) lines into an "Since approved" view, whose rows start
+// somewhere else entirely: duplicate React keys, or a silent hole. The splice is now
+// gated on the same `canExpand` that decides whether a fold can be opened at all
+// (DiffBody additionally drops the state on a mode switch).
+describe('viewRows', () => {
+  const rows = buildFileRows([h1, h2], hunkGaps([h1, h2]))
+  const revealed: DiffLine[] = [
+    { old: 10, new: 10, kind: '', text: 'x' },
+    { old: 11, new: 11, kind: '', text: 'y' }
+  ]
+
+  it('splices a revealed run in place of its gap row when folds can be opened', () => {
+    const view = viewRows(rows, { g1: revealed }, true)
+    expect(view.map((r) => r.key).slice(0, 3)).toEqual(['new:10', 'new:11', 'new:12'])
+    expect(view.some((r) => r.key === 'gap:g1')).toBe(false)
+    // a revealed row is real file content, not diff content
+    const first = view[0]
+    expect(first.type === 'line' && first.fromHunk).toBe(false)
+  })
+
+  it('ignores stale revealed lines when folds cannot be opened, and keeps the marker', () => {
+    const view = viewRows(rows, { g1: revealed }, false)
+    expect(view.some((r) => r.key === 'new:10')).toBe(false)
+    expect(view[0].key).toBe('gap:g1')
+    expect(new Set(view.map((r) => r.key)).size).toBe(view.length)
+  })
+
+  it('drops the inert trailing marker but keeps the inert above/between ones', () => {
+    const view = viewRows(rows, {}, false)
+    const gaps = view.filter((r) => r.type === 'gap')
+    expect(gaps.map((g) => (g.type === 'gap' ? g.where : ''))).toEqual(['above', ''])
+  })
+
+  it('keeps the trailing run where it can be opened', () => {
+    const view = viewRows(rows, {}, true)
+    const gaps = view.filter((r) => r.type === 'gap')
+    expect(gaps.map((g) => (g.type === 'gap' ? g.where : ''))).toEqual(['above', '', 'below'])
   })
 })
 
