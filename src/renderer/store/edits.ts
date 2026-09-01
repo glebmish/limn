@@ -19,7 +19,7 @@ import { fileViewed, renderedFiles } from './derive'
  *  keys `<FlowFrame>` by it: same id ⇒ React matches the element and reuses the live
  *  instance (growth), different id ⇒ a full remount (an unrelated edit — see #6
  *  fix-round-1's Critical finding: a shared, position-independent-but-*constant* key
- *  let a same-hunk re-open reuse a stale instance and silently save the old typed
+ *  let a re-open elsewhere in the same file reuse a stale instance and silently save the old typed
  *  text under the new line numbers). A random string, not a counter
  *  (fix-round-2): a module-level counter resets on a Vite HMR reload of this module
  *  while the live store can still hold a frame minted by the pre-reload counter —

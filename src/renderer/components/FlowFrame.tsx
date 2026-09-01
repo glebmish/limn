@@ -48,11 +48,12 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   /** Persist the live draft under this session's `frameId` (#6 fix-round-1) — a
    *  plain module-level write (store/edits.ts's `setEditDraft`, outside zustand's
    *  reactive state — fix-round-2, see its doc comment), not React state, so it
-   *  survives even when *this* component instance is about to be torn down (growth
-   *  crossing a real git-hunk boundary still forces a remount; DiffBody's
-   *  key-matched reconciliation only reaches within one hunk's own flattened row
-   *  array). Called at every point `text` intentionally changes: typing, the ↑/↓
-   *  growth gesture, and the same-line-conflict/Re-apply paths in `save()`.
+   *  survives even when *this* component instance is about to be torn down (a
+   *  `refreshLoaded()` that reshuffles the diff still forces a remount; since #11
+   *  DiffBody's key-matched reconciliation spans the whole file, so growth across
+   *  what used to be a hunk boundary no longer does). Called at every point `text`
+   *  intentionally changes: typing, the ↑/↓ growth gesture, and the
+   *  same-line-conflict/Re-apply paths in `save()`.
    *
    *  `over` overrides the two fields that ride along from component state — the CAS
    *  anchor and the conflict banner — for the callers that change them *in the same
@@ -75,8 +76,8 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   useEffect(() => {
     if (fetched.current || !loaded) return
     fetched.current = true
-    // A remount that preserved this session's frameId (growth across a real hunk
-    // boundary, or the refresh the conflict path itself triggers) restores the whole
+    // A remount that preserved this session's frameId (the refresh the conflict path
+    // itself triggers, say) restores the whole
     // edit from the draft — text, the working-tree snapshot it was typed against, and
     // any conflict banner — and skips the re-read entirely. Re-reading here would
     // re-anchor the CAS to content the user never saw: an external write landing
@@ -216,8 +217,8 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         const next = `${joined}\n${text}`
         setText(next)
         // written directly (not via an effect on `text`) so it lands even if this
-        // very growth step crosses a real git-hunk boundary and tears this instance
-        // down before any of its effects get to run
+        // very growth step tears this instance down before any of its effects get
+        // to run
         draft(next, pos)
         setEditFrame({ ...frame, start: frame.start - 1 })
       } else if (e.key === 'ArrowDown' && line === lineCount - 1 && frame.end < fileLines.length) {

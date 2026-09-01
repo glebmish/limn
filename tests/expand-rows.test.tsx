@@ -72,4 +72,19 @@ describe('expand-context rows', () => {
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).not.toContain('expander-row')
   })
+
+  // #11: the collapsed runs are the ONLY break in the body — the hunk boxes and their
+  // `@@` heads are gone, so the two changed runs and the fold between them are
+  // siblings in one continuous list.
+  it('interleaves folds and rows in one continuous body', () => {
+    seed(true)
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).not.toContain('@@')
+    expect(out).not.toContain('hunk-head')
+    const at = (s: string) => out.indexOf(s)
+    expect(at('expand 11 unchanged lines above')).toBeLessThan(at('src/a.ts:new:12'))
+    expect(at('src/a.ts:new:14')).toBeLessThan(at('expand 16 unchanged lines'))
+    expect(at('expand 16 unchanged lines')).toBeLessThan(at('src/a.ts:new:31'))
+    expect(at('src/a.ts:new:31')).toBeLessThan(at('expand unchanged lines below'))
+  })
 })

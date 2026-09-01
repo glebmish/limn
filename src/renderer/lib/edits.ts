@@ -163,9 +163,11 @@ export interface FrameYours { text: string; removes: boolean }
 /** A flow frame's live draft (#6 fix-round-1): everything about an in-progress edit
  *  that must outlive the component instance, kept in the store under the edit
  *  session's `frameId` so it survives a forced remount that is still, conceptually,
- *  the same edit — the ↑/↓ growth gesture (#6) can cross a real git-hunk boundary
- *  that DiffBody's key-matched reconciliation can't reach (that reconciliation only
- *  spans one hunk's own flattened row array), forcing a fresh `FlowFrame` instance.
+ *  the same edit. The headline case was the ↑/↓ growth gesture (#6) crossing a git
+ *  hunk boundary, which DiffBody's key-matched reconciliation could not reach while
+ *  each hunk rendered its own flattened row array; #11's continuous per-file row
+ *  model closed that particular hole. The remaining one is `refreshLoaded()` —
+ *  the conflict path calls it, and a reshuffled diff can still tear the frame down.
  *
  *  `fileLines` and `yours` are here for the same reason the text is (final review,
  *  findings 2 + 3) — one durability mechanism, not three:

@@ -186,9 +186,6 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 
 /* ---- Diff ---- */
 .diff{font-family:var(--mono);font-size:12px;line-height:1.65;background:var(--panel)}
-.hunk-head{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--panel-2);
-  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
-  font-family:var(--mono);font-size:11px;color:var(--muted)}
 .dline{display:flex;align-items:stretch;position:relative;width:max-content;min-width:100%}
 .dline .gut{flex:0 0 auto;width:46px;display:flex;text-align:right;color:var(--faint);
   font-size:10.5px;user-select:none;border-right:1px solid var(--line)}
@@ -210,8 +207,6 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline.unstaged{position:relative}
 .dline.unstaged::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;z-index:2;
   background:repeating-linear-gradient(to bottom,var(--amber) 0 3px,transparent 3px 6px)}
-.hunk.since-hunk{position:relative}
-.tag-since{position:absolute;right:10px;top:6px;z-index:2}
 
 /* agent inline summary above a hunk */
 .agent-note{display:flex;gap:9px;padding:10px 14px;background:var(--accent-soft);
@@ -254,11 +249,14 @@ body.limn-show-affordances .pencil-btn,body.limn-show-affordances .rail-undo{opa
   box-shadow:0 1px 3px rgba(0,0,0,.22)}
 .rail-undo:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
 
-/* expand-context: reveal unchanged file lines around/between hunks */
+/* collapsed runs of unchanged file lines (#11: the body reads as the file, so the
+   only break in it is a fold you can open) */
 .expander-row{display:flex;align-items:center;gap:6px;width:100%;border:none;cursor:pointer;
   background:var(--panel-2);color:var(--muted);font:500 11px var(--sans);padding:3px 14px;
   border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);text-align:left}
 .expander-row:hover{background:var(--accent-soft);color:var(--accent-ink)}
+/* where the run leads — the useful half of the old `@@ … @@ ctx` header, as prose */
+.expander-row .gap-fn{color:var(--faint);font-family:var(--mono);font-size:10.5px}
 /* covered − rows ride inside the frame's span as inert grey slivers */
 .dline.frame-sliver{opacity:.45;filter:grayscale(.7)}
 .dline.frame-sliver .gutter-add,.dline.frame-sliver .pencil-btn{display:none}

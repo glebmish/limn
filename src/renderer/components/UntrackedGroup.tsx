@@ -4,7 +4,7 @@ import { I } from '../kit'
 import { useStore } from '../store'
 import { FileGlyph } from './FileGlyph'
 import { splitPath } from './FileHeader'
-import { highlightLine, langForPath } from '../lib/highlight'
+import { disp, highlightLine, langForPath } from '../lib/highlight'
 
 /** staged → solid rail, unstaged → dotted rail (untracked files are always unstaged). */
 function originCls(origin: string | undefined): string {
@@ -43,18 +43,15 @@ function UntrackedRow({ f }: { f: FileDiff }) {
           <div className="gfile-diff">
             {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
             {!f.binary && f.hunks.length === 0 && <div className="nodiff">No textual changes.</div>}
-            {f.hunks.map((h, i) => (
-              <div key={i} className="hunk">
-                <div className="hunk-head"><I.diff style={{ width: 12, height: 12, opacity: 0.6 }} />{h.range}</div>
-                {h.lines.map((l, j) => (
-                  <div key={j} className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls(l.origin)}>
-                    <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
-                    <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                    <span className="code"><span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(l.text.replace(/\t/g, '  '), lang) }} /></span>
-                  </div>
-                ))}
+            {/* an untracked file is wholly new, so its peek is just the file — no
+                `@@` header, here or anywhere else in the UI (#11) */}
+            {f.hunks.flatMap((h) => h.lines.map((l) => (
+              <div key={`${l.new ?? ''}:${l.old ?? ''}`} className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls(l.origin)}>
+                <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
+                <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
+                <span className="code"><span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(disp(l.text), lang) }} /></span>
               </div>
-            ))}
+            )))}
           </div>
         </div>
       )}

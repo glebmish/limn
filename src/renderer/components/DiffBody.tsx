@@ -3,18 +3,21 @@ import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { diffHunksForMode, useStore } from '../store'
 import { Composer, InlineThread } from './Threads'
-import { pairHunkLines, wordDiffRanges, type CharRange } from '../lib/worddiff'
-import { highlightLine, langForPath } from '../lib/highlight'
+import type { CharRange } from '../lib/worddiff'
+import { disp, highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
 import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
 import { gapLines, hunkGaps, type Gap } from '../lib/expand'
+import { buildFileRows, lineRow, type FileRow, type LineRow } from '../lib/rows'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
 
-/** tabs → spaces so ch-offset word marks align with the monospace text */
-function disp(text: string): string {
-  return text.replace(/\t/g, '  ')
-}
+/** Which line the per-line comment composer is open on, in the file-line key space
+ *  (`lib/rows.ts`): working-tree rows are addressed on the new side, deletions on the
+ *  old side. Unambiguous, so two identical lines can't open the composer together —
+ *  the property the old `{ hunkIdx, lineIdx }` pair bought, now expressed in terms
+ *  the reader (and the anchor pipeline) actually think in. */
+export interface ComposerAt { side: 'new' | 'old'; line: number }
 
 /** The raw-text column under a double-click, for placing the caret when a flow frame
  *  opens (#5). Best-effort and browser-only (no jsdom equivalent exists to test
@@ -22,10 +25,10 @@ function disp(text: string): string {
  *  (Chrome/Safari) or `caretPositionFromPoint` (Firefox) finds the exact text node
  *  under the pointer inside the row's `.code` span, a `TreeWalker` sums the text
  *  nodes before it to get a *display* column (the DOM here is tab-expanded — see
- *  `disp()` above), and `rawOffsetFromDisplayColumn` (lib/edits.ts, unit-tested) maps
- *  that back to the raw line. Returns undefined — FlowFrame's end-of-line fallback —
- *  when neither API exists, the point misses the code span, or it resolves outside
- *  it (e.g. the gutter or the comment-gutter button). */
+ *  `disp()` in lib/highlight.ts), and `rawOffsetFromDisplayColumn` (lib/edits.ts,
+ *  unit-tested) maps that back to the raw line. Returns undefined — FlowFrame's
+ *  end-of-line fallback — when neither API exists, the point misses the code span, or
+ *  it resolves outside it (e.g. the gutter or the comment-gutter button). */
 function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string): number | undefined {
   const root = e.currentTarget.querySelector('.code')
   if (!root) return undefined
@@ -62,16 +65,6 @@ function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string)
   return rawOffsetFromDisplayColumn(rawText, displayCol)
 }
 
-function hunkWordMarks(lines: DiffLine[]): Map<number, CharRange[]> {
-  const marks = new Map<number, CharRange[]>()
-  for (const [d, a] of pairHunkLines(lines)) {
-    const r = wordDiffRanges(disp(lines[d].text), disp(lines[a].text))
-    if (r.old.length) marks.set(d, r.old)
-    if (r.new.length) marks.set(a, r.new)
-  }
-  return marks
-}
-
 function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; ranges?: CharRange[] }) {
   const t = disp(text)
   return (
@@ -84,17 +77,22 @@ function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; r
   )
 }
 
-/** The file body: guidance note, hunks + word-marked code lines, per-line comment
- *  gutter/threads/composer, empty-state messaging and the outdated-comments footer.
- *  `composerAt` is owned by the DiffView shell; a line is identified unambiguously by
- *  its `{ hunkIdx, lineIdx }` so two identical lines can't open the composer together. */
+/** The file body: guidance note, the file's continuous rows (changed lines plus the
+ *  collapsed runs of unchanged lines between them — #11: this reads as the file, not
+ *  as a stack of git hunks), per-line comment gutter/threads/composer, empty-state
+ *  messaging and the outdated-comments footer.
+ *
+ *  Every row — hunk line, revealed context line, collapsed run — lives in ONE flat
+ *  keyed array, keyed by its file line (`lib/rows.ts`). That single key space is what
+ *  lets an edit frame grow across what used to be a hunk boundary without React
+ *  tearing it down and remounting it. */
 export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt }: {
   f: FileDiff
   mode: 'branch' | 'approved' | 'viewed'
   showBody: boolean
   fileComments: Comment[]
-  composerAt: { hunkIdx: number; lineIdx: number } | null
-  setComposerAt: (v: { hunkIdx: number; lineIdx: number } | null) => void
+  composerAt: ComposerAt | null
+  setComposerAt: (v: ComposerAt | null) => void
 }) {
   // show exactly the selected baseline — if a tracked file has no diff at that baseline
   // it renders the empty state below, rather than silently falling back to the full diff
@@ -102,7 +100,6 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // files are wholly new, so their since-diff equals the full diff (see diffHunksForMode).
   const hunks = diffHunksForMode(f, mode)
   const lang = langForPath(f.path)
-  const wordMarks = useMemo(() => hunks.map((h) => hunkWordMarks(h.lines)), [hunks])
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   // resolved comments are included: the re-anchor pipeline now maintains their
   // notInDiff too (#18), so the flag is current rather than a stale leftover — and a
@@ -116,13 +113,13 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   const setEditFrame = useStore((s) => s.setEditFrame)
   const editable = fileEditable(loaded, f)
   const frame = editable && editFrame && editFrame.file === f.path ? editFrame : null
-  const coveredBy = (l: DiffLine): boolean =>
-    frame != null && l.new != null && l.new >= frame.start && l.new <= frame.end
+  const coveredBy = (l: DiffLine | null | undefined): boolean =>
+    frame != null && l != null && l.new != null && l.new >= frame.start && l.new <= frame.end
   // The frame mounts exactly once, at the first covered row in document order
-  // (hunk rows and expanded context rows alike) — a per-render flag, not state.
+  // (changed rows and revealed context rows alike) — a per-render flag, not state.
   //
   // Its key is `frame.frameId` — the edit *session*'s identity, not the row's
-  // position (line number, hunk/row index…) and, just as deliberately, not a bare
+  // position (line number, row index…) and, just as deliberately, not a bare
   // constant either. Two competing needs, both real:
   //  - The ↑/↓ growth gesture (#6) can move which row is "first" from one render to
   //    the next (extending upward admits a new, earlier row). A position-derived key
@@ -137,8 +134,8 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   //    too far the other way: `openFrameAt` can retarget `editFrame` to an unrelated
   //    line — a double-click or pencil click while a frame is already open, with no
   //    guard against it — and a constant key would let React reuse the *same live
-  //    instance* for that unrelated line too, since old and new positions can land in
-  //    the same flattened row array. The reused instance's `fetched`/`focusedOnce`
+  //    instance* for that unrelated line too, since old and new positions land in the
+  //    same flattened row array. The reused instance's `fetched`/`focusedOnce`
   //    latches (FlowFrame.tsx) are keyed to *mount*, not to `frame.start`/`end`, so
   //    they'd never re-fire — the old line's typed text would sit in the textarea
   //    while `frame.start`/`end` quietly pointed at the new line, and ⌘⏎ would CAS-
@@ -173,7 +170,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     if (res && !res.ok) await useStore.getState().refreshLoaded()
   }
 
-  // ── expand-context: reveal unchanged file lines around/between hunks. Revealed
+  // ── collapsed runs: the unchanged file lines around/between the changes. Revealed
   // rows are plain working-tree rows — same pencil, same frame. Component state,
   // reset when the file re-renders after a save (line numbers may have shifted).
   const [expandedGaps, setExpandedGaps] = useState<Record<string, DiffLine[]>>({})
@@ -181,17 +178,8 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f])
   // needs a worktree to read from — same availability as editing (v1)
   const gaps = useMemo(() => (editable && mode === 'branch' && !f.binary ? hunkGaps(hunks) : []), [editable, mode, f.binary, hunks])
-  // where a gap would start at each hunk boundary: index i = before hunk i,
-  // index hunks.length = the trailing to-EOF gap
-  const gapStarts = useMemo(() => {
-    const starts: number[] = [1]
-    for (const h of hunks) {
-      let end = 0
-      for (const l of h.lines) if (l.new != null) end = l.new
-      starts.push(end + 1)
-    }
-    return starts
-  }, [hunks])
+  /** the file's row model: changed rows and collapsed runs, in file order */
+  const rows = useMemo(() => buildFileRows(hunks, gaps), [hunks, gaps])
   const expand = async (gap: Gap): Promise<void> => {
     if (!loaded) return
     try {
@@ -200,13 +188,11 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
         if (!wf.ok) return
         fileLinesRef.current = wf.lines
       }
-      const rows = gapLines(fileLinesRef.current, gap)
-      if (rows.length) setExpandedGaps((prev) => ({ ...prev, [gap.key]: rows }))
+      const revealed = gapLines(fileLinesRef.current, gap)
+      if (revealed.length) setExpandedGaps((prev) => ({ ...prev, [gap.key]: revealed }))
     } catch { /* worktree read failed — leave the fold closed */ }
   }
-  const gapAt = (from: number, to?: number | null): Gap | undefined =>
-    gaps.find((g) => g.from === from && (to === undefined || g.to === to || (to === null && g.to === null)))
-  /** the fold (unrevealed gap) whose span contains working-tree line `n` */
+  /** the fold (unrevealed run) whose span contains working-tree line `n` */
   const hiddenGapContaining = (n: number): Gap | undefined =>
     gaps.find((g) => !expandedGaps[g.key] && n >= g.from && (g.to == null || n <= g.to))
 
@@ -260,59 +246,129 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     document.querySelector(`[data-limn-line="${CSS.escape(f.path)}:new:${selected.line}"]`)
       ?.scrollIntoView({ block: 'nearest' })
   }, [selected, f.path])
-  /** the expander row (or its revealed rows) for the gap starting at `from` */
-  const gapBlock = (from: number, trailing: boolean, label: string): React.ReactNode => {
-    const gap = trailing ? gaps.find((g) => g.to === null && g.from === from) : gapAt(from, undefined)
-    if (!gap || (gap.to != null && gap.to < gap.from)) return null
-    const rows = expandedGaps[gap.key]
-    if (rows) {
-      return rows.map((l) => {
-        // covered rows return the mount slot directly (or null) — never wrapped in a
-        // Fragment keyed by this row's own position; see the comment on mountFrame.
-        if (coveredBy(l)) return mountFrame()
-        return (
-          <Fragment key={`x${gap.key}-${l.new}`}>
-            <div
-              className={'dline' + (selected && l.new === selected.line ? ' line-selected' : '')}
-              data-limn-line={`${f.path}:new:${l.new}`}
-              onDoubleClick={editable ? (e) => openFrameAt(l, e) : undefined}
-            >
-              <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
-              <span className="sign"></span>
-              <CodeLine text={l.text} lang={lang} />
-              {editable && (
-                <button
-                  className="pencil-btn limn-line-edit"
-                  title="Edit this line in place — saves as an uncommitted change"
-                  aria-label={`Edit line ${l.new}`}
-                  onClick={() => openFrameAt(l)}
-                >
-                  <I.edit style={{ width: 12, height: 12 }} />
-                </button>
-              )}
-            </div>
-          </Fragment>
-        )
-      })
+
+  const threadsFor = (line: number, side: 'new' | 'old'): Comment[] =>
+    fileComments.filter((c) =>
+      c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
+    )
+
+  // The rows as they actually render: a revealed run replaces its collapsed-run row
+  // with plain context rows, in the same file-line key space as everything else.
+  const view: FileRow[] = []
+  for (const r of rows) {
+    if (r.type === 'gap') {
+      const revealed = expandedGaps[r.gap.key]
+      if (revealed) {
+        revealed.forEach((_l, j) => view.push(lineRow(revealed, j, { hunkRange: '', fromHunk: false })))
+        continue
+      }
     }
-    const count = gap.to != null ? gap.to - gap.from + 1 : null
+    view.push(r)
+  }
+  const lineAt = (i: number): DiffLine | null => {
+    const r = view[i]
+    return r && r.type === 'line' ? r.l : null
+  }
+
+  const gapNode = (r: Extract<FileRow, { type: 'gap' }>): React.ReactNode => {
+    const count = r.gap.to != null ? r.gap.to - r.gap.from + 1 : null
+    const what = count != null
+      ? `expand ${count} unchanged line${count === 1 ? '' : 's'}`
+      : 'expand unchanged lines'
     return (
-      // keyed because the leading-gap call site returns this straight into the hunk's
-      // flattened row array (see the comment there) — an unkeyed array child is a dev
-      // warning per hunk that has a collapsed gap above it
-      <button key={`exp-${gap.key}`} className="expander-row" onClick={() => void expand(gap)} aria-label={`Expand hidden lines ${label}`}>
+      <button
+        key={r.key}
+        className="expander-row"
+        onClick={() => void expand(r.gap)}
+        aria-label={r.where ? `Expand hidden lines ${r.where}` : 'Expand hidden lines'}
+      >
         <I.chevR style={{ width: 10, height: 10, transform: 'rotate(90deg)' }} />
-        {count != null ? `expand ${count} unchanged line${count === 1 ? '' : 's'} ${label}` : `expand unchanged lines ${label}`}
+        {r.where ? `${what} ${r.where}` : what}
+        {/* the one genuinely useful half of the old `@@ … @@ ctx` header, as plain
+            prose: where in the file this collapsed run leads */}
+        {r.fn && <span className="gap-fn">in {r.fn}</span>}
       </button>
     )
   }
 
-  const threadsFor = (line: number | null, side: 'new' | 'old'): Comment[] =>
-    line == null
-      ? []
-      : fileComments.filter((c) =>
-          c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
-        )
+  const lineNode = (r: LineRow, i: number): React.ReactNode => {
+    const { l, side, lineNo, key } = r
+    // rows the open frame covers: the first mounts the editor, the rest hide; a −
+    // row adjacent to covered rows stays as a grey sliver (its text is what the edit
+    // may replace — scope marker, not input). Returned bare (never wrapped in a
+    // Fragment keyed by this row's own position) — see the comment on mountFrame.
+    if (coveredBy(l)) return mountFrame()
+    const sliver = frame != null && l.new == null && (coveredBy(lineAt(i - 1)) || coveredBy(lineAt(i + 1)))
+    const originCls = l.origin === 'staged' ? ' staged'
+      : l.origin === 'unstaged' ? ' unstaged'
+      : (l.since || l.sinceViewed) ? ' since' : ''
+    const kindCls = l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : ''
+    const commentable = r.fromHunk
+    const threads = commentable ? threadsFor(lineNo, side) : []
+    return (
+      <Fragment key={key}>
+        <div
+          className={'dline ' + kindCls + originCls + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
+          data-limn-line={`${f.path}:${side}:${lineNo}`}
+          onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
+        >
+          <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
+          <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
+          <CodeLine text={l.text} lang={lang} ranges={r.marks} />
+          {commentable && (
+            <button
+              className="gutter-add limn-line-add"
+              title="Comment on this line"
+              aria-label={`Comment on line ${lineNo}`}
+              onClick={() => setComposerAt({ side, line: lineNo })}
+            >
+              <I.plus style={{ width: 12, height: 12 }} />
+            </button>
+          )}
+          {editable && l.new != null && (
+            <button
+              className="pencil-btn limn-line-edit"
+              title="Edit this line in place — saves as an uncommitted change"
+              aria-label={`Edit line ${l.new}`}
+              onClick={() => openFrameAt(l)}
+            >
+              <I.edit style={{ width: 12, height: 12 }} />
+            </button>
+          )}
+          {editable && l.origin === 'unstaged' && discardSpanAt(r.run, r.runIdx) != null && (
+            <button
+              className="rail-undo limn-line-discard"
+              title="Discard — git checkout -- (reverts this uncommitted span)"
+              aria-label={`Discard uncommitted change at line ${lineNo}`}
+              onClick={() => void discardAt(r.run, r.runIdx)}
+            >
+              <I.undo style={{ width: 10, height: 10 }} />
+            </button>
+          )}
+        </div>
+        {threads.map((c) => (
+          <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />
+        ))}
+        {commentable && composerAt && composerAt.side === side && composerAt.line === lineNo && (
+          <Composer
+            placeholder="Leave a comment for the agent…"
+            onCancel={() => setComposerAt(null)}
+            onSubmit={(text) => {
+              // derive the anchor from the identified row — byte-identical to what
+              // the hunk-indexed composer produced, `hunkRange` included: the row
+              // model carries its hunk's range for exactly this field, even though
+              // nothing renders it any more (#11).
+              void useStore.getState().addComment(
+                { kind: 'diff', file: f.path, side, line: lineNo, hunkRange: r.hunkRange, lineContent: l.text },
+                text
+              )
+              setComposerAt(null)
+            }}
+          />
+        )}
+      </Fragment>
+    )
+  }
 
   return (
     <>
@@ -329,107 +385,8 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
             )
             : <div className="nodiff">No textual changes.</div>
           )}
-          {hunks.map((h, i) => {
-            // The leading gap, the head, and the hunk's own lines are flattened into
-            // one array (rather than three separate `{a}{b}{c}` JSX children) so a
-            // growing frame that crosses from the gap into the hunk's own rows (or
-            // back) reconciles as ONE flat, key-matched list. Three separate curly
-            // children do NOT share a key-space with each other — verified live: with
-            // them separate, a frame growing across exactly that boundary still lost
-            // its FlowFrame instance (this file's own gap/hunk boundary reproduced
-            // it), even though `mountFrame`'s key is the same constant literal on
-            // both sides.
-            const rows: React.ReactNode[] = [
-              gapBlock(i === 0 ? 1 : gapStarts[i], false, i === 0 ? 'above' : ''),
-              <div key="head" className="hunk-head">
-                <I.diff style={{ width: 12, height: 12, opacity: 0.6 }} />
-                {h.range}
-                {h.header && <span style={{ color: 'var(--muted-2)' }}>{h.header}</span>}
-                {h.since && <span style={{ color: 'var(--amber)' }}>· changed since approval</span>}
-                {!h.since && h.sinceViewed && <span style={{ color: 'var(--amber)' }}>· changed since viewed</span>}
-              </div>,
-              h.lines.map((l, j) => {
-                const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
-                const lineNo = l.new ?? l.old
-                const threads = threadsFor(lineNo, side)
-                const originCls = l.origin === 'staged' ? ' staged'
-                  : l.origin === 'unstaged' ? ' unstaged'
-                  : (l.since || l.sinceViewed) ? ' since' : ''
-                // rows the open frame covers: the first mounts the editor, the rest
-                // hide; a − row adjacent to covered rows stays as a grey sliver
-                // (its text is what the edit may replace — scope marker, not input).
-                if (frame && coveredBy(l)) return mountFrame()
-                const sliver = frame != null && l.new == null &&
-                  (coveredBy(h.lines[j - 1] ?? {} as DiffLine) || coveredBy(h.lines[j + 1] ?? {} as DiffLine))
-                return (
-                  <Fragment key={j}>
-                    <div
-                      className={'dline ' + (l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : '') + originCls + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
-                      data-limn-line={lineNo != null ? `${f.path}:${side}:${lineNo}` : undefined}
-                      onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
-                    >
-                      <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
-                      <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                      <CodeLine text={l.text} lang={lang} ranges={wordMarks[i]?.get(j)} />
-                      <button
-                        className="gutter-add limn-line-add"
-                        title="Comment on this line"
-                        aria-label={`Comment on line ${lineNo}`}
-                        onClick={() => setComposerAt({ hunkIdx: i, lineIdx: j })}
-                      >
-                        <I.plus style={{ width: 12, height: 12 }} />
-                      </button>
-                      {editable && l.new != null && (
-                        <button
-                          className="pencil-btn limn-line-edit"
-                          title="Edit this line in place — saves as an uncommitted change"
-                          aria-label={`Edit line ${l.new}`}
-                          onClick={() => openFrameAt(l)}
-                        >
-                          <I.edit style={{ width: 12, height: 12 }} />
-                        </button>
-                      )}
-                      {editable && l.origin === 'unstaged' && discardSpanAt(h.lines, j) != null && (
-                        <button
-                          className="rail-undo limn-line-discard"
-                          title="Discard — git checkout -- (reverts this uncommitted span)"
-                          aria-label={`Discard uncommitted change at line ${lineNo}`}
-                          onClick={() => void discardAt(h.lines, j)}
-                        >
-                          <I.undo style={{ width: 10, height: 10 }} />
-                        </button>
-                      )}
-                    </div>
-                    {threads.map((c) => (
-                      <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />
-                    ))}
-                    {composerAt && composerAt.hunkIdx === i && composerAt.lineIdx === j && (
-                      <Composer
-                        placeholder="Leave a comment for the agent…"
-                        onCancel={() => setComposerAt(null)}
-                        onSubmit={(text) => {
-                          // derive the anchor from the identified line — byte-identical to the
-                          // pre-split payload, but sourced from hunks[hunkIdx].lines[lineIdx]
-                          // rather than a captured snapshot (the dup-line double-composer fix).
-                          void useStore.getState().addComment(
-                            { kind: 'diff', file: f.path, side, line: lineNo!, hunkRange: h.range, lineContent: l.text },
-                            text
-                          )
-                          setComposerAt(null)
-                        }}
-                      />
-                    )}
-                  </Fragment>
-                )
-              })
-            ].flat()
-            return (
-              <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>
-                {rows}
-              </div>
-            )
-          })}
-          {hunks.length > 0 && gapBlock(gapStarts[hunks.length], true, 'below')}
+          {/* ONE flat array for the whole file — see the component doc comment */}
+          {view.map((r, i) => (r.type === 'gap' ? gapNode(r) : lineNode(r, i)))}
           {notShown.length > 0 && (
             <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
               {notShown.length} comment{notShown.length > 1 ? 's' : ''} anchored to lines not shown in this diff:

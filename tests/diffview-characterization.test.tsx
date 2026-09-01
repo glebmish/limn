@@ -103,12 +103,12 @@ describe('DiffView per-line composer trigger + anchor source fields', () => {
   // The composer only mounts after an interactive gutter-add click; renderToStaticMarkup
   // (node env, no jsdom) cannot drive that click, so the exact submit payload cannot be
   // exercised here. Instead pin the fields the submit anchor is built from that DO surface
-  // in the static markup: file+side+line (data-limn-line) and hunkRange (hunk-head). The
-  // fifth field, lineContent, is the RAW input line text (l.text) — it is not DOM-verbatim
-  // because the code is syntax-highlighted into token spans. The submit produces exactly:
-  //   addComment({ kind:'diff', file:f.path, side, line:lineNo, hunkRange:h.range, lineContent:l.text }, text)
-  // (see DiffView.tsx onSubmit). Step 10's composerAt={hunkIdx,lineIdx} retype must derive
-  // these same five fields from hunks[hunkIdx].lines[lineIdx] to stay byte-identical.
+  // in the static markup: file+side+line (data-limn-line). The submit produces exactly:
+  //   addComment({ kind:'diff', file:f.path, side, line:lineNo, hunkRange:r.hunkRange, lineContent:l.text }, text)
+  // (see DiffBody.tsx onSubmit). The two fields that are NOT DOM-verbatim are covered
+  // elsewhere: `hunkRange` no longer renders at all (#11) and is pinned on the row model
+  // in file-rows.test.ts; `lineContent` is the raw input line, which the DOM shows
+  // syntax-highlighted into token spans.
   it('surfaces the anchor source fields for an added line', () => {
     const f = makeFile({
       path: 'src/a.ts',
@@ -121,11 +121,55 @@ describe('DiffView per-line composer trigger + anchor source fields', () => {
     expect(out).toContain('aria-label="Comment on line 42"')
     // anchor identity: file:side:line  (side='new' because l.new != null)
     expect(out).toContain('data-limn-line="src/a.ts:new:42"')
-    // anchor hunkRange rendered verbatim in the hunk head
-    expect(out).toContain('@@ -1,1 +1,1 @@')
     // the line content renders (syntax-highlighted, so not contiguous) — the raw
     // 'const x = 1' feeds the anchor's lineContent; the visible fragment confirms it rendered
     expect(out).toContain('x = ')
+  })
+})
+
+// #11: the body must read as the file, not as a stack of git hunks. The `@@` range and
+// the hunk box around each run are a low-level git concept; nothing about them survives
+// into the rendered surface, and the anchor payload keeps `hunkRange` regardless.
+describe('DiffView renders the file, not hunks', () => {
+  const threeHunks = () => makeFile({
+    path: 'src/a.ts',
+    hunks: [
+      { range: '@@ -5,1 +5,2 @@', header: 'export function alpha(a: number) {', lines: [{ old: 5, new: 5, kind: '', text: 'five' }, { old: null, new: 6, kind: 'add', text: 'six' }] },
+      { range: '@@ -20,1 +21,1 @@', header: 'class Beta {', lines: [{ old: 20, new: 21, kind: '', text: 'twenty' }] },
+      { range: '@@ -40,1 +41,1 @@', header: '', lines: [{ old: null, new: 41, kind: 'add', text: 'forty one' }] },
+    ],
+  })
+
+  it('renders no `@@` text anywhere', () => {
+    const f = threeHunks()
+    seed(makeLoaded({ files: [f] }))
+    expect(render(f)).not.toContain('@@')
+  })
+
+  it('renders N hunks as one continuous body — no per-hunk box or header', () => {
+    const f = threeHunks()
+    seed(makeLoaded({ files: [f] }))
+    const out = render(f)
+    expect(out).not.toContain('hunk-head')
+    expect(out).not.toContain('class="hunk')
+    // every changed line still renders, addressed by its file line
+    for (const sel of ['src/a.ts:new:5', 'src/a.ts:new:6', 'src/a.ts:new:21', 'src/a.ts:new:41']) {
+      expect(out).toContain(`data-limn-line="${sel}"`)
+    }
+    // and they are siblings of one another inside the single diff body
+    const body = out.slice(out.indexOf('class="gfile-diff"'))
+    expect(body.indexOf('src/a.ts:new:6')).toBeLessThan(body.indexOf('src/a.ts:new:21'))
+  })
+
+  it('keeps the useful half of the hunk header as a plain function label on a collapsed run', () => {
+    const f = threeHunks()
+    const loaded = makeLoaded({ files: [f] })
+    ;(loaded as { writeCapability?: unknown }).writeCapability = { enabled: true, reason: 'available', branch: 'feat', workdir: '/wt' }
+    seed(loaded)
+    const out = render(f)
+    expect(out).toContain('in alpha')
+    expect(out).toContain('in Beta')
+    expect(out).not.toContain('@@')
   })
 })
 

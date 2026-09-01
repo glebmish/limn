@@ -5,7 +5,7 @@ import { fileViewed, fileIsExcluded, useStore } from '../store'
 import { Composer, InlineThread } from './Threads'
 import { reviewStatusForFile } from '../lib/fileStatus'
 import { FileHeader, splitPath } from './FileHeader'
-import { DiffBody } from './DiffBody'
+import { DiffBody, type ComposerAt } from './DiffBody'
 
 export function DiffView({ f }: {
   f: FileDiff
@@ -17,9 +17,10 @@ export function DiffView({ f }: {
   // recognized spec/plan: this same file is reviewable rendered at the top
   const artifact = loaded?.artifacts.find((a) => a.path === f.path)
   const focused = focusTarget?.file === f.path
-  // an unambiguous {hunkIdx,lineIdx} identity for the per-line composer — two
-  // identical lines can no longer open the composer together (was content-matched).
-  const [composerAt, setComposerAt] = useState<{ hunkIdx: number; lineIdx: number } | null>(null)
+  // an unambiguous file-line identity for the per-line composer — two identical
+  // lines can no longer open the composer together (was content-matched, then
+  // hunk-indexed; #11 re-keyed it onto the file line the reader sees).
+  const [composerAt, setComposerAt] = useState<ComposerAt | null>(null)
   const [fileCommenting, setFileCommenting] = useState(false)
   // manual open/collapse override for this file's diff. null = follow the default
   // (open when unviewed, collapsed when viewed); true/false = explicitly toggled.
