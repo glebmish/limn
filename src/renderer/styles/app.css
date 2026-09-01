@@ -476,6 +476,13 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
 .chat-gate.block { background: var(--accent-soft); color: var(--amber); }
 .chat-gate.block b { color: var(--ink); }
 .chat-gate.warn { color: var(--muted); background: var(--panel-2); }
+/* a follow-up parked while the thread's turn runs — sits directly above the composer */
+.chat-queued { flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px; padding: 8px 13px; border-top: 1px solid var(--line); background: var(--panel-2); font-size: 11px; }
+.chat-queued .cq-head { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.chat-queued .cq-x { margin-left: auto; }
+.chat-queued .cq-text { color: var(--ink-2); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-queued .cq-acts { display: flex; gap: 6px; }
+
 .chat-foot { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-end; padding: 10px 13px; border-top: 1px solid var(--line); background: var(--panel-2); }
 .chat-foot textarea:disabled { opacity: .6; cursor: not-allowed; }
 .chat-foot textarea { flex: 1 1 auto; resize: none; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel); font-family: var(--sans); font-size: 12px; color: var(--ink); padding: 7px 9px; line-height: 1.45; }

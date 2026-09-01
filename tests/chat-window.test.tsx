@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SubmittedCommentRefs, windowMessages } from '../src/renderer/components/ChatDrawer'
+import { composerMode, SubmittedCommentRefs, windowMessages } from '../src/renderer/components/ChatDrawer'
+import type { OpState } from '../src/renderer/store'
 import type { Comment } from '../src/shared/types'
 
 /** The chat list only mounts the last `shown` messages; everything older is hidden
@@ -71,5 +72,35 @@ describe('SubmittedCommentRefs — comments the re-anchor pass could not place',
     const stale = render(cmt({ status: 'outdated' }))
     expect(stale).not.toContain('a.ts:14')
     expect(stale).toContain('changed since this comment')
+  })
+})
+
+// The composer has three states while other turns run: it sends, it QUEUES
+// the text for when this thread's turn ends, or it is hard-blocked. `composerMode` is
+// the pure decision behind the textarea/button wiring and the queued chip.
+describe('composerMode — send / queue / blocked', () => {
+  const op = (threadId: number, over: Partial<OpState> = {}): OpState =>
+    ({ running: true, opId: `op-${threadId}`, kind: 'chat', threadId, log: [], error: null, startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(), exclusive: true, ...over }) as OpState
+  const ops = (...list: OpState[]): Record<string, OpState> =>
+    Object.fromEntries(list.map((o) => [o.opId as string, o]))
+
+  it('sends on an idle thread with the branch checked out', () => {
+    expect(composerMode({}, 1, false)).toBe('send')
+    // an exclusive generation elsewhere still leaves the shared lane → a read-only send
+    expect(composerMode(ops(op(2)), 1, false)).toBe('send')
+  })
+
+  it('queues while THIS thread is mid-turn', () => {
+    expect(composerMode(ops(op(1)), 1, false)).toBe('queue')
+    // …even under the checkout gate? no — the gate wins (nothing can be sent at all)
+    expect(composerMode(ops(op(1)), 1, true)).toBe('blocked')
+  })
+
+  it('blocks with no thread, under the checkout gate, or when the lanes are full', () => {
+    expect(composerMode({}, null, false)).toBe('blocked')
+    expect(composerMode({}, 1, true)).toBe('blocked')
+    // exclusive lane taken by thread 2 + the single shared lane taken by thread 3:
+    // this idle thread has nowhere to run — and nothing of its own to queue behind.
+    expect(composerMode(ops(op(2), op(3, { exclusive: false })), 1, false)).toBe('blocked')
   })
 })

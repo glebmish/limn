@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, willRunReadOnly, genSessionLost, pendingApprovals, useStore } from '../store'
+import type { OpState } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
@@ -27,6 +28,22 @@ const EMPTY_COMMENTS: Comment[] = []
 /** Stable empty fallback for a chat with no messages, so `windowMessages` and the
  *  submitted-refs memo key on a constant identity rather than a fresh `[]` each render. */
 const EMPTY_MESSAGES: ChatMsg[] = []
+
+/** What the composer does with what you type right now:
+ *  - `'send'`  — the thread is idle and a lane is free (possibly coerced read-only).
+ *  - `'queue'` — THIS thread is mid-turn: park the text and send it when the turn ends
+ *    (the server rejects a second send into a busy thread, so sending is not an option).
+ *  - `'blocked'` — nothing to send to (no thread), the branch isn't checked out, or both
+ *    lanes are busy elsewhere while this thread sits idle: there is no turn of its own to
+ *    queue behind, so parking would have no trigger to fire on.
+ *  Pure so the matrix is unit-testable without mounting the drawer. */
+export function composerMode(
+  ops: Record<string, OpState>, threadId: number | null | undefined, gateBlocked: boolean
+): 'send' | 'queue' | 'blocked' {
+  if (gateBlocked || threadId == null) return 'blocked'
+  if (opForThread(ops, threadId).running) return 'queue'
+  return chatSendBlocked(ops, threadId) ? 'blocked' : 'send'
+}
 
 /** Pure slice arithmetic for the message window: mount only the last `shown` messages,
  *  reporting how many older ones are hidden (0 → no "Show earlier" button) and the
@@ -148,6 +165,11 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const sendBlocked = chatSendBlocked(ops, active?.id)
   const readOnlyTurn = willRunReadOnly(ops, active?.id)
   const sharedFull = sendBlocked && !streaming
+  // …and what the composer does with the text right now. While THIS thread is
+  // mid-turn the composer stays live and parks the text instead (the server rejects a
+  // second send into a busy thread), so a follow-up can be written as it occurs to you.
+  const mode = composerMode(ops, active?.id ?? null, gate.blocked)
+  const queuedTurn = active ? store.queuedTurnByThread[active.id] : undefined
 
   // follow the stream only while parked at the bottom, so a burst of tool calls
   // doesn't yank a reader who has scrolled up. switching chats / opening jumps to
@@ -200,8 +222,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
   const send = (): void => {
     const text = draft.trim()
-    if (!text || !active || sendBlocked || gate.blocked) return
-    store.sendChat(text)
+    if (!text || !active || mode === 'blocked') return
+    if (mode === 'queue') store.queueTurn(active.id, text)
+    else store.sendChat(text)
     setDraft('')
   }
 
@@ -365,11 +388,48 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
+          {/* a follow-up parked while this thread's turn runs. It sends itself when the
+              turn ends clean; if the turn failed or was cancelled it stays here with a
+              Send button rather than firing into half-done work. */}
+          {active && queuedTurn && (
+            <div className="chat-queued" role="status">
+              <div className="cq-head">
+                {mode === 'queue'
+                  ? <><I.info style={{ width: 12, height: 12 }} /><span>Queued · sends when this turn ends</span></>
+                  : <><I.warn style={{ width: 12, height: 12 }} /><span>Not sent — last turn didn’t finish</span></>}
+                <button className="btn btn-sm btn-ghost cq-x" aria-label="Discard queued follow-up"
+                  onClick={() => store.dequeueTurn(active.id)}>
+                  <I.x style={{ width: 10, height: 10 }} />
+                </button>
+              </div>
+              <div className="cq-text">{queuedTurn}</div>
+              <div className="cq-acts">
+                {mode !== 'queue' && (
+                  // flushQueuedTurn IS "send the parked text to THIS thread and clear it"
+                  // — it targets the thread id (not activeChatId) and re-checks the lane,
+                  // so a Send that can't run leaves the text parked instead of losing it.
+                  <button className="btn btn-sm btn-primary" disabled={mode === 'blocked'}
+                    onClick={() => store.flushQueuedTurn(active.id, 'succeeded')}>
+                    <I.send style={{ width: 11, height: 11 }} />Send
+                  </button>
+                )}
+                <button className="btn btn-sm btn-ghost" onClick={() => {
+                  // dequeue ONCE, outside the updater (a re-invoked updater would find
+                  // the entry already gone and blank the draft).
+                  const text = store.dequeueTurn(active.id)
+                  setDraft((d) => (d.trim() ? `${d.trim()}\n\n${text}` : text))
+                }}>
+                  <I.edit style={{ width: 11, height: 11 }} />Edit
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="chat-foot">
             <textarea
               rows={2}
-              placeholder={gate.blocked ? 'Check out the branch to chat' : active ? `Ask ${agentLabel(active.agent)}…` : 'Pick a chat'}
-              disabled={!active || sendBlocked || gate.blocked}
+              placeholder={gate.blocked ? 'Check out the branch to chat' : mode === 'queue' ? 'Queue a follow-up…' : active ? `Ask ${agentLabel(active.agent)}…` : 'Pick a chat'}
+              disabled={mode === 'blocked'}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -378,8 +438,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             />
             <button
               className="btn btn-primary btn-sm"
-              disabled={!active || sendBlocked || gate.blocked || !draft.trim()}
-              title={sharedFull ? 'Another chat turn is running — it’ll be sendable when it finishes' : undefined}
+              disabled={mode === 'blocked' || !draft.trim()}
+              title={mode === 'queue' ? 'Queue — sends when this turn ends'
+                : sharedFull ? 'Another chat turn is running — it’ll be sendable when it finishes' : undefined}
               onClick={send}
             >
               <I.send style={{ width: 12, height: 12 }} />

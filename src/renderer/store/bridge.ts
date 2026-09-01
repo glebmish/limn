@@ -19,11 +19,21 @@ export function handleOpEvent({ opId, event, exclusive }: OpEventMsg): void {
 
 export function handleOpResult({ opId, status, error, reload, errorCode, exclusive }: OpResultMsg): void {
   const st = useStore.getState()
-  if (!st.ops[opId]) return
+  const finished = st.ops[opId]
+  if (!finished) return
   // terminal lane correction — covers ops that emitted no events before finishing.
   if (exclusive !== undefined) st.setOpLane(opId, exclusive)
   st.finishOp(opId, status, error, errorCode)
-  if (status === 'succeeded' || reload) void st.reload()
+  // This thread's turn is over: send whatever the reviewer queued behind it. Any op
+  // carrying a threadId counts (a batch/rebase turn ends the thread's busy window too).
+  // Deliberately AFTER the reload: reload() replaces the whole chat list, so flushing
+  // first would wipe the follow-up's optimistic user message for the entire next turn
+  // (main persists the user row several awaits into its own handler). A reload failure
+  // still flushes — the turn is what matters, not the refreshed transcript.
+  const { threadId } = finished
+  const flush = (): void => { if (threadId != null) useStore.getState().flushQueuedTurn(threadId, status) }
+  if (status === 'succeeded' || reload) void st.reload().then(flush, flush)
+  else flush()
 }
 
 export function handleRepoChanged(msg: RepoChangedMsg): void {

@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand'
+import type { OperationStatus } from '../../shared/ipc'
 import type { AgentRef, ChatThread, CommentAnchor, ExecutionMode } from '../../shared/types'
 import { DEFAULT_EXECUTION_MODE } from '../../shared/executionMode'
 import { api } from '../lib/api'
@@ -62,6 +63,13 @@ function sendChatToThread(threadId: number, body: string, anchor?: CommentAnchor
   void api().sendChat(threadId, text, opId, anchor)
 }
 
+/** Drop one thread's entry from the queued-turn map (a copy — the map is state). */
+function withoutThread(map: Record<number, string>, threadId: number): Record<number, string> {
+  const next = { ...map }
+  delete next[threadId]
+  return next
+}
+
 /** The chat domain: the active chat selection + local draft composer state, the
  *  drawer open flag, and every action that mutates a chat thread or sends a turn
  *  to its agent (the three send paths funnel through the promoted helpers above). */
@@ -72,6 +80,11 @@ export interface ChatSlice {
   /** whether the chat drawer is open (lifted here so an agent-identity click in
    *  the review can open a specific chat). */
   chatOpen: boolean
+  /** Follow-ups typed while a thread's turn was still running, keyed by thread id.
+   *  CLIENT-ONLY and deliberately NOT on ChatThread: `reload()` replaces the whole
+   *  chat list, which would clobber it. Not persisted — a reload of the app drops
+   *  anything still queued (the chip is a live affordance, not a durable outbox). */
+  queuedTurnByThread: Record<number, string>
 
   switchChat(id: number): void
   openChat(threadId?: number): void
@@ -82,6 +95,16 @@ export interface ChatSlice {
   /** Persist a reviewer's dismissal of a suggest-mark-viewed card. */
   dismissSuggestion(threadId: number, actionId: string): Promise<void>
   sendChat(text: string, anchor?: CommentAnchor): void
+  /** Park a follow-up for a thread whose turn is still running (the server rejects a
+   *  second send into a busy thread by design). A second queue joins the first with a
+   *  blank line, so the whole park sends as one turn. */
+  queueTurn(threadId: number, text: string): void
+  /** Take the queued text back out (Edit / ✕ / a manual Send), '' when none. */
+  dequeueTurn(threadId: number): string
+  /** The thread's turn ended: send what's parked, but only on a clean finish and only
+   *  if a turn can actually start right now. Anything else leaves it queued — the chip
+   *  then says it wasn't sent and offers Send. */
+  flushQueuedTurn(threadId: number, status: OperationStatus): void
   /** continue the review thread with a follow-up chat turn (opens the drawer). */
   followUp(text: string): void
   /** the unified batch turn: send comments to a thread's agent (edits+commits code). */
@@ -100,6 +123,7 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
   activeChatId: null,
   draftChat: null,
   chatOpen: dev.flow === 'chat',
+  queuedTurnByThread: {},
 
   switchChat(id) {
     set({ activeChatId: id })
@@ -185,6 +209,33 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       if (targetId == null) return
       sendChatToThread(targetId, body, anchor)
     })()
+  },
+
+  queueTurn(threadId, text) {
+    const body = text.trim()
+    // a draft chat has no thread to be busy on — it can never reach the queue path.
+    if (!body || threadId === DRAFT_CHAT_ID) return
+    set((s) => {
+      const parked = s.queuedTurnByThread[threadId]
+      return { queuedTurnByThread: { ...s.queuedTurnByThread, [threadId]: parked ? `${parked}\n\n${body}` : body } }
+    })
+  },
+
+  dequeueTurn(threadId) {
+    const parked = get().queuedTurnByThread[threadId]
+    if (!parked) return ''
+    set({ queuedTurnByThread: withoutThread(get().queuedTurnByThread, threadId) })
+    return parked
+  },
+
+  flushQueuedTurn(threadId, status) {
+    const parked = get().queuedTurnByThread[threadId]
+    // a failed/cancelled turn may have left work half-done — auto-firing the follow-up
+    // into that is worse than showing it parked with a Send button. Same for a lane
+    // that filled up in the meantime (the send would be a silent no-op).
+    if (!parked || status !== 'succeeded' || chatSendBlocked(get().ops, threadId)) return
+    set({ queuedTurnByThread: withoutThread(get().queuedTurnByThread, threadId) })
+    sendChatToThread(threadId, parked)
   },
 
   /** "Follow up" from the generate panel: continue the review thread (the agent
