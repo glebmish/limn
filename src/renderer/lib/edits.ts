@@ -90,19 +90,19 @@ export function lineColToCaret(lines: string[], lineIdx: number, col: number): n
  *  (that reconciliation only spans one hunk's own flattened row array), forcing a
  *  fresh `FlowFrame` instance. Without the draft, that fresh instance would silently
  *  re-seed from disk and discard whatever the user had typed. */
-export interface FrameDraft { frameId: number; text: string; caret: number | null }
+export interface FrameDraft { frameId: string; text: string; caret: number | null }
 
 /** Which text a (re)mounting frame should seed with: the draft, only when it belongs
  *  to this exact session (`frameId` matches) — a genuinely new edit (a different
  *  session) always starts from the on-disk region, never a stale leftover draft. */
-export function seedFrameText(draft: FrameDraft | null, frameId: number, diskText: string): string {
+export function seedFrameText(draft: FrameDraft | null, frameId: string, diskText: string): string {
   return draft && draft.frameId === frameId ? draft.text : diskText
 }
 
 /** Which caret offset a (re)mounting frame should place: the draft's, when it
  *  belongs to this session and actually recorded one — otherwise `fallback` (the
  *  double-click column, or end-of-line — see `lineColToCaret`). */
-export function seedFrameCaret(draft: FrameDraft | null, frameId: number, fallback: number): number {
+export function seedFrameCaret(draft: FrameDraft | null, frameId: string, fallback: number): number {
   return draft && draft.frameId === frameId && draft.caret != null ? draft.caret : fallback
 }
 

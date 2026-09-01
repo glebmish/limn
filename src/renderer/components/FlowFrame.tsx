@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
+import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
 import {
   caretAfterGrowth, frameGutter, frameKeyAction, lineColToCaret, narrowEdit, seedFrameCaret, seedFrameText
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
- *  store/edits.ts for the full rationale (#6 fix-round-1). */
-interface FrameScope { file: string; start: number; end: number; caretCol?: number; frameId: number }
+ *  store/edits.ts for the full rationale (#6 fix-round-1) and why it's a
+ *  `crypto.randomUUID()` string rather than a counter (fix-round-2). */
+interface FrameScope { file: string; start: number; end: number; caretCol?: number; frameId: string }
 
 /** Caret position inside a textarea, as (line, column) plus the line count. */
 function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCount: number } {
@@ -37,13 +39,15 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   useEffect(() => () => { alive.current = false }, [])
 
   /** Persist the live draft under this session's `frameId` (#6 fix-round-1) — a
-   *  plain store write, not React state, so it survives even when *this* component
-   *  instance is about to be torn down (growth crossing a real git-hunk boundary
-   *  still forces a remount; DiffBody's key-matched reconciliation only reaches
-   *  within one hunk's own flattened row array). Called at every point `text`
-   *  intentionally changes: typing and the ↑/↓ growth gesture. */
+   *  plain module-level write (store/edits.ts's `setEditDraft`, outside zustand's
+   *  reactive state — fix-round-2, see its doc comment), not React state, so it
+   *  survives even when *this* component instance is about to be torn down (growth
+   *  crossing a real git-hunk boundary still forces a remount; DiffBody's
+   *  key-matched reconciliation only reaches within one hunk's own flattened row
+   *  array). Called at every point `text` intentionally changes: typing, the ↑/↓
+   *  growth gesture, and the same-line-conflict/Re-apply paths in `save()`. */
   const draft = (nextText: string, caret: number | null): void => {
-    useStore.getState().setEditDraft({ frameId: frame.frameId, text: nextText, caret })
+    setEditDraft({ frameId: frame.frameId, text: nextText, caret })
   }
 
   // fetch the working file once per open frame; growth reuses the fetched lines.
@@ -62,7 +66,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         // hunk boundary) restores the live draft instead of re-reading disk and
         // silently discarding what was typed — see seedFrameText's doc comment.
         const diskText = wf.lines.slice(frame.start - 1, frame.end).join('\n')
-        setText(seedFrameText(useStore.getState().editDraft, frame.frameId, diskText))
+        setText(seedFrameText(getEditDraft(), frame.frameId, diskText))
       } catch {
         if (alive.current) setEditFrame(null)
       }
@@ -97,7 +101,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     // a restored draft's own caret wins over the double-click column — the text it
     // was captured against no longer matches what's on screen otherwise
     const fallback = lineColToCaret(text.split('\n'), 0, frame.caretCol ?? Infinity)
-    const pos = seedFrameCaret(useStore.getState().editDraft, frame.frameId, fallback)
+    const pos = seedFrameCaret(getEditDraft(), frame.frameId, fallback)
     ta.setSelectionRange(pos, pos)
   }, [fileLines, text, frame.caretCol, frame.frameId])
 
@@ -120,9 +124,15 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     // the fresh content with the typed text kept — never a retype (spec inv 6).
     const end = Math.min(frame.end, res.current.length)
     const start = Math.max(1, Math.min(frame.start, end || 1))
+    const fresh = res.current.slice(start - 1, end).join('\n')
     setYours(value)
     setFileLines(res.current)
-    setText(res.current.slice(start - 1, end).join('\n'))
+    setText(fresh)
+    // the draft must move with `text` here too (fix-round-2 minor): `refreshLoaded`
+    // below can shift which row is "first" (folds fall in/out), and a remount at
+    // that moment must not reseed the stale pre-conflict text under the same
+    // frameId — no caret to restore across a conflict reset, hence null
+    draft(fresh, null)
     // same edit session, re-anchored after a conflict — carry the id forward so
     // this stays the live instance (no remount) and no draft gets dropped under it
     setEditFrame({ file: f.path, start, end, frameId: frame.frameId })
@@ -185,7 +195,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         <div className="ff-yours">
           <span>These lines changed while you were editing — refreshed to the new version; your text is kept:</span>
           <code>{yours}</code>
-          <button className="ff-btn ff-ok" onClick={() => { const t = yours; setYours(null); setText(t); void save(t) }}>Re-apply</button>
+          <button className="ff-btn ff-ok" onClick={() => { const t = yours; setYours(null); setText(t); draft(t, null); void save(t) }}>Re-apply</button>
         </div>
       )}
       <div className="ff-body">

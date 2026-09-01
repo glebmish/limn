@@ -15,6 +15,7 @@ const listRepoSessions = vi.fn(async () => [])
 }
 
 import { useStore } from '../src/renderer/store'
+import { getEditDraft, setEditDraft } from '../src/renderer/store/edits'
 
 const file: FileDiff = {
   path: 'src/a.ts', status: 'modified', binary: false, add: 1, del: 1, hunks: [], fileHash: 'oldhash'
@@ -106,14 +107,19 @@ describe('saveEdit', () => {
 // "a different edit" (a double-click/pencil re-open elsewhere while one is already
 // open — the Critical regression: a bare constant key let that reuse a stale
 // instance and silently CAS-write the old typed text under the new line numbers).
+// fix-round-2: `editDraft` moved out of the reactive store entirely (a per-keystroke
+// `set({ editDraft })` re-rendered every selector-less `useStore()` subscriber in
+// the app for a value nothing reactively reads) — `getEditDraft`/`setEditDraft` are
+// now plain module-level functions, exercised directly rather than through the store.
 describe('setEditFrame — frameId + editDraft', () => {
   beforeEach(() => {
-    useStore.setState({ editFrame: null, editDraft: null })
+    useStore.setState({ editFrame: null })
+    setEditDraft(null)
   })
 
   it('opening a frame without a frameId mints one', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
-    expect(useStore.getState().editFrame?.frameId).toEqual(expect.any(Number))
+    expect(useStore.getState().editFrame?.frameId).toEqual(expect.any(String))
   })
 
   it('two separate opens (no frameId passed) mint two DIFFERENT ids — an unrelated re-open is a new session', () => {
@@ -141,26 +147,26 @@ describe('setEditFrame — frameId + editDraft', () => {
   it('opening a genuinely NEW frame drops a leftover draft from the previous session', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const id = useStore.getState().editFrame!.frameId
-    useStore.getState().setEditDraft({ frameId: id, text: 'typed but never saved', caret: 3 })
+    setEditDraft({ frameId: id, text: 'typed but never saved', caret: 3 })
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 20, end: 20 }) // a different line, no frameId passed
-    expect(useStore.getState().editDraft).toBeNull()
+    expect(getEditDraft()).toBeNull()
   })
 
   it('growth (frameId carried through) leaves the existing draft alone', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const frame = useStore.getState().editFrame!
     const draft = { frameId: frame.frameId, text: 'typed', caret: 3 }
-    useStore.getState().setEditDraft(draft)
+    setEditDraft(draft)
     useStore.getState().setEditFrame({ ...frame, end: frame.end + 1 })
-    expect(useStore.getState().editDraft).toEqual(draft)
+    expect(getEditDraft()).toEqual(draft)
   })
 
-  it('closing the frame (null) clears both editFrame and editDraft — covers save success, cancel, and error paths, which all close via null', () => {
+  it('closing the frame (null) clears both editFrame and the draft — covers save success, cancel, and error paths, which all close via null', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const id = useStore.getState().editFrame!.frameId
-    useStore.getState().setEditDraft({ frameId: id, text: 'typed', caret: 3 })
+    setEditDraft({ frameId: id, text: 'typed', caret: 3 })
     useStore.getState().setEditFrame(null)
     expect(useStore.getState().editFrame).toBeNull()
-    expect(useStore.getState().editDraft).toBeNull()
+    expect(getEditDraft()).toBeNull()
   })
 })

@@ -18,29 +18,26 @@ import { fileViewed, renderedFiles } from './derive'
  *  instance (growth), different id ⇒ a full remount (an unrelated edit — see #6
  *  fix-round-1's Critical finding: a shared, position-independent-but-*constant* key
  *  let a same-hunk re-open reuse a stale instance and silently save the old typed
- *  text under the new line numbers). */
-export interface EditFrame { file: string; start: number; end: number; caretCol?: number; frameId: number }
+ *  text under the new line numbers). A `crypto.randomUUID()` string, not a counter
+ *  (fix-round-2): a module-level counter resets on a Vite HMR reload of this module
+ *  while the live store can still hold a frame minted by the pre-reload counter —
+ *  colliding ids would reopen the Critical bug in dev. */
+export interface EditFrame { file: string; start: number; end: number; caretCol?: number; frameId: string }
 
 /** In-place edits (specs/inplace-edits): the single open flow frame plus the save
  *  pipeline. The frame's *text* lives in the FlowFrame component — the store holds
- *  only the scope (plus a draft safety net, below), so DiffBody can hide the covered
- *  rows and enforce "at most one frame per review". */
+ *  only the scope, so DiffBody can hide the covered rows and enforce "at most one
+ *  frame per review". The live draft (typed text + caret, fix-round-1's data-loss
+ *  fix) is a safety net for a forced remount, not application state — see
+ *  `getEditDraft`/`setEditDraft` below for why it deliberately lives outside this
+ *  reactive slice. */
 export interface EditsSlice {
   editFrame: EditFrame | null
   /** Pass `frameId` to preserve the edit session (growth, same-line-conflict
    *  reopen — both spread/carry the current frame); omit it to open fresh, which
    *  mints a new id and drops any leftover draft from a previous session. Passing
    *  `null` closes the frame and always drops the draft. */
-  setEditFrame(frame: (Omit<EditFrame, 'frameId'> & { frameId?: number }) | null): void
-
-  /** The open frame's live draft — typed text plus caret — keyed to
-   *  `editFrame.frameId` (#6 fix-round-1). See `FrameDraft`/`seedFrameText` in
-   *  lib/edits.ts for why this exists: it lets a frame that's forced to remount
-   *  while remaining the *same* edit session (growth crossing a real git-hunk
-   *  boundary) restore what the user typed instead of silently re-seeding from disk.
-   *  Cleared whenever a frame closes or a genuinely new one opens. */
-  editDraft: FrameDraft | null
-  setEditDraft(draft: EditsSlice['editDraft']): void
+  setEditFrame(frame: (Omit<EditFrame, 'frameId'> & { frameId?: string }) | null): void
 
   /** The post-save keyboard round trip (board 12): saving leaves a selection on the
    *  line — ↑/↓ move it (DiffBody reveals folds as they're crossed), ⏎ re-enters
@@ -59,38 +56,47 @@ export interface EditsSlice {
   refreshLoaded(): Promise<void>
 }
 
-// module-level, not store state: a plain monotonic counter, never persisted or
-// serialized — it only needs to be unique within this running app, the same way a
-// React key only needs to be unique within its siblings.
-let nextFrameId = 1
+// The live draft (fix-round-1's data-loss fix) lives here, outside zustand's
+// reactive state entirely — fix-round-2. Nothing subscribes to it reactively: both
+// reads in FlowFrame.tsx go through `getEditDraft()`, called imperatively inside an
+// effect/handler, never through a `useStore` selector. Putting it in store state
+// (as fix-round-1 first did) meant every keystroke called `set({ editDraft })`, a
+// new top-level state object that re-renders every selector-less `useStore()`
+// subscriber in the app (Review.tsx, DiffView.tsx, SectionView.tsx, ActionChips.tsx,
+// ChatDrawer.tsx, App.tsx — none memoized) — per-keystroke jank on a large review,
+// for a value nothing but FlowFrame itself ever reads. Durability doesn't need
+// reactivity; a plain module-level slot gives the same survive-a-remount guarantee
+// (it's not tied to any component instance) without the render fan-out.
+let draftSlot: FrameDraft | null = null
+
+export function getEditDraft(): FrameDraft | null {
+  return draftSlot
+}
+
+export function setEditDraft(draft: FrameDraft | null): void {
+  draftSlot = draft
+}
 
 export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set, get) => ({
   editFrame: null,
-  editDraft: null,
   lineSelect: null,
 
   setEditFrame(frame) {
     if (!frame) {
       // closing always drops the draft — there's nothing left to restore it into
-      set({ editFrame: null, editDraft: null })
+      setEditDraft(null)
+      set({ editFrame: null })
       return
     }
     // opening a frame swallows any line selection; closing leaves it to the caller
     // (a save re-establishes it on the saved line, a cancel keeps none)
     const isNewSession = frame.frameId == null
-    const editFrame: EditFrame = { ...frame, frameId: frame.frameId ?? nextFrameId++ }
-    set({
-      editFrame,
-      lineSelect: null,
-      // a brand-new session (a different line, or a fresh re-open) never inherits a
-      // leftover draft from whatever was open before — only growth/reopen paths that
-      // explicitly carry `frameId` forward are "the same edit" for this purpose
-      ...(isNewSession ? { editDraft: null } : {})
-    })
-  },
-
-  setEditDraft(draft) {
-    set({ editDraft: draft })
+    // a brand-new session (a different line, or a fresh re-open) never inherits a
+    // leftover draft from whatever was open before — only growth/reopen paths that
+    // explicitly carry `frameId` forward are "the same edit" for this purpose
+    if (isNewSession) setEditDraft(null)
+    const editFrame: EditFrame = { ...frame, frameId: frame.frameId ?? crypto.randomUUID() }
+    set({ editFrame, lineSelect: null })
   },
 
   setLineSelect(sel) {

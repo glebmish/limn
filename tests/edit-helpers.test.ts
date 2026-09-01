@@ -183,35 +183,35 @@ describe('caretAfterGrowth', () => {
 // re-seeding from disk.
 describe('seedFrameText', () => {
   it('no draft at all — falls back to disk', () => {
-    expect(seedFrameText(null, 1, 'disk content')).toBe('disk content')
+    expect(seedFrameText(null, 'a', 'disk content')).toBe('disk content')
   })
 
   it('a draft for this exact session wins over disk', () => {
-    expect(seedFrameText({ frameId: 1, text: 'typed content', caret: 3 }, 1, 'disk content'))
+    expect(seedFrameText({ frameId: 'a', text: 'typed content', caret: 3 }, 'a', 'disk content'))
       .toBe('typed content')
   })
 
   it('a draft for a DIFFERENT session is ignored — never leaks into a new edit', () => {
-    expect(seedFrameText({ frameId: 1, text: 'stale from another edit', caret: 3 }, 2, 'disk content'))
+    expect(seedFrameText({ frameId: 'a', text: 'stale from another edit', caret: 3 }, 'b', 'disk content'))
       .toBe('disk content')
   })
 })
 
 describe('seedFrameCaret', () => {
   it('no draft — falls back', () => {
-    expect(seedFrameCaret(null, 1, 7)).toBe(7)
+    expect(seedFrameCaret(null, 'a', 7)).toBe(7)
   })
 
   it('a draft for this session with a recorded caret wins over the fallback', () => {
-    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: 4 }, 1, 7)).toBe(4)
+    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: 4 }, 'a', 7)).toBe(4)
   })
 
   it('a draft for this session with no recorded caret (null) still falls back', () => {
-    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: null }, 1, 7)).toBe(7)
+    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: null }, 'a', 7)).toBe(7)
   })
 
   it('a draft for a different session is ignored', () => {
-    expect(seedFrameCaret({ frameId: 1, text: 'x', caret: 4 }, 2, 7)).toBe(7)
+    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: 4 }, 'b', 7)).toBe(7)
   })
 })
 

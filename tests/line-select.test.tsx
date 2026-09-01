@@ -29,7 +29,7 @@ function seed(over: { sel?: { file: string; line: number } | null; frame?: { fil
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
   ;(init as { lineSelect: unknown }).lineSelect = over.sel ?? null
-  ;(init as { editFrame: unknown }).editFrame = over.frame ? { ...over.frame, frameId: 1 } : null
+  ;(init as { editFrame: unknown }).editFrame = over.frame ? { ...over.frame, frameId: 'test-frame' } : null
 }
 
 afterEach(() => {
