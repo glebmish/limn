@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { FileDiff } from '../src/shared/types'
-import { groupByDir, orderFilesForReview } from '../src/renderer/lib/fileOrder'
+import type { FileDiff, Section } from '../src/shared/types'
+import { groupByDir, orderFilesForReview, sectionIndex } from '../src/renderer/lib/fileOrder'
 
 function file(path: string): FileDiff {
   return { path, status: 'modified', binary: false, add: 1, del: 0, hunks: [] }
@@ -94,5 +94,35 @@ describe('groupByDir', () => {
 
   it('returns an empty array for empty input', () => {
     expect(groupByDir([])).toEqual([])
+  })
+})
+
+describe('sectionIndex', () => {
+  function section(id: string, files: string[]): Section {
+    return { id, name: id, files, narration: [] }
+  }
+
+  it('maps every listed path to its section id', () => {
+    const index = sectionIndex([section('s1', ['src/a.ts', 'src/b.ts']), section('s2', ['README.md'])])
+
+    expect(index.get('src/a.ts')).toBe('s1')
+    expect(index.get('src/b.ts')).toBe('s1')
+    expect(index.get('README.md')).toBe('s2')
+  })
+
+  it('gives a path listed in two sections to the first one', () => {
+    const index = sectionIndex([section('s1', ['src/a.ts']), section('s2', ['src/a.ts'])])
+
+    expect(index.get('src/a.ts')).toBe('s1')
+  })
+
+  it('has no entry for an unsectioned path', () => {
+    const index = sectionIndex([section('s1', ['src/a.ts'])])
+
+    expect(index.get('untracked.ts')).toBeUndefined()
+  })
+
+  it('is empty for no sections', () => {
+    expect(sectionIndex([]).size).toBe(0)
   })
 })

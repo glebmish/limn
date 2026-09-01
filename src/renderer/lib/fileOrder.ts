@@ -1,4 +1,4 @@
-import type { FileDiff } from '../../shared/types'
+import type { FileDiff, Section } from '../../shared/types'
 
 export interface FileTreeDir {
   name: string
@@ -56,18 +56,30 @@ export function orderFilesForReview(files: readonly FileDiff[], explicitPaths?: 
 }
 
 export function groupByDir<T extends { path: string }>(files: readonly T[]): { dir: string; files: T[] }[] {
-  const order: string[] = []
-  const groups = new Map<string, T[]>()
+  const order: { dir: string; files: T[] }[] = []
+  const groups = new Map<string, { dir: string; files: T[] }>()
   for (const f of files) {
     const slash = f.path.lastIndexOf('/')
     const dir = slash === -1 ? '' : f.path.slice(0, slash + 1)
     let group = groups.get(dir)
     if (!group) {
-      group = []
+      group = { dir, files: [] }
       groups.set(dir, group)
-      order.push(dir)
+      order.push(group)
     }
-    group.push(f)
+    group.files.push(f)
   }
-  return order.map((dir) => ({ dir, files: groups.get(dir) as T[] }))
+  return order
+}
+
+/** path → id of the first section that lists it. Sections own disjoint file sets in
+ *  practice, but a path listed twice belongs to the section the reviewer meets first,
+ *  which is where a jump should land. Paths no section claims (working-tree extras)
+ *  are simply absent. */
+export function sectionIndex(sections: readonly Section[]): Map<string, string> {
+  const index = new Map<string, string>()
+  for (const s of sections) {
+    for (const path of s.files) if (!index.has(path)) index.set(path, s.id)
+  }
+  return index
 }

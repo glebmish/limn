@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { FileDiff, ReviewAnnotations, Section } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
-import { ReviewSidebar } from '../src/renderer/components/ReviewSidebar'
+import { ReviewSidebar, makeTreeFileJump } from '../src/renderer/components/ReviewSidebar'
+import { sectionIndex } from '../src/renderer/lib/fileOrder'
 import { useStore } from '../src/renderer/store'
 
 // zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
@@ -115,5 +116,27 @@ describe('ReviewSidebar — Sections/Tree toggle', () => {
     const out = renderToStaticMarkup(<ReviewSidebar {...baseProps({ annotations: undefined })} />)
 
     expect(out).not.toContain('role="radiogroup"')
+  })
+})
+
+describe('ReviewSidebar — tree-mode file clicks', () => {
+  const calls: string[] = []
+  const jump = makeTreeFileJump(
+    sectionIndex(sections),
+    (sectionId, path) => calls.push(`file:${sectionId}:${path}`),
+    (path) => calls.push(`raw:${path}`)
+  )
+  afterEach(() => { calls.length = 0 })
+
+  it('opens the owning section for a sectioned file (a collapsed or done section renders no file node)', () => {
+    jump('src/auth/a.ts')
+
+    expect(calls).toEqual(['file:s1:src/auth/a.ts'])
+  })
+
+  it('falls back to a raw jump for a file no section claims', () => {
+    jump('README.md')
+
+    expect(calls).toEqual(['raw:README.md'])
   })
 })

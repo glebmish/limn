@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { Artifact, Comment, FileDiff, ReviewAnnotations, Section, ViewMark } from '../../shared/types'
 import { narrationText } from '../../shared/types'
@@ -6,8 +6,26 @@ import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import { focusAnchor } from '../lib/focus'
+import { sectionIndex } from '../lib/fileOrder'
 import { FileTree } from './FileTree'
 import { Composer, InlineThread } from './Threads'
+
+/** Tree mode lists every file outside its section, so a click can land on a file whose
+ *  section is collapsed or done — and a closed section renders no file nodes at all, so
+ *  a raw jump would poll for a `[data-limn-file]` that isn't there and quietly give up.
+ *  Route sectioned paths through `jumpToFile`, which force-opens the section first; only
+ *  paths no section claims (working-tree extras) jump raw. */
+export function makeTreeFileJump(
+  sectionOfPath: Map<string, string>,
+  jumpToFile: (sectionId: string, path: string) => void,
+  jumpToRawFile: (path: string) => void
+): (path: string) => void {
+  return (path) => {
+    const sectionId = sectionOfPath.get(path)
+    if (sectionId) jumpToFile(sectionId, path)
+    else jumpToRawFile(path)
+  }
+}
 
 /** The left review spine (`<nav className="gside">`): the artifact groups + their peek
  *  panels (spec acceptance criteria / plan steps, each with its inline comment composer),
@@ -72,6 +90,8 @@ export function ReviewSidebar({
   closeDocBack: () => void
 }) {
   const { sidebarView, setSidebarView } = useStore()
+  const sectionOfPath = useMemo(() => sectionIndex(sections), [sections])
+  const jumpToTreeFile = makeTreeFileJump(sectionOfPath, jumpToFile, jumpToRawFile)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const stepComments = (n: number) => comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -211,22 +231,14 @@ export function ReviewSidebar({
           )}
           <span className="pl-prog">{annotations ? `${reviewedCount}/${sections.length} sections · ` : ''}{viewedCount}/{fileCount} viewed</span>
         </div>
-        {!annotations ? (
+        {!annotations || sidebarView === 'tree' ? (
           <FileTree
             files={flatDisplayFiles}
             viewedAt={viewedAt}
             headSha={loaded.skeleton.headSha}
             currentFile={curFile}
-            onFileClick={(path) => jumpToRawFile(path)}
-            className="gnav-tree-flat"
-          />
-        ) : sidebarView === 'tree' ? (
-          <FileTree
-            files={flatDisplayFiles}
-            viewedAt={viewedAt}
-            headSha={loaded.skeleton.headSha}
-            currentFile={curFile}
-            onFileClick={(path) => jumpToRawFile(path)}
+            // an unannotated review has no sections to open, so its clicks jump raw
+            onFileClick={annotations ? jumpToTreeFile : jumpToRawFile}
             order="tree"
             className="gnav-tree-flat"
           />
