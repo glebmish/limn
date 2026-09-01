@@ -83,6 +83,19 @@ export function lineColToCaret(lines: string[], lineIdx: number, col: number): n
   return offset + Math.max(0, Math.min(col, lineLen))
 }
 
+/** Caret offset inside the frame's textarea text right after the ↑/↓ past-the-edge
+ *  growth gesture (#6) admits a neighbouring file line. `joined` is the admitted
+ *  line; `col` is the caret's column on the row it was on just before growth,
+ *  clamped to `joined`'s own length (the admitted line may be shorter). `prefixLength`
+ *  is how many characters of the *new* text come before `joined`: `0` when the line
+ *  is prepended above the frame's first row (↑ — nothing precedes it), or the old
+ *  text's length plus one (the joining `\n`) when it's appended below the last row
+ *  (↓). Both directions reduce to the same shape — this is what makes the caret
+ *  land in the newly admitted line, symmetrically, whichever edge grew. */
+export function caretAfterGrowth(prefixLength: number, joined: string, col: number): number {
+  return prefixLength + Math.max(0, Math.min(col, joined.length))
+}
+
 /** Map a column measured against a tab-expanded *display* string back to an offset
  *  in the corresponding *raw* line (#5). The diff view renders every line through
  *  `disp()` (tabs → two spaces, DiffBody.tsx) so word-diff marks line up in the

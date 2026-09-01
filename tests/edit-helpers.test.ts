@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import {
-  discardSpanAt, fileEditable, frameGutter, frameKeyAction, lineColToCaret, narrowEdit,
-  rawOffsetFromDisplayColumn
+  caretAfterGrowth, discardSpanAt, fileEditable, frameGutter, frameKeyAction, lineColToCaret,
+  narrowEdit, rawOffsetFromDisplayColumn
 } from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
@@ -145,6 +145,36 @@ describe('lineColToCaret', () => {
   it('clamps an out-of-range line index to the last line', () => {
     expect(lineColToCaret(['ab', 'cd'], 5, 0)).toBe(3) // start of "cd"
     expect(lineColToCaret(['ab', 'cd'], -1, 0)).toBe(0) // start of "ab"
+  })
+})
+
+// ── #6: caret placement after the ↑/↓ past-the-edge growth gesture
+describe('caretAfterGrowth', () => {
+  it('↑: prepended at the very start of the new text — offset is just the column', () => {
+    // caret was at column 3 on the old first row; ↑ admits "hello" above it
+    expect(caretAfterGrowth(0, 'hello', 3)).toBe(3)
+    expect(caretAfterGrowth(0, 'hello', 0)).toBe(0)
+  })
+
+  it('↓: appended after the old text and its joining newline', () => {
+    // old text was "ab\ncd" (length 5); ↓ admits "efg" below at column 1
+    expect(caretAfterGrowth(6, 'efg', 1)).toBe(7) // 6 = "ab\ncd".length + 1
+  })
+
+  it('clamps the column to the admitted line\'s own length', () => {
+    expect(caretAfterGrowth(0, 'hi', 99)).toBe(2)
+    expect(caretAfterGrowth(0, 'hi', Infinity)).toBe(2)
+    expect(caretAfterGrowth(6, 'hi', 99)).toBe(8)
+  })
+
+  it('clamps a negative column to the start of the admitted line', () => {
+    expect(caretAfterGrowth(0, 'hi', -3)).toBe(0)
+    expect(caretAfterGrowth(6, 'hi', -3)).toBe(6)
+  })
+
+  it('an empty admitted line always lands at its own (zero-width) position', () => {
+    expect(caretAfterGrowth(0, '', 5)).toBe(0)
+    expect(caretAfterGrowth(4, '', 5)).toBe(4)
   })
 })
 

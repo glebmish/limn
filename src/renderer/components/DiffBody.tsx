@@ -115,11 +115,23 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     frame != null && l.new != null && l.new >= frame.start && l.new <= frame.end
   // The frame mounts exactly once, at the first covered row in document order
   // (hunk rows and expanded context rows alike) — a per-render flag, not state.
+  // Its key is a single literal, not derived from that row's position (line number,
+  // hunk/row index…): the ↑/↓ growth gesture (#6) can move which row is "first" from
+  // one render to the next (extending upward admits a new, earlier row), and a
+  // position-derived key would make React treat that as a different element —
+  // unmounting the live FlowFrame (losing focus, the caret, and the fetched file
+  // lines) and mounting a fresh one in its place. A stable key lets React match the
+  // old and new elements across the move and reuse the same component instance —
+  // and, since it's a DOM move rather than remove+insert, the browser keeps focus on
+  // the textarea inside it for free. Returned bare (no wrapping element) so this
+  // literal is the key React actually reconciles by — a wrapping <Fragment key=…>
+  // would still pin the *inner* <FlowFrame> to whatever key mountFrame gave it, which
+  // was exactly as position-derived as the outer key it replaced.
   let frameMounted = false
-  const mountFrame = (key: string): React.ReactNode => {
+  const mountFrame = (): React.ReactNode => {
     if (!frame || frameMounted) return null
     frameMounted = true
-    return <FlowFrame key={key} f={f} frame={frame} />
+    return <FlowFrame key="flow-frame" f={f} frame={frame} />
   }
   const openFrameAt = (l: DiffLine, e?: React.MouseEvent<HTMLElement>): void => {
     if (!editable || l.new == null) return
@@ -231,9 +243,12 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     if (!gap || (gap.to != null && gap.to < gap.from)) return null
     const rows = expandedGaps[gap.key]
     if (rows) {
-      return rows.map((l) => (
-        <Fragment key={`x${gap.key}-${l.new}`}>
-          {coveredBy(l) ? mountFrame(`xf-${l.new}`) : (
+      return rows.map((l) => {
+        // covered rows return the mount slot directly (or null) — never wrapped in a
+        // Fragment keyed by this row's own position; see the comment on mountFrame.
+        if (coveredBy(l)) return mountFrame()
+        return (
+          <Fragment key={`x${gap.key}-${l.new}`}>
             <div
               className={'dline' + (selected && l.new === selected.line ? ' line-selected' : '')}
               data-limn-line={`${f.path}:new:${l.new}`}
@@ -253,9 +268,9 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                 </button>
               )}
             </div>
-          )}
-        </Fragment>
-      ))
+          </Fragment>
+        )
+      })
     }
     const count = gap.to != null ? gap.to - gap.from + 1 : null
     return (
@@ -288,17 +303,26 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
             )
             : <div className="nodiff">No textual changes.</div>
           )}
-          {hunks.map((h, i) => (
-            <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>
-              {gapBlock(i === 0 ? 1 : gapStarts[i], false, i === 0 ? 'above' : '')}
-              <div className="hunk-head">
+          {hunks.map((h, i) => {
+            // The leading gap, the head, and the hunk's own lines are flattened into
+            // one array (rather than three separate `{a}{b}{c}` JSX children) so a
+            // growing frame that crosses from the gap into the hunk's own rows (or
+            // back) reconciles as ONE flat, key-matched list. Three separate curly
+            // children do NOT share a key-space with each other — verified live: with
+            // them separate, a frame growing across exactly that boundary still lost
+            // its FlowFrame instance (this file's own gap/hunk boundary reproduced
+            // it), even though `mountFrame`'s key is the same constant literal on
+            // both sides.
+            const rows: React.ReactNode[] = [
+              gapBlock(i === 0 ? 1 : gapStarts[i], false, i === 0 ? 'above' : ''),
+              <div key="head" className="hunk-head">
                 <I.diff style={{ width: 12, height: 12, opacity: 0.6 }} />
                 {h.range}
                 {h.header && <span style={{ color: 'var(--muted-2)' }}>{h.header}</span>}
                 {h.since && <span style={{ color: 'var(--amber)' }}>· changed since approval</span>}
                 {!h.since && h.sinceViewed && <span style={{ color: 'var(--amber)' }}>· changed since viewed</span>}
-              </div>
-              {h.lines.map((l, j) => {
+              </div>,
+              h.lines.map((l, j) => {
                 const side: 'new' | 'old' = l.new != null ? 'new' : 'old'
                 const lineNo = l.new ?? l.old
                 const threads = threadsFor(lineNo, side)
@@ -308,9 +332,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                 // rows the open frame covers: the first mounts the editor, the rest
                 // hide; a − row adjacent to covered rows stays as a grey sliver
                 // (its text is what the edit may replace — scope marker, not input).
-                if (frame && coveredBy(l)) {
-                  return <Fragment key={`fr-${j}`}>{mountFrame(`frame-${i}-${j}`)}</Fragment>
-                }
+                if (frame && coveredBy(l)) return mountFrame()
                 const sliver = frame != null && l.new == null &&
                   (coveredBy(h.lines[j - 1] ?? {} as DiffLine) || coveredBy(h.lines[j + 1] ?? {} as DiffLine))
                 return (
@@ -373,9 +395,14 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
                     )}
                   </Fragment>
                 )
-              })}
-            </div>
-          ))}
+              })
+            ].flat()
+            return (
+              <div key={i} className={h.since ? 'hunk since-hunk' : 'hunk'} style={{ position: 'relative' }}>
+                {rows}
+              </div>
+            )
+          })}
           {hunks.length > 0 && gapBlock(gapStarts[hunks.length], true, 'below')}
           {notShown.length > 0 && (
             <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>

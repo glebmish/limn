@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { api } from '../lib/api'
-import { frameGutter, frameKeyAction, lineColToCaret, narrowEdit } from '../lib/edits'
+import { caretAfterGrowth, frameGutter, frameKeyAction, lineColToCaret, narrowEdit } from '../lib/edits'
 
 interface FrameScope { file: string; start: number; end: number; caretCol?: number }
 
@@ -118,15 +118,16 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
       if (e.key === 'ArrowUp' && line === 0 && frame.start > 1) {
         e.preventDefault()
         const joined = fileLines[frame.start - 2]
-        caretRef.current = Math.min(col, joined.length)
+        // prepended above everything else — nothing comes before it in the new text
+        caretRef.current = caretAfterGrowth(0, joined, col)
         setText(`${joined}\n${text}`)
         setEditFrame({ ...frame, start: frame.start - 1 })
       } else if (e.key === 'ArrowDown' && line === lineCount - 1 && frame.end < fileLines.length) {
         e.preventDefault()
         const joined = fileLines[frame.end]
-        const next = `${text}\n${joined}`
-        caretRef.current = next.length - joined.length + Math.min(col, joined.length)
-        setText(next)
+        // appended after the old text plus its joining '\n'
+        caretRef.current = caretAfterGrowth(text.length + 1, joined, col)
+        setText(`${text}\n${joined}`)
         setEditFrame({ ...frame, end: frame.end + 1 })
       }
     }
