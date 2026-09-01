@@ -409,6 +409,9 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   // — it targets the thread id (not activeChatId) and re-checks the lane,
                   // so a Send that can't run leaves the text parked instead of losing it.
                   <button className="btn btn-sm btn-primary" disabled={mode === 'blocked'}
+                    title={mode !== 'blocked' ? undefined
+                      : gate.blocked ? `${gate.branch ?? 'The branch'} isn’t checked out — check it out to send this`
+                      : 'Another chat turn is running — it’ll be sendable when it finishes'}
                     onClick={() => store.flushQueuedTurn(active.id, 'succeeded')}>
                     <I.send style={{ width: 11, height: 11 }} />Send
                   </button>

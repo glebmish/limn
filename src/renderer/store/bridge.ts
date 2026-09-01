@@ -29,11 +29,11 @@ export function handleOpResult({ opId, status, error, reload, errorCode, exclusi
   // Deliberately AFTER the reload: reload() replaces the whole chat list, so flushing
   // first would wipe the follow-up's optimistic user message for the entire next turn
   // (main persists the user row several awaits into its own handler). A reload failure
-  // still flushes — the turn is what matters, not the refreshed transcript.
+  // still flushes — the turn is what matters, not the refreshed transcript. Only this
+  // branch needs it: a flush only ever sends on 'succeeded', which always reloads.
   const { threadId } = finished
   const flush = (): void => { if (threadId != null) useStore.getState().flushQueuedTurn(threadId, status) }
   if (status === 'succeeded' || reload) void st.reload().then(flush, flush)
-  else flush()
 }
 
 export function handleRepoChanged(msg: RepoChangedMsg): void {

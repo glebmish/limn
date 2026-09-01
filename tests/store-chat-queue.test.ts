@@ -20,6 +20,9 @@ const runningOp = (threadId: number, exclusive = true) => ({
   [`op-${threadId}`]: { running: true, opId: `op-${threadId}`, kind: 'chat' as const, threadId, log: [], error: null, startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(), exclusive }
 })
 const queuedOf = (threadId: number) => useStore.getState().queuedTurnByThread[threadId]
+/** The compare branch is checked out nowhere — checkoutGate().blocked, agent writes refused. */
+const notCheckedOut = (loaded: LoadedReview): LoadedReview =>
+  ({ ...loaded, writeCapability: { enabled: false, reason: 'not-checked-out', branch: 'feat', workdir: null } })
 
 describe('queueTurn / dequeueTurn', () => {
   beforeEach(() => {
@@ -98,5 +101,44 @@ describe('flushQueuedTurn (the turn ended)', () => {
   it('is a no-op for a thread with nothing queued', () => {
     useStore.getState().flushQueuedTurn(1, 'succeeded')
     expect(sendChat).not.toHaveBeenCalled()
+  })
+
+  it('leaves the text queued when the branch stopped being checked out mid-turn', async () => {
+    // the checkout gate lives in the RENDERER for chat turns (server sendChat has no
+    // capability precheck), so the auto-flush must re-check it — the branch can be
+    // checked out when the follow-up is queued and gone by the time the turn ends.
+    const gated = notCheckedOut(makeLoaded({ chats: [chat(1)] }))
+    loadSession.mockResolvedValue(gated)
+    useStore.setState({ loaded: gated })
+    useStore.getState().startOp('chat', 'op-gate', 1)
+    useStore.getState().queueTurn(1, 'edit this file')
+    handleOpResult({ opId: 'op-gate', kind: 'chat', status: 'succeeded' })
+    await flush()
+    expect(sendChat).not.toHaveBeenCalled()
+    expect(queuedOf(1)).toBe('edit this file')
+  })
+
+  it('sends exactly once when two ops on the same thread finish close together', async () => {
+    // reachable: an update-generation reuses the review thread while a shared chat turn
+    // streams into it — two terminal results, one queued follow-up.
+    useStore.getState().startOp('chat', 'op-1', 1)
+    useStore.getState().startOp('review', 'op-2', 1)
+    useStore.getState().queueTurn(1, 'once please')
+    handleOpResult({ opId: 'op-1', kind: 'chat', status: 'succeeded' })
+    handleOpResult({ opId: 'op-2', kind: 'review', status: 'succeeded' })
+    await flush()
+    expect(sendChat).toHaveBeenCalledTimes(1)
+    expect(sendChat).toHaveBeenCalledWith(1, 'once please', expect.any(String), undefined)
+    expect(queuedOf(1)).toBeUndefined()
+  })
+
+  it('sends nothing when the reviewer discards (✕) while the flush\'s reload is in flight', async () => {
+    useStore.getState().startOp('chat', 'op-x', 1)
+    useStore.getState().queueTurn(1, 'never mind')
+    handleOpResult({ opId: 'op-x', kind: 'chat', status: 'succeeded' })
+    expect(useStore.getState().dequeueTurn(1)).toBe('never mind') // ✕, before the reload lands
+    await flush()
+    expect(sendChat).not.toHaveBeenCalled()
+    expect(queuedOf(1)).toBeUndefined()
   })
 })

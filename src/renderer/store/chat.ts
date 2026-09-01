@@ -8,7 +8,7 @@ import type { AppStore } from './index'
 import { useStore } from './index'
 import { newOpId } from './ops'
 import type { ChatDraft } from './derive'
-import { activeChat, anyRunning, chatSendBlocked, DRAFT_CHAT_ID, pickActiveChat } from './derive'
+import { activeChat, anyRunning, chatSendBlocked, checkoutGate, DRAFT_CHAT_ID, pickActiveChat } from './derive'
 import { batchTurnLabel, rebaseTurnLabel } from '../../shared/turnLabels'
 
 // ── promoted stateful helpers ────────────────────────────────
@@ -234,6 +234,11 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     // into that is worse than showing it parked with a Send button. Same for a lane
     // that filled up in the meantime (the send would be a silent no-op).
     if (!parked || status !== 'succeeded' || chatSendBlocked(get().ops, threadId)) return
+    // the checkout gate is enforced in the RENDERER for chat turns (server-side
+    // sendChat has no capability precheck, unlike sendBatch/sendRebase). The branch
+    // can stop being checked out DURING the running turn, so an auto-flush must
+    // re-check it or it would fire a write-capable turn the composer refuses.
+    if (checkoutGate(get().loaded).blocked) return
     set({ queuedTurnByThread: withoutThread(get().queuedTurnByThread, threadId) })
     sendChatToThread(threadId, parked)
   },
