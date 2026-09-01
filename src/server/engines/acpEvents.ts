@@ -234,6 +234,21 @@ function isMcpToolApproval(req: RequestPermissionRequest): boolean {
   return metas.some((m) => Boolean(m && typeof m === 'object' && (m as Record<string, unknown>).is_mcp_tool_approval === true))
 }
 
+/** codex-acp attaches the raw params it decided to surface as `_meta.codex.params`
+ *  on every permission request.
+ *  For a `require_escalated` command, `params.justification` is the model's own
+ *  user-facing question for why it needs the escalation — the one field Limn
+ *  maps into `detail.reason`; other params (network access, `grantRoot`) are out
+ *  of scope for this mapping. Returns undefined unless justification is a
+ *  non-empty string, so a missing/empty/wrongly-typed value never sets `reason`. */
+function escalationJustification(req: RequestPermissionRequest): string | undefined {
+  const meta = req._meta as Record<string, unknown> | null | undefined
+  const codex = meta && typeof meta === 'object' ? (meta.codex as Record<string, unknown> | undefined) : undefined
+  const params = codex && typeof codex === 'object' ? (codex.params as Record<string, unknown> | undefined) : undefined
+  const justification = params && typeof params === 'object' ? params.justification : undefined
+  return typeof justification === 'string' && justification.length > 0 ? justification : undefined
+}
+
 /** Normalize an ACP `session/request_permission` payload to Limn's engine-
  *  agnostic `ApprovalRequest` (spec.md §D3 first bullet) — replaced
  *  `toApprovalRequest` (claude.ts) and the app-server's `approvalRequestFromParams`
@@ -303,6 +318,9 @@ export function acpPermissionToRequest(req: RequestPermissionRequest, engine: En
     detail.toolName = title
     summary = `Use ${title}`
   }
+
+  const reason = escalationJustification(req)
+  if (reason !== undefined) detail.reason = reason
 
   return { id: tc.toolCallId, engine, kind, summary, detail }
 }

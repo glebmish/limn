@@ -28,10 +28,12 @@ export function ApprovalCard({ request, index, total, onDecide, onStop, initialO
       <div className="ac-head">
         <I.warn className="ac-ico" />
         <span className="ac-kind">{request.kind.replace(/_/g, ' ')}</span>
-        {request.risk && <span className={'ac-risk ' + request.risk}>{request.risk} risk</span>}
         {total > 1 && <span className="ac-count">{index + 1}/{total}</span>}
       </div>
       <div className="ac-summary">{request.summary}</div>
+      {request.detail?.reason && (
+        <div className="ac-reason">Agent's stated reason: {request.detail.reason}</div>
+      )}
       {request.detail?.command && (
         <div className="ac-detail">
           <code className="ac-cmd">{request.detail.command}</code>

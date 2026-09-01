@@ -520,3 +520,76 @@ describe('acpPermissionToRequest — codex-acp MCP tool approvals (_meta.is_mcp_
     expect(result.detail).toEqual({ command: 'ls' })
   })
 })
+
+describe('acpPermissionToRequest — codex-acp escalation justification (_meta.codex.params)', () => {
+  // codex-acp attaches the raw permission params it decided to surface as
+  // `_meta.codex.params` on every permission request. For a `require_escalated`
+  // command, `params.justification` is the model's own user-facing question —
+  // Limn maps it straight into `detail.reason`, no re-classification of its own.
+
+  it('maps a non-empty justification to detail.reason on a command request', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc1', kind: 'execute', title: 'Run rm -rf build', rawInput: { command: 'rm -rf build' } },
+      _meta: { codex: { params: { justification: 'Need to clear the stale build dir before rebuilding.' } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBe('Need to clear the stale build dir before rebuilding.')
+  })
+
+  it('leaves detail.reason unset when _meta.codex.params has no justification', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc2', kind: 'execute', title: 'Run npm test', rawInput: { command: 'npm test' } },
+      _meta: { codex: { params: {} } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBeUndefined()
+  })
+
+  it('leaves detail.reason unset when justification is an empty string', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc3', kind: 'execute', title: 'Run npm test', rawInput: { command: 'npm test' } },
+      _meta: { codex: { params: { justification: '' } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBeUndefined()
+  })
+
+  it('leaves detail.reason unset when justification is not a string', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc4', kind: 'execute', title: 'Run npm test', rawInput: { command: 'npm test' } },
+      _meta: { codex: { params: { justification: 42 } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBeUndefined()
+  })
+
+  it('leaves detail.reason unset when _meta is absent entirely', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc5', kind: 'execute', title: 'Run npm test', rawInput: { command: 'npm test' } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBeUndefined()
+  })
+
+  it('also maps justification for a non-command (tool_use) request', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc6', title: 'add_comment', kind: 'other' },
+      _meta: { codex: { params: { justification: 'Need to leave a note on the risky change.' } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.kind).toBe('tool_use')
+    expect(result.detail?.reason).toBe('Need to leave a note on the risky change.')
+  })
+})

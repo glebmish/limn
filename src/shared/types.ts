@@ -303,10 +303,12 @@ export interface ApprovalRequest {
     // so a huge multi-file change doesn't silently look complete.
     moreFiles?: number
     toolName?: string
+    // The agent's own stated reason for needing this escalation — e.g. codex-acp's
+    // `_meta.codex.params.justification` on a `require_escalated` command (see
+    // acpEvents.ts). Engine-supplied, never inferred by Limn.
     reason?: string
     [k: string]: unknown
   }
-  risk?: 'low' | 'medium' | 'high'   // engine-supplied hint (Codex guardian) if available
 }
 /** Per-operation only — no "approve for session". */
 export type ApprovalDecision = 'allow' | 'deny'

@@ -148,12 +148,9 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .approval-card .ac-head { display: flex; align-items: center; gap: 7px; }
 .approval-card .ac-ico { width: 14px; height: 14px; color: var(--amber); flex: 0 0 auto; }
 .approval-card .ac-kind { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); font-weight: 700; }
-.approval-card .ac-risk { font-family: var(--mono); font-size: 9px; font-weight: 700; text-transform: uppercase; border-radius: 3px; padding: 1px 5px; }
-.approval-card .ac-risk.low { color: var(--accent-ink); background: var(--accent-soft); }
-.approval-card .ac-risk.medium { color: var(--amber); background: var(--panel); border: 1px solid var(--amber-line); }
-.approval-card .ac-risk.high { color: var(--red); background: var(--panel); border: 1px solid var(--red-line); }
 .approval-card .ac-count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
 .approval-card .ac-summary { font-size: 12px; font-weight: 600; color: var(--ink); margin-top: 6px; }
+.approval-card .ac-reason { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
 .approval-card .ac-detail { margin-top: 6px; }
 .approval-card .ac-cmd { font-family: var(--mono); font-size: 11px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 7px; display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-card .ac-cwd { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }

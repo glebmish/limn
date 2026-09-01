@@ -338,7 +338,8 @@ export class FakeEngine implements ReviewEngine {
       if (turn.opId && (process.env.LIMN_FAKE_APPROVAL === '1' || turn.message.includes('[approve]'))) {
         const request: ApprovalRequest = {
           id: 'fake-1', engine: this.id, kind: 'command',
-          summary: 'Run `npm test`', detail: { command: 'npm test', cwd: turn.repo }, risk: 'low'
+          summary: 'Run `npm test`',
+          detail: { command: 'npm test', cwd: turn.repo, reason: 'Need to confirm the fix passes before reporting back.' }
         }
         const decision = await awaitDecision(turn.opId, request, (e) => q.push(e))
         q.push({ type: 'status', text: decision === 'allow' ? 'note: approved — ran npm test' : 'note: denied npm test' })

@@ -139,6 +139,38 @@ describe('ApprovalCard — command and tool_use requests', () => {
   })
 })
 
+describe('ApprovalCard — agent-stated reason', () => {
+  it('renders detail.reason as a quiet line when present', () => {
+    const request: ApprovalRequest = {
+      id: 'r10', engine: 'codex', kind: 'command', summary: 'Run `rm -rf build`',
+      detail: { command: 'rm -rf build', reason: 'Need to clear the stale build dir before rebuilding.' }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).toContain('class="ac-reason"')
+    expect(out).toContain('Need to clear the stale build dir before rebuilding.')
+  })
+
+  it('omits the reason line entirely when detail.reason is absent', () => {
+    const request: ApprovalRequest = {
+      id: 'r11', engine: 'claude', kind: 'command', summary: 'Run `npm test`', detail: { command: 'npm test' }
+    }
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).not.toContain('ac-reason')
+  })
+})
+
+describe('ApprovalCard — the dead risk field is gone', () => {
+  it('renders no risk markup even if a stale caller still sets it', () => {
+    const request = {
+      id: 'r12', engine: 'codex', kind: 'command', summary: 'Run `npm test`',
+      detail: { command: 'npm test' }, risk: 'high'
+    } as unknown as ApprovalRequest
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
+    expect(out).not.toContain('ac-risk')
+    expect(out).not.toContain('risk')
+  })
+})
+
 describe('ApprovalCard — defensive no-payload fallback', () => {
   it('renders the kind and summary without crashing when detail is entirely absent', () => {
     const request: ApprovalRequest = { id: 'r4', engine: 'codex', kind: 'file_change', summary: 'Edit' }
