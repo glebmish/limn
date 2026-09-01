@@ -90,6 +90,13 @@
   color:var(--muted);padding:3px 8px;height:18px;line-height:12px;border-radius:5px}
 .gnav-viewtoggle button:hover{color:var(--ink-2)}
 .gnav-viewtoggle button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 0 var(--line-2)}
+/* The toggle (~107px) and the progress string share a 286px rail with only ~13px
+   to spare at `5/8 sections · 12/34 viewed`; one more digit on either count
+   (`8/12 sections · 240/318 viewed`) overflows and wraps, so the header would
+   grow a row — and the whole rail would shift — as the counts tick over during a
+   review. With the toggle present, stack deliberately instead: control row, then
+   the status line under it, at a height that never depends on the digits. */
+.gnav-planlabel:has(.gnav-viewtoggle){flex-wrap:nowrap;flex-direction:column;align-items:flex-start;gap:5px}
 .gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px;cursor:pointer}
 .gsec-step{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
   color:var(--accent-ink);margin-bottom:4px}
