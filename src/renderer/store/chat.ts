@@ -371,6 +371,10 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     try {
       const chats = await api().deleteChat(id)
       setChats(chats)
+      // the thread's parked follow-up dies with the thread: a turn still running when
+      // the chat was deleted would otherwise flush the send at an id the server no
+      // longer has.
+      set({ queuedTurnByThread: withoutThread(get().queuedTurnByThread, id) })
       if (get().activeChatId === id) set({ activeChatId: pickActiveChat(chats, null) })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })

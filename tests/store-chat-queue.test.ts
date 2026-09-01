@@ -7,7 +7,8 @@ const sendChat = vi.fn(async () => {})
 const loadSession = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
 const repoState = vi.fn(async () => ({}))
 const listRepoSessions = vi.fn(async () => [])
-;(globalThis as unknown as { window: unknown }).window = { api: { sendChat, loadSession, repoState, listRepoSessions } }
+const deleteChat = vi.fn(async (): Promise<ChatThread[]> => [])
+;(globalThis as unknown as { window: unknown }).window = { api: { sendChat, loadSession, repoState, listRepoSessions, deleteChat } }
 
 import { useStore } from '../src/renderer/store'
 import { handleOpResult } from '../src/renderer/store/bridge'
@@ -130,6 +131,19 @@ describe('flushQueuedTurn (the turn ended)', () => {
     expect(sendChat).toHaveBeenCalledTimes(1)
     expect(sendChat).toHaveBeenCalledWith(1, 'once please', expect.any(String), undefined)
     expect(queuedOf(1)).toBeUndefined()
+  })
+
+  it('sends nothing when the reviewer deleted the chat while its turn was still running', async () => {
+    // deleting the thread must take its parked follow-up with it — otherwise the turn's
+    // terminal result flushes a send at a thread the server no longer has (error toast).
+    deleteChat.mockResolvedValue([])
+    useStore.getState().startOp('chat', 'op-del', 1)
+    useStore.getState().queueTurn(1, 'and then the docs')
+    await useStore.getState().deleteChat(1)
+    expect(queuedOf(1)).toBeUndefined()
+    handleOpResult({ opId: 'op-del', kind: 'chat', status: 'succeeded' })
+    await flush()
+    expect(sendChat).not.toHaveBeenCalled()
   })
 
   it('sends nothing when the reviewer discards (✕) while the flush\'s reload is in flight', async () => {

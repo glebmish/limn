@@ -152,6 +152,8 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 | `full` | Full access | `bypassPermissions` | `agent-full-access` |
 | read-only chat (`writeEnabled` false) | — | `default` + client-side deny | `read-only` |
 
+The two layers change at different rates: the ladder tier is re-read from the thread at **each** permission request (so a mid-turn tier change applies from the next request on), while this engine-session mode is negotiated **once** at turn start — which means a mid-turn downgrade always bites, but a mid-turn upgrade only affects the requests the engine still surfaces under the mode it started with.
+
 **(b) One shared decision function** — `ladderPolicy(mode, req, writeEnabled)` (`shared/approvalPolicy.ts`, pure, unit-tested) runs on **every** incoming `session/request_permission`, identical for both engines. The ACP payload is normalized to Limn's `ApprovalRequest` (`acpPermissionToRequest`: `execute` → `command`, `edit|delete|move`/diff → `file_change`, else `tool_use`), then the tier × kind table decides:
 
 | Tier | limn MCP tools | `file_change` | `command` (safe) | `command` (unsafe) | other `tool_use` |

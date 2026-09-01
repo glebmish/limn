@@ -68,8 +68,9 @@ controls how much it can do on its own:
 - **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
   without confirming each step.
 
-Only use **Auto mode** or **Full access** on repos you trust. For code you have not
-vetted, stay on **Ask for approval** or **Accept edits**.
+Only use **Auto mode** or **Full access** on repos you trust. New chats start in
+**Auto mode**. For code you have not vetted, switch the chat to **Ask for approval**
+or **Accept edits** using the tier selector under the composer.
 
 ## Install
 
