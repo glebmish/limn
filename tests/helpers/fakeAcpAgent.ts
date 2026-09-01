@@ -49,6 +49,10 @@ export interface FakeTurn {
   updates?: SessionUpdate[]
   /** when set, the fake requests permission and branches on the outcome. */
   permission?: FakePermission
+  /** several permission requests raised SEQUENTIALLY in one turn (each awaited
+   *  before the next is sent) — how a mid-turn tier change is observed. Takes
+   *  precedence over `permission`; the reject branch fires if ANY was rejected. */
+  permissions?: FakePermission[]
   /** the agent_message_chunk text emitted as the turn's answer (allow path). */
   text?: string
   /** text emitted when a permission was rejected (reject path). */
@@ -170,8 +174,8 @@ class FakeAgent implements Agent {
       }
 
       let rejected = false
-      if (turn.permission) {
-        const p = turn.permission
+      const perms = turn.permissions ?? (turn.permission ? [turn.permission] : [])
+      for (const p of perms) {
         const res = await this.conn.requestPermission({
           sessionId,
           toolCall: {
@@ -184,11 +188,11 @@ class FakeAgent implements Agent {
           ...(p.meta !== undefined ? { _meta: p.meta } : {}),
           options: p.options ?? DEFAULT_OPTIONS
         })
-        record({ event: 'permissionOutcome', outcome: res.outcome })
+        record({ event: 'permissionOutcome', toolCallId: p.toolCallId, outcome: res.outcome })
         if (res.outcome.outcome === 'cancelled') {
           return { stopReason: 'cancelled' }
         }
-        rejected = res.outcome.optionId === 'reject'
+        if (res.outcome.optionId === 'reject') rejected = true
       }
 
       if (turn.delayMs) await sleep(turn.delayMs, ac.signal)

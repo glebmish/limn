@@ -71,6 +71,8 @@ interface AcpTurnOptions<T> {
   writeEnabled?: boolean
   opId?: string
   executionMode?: ExecutionMode
+  /** re-read the tier at each permission request (mid-turn mode changes). */
+  currentMode?: () => ExecutionMode
   /** force read-only mode + deny-all-non-limn permissions regardless of tier. */
   readOnly?: boolean
   /** structured generation turn (review / scoped update): suppress streamed text
@@ -136,6 +138,7 @@ export class AcpEngine implements ReviewEngine {
       writeEnabled: turn.writeEnabled,
       opId: turn.opId,
       executionMode: turn.executionMode,
+      currentMode: turn.currentMode,
       readOnly: turn.readOnly,
       parse: (t) => t
     })
@@ -236,7 +239,15 @@ export class AcpEngine implements ReviewEngine {
           },
           requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
             const req = acpPermissionToRequest(params, this.config.id, toolTitles, toolDiffs)
-            const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(mode, req, write)
+            // The tier is read PER REQUEST, not captured at turn start, so the mode
+            // selector keeps working while a turn streams. What a mid-turn change can
+            // reach is bounded by the session mode negotiated once at (f) below — it is
+            // never re-negotiated: a DOWNGRADE (auto→ask) always bites, because Limn's
+            // ladder is the thing that parks; an UPGRADE only affects the requests the
+            // agent still surfaces under the already-set session mode (whatever that
+            // mode auto-accepts engine-side never reaches us to be re-tiered).
+            const tier = opts.currentMode?.() ?? mode
+            const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(tier, req, write)
             // 'ask' parks on the reviewer's decision, racing cancel so a pending
             // request gets the ACP-required `cancelled` outcome. A turn with no opId
             // has no approval surface to park on, so its 'ask' degrades to deny.
@@ -294,6 +305,9 @@ export class AcpEngine implements ReviewEngine {
 
         // (f) set mode + config options (best-effort; swallow method-not-found / no-ops).
         try {
+          // Negotiated ONCE, from the START-TIME tier, and never re-negotiated
+          // mid-turn (no respawn, no second set_mode) — see the requestPermission
+          // comment for what a mid-turn tier change can and cannot reach.
           await conn.setSessionMode({ sessionId, modeId: this.config.modeFor(mode, write) })
         } catch { /* forward-compat: modes are slated for removal */ }
         for (const opt of this.config.configOptions?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? []) {

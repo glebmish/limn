@@ -387,14 +387,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
 
           {/* agent + mode live at the bottom (per the mockup): pick who answers and
-              how much leash, directly under the composer. A read-only coerced turn
-              disables the tier selector (the tier is overridden for this turn). */}
+              how much leash, directly under the composer. The tier stays changeable
+              WHILE a turn streams — it is re-read at every permission request — so
+              only a read-only coerced turn disables it (its tier is overridden). */}
           {active && (
             <div className="chat-botbar">
               <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
               <ModeSelector
                 mode={active.executionMode}
-                disabled={streaming || readOnlyTurn}
+                disabled={readOnlyTurn}
+                title={streaming ? 'Applies from the next approval request' : undefined}
                 onChange={(m) => void store.setChatMode(active.id, m)}
               />
             </div>

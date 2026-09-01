@@ -9,7 +9,7 @@ import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from '../src/server/engines/adapt
 import { resolveDecision, pendingCount } from '../src/server/engines/approvals'
 import { setEngineBinaryPrefs } from '../src/server/engines/binaries'
 import { ENGINE_PATH_PREF_KEYS } from '../src/shared/prefs'
-import type { EngineEvent, ReviewAnnotations } from '../src/shared/types'
+import type { EngineEvent, ExecutionMode, ReviewAnnotations } from '../src/shared/types'
 import type { AcpEngineConfig } from '../src/server/engines/adapters'
 import type { FakeScript } from './helpers/fakeAcpAgent'
 
@@ -251,6 +251,74 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(value).toBe('refused') // reject branch taken
     const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
     expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
+  })
+
+  it('4e. mid-turn ask→auto: the SECOND file change is auto-allowed, never parked', async () => {
+    // The tier is re-read (turn.currentMode) at EVERY permission request, so moving
+    // the selector while a turn streams takes effect from the next request on.
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4e',
+      turns: [{
+        permissions: [
+          { toolCallId: 'e1', title: 'Edit file', kind: 'edit', rawInput: { path: '/r/a.ts' } },
+          { toolCallId: 'e2', title: 'Edit file', kind: 'edit', rawInput: { path: '/r/b.ts' } }
+        ],
+        text: 'done',
+        rejectedText: 'refused'
+      }]
+    })
+    let tier: ExecutionMode = 'ask'
+    const run = engine.chat({
+      repo: '/r', engineSessionId: 'ch-4e', message: 'go', opId: 'op4e',
+      writeEnabled: true, executionMode: 'ask', currentMode: () => tier
+    })
+    const approvals: EngineEvent[] = []
+    for await (const e of run.events) {
+      if (e.type === 'approval_request') {
+        approvals.push(e)
+        tier = 'auto' // the reviewer flips the selector mid-turn, then answers
+        resolveDecision('op4e', e.request.id, 'allow')
+      }
+    }
+    expect(approvals.length).toBe(1) // only the FIRST request parked
+    const { value } = await run.result
+    expect(value).toBe('done')
+    const outcomes = readRecords().filter((r) => r.event === 'permissionOutcome')
+    expect(outcomes.map((r) => (r.outcome as { optionId?: string }).optionId)).toEqual(['allow', 'allow'])
+  })
+
+  it('4f. mid-turn auto→ask: the SECOND file change parks even though the turn started at auto', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4f',
+      turns: [{
+        permissions: [
+          { toolCallId: 'f1', title: 'Edit file', kind: 'edit', rawInput: { path: '/r/a.ts' } },
+          { toolCallId: 'f2', title: 'Edit file', kind: 'edit', rawInput: { path: '/r/b.ts' } }
+        ],
+        text: 'done',
+        rejectedText: 'refused'
+      }]
+    })
+    // downgraded between the two requests: the first read still sees 'auto' (allowed
+    // outright, so there is no approval event to hook the flip onto), the second 'ask'.
+    let tier: ExecutionMode = 'auto'
+    const run = engine.chat({
+      repo: '/r', engineSessionId: 'ch-4f', message: 'go', opId: 'op4f',
+      writeEnabled: true, executionMode: 'auto',
+      currentMode: () => { const t = tier; tier = 'ask'; return t }
+    })
+    const approvals: EngineEvent[] = []
+    for await (const e of run.events) {
+      if (e.type === 'approval_request') {
+        approvals.push(e)
+        resolveDecision('op4f', e.request.id, 'deny')
+      }
+    }
+    expect(approvals.length).toBe(1) // only the SECOND request parked
+    const { value } = await run.result
+    expect(value).toBe('refused') // the parked request was denied
+    const outcomes = readRecords().filter((r) => r.event === 'permissionOutcome')
+    expect(outcomes.map((r) => (r.outcome as { optionId?: string }).optionId)).toEqual(['allow', 'reject'])
   })
 
   it('5. cancel → cancelled; pending permission cleared', async () => {

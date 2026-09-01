@@ -910,6 +910,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         tools,
         opId,
         executionMode: thread.executionMode,
+        // re-read per permission request: moving the mode selector mid-turn takes
+        // effect from the next approval on (the row is the live source of truth).
+        currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode,
         readOnly,
         context: thread.engineSessionId
           ? undefined
@@ -1044,7 +1047,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         message: refine
           ? buildAnswerPrompt(comments, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary })
           : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
-        tools, writeEnabled, opId, executionMode: thread.executionMode
+        tools, writeEnabled, opId, executionMode: thread.executionMode,
+        // re-read per permission request (mid-turn mode changes), as in sendChat.
+        currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
       })
       operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(run.events, recorder.emit)
@@ -1123,7 +1128,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: buildRebasePrompt(state.base, state.branch, conflictFiles),
-        tools, writeEnabled: true, opId, executionMode: thread.executionMode
+        tools, writeEnabled: true, opId, executionMode: thread.executionMode,
+        // re-read per permission request (mid-turn mode changes), as in sendChat.
+        currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
       })
       operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(run.events, recorder.emit)

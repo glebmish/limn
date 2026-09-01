@@ -12,9 +12,11 @@ const TIER_ICON: Record<ExecutionMode, keyof typeof I> = {
 /** Per-chat execution-mode pill + dropdown (wireframe J1). One product vocabulary;
  *  the engine mapping is internal. Never disabled by tier — `full` (sandbox off)
  *  takes a second confirming click. */
-export function ModeSelector({ mode, disabled, onChange }: {
+export function ModeSelector({ mode, disabled, title, onChange }: {
   mode: ExecutionMode
   disabled?: boolean
+  /** hover hint on the trigger (e.g. mid-turn: "Applies from the next approval request"). */
+  title?: string
   onChange: (m: ExecutionMode) => void
 }) {
   const [confirmFull, setConfirmFull] = useState(false)
@@ -35,6 +37,7 @@ export function ModeSelector({ mode, disabled, onChange }: {
         ref={anchorRef}
         className={'mode-trig ' + active.key}
         disabled={disabled}
+        title={title}
         aria-expanded={open}
         onClick={() => { toggle(); setConfirmFull(false) }}
       >

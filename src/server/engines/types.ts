@@ -66,6 +66,10 @@ export interface ChatTurn {
   /** the chat's autonomy tier; the adapter maps it via `AcpEngineConfig.modeFor` /
    *  `ladderPolicy`. */
   executionMode?: ExecutionMode
+  /** re-read the thread's tier at each permission request, so moving the mode
+   *  selector mid-turn takes effect from the next request on; falls back to
+   *  `executionMode` when absent. */
+  currentMode?: () => ExecutionMode
   /** force a read-only turn regardless of tier (concurrent-chat shared lane): the
    *  engine runs in read-only mode and every non-Limn tool request is denied, never
    *  parked. Set by ipc.ts when this turn runs alongside an exclusive op. */
