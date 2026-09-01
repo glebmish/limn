@@ -3,6 +3,7 @@ import type { CliOpenMsg } from '../../shared/ipc'
 import { api } from '../lib/api'
 import { dev } from '../dev'
 import { readOpenTicket, stripQuery } from '../boot-params'
+import { dispatchInitialRoute } from '../router'
 import type { OpsSlice } from './ops'
 import { createOpsSlice } from './ops'
 import type { DashboardSlice } from './dashboard'
@@ -93,6 +94,14 @@ export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlic
   closeSettings(): void
 }
 
+// boot() runs from Dashboard's mount effect, so it re-fires on every return to the
+// dashboard. Reloading prefs + the dashboard list each time is the point; replaying
+// the one-time entry paths is not — redeeming a spent ticket, re-dispatching the URL
+// or re-firing a dev hook would yank the user off the screen they just came back to.
+let bootedOnce = false
+/** test-only: let a suite exercise boot()'s once-per-page-load path more than once. */
+export function __resetBootOnce(): void { bootedOnce = false }
+
 export const useStore = create<AppStore>()((...a) => {
   const [set, get] = a
   return {
@@ -112,6 +121,11 @@ export const useStore = create<AppStore>()((...a) => {
     async boot() {
       await get().loadPrefs()
       await get().loadDashboard()
+      if (bootedOnce) return
+      bootedOnce = true
+      // Entry precedence, highest first: a cli:open ticket, then the URL's own route,
+      // then the dev/screenshot hooks. Each is exclusive — the winner decides the screen.
+      //
       // `limn open` puts a one-time ticket in the URL; redeem it after the dashboard
       // loads so its error toast survives loadDashboard's `error: null` reset.
       const ticket = readOpenTicket(window.location.search)
@@ -121,7 +135,11 @@ export const useStore = create<AppStore>()((...a) => {
           const cli = await api().takeCliOpen(ticket)
           if (cli) get().applyCliOpen(cli)
         } catch { /* expired ticket — land on the dashboard */ }
+        return
       }
+      // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
+      // router reconciles the address bar if it turns out to be dead.
+      if (await dispatchInitialRoute()) return
       // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
       const openSession = dev.openSession
       if (openSession) await get().resumeExisting(Number(openSession))
