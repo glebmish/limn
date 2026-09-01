@@ -280,6 +280,14 @@ export class FakeEngine implements ReviewEngine {
         q.close()
         return { value: 'held then released', sessionId: turn.engineSessionId || 'fake-hold' }
       }
+      const timedHold = /\[hold:(\d{1,6})\]/.exec(turn.message)
+      if (timedHold) {
+        // demo/CDP variant of `[hold]`: park for N ms, then run the ordinary turn. It
+        // ends by itself, so a SERVED app — where releaseFakeHolds() is unreachable,
+        // being a different process — can still show a long turn that finishes cleanly.
+        q.push({ type: 'status', text: 'holding…' })
+        await new Promise<void>((resolve) => { setTimeout(resolve, Number(timedHold[1])) })
+      }
       q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
       // structured tool-call lifecycle for the activity log (wf-D): a settled grep,
       // an expandable read with a diff, and an errored grep.

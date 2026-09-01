@@ -302,6 +302,32 @@ describe('FakeEngine contract', () => {
     expect(sessionId).not.toBe('sess')
     expect(value).toContain('opus') // model surfaced in the demo answer
   })
+
+  it('[hold:<ms>] parks the turn for that long, then completes normally', async () => {
+    // the demo/CDP variant of `[hold]`: it ends BY ITSELF after the delay, so a served
+    // app (where releaseFakeHolds() is unreachable — different process) can still show a
+    // long-running turn that finishes on its own.
+    const engine = new FakeEngine()
+    const started = Date.now()
+    const run = engine.chat({ repo: fx.dir, message: '[hold:250] why?' })
+    const events = await drain(run.events)
+    const { value } = await run.result
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200)
+    // it parked visibly…
+    expect(events.some((e) => e.type === 'status' && e.text.startsWith('holding'))).toBe(true)
+    // …and then ran the ordinary chat turn: tool calls, streamed text, the echo.
+    expect(events.some((e) => e.type === 'tool')).toBe(true)
+    expect(events.some((e) => e.type === 'text')).toBe(true)
+    expect(value).toContain('why?')
+  })
+
+  it('[hold:<ms>] does not park on the untimed hold latch', async () => {
+    // `[hold]` (no ms) still needs releaseFakeHolds(); the timed variant must not be
+    // caught by that latch, or a demo turn would never end.
+    const run = new FakeEngine().chat({ repo: fx.dir, message: '[hold:1] hi' })
+    await drain(run.events)
+    await expect(run.result).resolves.toBeTruthy()
+  })
 })
 
 describe('FakeEngine generateScopedUpdate', () => {
