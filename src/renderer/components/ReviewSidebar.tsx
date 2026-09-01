@@ -71,6 +71,7 @@ export function ReviewSidebar({
   toggleDoc: (path: string) => void
   closeDocBack: () => void
 }) {
+  const { sidebarView, setSidebarView } = useStore()
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const stepComments = (n: number) => comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -188,7 +189,26 @@ export function ReviewSidebar({
 
       <div className="gnav">
         <div className="gnav-planlabel">
-          <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />{annotations ? 'Sections' : 'Files'}</span>
+          {annotations ? (
+            <div className="gnav-viewtoggle" role="radiogroup" aria-label="Sidebar view">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={sidebarView === 'sections'}
+                className={sidebarView === 'sections' ? 'on' : undefined}
+                onClick={() => setSidebarView('sections')}
+              >Sections</button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={sidebarView === 'tree'}
+                className={sidebarView === 'tree' ? 'on' : undefined}
+                onClick={() => setSidebarView('tree')}
+              >Tree</button>
+            </div>
+          ) : (
+            <span className="pl-l"><I.diff style={{ width: 11, height: 11 }} />Files</span>
+          )}
           <span className="pl-prog">{annotations ? `${reviewedCount}/${sections.length} sections · ` : ''}{viewedCount}/{fileCount} viewed</span>
         </div>
         {!annotations ? (
@@ -200,57 +220,71 @@ export function ReviewSidebar({
             onFileClick={(path) => jumpToRawFile(path)}
             className="gnav-tree-flat"
           />
-        ) : sections.map((s, i) => {
-          const sFiles = filesFor(s)
-          const sectionNav = sectionDisclosureState(sFiles, viewedAt, {
-            id: s.id,
-            collapsed,
-            expanded,
-            focused: focusSectionId === s.id
-          }, loaded.skeleton.headSha)
-          return (
-            <div
-              key={s.id}
-              className={
-                'gnav-sec'
-                + (cur === s.id && !sectionNav.done ? ' cur' : '')
-                + (sectionNav.amber ? ' amber' : '')
-                + (sectionNav.done ? ' done' : '')
-                + (!sectionNav.open ? ' collapsed' : '')
-              }
-            >
-              <div className="gnav-head">
-                <span className="gnav-caret" {...clickable(() => onToggleSection(s.id, sectionNav.open), { expanded: sectionNav.open })} />
-                <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
-                <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
+        ) : sidebarView === 'tree' ? (
+          <FileTree
+            files={flatDisplayFiles}
+            viewedAt={viewedAt}
+            headSha={loaded.skeleton.headSha}
+            currentFile={curFile}
+            onFileClick={(path) => jumpToRawFile(path)}
+            order="tree"
+            className="gnav-tree-flat"
+          />
+        ) : (
+          <>
+            {sections.map((s, i) => {
+              const sFiles = filesFor(s)
+              const sectionNav = sectionDisclosureState(sFiles, viewedAt, {
+                id: s.id,
+                collapsed,
+                expanded,
+                focused: focusSectionId === s.id
+              }, loaded.skeleton.headSha)
+              return (
+                <div
+                  key={s.id}
+                  className={
+                    'gnav-sec'
+                    + (cur === s.id && !sectionNav.done ? ' cur' : '')
+                    + (sectionNav.amber ? ' amber' : '')
+                    + (sectionNav.done ? ' done' : '')
+                    + (!sectionNav.open ? ' collapsed' : '')
+                  }
+                >
+                  <div className="gnav-head">
+                    <span className="gnav-caret" {...clickable(() => onToggleSection(s.id, sectionNav.open), { expanded: sectionNav.open })} />
+                    <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
+                    <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
+                  </div>
+                  {sectionNav.open && !sectionNav.done && narrationText(s) && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{narrationText(s)}</div>}
+                  <FileTree
+                    files={sFiles}
+                    viewedAt={viewedAt}
+                    headSha={loaded.skeleton.headSha}
+                    currentFile={curFile}
+                    onFileClick={(path) => jumpToFile(s.id, path)}
+                    order="grouped"
+                  />
+                </div>
+              )
+            })}
+            {looseFiles.length > 0 && (
+              <div className="gnav-worktree">
+                <div className="gnav-wt-head">
+                  <span className="gnav-dirty" />Working tree
+                  <span className="gnav-wt-count">{looseFiles.length}</span>
+                </div>
+                <FileTree
+                  files={looseFiles}
+                  viewedAt={viewedAt}
+                  headSha={loaded.skeleton.headSha}
+                  currentFile={curFile}
+                  onFileClick={(path) => jumpToRawFile(path)}
+                  order="grouped"
+                />
               </div>
-              {sectionNav.open && !sectionNav.done && narrationText(s) && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{narrationText(s)}</div>}
-              <FileTree
-                files={sFiles}
-                viewedAt={viewedAt}
-                headSha={loaded.skeleton.headSha}
-                currentFile={curFile}
-                onFileClick={(path) => jumpToFile(s.id, path)}
-                order="explicit"
-              />
-            </div>
-          )
-        })}
-        {annotations && looseFiles.length > 0 && (
-          <div className="gnav-worktree">
-            <div className="gnav-wt-head">
-              <span className="gnav-dirty" />Working tree
-              <span className="gnav-wt-count">{looseFiles.length}</span>
-            </div>
-            <FileTree
-              files={looseFiles}
-              viewedAt={viewedAt}
-              headSha={loaded.skeleton.headSha}
-              currentFile={curFile}
-              onFileClick={(path) => jumpToRawFile(path)}
-              order="explicit"
-            />
-          </div>
+            )}
+          </>
         )}
       </div>
 

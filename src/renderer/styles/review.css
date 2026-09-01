@@ -77,10 +77,19 @@
 .spec-req.met .req-st{color:var(--accent)}
 .spec-req.has-source{cursor:pointer}
 .spec-req.has-source:hover .req-t{color:var(--ink)}
-.gnav-planlabel{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 13px 9px}
+.gnav-planlabel{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 13px 9px;flex-wrap:wrap}
 .gnav-planlabel .pl-l{display:flex;align-items:center;gap:6px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--accent-ink);white-space:nowrap}
 .gnav-planlabel .pl-l svg{color:var(--accent)}
 .gnav-planlabel .pl-prog{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+/* compact segmented Sections/Tree switch — replaces the static pl-l label
+   whenever the rail has annotations to switch a layout for */
+.gnav-viewtoggle{display:flex;align-items:center;gap:1px;padding:1px;border-radius:6px;
+  background:var(--panel-2);border:1px solid var(--line-2);flex:0 0 auto}
+.gnav-viewtoggle button{appearance:none;border:none;background:transparent;cursor:pointer;
+  font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:.02em;
+  color:var(--muted);padding:3px 8px;height:18px;line-height:12px;border-radius:5px}
+.gnav-viewtoggle button:hover{color:var(--ink-2)}
+.gnav-viewtoggle button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 0 var(--line-2)}
 .gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px;cursor:pointer}
 .gsec-step{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
   color:var(--accent-ink);margin-bottom:4px}

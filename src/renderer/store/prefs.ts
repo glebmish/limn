@@ -4,19 +4,27 @@ import { defaultAgent } from '../../shared/agents'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 
-/** Reviewer preferences persisted across runs — currently just the selected agent.
- *  Loaded on boot (loadPrefs) and written through setAgent. */
+/** The review rail's left-hand nav layout: guided sections (with the plan-mapped
+ *  narration) or a flat directory tree. */
+export type SidebarView = 'sections' | 'tree'
+
+/** Reviewer preferences persisted across runs — the selected agent and the rail's
+ *  nav layout. Loaded on boot (loadPrefs) and written through setAgent/setSidebarView. */
 export interface PrefsSlice {
   /** the agent selected for creating / regenerating a review */
   agent: AgentRef
+  /** the review rail's nav layout — sections (default) or tree */
+  sidebarView: SidebarView
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
   setAgent(a: AgentRef): void
+  setSidebarView(v: SidebarView): void
 }
 
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
   agent: defaultAgent('claude'),
+  sidebarView: 'sections',
 
   async loadPrefs() {
     try {
@@ -24,8 +32,10 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
       const parse = <T,>(k: string, fallback: T): T => {
         try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
       }
+      const sidebarView = parse<string>('sidebarView', 'sections')
       set({
-        agent: parse<AgentRef>('agent', defaultAgent('claude'))
+        agent: parse<AgentRef>('agent', defaultAgent('claude')),
+        sidebarView: sidebarView === 'tree' ? 'tree' : 'sections'
       })
     } catch { /* prefs unavailable — visual defaults stand */ }
   },
@@ -45,5 +55,10 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
             session: { ...s.loaded.session, agent: a, engine: a.engine } }
         : s.loaded
     }))
+  },
+
+  setSidebarView(v) {
+    void api().setPref('sidebarView', JSON.stringify(v))
+    set({ sidebarView: v })
   }
 })
