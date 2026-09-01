@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
-import { discardSpanAt, fileEditable, narrowEdit } from '../src/renderer/lib/edits'
+import { discardSpanAt, fileEditable, frameGutter, frameKeyAction, narrowEdit } from '../src/renderer/lib/edits'
 
 describe('narrowEdit', () => {
   it('returns null when nothing changed', () => {
@@ -29,6 +29,62 @@ describe('narrowEdit', () => {
     // negative span (prefix 2 + suffix 2 would double-count on ['a','a'])
     const e = narrowEdit(1, ['a', 'a'], ['a', 'a', 'a'])
     expect(e).toEqual({ start: 3, end: 2, snapshot: [], newLines: ['a'] })
+  })
+
+  // ── #10: a one-line region that grows. ⏎ inserts a newline now, so the typed
+  // text routinely has more lines than the snapshot it replaces.
+  it('splits one line into two (⏎ mid-line)', () => {
+    expect(narrowEdit(11, ['foo(bar)'], ['foo(', 'bar)']))
+      .toEqual({ start: 11, end: 11, snapshot: ['foo(bar)'], newLines: ['foo(', 'bar)'] })
+  })
+
+  it('⏎ at the head of a one-line region is a pure insertion above it', () => {
+    expect(narrowEdit(11, ['  return 2'], ['', '  return 2']))
+      .toEqual({ start: 11, end: 10, snapshot: [], newLines: [''] })
+  })
+
+  it('⏎ at the tail of a one-line region is a pure insertion below it', () => {
+    expect(narrowEdit(11, ['  return 2'], ['  return 2', '  // note']))
+      .toEqual({ start: 12, end: 11, snapshot: [], newLines: ['  // note'] })
+  })
+
+  it('grows a one-line region by several lines at once', () => {
+    expect(narrowEdit(11, ['a'], ['a1', 'a2', 'a3']))
+      .toEqual({ start: 11, end: 11, snapshot: ['a'], newLines: ['a1', 'a2', 'a3'] })
+  })
+})
+
+describe('frameKeyAction', () => {
+  it('⌘⏎ and ctrl+⏎ save; esc cancels', () => {
+    expect(frameKeyAction({ key: 'Enter', metaKey: true })).toBe('save')
+    expect(frameKeyAction({ key: 'Enter', ctrlKey: true })).toBe('save')
+    expect(frameKeyAction({ key: 'Escape' })).toBe('cancel')
+  })
+
+  it('plain ⏎ is not a save — the textarea inserts a newline (#10)', () => {
+    expect(frameKeyAction({ key: 'Enter' })).toBeNull()
+    expect(frameKeyAction({ key: 'Enter', shiftKey: true })).toBeNull()
+  })
+
+  it('leaves every other key to the textarea', () => {
+    expect(frameKeyAction({ key: 'a' })).toBeNull()
+    expect(frameKeyAction({ key: 'ArrowDown' })).toBeNull()
+    expect(frameKeyAction({ key: 'Tab', metaKey: true })).toBeNull()
+  })
+})
+
+describe('frameGutter', () => {
+  it('numbers the rows the region covers', () => {
+    expect(frameGutter(11, 13, 3)).toEqual(['11', '12', '13'])
+  })
+
+  it('marks rows the edit adds — they are not file lines yet', () => {
+    // one covered line, three typed: line 11 is real, the two new ones are not
+    expect(frameGutter(11, 11, 3)).toEqual(['11', '+', '+'])
+  })
+
+  it('a shrinking region just stops early', () => {
+    expect(frameGutter(11, 13, 2)).toEqual(['11', '12'])
   })
 })
 

@@ -73,6 +73,16 @@ describe('in-place edit affordances', () => {
     expect(out).toContain('frame-sliver')
   })
 
+  it('a one-line frame advertises the same keymap as a grown one (#10)', () => {
+    seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).toContain('editing line 11')
+    // ⏎ must never read as "save" — it inserts a newline in every frame now
+    expect(out).toContain('⌘⏎ save')
+    expect(out).toContain('⏎ new line')
+    expect(out).not.toContain('>⏎ save')
+  })
+
   it('a frame for another file leaves this one untouched', () => {
     seed({ writable: true, frame: { file: 'src/other.ts', start: 1, end: 1 } })
     const out = renderToStaticMarkup(<DiffView f={file} />)

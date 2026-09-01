@@ -39,6 +39,21 @@ describe('readWorkingFile / applyEdit handlers', () => {
     expect(fs.readFileSync(path.join(h.dir, 'src/a.ts'), 'utf8')).toContain('return 42 // edited in review')
   })
 
+  it('applies a line-count-growing edit through the handler (#10)', async () => {
+    const h = await setup()
+    const result = await h.handlers.get('applyEdit')!(h.dir, h.compareSide, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 2'], newLines: ['  const n = 2', '  return n']
+    }) as { ok: boolean }
+    expect(result.ok).toBe(true)
+    const after = fs.readFileSync(path.join(h.dir, 'src/a.ts'), 'utf8').split('\n')
+    expect(after.slice(0, 4)).toEqual(['export function a() {', '  const n = 2', '  return n', '}'])
+
+    // and the re-read sees the grown file, so the next frame anchors correctly
+    const read = await h.handlers.get('readWorkingFile')!(h.dir, h.compareSide, 'src/a.ts') as { ok: true; lines: string[] }
+    expect(read.lines[2]).toBe('  return n')
+    expect(read.lines.length).toBe(6)
+  })
+
   it('refuses when the compare branch is not checked out anywhere', async () => {
     const h = await setup()
     const main: RefSide = { kind: 'branch', symbol: 'main', anchorSha: 'b'.repeat(40) }

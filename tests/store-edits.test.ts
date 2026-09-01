@@ -65,6 +65,24 @@ describe('saveEdit', () => {
     expect(useStore.getState().viewedAt['src/a.ts']).toEqual({ sha: 'HEAD', hash: 'newhash' })
   })
 
+  it('forwards a line-count-growing edit verbatim (#10)', async () => {
+    seed({ sessionId: 5, viewed: true })
+    // ⏎ split line 2 in two: the CAS span is still one line, newLines is two
+    const grow = { start: 2, end: 2, snapshot: ['old'], newLines: ['old-a', 'old-b'] }
+    const res = await useStore.getState().saveEdit('src/a.ts', grow)
+    expect(res).toMatchObject({ ok: true })
+    expect(applyEdit).toHaveBeenCalledWith('/repo', expect.objectContaining({ symbol: 'feat' }), 'src/a.ts', grow)
+    expect(loadSession).toHaveBeenCalled() // the fold-in re-renders the grown file
+  })
+
+  it('forwards a pure insertion (end = start − 1, empty snapshot)', async () => {
+    seed({ sessionId: 5, viewed: false })
+    const insert = { start: 3, end: 2, snapshot: [], newLines: ['brand new'] }
+    const res = await useStore.getState().saveEdit('src/a.ts', insert)
+    expect(res).toMatchObject({ ok: true })
+    expect(applyEdit).toHaveBeenCalledWith('/repo', expect.anything(), 'src/a.ts', insert)
+  })
+
   it('returns a conflict without refreshing (the frame reopens with kept text)', async () => {
     seed({ sessionId: 5, viewed: true })
     applyEdit.mockResolvedValueOnce({ ok: false, reason: 'conflict', current: ['x'] })

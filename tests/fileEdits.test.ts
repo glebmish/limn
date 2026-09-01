@@ -78,6 +78,44 @@ describe('applyEditToFile', () => {
     expect(lines(fx.dir, 'src/a.ts')[2]).toBe('  // inserted')
   })
 
+  // ── #10: a region whose *line count* grew. The CAS anchors on the snapshot's
+  // span; newLines may be longer, and everything after the span shifts down.
+  it('splits one anchored line into two and shifts the rest down', async () => {
+    const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 2'], newLines: ['  const n = 2', '  return n']
+    })
+    expect(result.ok).toBe(true)
+    const after = lines(fx.dir, 'src/a.ts')
+    expect(after.slice(0, 3)).toEqual(['export function a() {', '  const n = 2', '  return n'])
+    // the tail rode down by exactly one line, unchanged
+    expect(after.slice(3)).toEqual(before.slice(2))
+    expect(after.length).toBe(before.length + 1)
+  })
+
+  it('grows a one-line region by several lines', async () => {
+    const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 2'], newLines: ['  // a', '  // b', '  return 2']
+    })
+    expect(result.ok).toBe(true)
+    const after = lines(fx.dir, 'src/a.ts')
+    expect(after.slice(1, 4)).toEqual(['  // a', '  // b', '  return 2'])
+    expect(after.length).toBe(before.length + 2)
+  })
+
+  it('a growing edit still CAS-refuses on a stale snapshot', async () => {
+    const fx = makeFixtureRepo()
+    const before = fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 2, end: 2, snapshot: ['  return 999'], newLines: ['  const n = 2', '  return n']
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'conflict' })
+    expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')).toBe(before)
+  })
+
   it('preserves a missing trailing newline', async () => {
     const fx = makeFixtureRepo()
     const result = await applyEditToFile(fx.dir, 'noeol.txt', {

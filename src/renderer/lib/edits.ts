@@ -24,6 +24,29 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
   }
 }
 
+/** The flow frame's keymap (#10). ⏎ is a plain newline like in any editor, so the
+ *  only keys the frame claims are the commit (⌘⏎ / ctrl+⏎ — both accepted on every
+ *  platform) and the cancel (esc). Everything else, arrow-key region growth
+ *  included, is left to the textarea / the caller. */
+export function frameKeyAction(
+  // shiftKey is accepted and deliberately ignored: shift is not a save modifier,
+  // so shift+⏎ is a newline like a bare ⏎.
+  e: { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }
+): 'save' | 'cancel' | null {
+  if (e.key === 'Escape') return 'cancel'
+  if (e.key === 'Enter' && (e.metaKey === true || e.ctrlKey === true)) return 'save'
+  return null
+}
+
+/** Gutter labels for the frame's rows. Rows that land on lines the frame actually
+ *  covers get their working-tree number; a growing edit's extra rows are not file
+ *  lines yet — numbering them would collide with the real lines still rendered
+ *  below the frame — so they read as '+'. */
+export function frameGutter(start: number, end: number, lineCount: number): string[] {
+  const covered = end - start + 1
+  return Array.from({ length: lineCount }, (_, i) => (i < covered ? String(start + i) : '+'))
+}
+
 /** Frame/pencil availability for a whole file. Rows additionally need working-tree
  *  text behind them (`l.new != null` — never a − row). */
 export function fileEditable(loaded: LoadedReview | null, f: FileDiff): boolean {

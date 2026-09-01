@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { api } from '../lib/api'
-import { narrowEdit } from '../lib/edits'
+import { frameGutter, frameKeyAction, narrowEdit } from '../lib/edits'
 
 interface FrameScope { file: string; start: number; end: number }
 
@@ -16,10 +16,11 @@ function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCou
 
 /** The single in-place editor (specs/inplace-edits — board 12's "flow frame").
  *  Covers a contiguous run of working-tree lines; arrowing the caret past an edge
- *  admits the neighbouring file line (the growth gesture). While the frame is one
- *  line ⏎ saves (the three-second typo path); grown, ⏎ makes a new line and ⌘⏎
- *  saves. Saving narrows to the changed core and CAS-writes via the store's save
- *  pipeline; a same-line conflict keeps the typed text with one-keystroke re-apply. */
+ *  admits the neighbouring file line (the growth gesture). ⏎ always makes a new
+ *  line — splitting a line and inserting lines are ordinary edits (#10) — and ⌘⏎
+ *  (or ctrl+⏎) saves. Saving narrows to the changed core and CAS-writes via the
+ *  store's save pipeline; the written region may hold more (or fewer) lines than it
+ *  replaced. A same-line conflict keeps the typed text with one-keystroke re-apply. */
 export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const { loaded, setEditFrame, saveEdit, refreshLoaded } = useStore()
   const [fileLines, setFileLines] = useState<string[] | null>(null)
@@ -86,10 +87,10 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const ta = e.currentTarget
-    if (e.key === 'Escape') { e.preventDefault(); setEditFrame(null); return }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void save(text); return }
-    const single = frame.start === frame.end && !text.includes('\n')
-    if (e.key === 'Enter' && single) { e.preventDefault(); void save(text); return }
+    const action = frameKeyAction(e)
+    if (action === 'cancel') { e.preventDefault(); setEditFrame(null); return }
+    if (action === 'save') { e.preventDefault(); void save(text); return }
+    // plain ⏎ falls through to the textarea: it inserts a newline (#10)
     if (!fileLines) return
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const { line, col, lineCount } = caretPos(ta)
@@ -111,15 +112,15 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   }
 
   const lineCount = text.split('\n').length
-  const single = frame.start === frame.end && lineCount === 1
   const chip = frame.start === frame.end ? `line ${frame.start}` : `lines ${frame.start}–${frame.end}`
+  const gutter = frameGutter(frame.start, frame.end, lineCount)
   return (
     <div className="flow-frame" data-limn-frame={f.path}>
       <div className="ff-head">
         <span className="ff-chip">editing {chip}</span>
-        <span className="ff-hint">{single ? '⏎ save · esc cancel' : '⌘⏎ save · ⏎ new line · esc cancel'} · ↑/↓ past the edge extends</span>
+        <span className="ff-hint">⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends</span>
         <span className="grow" />
-        <button className="ff-btn ff-ok" title="Save — writes the working tree" aria-label="Save edit" onClick={() => void save(text)}>✓</button>
+        <button className="ff-btn ff-ok" title="Save (⌘⏎) — writes the working tree" aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
       {yours != null && (
@@ -131,7 +132,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
       )}
       <div className="ff-body">
         <span className="ff-gutter" aria-hidden>
-          {Array.from({ length: lineCount }, (_, i) => <span key={i}>{frame.start + i}</span>)}
+          {gutter.map((n, i) => <span key={i}>{n}</span>)}
         </span>
         <textarea
           ref={taRef}

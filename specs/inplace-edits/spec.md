@@ -66,8 +66,9 @@ One editor — the **flow frame** — reached by every entry gesture:
 - **Reach beyond hunks**: expand-context arrows between/around hunks reveal
   unchanged rows; revealed rows obey the same editable predicate. No
   whole-file toggle.
-- **Save/cancel**: while the frame is one line, ⏎ saves; once grown, ⏎ makes a
-  new line and ✓/⌘⏎ saves. Esc cancels (pure DOM restore — no disk read).
+- **Save/cancel**: ⏎ always makes a new line (so a region can be split or grown
+  like in any editor); ✓/⌘⏎ (or ctrl+⏎) saves — the written region may hold more
+  or fewer lines than it replaced. Esc cancels (pure DOM restore — no disk read).
   Blur never saves and never closes. Batched multi-spot save is dropped (a
   pending-edits set would violate invariant 1).
 - **Keyboard round trip**: a save leaves a line selection; ↑/↓ move it (folds
@@ -242,7 +243,7 @@ suites:
   no re-stamp when file wasn't viewed.
 - **Acceptance (from the board's demos, DOM-level)**: frame opens on
   double-click with caret at point; growth across a fold reveals batch,
-  admits one line; one-line ⏎ save renders −/+ with dotted rail and word
+  admits one line; a ⌘⏎ save renders −/+ with dotted rail and word
   marks; discard collapses the span; conflict reopens with typed text kept
   and Re-apply lands.
 
