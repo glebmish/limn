@@ -127,3 +127,48 @@ describe('buildFileRows', () => {
     expect(buildFileRows([], hunkGaps([]))).toEqual([])
   })
 })
+
+// #7: cross-line-aware highlighting wired through the row model — the tokenizer
+// correctness itself is pinned in tests/highlight.test.ts; this covers that
+// buildFileRows/linesForRun actually threads `lang` through to each row's `html`,
+// on the correct side (old-side pass for a deletion, new-side pass for everything
+// else), rather than the tokenizer logic itself.
+describe('buildFileRows / linesForRun highlighting (#7)', () => {
+  it('attaches highlighted html per row when a language is given', () => {
+    const rows = buildFileRows([h1], hunkGaps([h1]), 'typescript')
+    const add = rows.find((r) => r.type === 'line' && r.key === 'new:14')
+    expect(add?.type === 'line' && add.html).toContain('hljs-variable')
+  })
+
+  it('keeps a block comment spanning two lines of the same hunk comment-styled on both', () => {
+    const h: Hunk = {
+      range: '@@ -1,4 +1,5 @@', header: '', lines: [
+        { old: 1, new: 1, kind: '', text: 'const x = 1' },
+        { old: null, new: 2, kind: 'add', text: '/** Parse a persisted JSON blob' },
+        { old: null, new: 3, kind: 'add', text: ' * never returns null' },
+        { old: 2, new: 4, kind: '', text: ' */' },
+        { old: 3, new: 5, kind: '', text: 'function f() {}' }
+      ]
+    }
+    const rows = buildFileRows([h], [], 'typescript')
+    const line2 = rows.find((r) => r.type === 'line' && r.key === 'new:2')
+    const line3 = rows.find((r) => r.type === 'line' && r.key === 'new:3')
+    expect(line2?.type === 'line' && line2.html).toContain('hljs-comment')
+    expect(line3?.type === 'line' && line3.html).toContain('hljs-comment')
+    expect(line3?.type === 'line' && line3.html).not.toContain('hljs-built_in')
+  })
+
+  it('highlights a deletion from the old-side pass (the pre-change text)', () => {
+    const rows = buildFileRows([h2], hunkGaps([h2]), 'typescript')
+    const del = rows.find((r) => r.type === 'line' && r.key === 'old:31')
+    expect(del?.type === 'line' && del.side).toBe('old')
+    expect(del?.type === 'line' && del.html).toContain('hljs-number')
+  })
+
+  it('falls back to escaped plain text (no hljs classes) with no language', () => {
+    const rows = buildFileRows([h1], hunkGaps([h1]))
+    const add = rows.find((r) => r.type === 'line' && r.key === 'new:14')
+    expect(add?.type === 'line' && add.html).toBe('NEW')
+    expect(add?.type === 'line' && add.html).not.toContain('hljs-')
+  })
+})

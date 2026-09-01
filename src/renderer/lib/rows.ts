@@ -1,5 +1,5 @@
 import type { DiffLine, Hunk } from '../../shared/types'
-import { disp } from './highlight'
+import { disp, highlightRun } from './highlight'
 import type { Gap } from './expand'
 import { pairHunkLines, wordDiffRanges, type CharRange } from './worddiff'
 
@@ -48,6 +48,13 @@ export interface LineRow {
   fromHunk: boolean
   /** word-diff marks for this row, absent when it has none */
   marks?: CharRange[]
+  /** Cross-line-aware syntax-highlighted HTML for this row's text (#7), computed
+   *  once per run by `linesForRun` — not per row per render. Set for every row that
+   *  goes through `linesForRun` (escaped plain text when the file has no language,
+   *  same as the per-line highlighter would produce); optional only so a `LineRow`
+   *  built by hand (tests) doesn't have to supply it, in which case `CodeLine` falls
+   *  back to its own per-line highlighter. */
+  html?: string
   /** The contiguous run of DiffLines this row sits in (one hunk's lines, or one
    *  revealed gap's lines) with this row's index in it — what `discardSpanAt` walks
    *  and what the frame-sliver test looks either side of. Runs stop at the run
@@ -102,6 +109,54 @@ function runWordMarks(lines: DiffLine[]): Map<number, CharRange[]> {
   return marks
 }
 
+/** Two hljs passes over one contiguous run — old-side text (context + del: the file
+ *  as it read before this run's changes) and new-side text (context + add: the file
+ *  as it reads now) — each joined and tokenized as a single block (`highlightRun`,
+ *  lib/highlight.ts) so a construct spanning several of the run's own lines (a block
+ *  comment, a template literal — #7) keeps its styling on every line it covers, then
+ *  split back to one HTML string per line on that side.
+ *
+ *  Scoped to the run's own visible lines, not the whole file: a collapsed gap
+ *  before/after a run is real hidden content that could carry token state into this
+ *  run's first/last line, and neither side has its full text available up front
+ *  here — the new side is only fetched, lazily, once a fold is opened (`fileLinesRef`
+ *  in DiffBody), and the old side is never fetched by this component at all. Treating
+ *  each visible run as its own tokenizer start is the deliberate, documented
+ *  compromise, not an oversight. */
+export function runHighlight(run: DiffLine[], lang: string | null): { old: string[]; new: string[] } {
+  const oldLines = run.filter((l) => l.old != null).map((l) => disp(l.text))
+  const newLines = run.filter((l) => l.new != null).map((l) => disp(l.text))
+  return { old: highlightRun(oldLines, lang), new: highlightRun(newLines, lang) }
+}
+
+/** One run's line rows, each carrying its precomputed `html` (`runHighlight` above)
+ *  alongside whatever word-marks it has — the join point between the row model and
+ *  cross-line highlighting. A context row's `html` comes from the new-side pass (its
+ *  `side` is always `'new'`, see `lineRow`); a deletion's from the old-side pass.
+ *
+ *  Replaces a bare `run.forEach(lineRow)` loop so both call sites — a hunk's own
+ *  lines in `buildFileRows`, a revealed gap's lines in `DiffBody` — get the same
+ *  treatment, and so the whole-run highlight pass happens once per run rather than
+ *  once per row. */
+export function linesForRun(
+  run: DiffLine[], lang: string | null,
+  opts: { hunkRange: string; fromHunk: boolean; marks?: Map<number, CharRange[]> }
+): LineRow[] {
+  const html = runHighlight(run, lang)
+  const out: LineRow[] = []
+  let oldIdx = -1
+  let newIdx = -1
+  run.forEach((l, j) => {
+    if (l.old != null) oldIdx++
+    if (l.new != null) newIdx++
+    const row = lineRow(run, j, { hunkRange: opts.hunkRange, fromHunk: opts.fromHunk, marks: opts.marks?.get(j) })
+    if (!row) return
+    row.html = row.side === 'new' ? html.new[newIdx] : html.old[oldIdx]
+    out.push(row)
+  })
+  return out
+}
+
 /** One LineRow for `run[idx]`, or null when the line has no side to address it by
  *  (see `rowKey`) — an unaddressable row is dropped rather than rendered under a
  *  fabricated key. Exported so DiffBody can build rows for a gap the reader just
@@ -134,8 +189,13 @@ export function lineRow(
  *  reconciles the body as a single key-matched list, so an edit frame growing from
  *  one hunk into the next — or out of a hunk into a revealed run — is a key match
  *  rather than a remount (see `FrameDraft` in lib/edits.ts for what that used to
- *  cost). */
-export function buildFileRows(hunks: Hunk[], gaps: Gap[]): FileRow[] {
+ *  cost).
+ *
+ *  `lang` (an hljs language id, or null when the file has none) drives the
+ *  cross-line-aware highlight pass (#7) attached to each row as `html`; it defaults
+ *  to null so existing callers/tests that don't care about highlighting are
+ *  unaffected. */
+export function buildFileRows(hunks: Hunk[], gaps: Gap[], lang: string | null = null): FileRow[] {
   const rows: FileRow[] = []
   const byFrom = new Map(gaps.map((g) => [g.from, g]))
   let cursor = 1
@@ -146,11 +206,7 @@ export function buildFileRows(hunks: Hunk[], gaps: Gap[]): FileRow[] {
     if (g && g.to != null && g.to >= g.from) {
       rows.push({ type: 'gap', key: `gap:${g.key}`, gap: g, fn: fnLabel(h.header), where: i === 0 ? 'above' : '' })
     }
-    const marks = runWordMarks(h.lines)
-    h.lines.forEach((_l, j) => {
-      const row = lineRow(h.lines, j, { hunkRange: h.range, fromHunk: true, marks: marks.get(j) })
-      if (row) rows.push(row)
-    })
+    rows.push(...linesForRun(h.lines, lang, { hunkRange: h.range, fromHunk: true, marks: runWordMarks(h.lines) }))
     let end = 0
     for (const l of h.lines) if (l.new != null) end = l.new
     cursor = end + 1

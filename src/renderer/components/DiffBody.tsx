@@ -8,7 +8,7 @@ import { disp, highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
 import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
 import { gapLines, hunkGaps, type Gap } from '../lib/expand'
-import { buildFileRows, lineRow, type FileRow, type LineRow } from '../lib/rows'
+import { buildFileRows, linesForRun, type FileRow, type LineRow } from '../lib/rows'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
 
@@ -65,14 +65,18 @@ function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string)
   return rawOffsetFromDisplayColumn(rawText, displayCol)
 }
 
-function CodeLine({ text, lang, ranges }: { text: string; lang: string | null; ranges?: CharRange[] }) {
+/** `html` is the row's precomputed, cross-line-aware highlight (`lib/rows.ts`
+ *  `linesForRun`, #7) — present whenever the row came through the row model with a
+ *  language. Falls back to the old per-line highlighter only when it's absent (no
+ *  language for this file), never re-deriving it from `text` when it is. */
+function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | null; ranges?: CharRange[]; html?: string }) {
   const t = disp(text)
   return (
     <span className="code">
       {ranges?.map((r, i) => (
         <i key={i} className="wd" style={{ left: `${r.start}ch`, width: `${r.len}ch` }} />
       ))}
-      <span className="code-syn" dangerouslySetInnerHTML={{ __html: highlightLine(t, lang) }} />
+      <span className="code-syn" dangerouslySetInnerHTML={{ __html: html ?? highlightLine(t, lang) }} />
     </span>
   )
 }
@@ -184,8 +188,11 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // missing the run renders as an inert marker instead of a button.
   const gaps = useMemo(() => (f.binary ? [] : hunkGaps(hunks)), [f.binary, hunks])
   const canExpand = editable && mode === 'branch' && !f.binary
-  /** the file's row model: changed rows and collapsed runs, in file order */
-  const rows = useMemo(() => buildFileRows(hunks, gaps), [hunks, gaps])
+  /** the file's row model: changed rows and collapsed runs, in file order. `lang` in
+   *  the deps: it's a pure function of `f.path`, so it never actually changes without
+   *  `hunks`/`gaps` also changing, but exhaustive-deps wants it named since the
+   *  highlight pass (#7) now depends on it directly. */
+  const rows = useMemo(() => buildFileRows(hunks, gaps, lang), [hunks, gaps, lang])
   const expand = async (gap: Gap): Promise<void> => {
     if (!loaded || !canExpand) return
     try {
@@ -265,10 +272,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     if (r.type === 'gap') {
       const revealed = expandedGaps[r.gap.key]
       if (revealed) {
-        revealed.forEach((_l, j) => {
-          const row = lineRow(revealed, j, { hunkRange: '', fromHunk: false })
-          if (row) view.push(row)
-        })
+        // same cross-line highlight treatment as a hunk's own lines (#7) — a
+        // revealed run is real, contiguous file content and can itself contain a
+        // block comment or template literal spanning its lines
+        view.push(...linesForRun(revealed, lang, { hunkRange: '', fromHunk: false }))
         continue
       }
     }
@@ -330,7 +337,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
         >
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-          <CodeLine text={l.text} lang={lang} ranges={r.marks} />
+          <CodeLine text={l.text} lang={lang} ranges={r.marks} html={r.html} />
           {commentable && (
             <button
               className="gutter-add limn-line-add"
