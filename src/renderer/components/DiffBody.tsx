@@ -49,6 +49,11 @@ function caretColumnFromEvent(e: React.MouseEvent<HTMLElement>, rawText: string)
     return undefined
   }
   if (!root.contains(node)) return undefined
+  // A click on the row's padding can hit an *element* rather than a text node, and
+  // there `offset` counts child nodes, not characters — summing it as a column would
+  // put the caret at an arbitrary position. Degrade to the end-of-line fallback
+  // (undefined) explicitly instead.
+  if (node.nodeType !== Node.TEXT_NODE) return undefined
   let displayCol = offset
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   for (let cur = walker.nextNode(); cur && cur !== node; cur = walker.nextNode()) {
@@ -292,7 +297,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     }
     const count = gap.to != null ? gap.to - gap.from + 1 : null
     return (
-      <button className="expander-row" onClick={() => void expand(gap)} aria-label={`Expand hidden lines ${label}`}>
+      // keyed because the leading-gap call site returns this straight into the hunk's
+      // flattened row array (see the comment there) — an unkeyed array child is a dev
+      // warning per hunk that has a collapsed gap above it
+      <button key={`exp-${gap.key}`} className="expander-row" onClick={() => void expand(gap)} aria-label={`Expand hidden lines ${label}`}>
         <I.chevR style={{ width: 10, height: 10, transform: 'rotate(90deg)' }} />
         {count != null ? `expand ${count} unchanged line${count === 1 ? '' : 's'} ${label}` : `expand unchanged lines ${label}`}
       </button>

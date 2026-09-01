@@ -3,14 +3,15 @@ import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
+import type { FrameDraft, FrameYours } from '../lib/edits'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
-  narrowEdit, seedFrameCaret, seedFrameText, selectionAfterSave
+  narrowEdit, seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
- *  store/edits.ts for the full rationale (#6 fix-round-1) and why it's a
- *  `crypto.randomUUID()` string rather than a counter (fix-round-2). */
+ *  store/edits.ts for the full rationale (#6 fix-round-1) and why it's a random
+ *  string rather than a counter (fix-round-2). */
 interface FrameScope { file: string; start: number; end: number; caretCol?: number; frameId: string }
 
 /** Caret position inside a textarea, as (line, column) plus the line count. */
@@ -34,11 +35,11 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const { loaded, setEditFrame, saveEdit, refreshLoaded } = useStore()
   const [fileLines, setFileLines] = useState<string[] | null>(null)
   const [text, setText] = useState('')
-  /** the save held across a CAS conflict, offered back via Re-apply. `removes` carries
-   *  the #8 delete intent with it: an emptied frame's typed text is '' either way, so
-   *  without it Re-apply after a conflicted deletion would write a blank line instead
-   *  of removing the lines — a different edit than the one the user asked for. */
-  const [yours, setYours] = useState<{ text: string; removes: boolean } | null>(null)
+  /** the save held across a CAS conflict, offered back via Re-apply (see `FrameYours`).
+   *  Mirrored into the draft, not merely component state: the conflict branch below
+   *  calls `refreshLoaded()`, which can reshuffle hunks and remount this very frame —
+   *  local-only state would lose the banner on the one path it exists for. */
+  const [yours, setYours] = useState<FrameYours | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const caretRef = useRef<number | null>(null)
   const alive = useRef(true)
@@ -51,26 +52,52 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
    *  crossing a real git-hunk boundary still forces a remount; DiffBody's
    *  key-matched reconciliation only reaches within one hunk's own flattened row
    *  array). Called at every point `text` intentionally changes: typing, the ↑/↓
-   *  growth gesture, and the same-line-conflict/Re-apply paths in `save()`. */
-  const draft = (nextText: string, caret: number | null): void => {
-    setEditDraft({ frameId: frame.frameId, text: nextText, caret })
+   *  growth gesture, and the same-line-conflict/Re-apply paths in `save()`.
+   *
+   *  `over` overrides the two fields that ride along from component state — the CAS
+   *  anchor and the conflict banner — for the callers that change them *in the same
+   *  tick* as the text (the conflict path, Re-apply), where the closure still holds
+   *  the pre-`setState` values. */
+  const draft = (
+    nextText: string,
+    caret: number | null,
+    over: Partial<Pick<FrameDraft, 'fileLines' | 'yours'>> = {}
+  ): void => {
+    setEditDraft({ frameId: frame.frameId, text: nextText, caret, fileLines, yours, ...over })
   }
 
   // fetch the working file once per open frame; growth reuses the fetched lines.
   // Deliberately not re-run on scope growth — hence the ref guard, not a dep list.
   const fetched = useRef(false)
+  // the `fetched` ref is the guard the missing dep list would otherwise be: the body
+  // runs at most once per mounted frame, so the state it sets can't feed back into it
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (fetched.current || !loaded) return
     fetched.current = true
+    // A remount that preserved this session's frameId (growth across a real hunk
+    // boundary, or the refresh the conflict path itself triggers) restores the whole
+    // edit from the draft — text, the working-tree snapshot it was typed against, and
+    // any conflict banner — and skips the re-read entirely. Re-reading here would
+    // re-anchor the CAS to content the user never saw: an external write landing
+    // between the first fetch and the remount would then save *silently* instead of
+    // conflicting (final review, findings 2 + 3; see `seedFrameRestore`). It also
+    // takes the remount's disabled-textarea flash out.
+    const restored = seedFrameRestore(getEditDraft(), frame.frameId)
+    if (restored) {
+      setFileLines(restored.fileLines)
+      setText(restored.text)
+      setYours(restored.yours)
+      return
+    }
     void (async () => {
       try {
         const wf = await api().readWorkingFile(loaded.state.repo, loaded.session.pair.compare, f.path)
         if (!alive.current) return
         if (!wf.ok) { setEditFrame(null); return }
         setFileLines(wf.lines)
-        // a remount that preserved this session's frameId (growth across a real
-        // hunk boundary) restores the live draft instead of re-reading disk and
-        // silently discarding what was typed — see seedFrameText's doc comment.
+        // an anchor-less draft for this session (written before the working file
+        // arrived) still contributes its text rather than losing it to disk
         const diskText = wf.lines.slice(frame.start - 1, frame.end).join('\n')
         setText(seedFrameText(getEditDraft(), frame.frameId, diskText))
       } catch {
@@ -123,6 +150,10 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     const edit = narrowEdit(frame.start, snapshot, typed)
     if (!edit) { setEditFrame(null); return } // unchanged save is a cancel
     const res = await saveEdit(f.path, edit)
+    // This instance is gone (⌘⏎ then an immediate double-click elsewhere, say): both
+    // branches below drive the *global* frame, so a late resolution would close the
+    // frame the user just opened — or reopen this dead session on top of it.
+    if (!alive.current) return
     if (!res) { setEditFrame(null); return } // transport error already surfaced
     if (res.ok) {
       // keyboard round trip: the save leaves a selection on the edited line —
@@ -138,14 +169,18 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     const end = Math.min(frame.end, res.current.length)
     const start = Math.max(1, Math.min(frame.start, end || 1))
     const fresh = res.current.slice(start - 1, end).join('\n')
-    setYours({ text: value, removes: removeLines })
+    const kept: FrameYours = { text: value, removes: removeLines }
+    setYours(kept)
     setFileLines(res.current)
     setText(fresh)
-    // the draft must move with `text` here too (fix-round-2 minor): `refreshLoaded`
-    // below can shift which row is "first" (folds fall in/out), and a remount at
-    // that moment must not reseed the stale pre-conflict text under the same
-    // frameId — no caret to restore across a conflict reset, hence null
-    draft(fresh, null)
+    // The whole conflict state must move into the draft here (fix-round-2 minor,
+    // extended by the final review's finding 3): `refreshLoaded` below can shift
+    // which row is "first" (folds fall in/out) and remount the frame, and that
+    // remount must reseed the *post*-conflict text, against the *fresh* lines the
+    // CAS just handed back, with the banner still up — anything less is either a
+    // stale save or the retype spec inv 6 forbids. No caret to restore across a
+    // conflict reset, hence null.
+    draft(fresh, null, { fileLines: res.current, yours: kept })
     // same edit session, re-anchored after a conflict — carry the id forward so
     // this stays the live instance (no remount) and no draft gets dropped under it
     setEditFrame({ file: f.path, start, end, frameId: frame.frameId })
@@ -225,7 +260,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         <div className="ff-yours">
           <span>These lines changed while you were editing — refreshed to the new version; {yours.removes ? 'your deletion is kept' : 'your text is kept'}:</span>
           <code>{yours.removes ? '⌫ delete these lines' : yours.text}</code>
-          <button className="ff-btn ff-ok" onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null); void save(y.text, y.removes) }}>Re-apply</button>
+          <button className="ff-btn ff-ok" onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null, { yours: null }); void save(y.text, y.removes) }}>Re-apply</button>
         </div>
       )}
       <div className="ff-body">

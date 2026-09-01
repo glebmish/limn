@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { ApplyEditResult, FileEdit } from '../../shared/types'
 import type { FrameDraft } from '../lib/edits'
+import { newFrameId } from '../lib/edits'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { fileViewed, renderedFiles } from './derive'
@@ -13,12 +14,13 @@ import { fileViewed, renderedFiles } from './derive'
  *  `frameId` identifies the *edit session* rather than the region: it survives the
  *  ↑/↓ growth gesture changing `start`/`end` (growth spreads the current frame, so
  *  the id rides along), but a brand-new open — a different line, or the same line
- *  reopened after a save — always mints a fresh one (see `setEditFrame`). DiffBody
+ *  reopened after a save — always mints a fresh one (see `setEditFrame`, and
+ *  `newFrameId` for why it is not a bare `crypto.randomUUID()` call). DiffBody
  *  keys `<FlowFrame>` by it: same id ⇒ React matches the element and reuses the live
  *  instance (growth), different id ⇒ a full remount (an unrelated edit — see #6
  *  fix-round-1's Critical finding: a shared, position-independent-but-*constant* key
  *  let a same-hunk re-open reuse a stale instance and silently save the old typed
- *  text under the new line numbers). A `crypto.randomUUID()` string, not a counter
+ *  text under the new line numbers). A random string, not a counter
  *  (fix-round-2): a module-level counter resets on a Vite HMR reload of this module
  *  while the live store can still hold a frame minted by the pre-reload counter —
  *  colliding ids would reopen the Critical bug in dev. */
@@ -27,8 +29,10 @@ export interface EditFrame { file: string; start: number; end: number; caretCol?
 /** In-place edits (specs/inplace-edits): the single open flow frame plus the save
  *  pipeline. The frame's *text* lives in the FlowFrame component — the store holds
  *  only the scope, so DiffBody can hide the covered rows and enforce "at most one
- *  frame per review". The live draft (typed text + caret, fix-round-1's data-loss
- *  fix) is a safety net for a forced remount, not application state — see
+ *  frame per review". The live draft (the typed text and caret from fix-round-1's
+ *  data-loss fix, plus the working-tree snapshot it was typed against and any
+ *  conflict banner — final review, findings 2 + 3, see `FrameDraft`) is a safety
+ *  net for a forced remount, not application state — see
  *  `getEditDraft`/`setEditDraft` below for why it deliberately lives outside this
  *  reactive slice. */
 export interface EditsSlice {
@@ -95,7 +99,7 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
     // leftover draft from whatever was open before — only growth/reopen paths that
     // explicitly carry `frameId` forward are "the same edit" for this purpose
     if (isNewSession) setEditDraft(null)
-    const editFrame: EditFrame = { ...frame, frameId: frame.frameId ?? crypto.randomUUID() }
+    const editFrame: EditFrame = { ...frame, frameId: frame.frameId ?? newFrameId() }
     set({ editFrame, lineSelect: null })
   },
 

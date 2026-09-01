@@ -154,14 +154,76 @@ export function lineColToCaret(lines: string[], lineIdx: number, col: number): n
   return offset + Math.max(0, Math.min(col, lineLen))
 }
 
-/** A flow frame's live draft (#6 fix-round-1): the typed text plus the caret, kept in
- *  the store under the edit session's `frameId` so it survives a forced remount that
- *  is still, conceptually, the same edit — the ↑/↓ growth gesture (#6) can cross a
- *  real git-hunk boundary that DiffBody's key-matched reconciliation can't reach
- *  (that reconciliation only spans one hunk's own flattened row array), forcing a
- *  fresh `FlowFrame` instance. Without the draft, that fresh instance would silently
- *  re-seed from disk and discard whatever the user had typed. */
-export interface FrameDraft { frameId: string; text: string; caret: number | null }
+/** The save held across a CAS conflict, offered back via Re-apply. `removes` carries
+ *  the #8 delete intent alongside the text: an emptied frame's typed text is `''`
+ *  either way, so without it a Re-apply after a conflicted deletion would write a
+ *  blank line instead of removing the lines — a different edit than the one asked for. */
+export interface FrameYours { text: string; removes: boolean }
+
+/** A flow frame's live draft (#6 fix-round-1): everything about an in-progress edit
+ *  that must outlive the component instance, kept in the store under the edit
+ *  session's `frameId` so it survives a forced remount that is still, conceptually,
+ *  the same edit — the ↑/↓ growth gesture (#6) can cross a real git-hunk boundary
+ *  that DiffBody's key-matched reconciliation can't reach (that reconciliation only
+ *  spans one hunk's own flattened row array), forcing a fresh `FlowFrame` instance.
+ *
+ *  `fileLines` and `yours` are here for the same reason the text is (final review,
+ *  findings 2 + 3) — one durability mechanism, not three:
+ *
+ *  - **`fileLines`** is the working-tree snapshot the text was typed *against*, i.e.
+ *    the CAS anchor. Restoring the text while re-reading the file from disk was a
+ *    correctness hole: if the file changed externally between the first fetch and the
+ *    remount, the save would anchor to the fresh content and succeed with no
+ *    conflict, dropping typed text over lines the user never saw. Carrying it makes
+ *    the remounted frame keep its original anchor, so such a save conflicts naturally.
+ *  - **`yours`** is the post-conflict banner. It has to survive a remount precisely
+ *    on the path it exists for: the conflict branch itself calls `refreshLoaded()`,
+ *    which can reshuffle hunks and remount the frame — component-local state would
+ *    take the banner (and the kept text behind Re-apply) with it, breaking "never a
+ *    retype" (spec inv 6) on its own headline case.
+ *
+ *  Both are nullable: a draft written before the working file arrived has no anchor,
+ *  and most drafts have no conflict behind them. */
+export interface FrameDraft {
+  frameId: string
+  text: string
+  caret: number | null
+  fileLines: string[] | null
+  yours: FrameYours | null
+}
+
+/** What a (re)mounting frame restores wholesale from the live draft: the typed text,
+ *  the working-tree snapshot it was typed against, and any conflict banner. Non-null
+ *  only when the draft belongs to this exact session *and* carries an anchor — in
+ *  which case the frame must skip its disk re-read entirely (see `FrameDraft`).
+ *  Null ⇒ fetch from disk as usual (`seedFrameText` still honours an anchor-less
+ *  draft's text there, the pre-anchor behaviour). */
+export function seedFrameRestore(
+  draft: FrameDraft | null,
+  frameId: string
+): { text: string; fileLines: string[]; yours: FrameYours | null } | null {
+  if (!draft || draft.frameId !== frameId || !draft.fileLines) return null
+  return { text: draft.text, fileLines: draft.fileLines, yours: draft.yours }
+}
+
+/** A fresh edit-session id. `crypto.randomUUID` is **SecureContext-only**: it is
+ *  `undefined` on plain HTTP to a non-loopback host — exactly the Tailscale setup
+ *  `docs/using-limn.md` documents (`http://<tailnet-ip>:5466/?token=…`), where a bare
+ *  `crypto.randomUUID()` threw inside `setEditFrame` on every pencil click, every
+ *  double-click and every post-save ⏎, taking in-place editing out entirely.
+ *  `crypto.getRandomValues` *is* available in insecure contexts, so it carries the
+ *  common fallback; the last resort covers a context with no Web Crypto at all
+ *  (an old browser, a non-DOM test env). Uniqueness is all that's required — these
+ *  ids are compared for equality within one page's lifetime and never persisted. */
+export function newFrameId(): string {
+  const c: Crypto | undefined = typeof crypto === 'undefined' ? undefined : crypto
+  if (typeof c?.randomUUID === 'function') return c.randomUUID()
+  if (typeof c?.getRandomValues === 'function') {
+    const bytes = c.getRandomValues(new Uint8Array(16))
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
 
 /** Which text a (re)mounting frame should seed with: the draft, only when it belongs
  *  to this exact session (`frameId` matches) — a genuinely new edit (a different

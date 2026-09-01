@@ -1,11 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
+import type { FrameDraft } from '../src/renderer/lib/edits'
 import {
   caretAfterGrowth, discardSpanAt, fileEditable, frameDeletesLines, frameGutter, frameHint,
-  frameKeyAction, lineColToCaret, narrowEdit, rawOffsetFromDisplayColumn, seedFrameCaret,
-  seedFrameText, selectionAfterSave
+  frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn,
+  seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../src/renderer/lib/edits'
+
+/** a draft literal with the two durability fields defaulted — most cases only care
+ *  about text/caret, and spelling `fileLines: null, yours: null` out every time buries
+ *  what each case is actually about. */
+const mkDraft = (over: Partial<FrameDraft> & { frameId: string }): FrameDraft =>
+  ({ text: '', caret: null, fileLines: null, yours: null, ...over })
 
 describe('narrowEdit', () => {
   it('returns null when nothing changed', () => {
@@ -309,12 +316,12 @@ describe('seedFrameText', () => {
   })
 
   it('a draft for this exact session wins over disk', () => {
-    expect(seedFrameText({ frameId: 'a', text: 'typed content', caret: 3 }, 'a', 'disk content'))
+    expect(seedFrameText(mkDraft({ frameId: 'a', text: 'typed content', caret: 3 }), 'a', 'disk content'))
       .toBe('typed content')
   })
 
   it('a draft for a DIFFERENT session is ignored — never leaks into a new edit', () => {
-    expect(seedFrameText({ frameId: 'a', text: 'stale from another edit', caret: 3 }, 'b', 'disk content'))
+    expect(seedFrameText(mkDraft({ frameId: 'a', text: 'stale from another edit', caret: 3 }), 'b', 'disk content'))
       .toBe('disk content')
   })
 })
@@ -325,15 +332,78 @@ describe('seedFrameCaret', () => {
   })
 
   it('a draft for this session with a recorded caret wins over the fallback', () => {
-    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: 4 }, 'a', 7)).toBe(4)
+    expect(seedFrameCaret(mkDraft({ frameId: 'a', text: 'x', caret: 4 }), 'a', 7)).toBe(4)
   })
 
   it('a draft for this session with no recorded caret (null) still falls back', () => {
-    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: null }, 'a', 7)).toBe(7)
+    expect(seedFrameCaret(mkDraft({ frameId: 'a', text: 'x', caret: null }), 'a', 7)).toBe(7)
   })
 
   it('a draft for a different session is ignored', () => {
-    expect(seedFrameCaret({ frameId: 'a', text: 'x', caret: 4 }, 'b', 7)).toBe(7)
+    expect(seedFrameCaret(mkDraft({ frameId: 'a', text: 'x', caret: 4 }), 'b', 7)).toBe(7)
+  })
+})
+
+// ── final review, findings 2+3: the draft carries the *snapshot the text was typed
+// against* and the conflict banner, so a remount restores the whole edit — not just
+// the characters. Re-fetching `fileLines` while keeping the text would re-anchor the
+// CAS to content the user never saw (an external write between the first fetch and
+// the remount would then save silently instead of conflicting).
+describe('seedFrameRestore', () => {
+  it('no draft — nothing to restore, the frame fetches from disk', () => {
+    expect(seedFrameRestore(null, 'a')).toBeNull()
+  })
+
+  it('a draft for a DIFFERENT session restores nothing', () => {
+    expect(seedFrameRestore(mkDraft({ frameId: 'a', text: 'typed', fileLines: ['x'] }), 'b')).toBeNull()
+  })
+
+  it('a draft with no snapshot restores nothing — there is no CAS anchor to keep', () => {
+    expect(seedFrameRestore(mkDraft({ frameId: 'a', text: 'typed', fileLines: null }), 'a')).toBeNull()
+  })
+
+  it('a matching draft restores the text AND the fileLines it was typed against', () => {
+    const d = mkDraft({ frameId: 'a', text: 'typed', caret: 2, fileLines: ['one', 'two'] })
+    expect(seedFrameRestore(d, 'a')).toEqual({ text: 'typed', fileLines: ['one', 'two'], yours: null })
+  })
+
+  it('carries the conflict banner (kept text / delete intent) across the remount', () => {
+    const yours = { text: 'my version', removes: false }
+    const d = mkDraft({ frameId: 'a', text: 'fresh', fileLines: ['fresh'], yours })
+    expect(seedFrameRestore(d, 'a')).toEqual({ text: 'fresh', fileLines: ['fresh'], yours })
+  })
+
+  it('carries a delete intent, not just text — the banner must not degrade to a blank line', () => {
+    const yours = { text: '', removes: true }
+    const d = mkDraft({ frameId: 'a', text: 'fresh', fileLines: ['fresh'], yours })
+    expect(seedFrameRestore(d, 'a')?.yours).toEqual(yours)
+  })
+})
+
+// ── final review, finding 1: `crypto.randomUUID` is SecureContext-only, and
+// docs/using-limn.md tells Tailscale users to open plain `http://<tailnet-ip>:5466`.
+// A frame id has to be mintable there too, or in-place editing throws on every open.
+describe('newFrameId', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('uses crypto.randomUUID where it exists', () => {
+    expect(newFrameId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+  })
+
+  it('falls back to getRandomValues in an insecure context (no randomUUID)', () => {
+    const real = globalThis.crypto
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) })
+    const a = newFrameId()
+    const b = newFrameId()
+    expect(a).not.toBe('')
+    expect(a).not.toBe(b)
+  })
+
+  it('falls back again when the whole Web Crypto API is missing', () => {
+    vi.stubGlobal('crypto', undefined)
+    const ids = new Set(Array.from({ length: 50 }, () => newFrameId()))
+    expect(ids.size).toBe(50)
+    expect([...ids].every((id) => id.length > 0)).toBe(true)
   })
 })
 

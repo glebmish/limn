@@ -157,7 +157,7 @@ describe('setEditFrame — frameId + editDraft', () => {
   it('opening a genuinely NEW frame drops a leftover draft from the previous session', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const id = useStore.getState().editFrame!.frameId
-    setEditDraft({ frameId: id, text: 'typed but never saved', caret: 3 })
+    setEditDraft({ frameId: id, text: 'typed but never saved', caret: 3, fileLines: null, yours: null })
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 20, end: 20 }) // a different line, no frameId passed
     expect(getEditDraft()).toBeNull()
   })
@@ -165,7 +165,7 @@ describe('setEditFrame — frameId + editDraft', () => {
   it('growth (frameId carried through) leaves the existing draft alone', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const frame = useStore.getState().editFrame!
-    const draft = { frameId: frame.frameId, text: 'typed', caret: 3 }
+    const draft = { frameId: frame.frameId, text: 'typed', caret: 3, fileLines: null, yours: null }
     setEditDraft(draft)
     useStore.getState().setEditFrame({ ...frame, end: frame.end + 1 })
     expect(getEditDraft()).toEqual(draft)
@@ -174,9 +174,28 @@ describe('setEditFrame — frameId + editDraft', () => {
   it('closing the frame (null) clears both editFrame and the draft — covers save success, cancel, and error paths, which all close via null', () => {
     useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
     const id = useStore.getState().editFrame!.frameId
-    setEditDraft({ frameId: id, text: 'typed', caret: 3 })
+    setEditDraft({ frameId: id, text: 'typed', caret: 3, fileLines: null, yours: null })
     useStore.getState().setEditFrame(null)
     expect(useStore.getState().editFrame).toBeNull()
     expect(getEditDraft()).toBeNull()
+  })
+
+  // final review, finding 1: `crypto.randomUUID` only exists in a secure context, and
+  // docs/using-limn.md hands out a plain-HTTP `http://<tailnet-ip>:5466/?token=…` URL
+  // for Tailscale — where it is `undefined` and every open (pencil, double-click, the
+  // post-save ⏎) used to throw inside `setEditFrame`, killing in-place editing outright.
+  it('still opens a frame with a usable id when crypto.randomUUID is missing (plain-HTTP, non-loopback)', () => {
+    const real = globalThis.crypto
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) })
+    try {
+      useStore.getState().setEditFrame({ file: 'src/a.ts', start: 5, end: 5 })
+      const first = useStore.getState().editFrame!.frameId
+      expect(first).toEqual(expect.any(String))
+      expect(first.length).toBeGreaterThan(0)
+      useStore.getState().setEditFrame({ file: 'src/a.ts', start: 9, end: 9 })
+      expect(useStore.getState().editFrame!.frameId).not.toBe(first)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
