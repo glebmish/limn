@@ -32,15 +32,26 @@ fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
 // something to reveal. Added on main, merged into feature, then tweaked there.
 const longLines = (v25: string): string =>
   Array.from({ length: 34 }, (_, i) => (i === 24 ? v25 : `export const v${i + 1} = ${i + 1}`)).join('\n') + '\n'
+// two files that share a basename in different sub-directories (src/main/ipc.ts and
+// src/renderer/ipc.ts), both modified on the branch. The rail's grouped/tree file
+// lists have to disambiguate them by directory — with a flat basename list they'd
+// read as the same file twice. Same top-level dir (`src`), so FakeEngine's by-dir
+// grouping puts them in one section spanning two directories.
+const ipc = (side: string, n: number): string =>
+  `export const channel = '${side}:ipc'\nexport function send(msg: string): number {\n  return msg.length + ${n}\n}\n`
 fixtureGit(fx.dir, 'checkout', '-q', 'main')
 fixtureWrite(fx.dir, 'src/long.ts', longLines('export const v25 = 25'))
+fixtureWrite(fx.dir, 'src/main/ipc.ts', ipc('main', 1))
+fixtureWrite(fx.dir, 'src/renderer/ipc.ts', ipc('renderer', 1))
 fixtureGit(fx.dir, 'add', '-A')
-fixtureGit(fx.dir, 'commit', '-m', 'add long.ts')
+fixtureGit(fx.dir, 'commit', '-m', 'add long.ts + the ipc pair')
 fixtureGit(fx.dir, 'checkout', '-q', 'feature')
 fixtureGit(fx.dir, 'merge', '-q', '--no-edit', 'main')
 fixtureWrite(fx.dir, 'src/long.ts', longLines('export const v25 = 25 * FACTOR'))
+fixtureWrite(fx.dir, 'src/main/ipc.ts', ipc('main', 2))
+fixtureWrite(fx.dir, 'src/renderer/ipc.ts', ipc('renderer', 2))
 fixtureGit(fx.dir, 'add', '-A')
-fixtureGit(fx.dir, 'commit', '-m', 'scale v25 by FACTOR')
+fixtureGit(fx.dir, 'commit', '-m', 'scale v25 by FACTOR; bump both ipc channels')
 const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }
