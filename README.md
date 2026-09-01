@@ -65,8 +65,10 @@ controls how much it can do on its own:
 
 - **Ask for approval** / **Accept edits** — the agent confirms before running
   commands; safe defaults for unfamiliar code.
-- **Auto mode** / **Full access** — the agent runs shell commands and edits/commits
-  without confirming each step.
+- **Auto mode** — the agent runs on its own but still asks when it flags
+  something itself (its provider's own safety checks, not Limn's).
+- **Full access** — the agent runs shell commands and edits/commits without
+  confirming each step.
 
 Only use **Auto mode** or **Full access** on repos you trust. New chats start in
 **Auto mode**. For code you have not vetted, switch the chat to **Ask for approval**

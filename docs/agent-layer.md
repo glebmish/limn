@@ -154,17 +154,17 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 
 The two layers change at different rates: the ladder tier is re-read from the thread at **each** permission request (so a mid-turn tier change applies from the next request on), while this engine-session mode is negotiated **once** at turn start — which means a mid-turn downgrade always bites, but a mid-turn upgrade only affects the requests the engine still surfaces under the mode it started with.
 
-**(b) One shared decision function** — `ladderPolicy(mode, req, writeEnabled)` (`shared/approvalPolicy.ts`, pure, unit-tested) runs on **every** incoming `session/request_permission`, identical for both engines. The ACP payload is normalized to Limn's `ApprovalRequest` (`acpPermissionToRequest`: `execute` → `command`, `edit|delete|move`/diff → `file_change`, else `tool_use`), then the tier × kind table decides:
+**(b) One shared decision function** — `ladderPolicy(mode, req, writeEnabled)` (`shared/approvalPolicy.ts`, pure, unit-tested) runs on **every** incoming `session/request_permission`, identical for both engines. The ACP payload is normalized to Limn's `ApprovalRequest` (`acpPermissionToRequest`: `execute` → `command`, `edit|delete|move`/diff → `file_change`, else `tool_use`), then it decides:
 
-| Tier | limn MCP tools | `file_change` | `command` (safe) | `command` (unsafe) | other `tool_use` |
-| --- | --- | --- | --- | --- | --- |
-| `ask` | allow | ask | ask | ask | ask |
-| `edits` | allow | allow | ask | ask | ask |
-| `auto` | allow | allow | **allow** | **ask** | ask |
-| `full` | allow | allow | allow | allow | allow |
+| Tier | limn MCP tools | `file_change` (writeEnabled) | `command` | other `tool_use` |
+| --- | --- | --- | --- | --- |
+| `ask` | allow | ask | ask | ask |
+| `edits` | allow | ask | ask | ask |
+| `auto` | allow | ask | ask | ask |
+| `full` | allow | allow | allow | allow |
+| any tier, `writeEnabled:false` | allow | **deny** | ask | ask |
 
-- *Safe command* is defined by one Limn-owned conservative classifier (`isSafeCommand` + `SAFE_COMMAND_ALLOWLIST`: read/build/test verbs — `git status/log/diff`, `ls`, `cat`, `grep`, `rg`, package `test`/`lint`/`typecheck`; anything with network, `sudo`, file redirects, `git push`, `rm`, or an unrecognized verb → unsafe). This single definition is what makes `auto` mean the same thing on both engines — the tier copy ("only asks for actions detected as potentially unsafe") finally holds.
-- Limn MCP tools are auto-allowed (`isLimnTool` → row 1); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`).
+No self-rolled classification: by the time a request reaches Limn, the *engine* has already decided the action needs a human — claude-agent-acp's CLI auto-allows read-only bash and applies its own model classifier under native `auto`; codex-acp runs commands sandboxed under its native `agent` mode and surfaces only escalations (see layer (a) above). Limn never re-classifies what the engine chose to surface — it parks everything on the reviewer below `full`. The only decisions left to Limn's own policy are its own MCP tools (always safe, always allowed — `isLimnTool` → row 1) and the `full` tier (the reviewer told Limn to stop asking, so anything that still reaches here is auto-approved); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`) regardless of tier.
 
 **Approval registry (`approvals.ts`)** — engine-agnostic and reused byte-for-byte. When `ladderPolicy` says `ask`, the turn parks on `awaitDecision(opId, request, emit)`: it emits an `approval_request` event (the renderer shows a blocking card) and returns a promise that settles when the reviewer answers. The answer flows back through the `respondApproval` IPC → `resolveDecision(opId, requestId, decision)`; `allow` → the option whose kind is `allow_once`, `deny` → `reject_once`. `clearPending(opId)` answers everything still parked with the ACP-required `cancelled` outcome on cancel / turn end (no leak). **There is no timeout** — a request waits until answered or cancelled.
 

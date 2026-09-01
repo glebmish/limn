@@ -253,9 +253,11 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
   })
 
-  it('4e. mid-turn ask→auto: the SECOND file change is auto-allowed, never parked', async () => {
+  it('4e. mid-turn ask→full: the SECOND file change is auto-allowed, never parked', async () => {
     // The tier is re-read (turn.currentMode) at EVERY permission request, so moving
     // the selector while a turn streams takes effect from the next request on.
+    // Retargeted in T2: under the collapsed ladder only `full` auto-allows outright
+    // (ask/edits/auto all park below full — the native-mode-selected auto is T2's job).
     const { engine, readRecords } = fakeEngine({
       sessionId: 'ch-4e',
       turns: [{
@@ -276,7 +278,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     for await (const e of run.events) {
       if (e.type === 'approval_request') {
         approvals.push(e)
-        tier = 'auto' // the reviewer flips the selector mid-turn, then answers
+        tier = 'full' // the reviewer flips the selector mid-turn, then answers
         resolveDecision('op4e', e.request.id, 'allow')
       }
     }
@@ -287,7 +289,10 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(outcomes.map((r) => (r.outcome as { optionId?: string }).optionId)).toEqual(['allow', 'allow'])
   })
 
-  it('4f. mid-turn auto→ask: the SECOND file change parks even though the turn started at auto', async () => {
+  it('4f. mid-turn full→ask: the SECOND file change parks even though the turn started at full', async () => {
+    // Retargeted in T2: under the collapsed ladder only `full` allows a file_change
+    // outright — 'auto' now parks like 'ask' does (the native-mode-selected auto,
+    // where the engine itself decides what to surface, is T2's job).
     const { engine, readRecords } = fakeEngine({
       sessionId: 'ch-4f',
       turns: [{
@@ -299,12 +304,12 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
         rejectedText: 'refused'
       }]
     })
-    // downgraded between the two requests: the first read still sees 'auto' (allowed
+    // downgraded between the two requests: the first read still sees 'full' (allowed
     // outright, so there is no approval event to hook the flip onto), the second 'ask'.
-    let tier: ExecutionMode = 'auto'
+    let tier: ExecutionMode = 'full'
     const run = engine.chat({
       repo: '/r', engineSessionId: 'ch-4f', message: 'go', opId: 'op4f',
-      writeEnabled: true, executionMode: 'auto',
+      writeEnabled: true, executionMode: 'full',
       currentMode: () => { const t = tier; tier = 'ask'; return t }
     })
     const approvals: EngineEvent[] = []

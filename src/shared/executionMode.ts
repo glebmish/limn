@@ -4,7 +4,7 @@ import type { ExecutionMode, ExecutionTier } from './types.js'
 export const EXECUTION_TIERS: ExecutionTier[] = [
   { key: 'ask', label: 'Ask for approval', desc: 'Confirm before commands and file changes.' },
   { key: 'edits', label: 'Accept edits', desc: 'Auto-apply edits; ask before other actions.' },
-  { key: 'auto', label: 'Auto mode', desc: 'Only asks for actions detected as potentially unsafe.' },
+  { key: 'auto', label: 'Auto mode', desc: 'Asks only when the agent itself flags something as risky.' },
   { key: 'full', label: 'Full access', desc: 'Unrestricted — network and any file.' },
 ]
 
