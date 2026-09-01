@@ -137,6 +137,25 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 
 Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since approval" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks.
 
+### The address bar
+
+Every screen has a URL, and the address bar always names the one you're on:
+
+| URL | Screen |
+| --- | --- |
+| `/` | Dashboard |
+| `/review/<id>` | A saved review |
+| `/hub?repo=<path>` | A repo's saved-review list |
+| `/review?repo=<path>&base=<ref>&compare=<ref>` | A draft review, before a session exists |
+
+`/review/<id>` is durable — copy it, bookmark it, paste it into a chat, and it opens
+that review again. Back and forward move between screens the way they do on any site.
+A link to a review that no longer exists lands on the Dashboard with an error rather
+than a blank page.
+
+The hub and draft-review URLs carry the repository's path on your machine; Limn is a
+local tool, so those links only mean anything on the machine that has the repo.
+
 ### The `limn` command
 
 The CLI ships with the package. If the service is running it opens there; otherwise it
