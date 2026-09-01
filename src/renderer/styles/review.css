@@ -126,6 +126,8 @@
 .gnav-file{display:flex;align-items:center;gap:8px;padding:3px 13px 3px 24px;font-size:11.5px;cursor:pointer;border-left:2px solid transparent}
 .gnav-file .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gnav-dirty{flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.gnav-dirhead{padding:6px 13px 1px 24px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gnav-dirkids .gnav-file{padding-left:37px}
 .gnav-worktree{margin-top:6px;border-top:1px solid var(--line)}
 .gnav-wt-head{display:flex;align-items:center;gap:7px;padding:8px 13px 5px 13px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--amber)}
 .gnav-wt-head .gnav-wt-count{margin-left:auto;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}

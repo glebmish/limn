@@ -54,3 +54,20 @@ export function filesInPathOrder(files: readonly FileDiff[], paths: readonly str
 export function orderFilesForReview(files: readonly FileDiff[], explicitPaths?: readonly string[]): FileDiff[] {
   return explicitPaths ? filesInPathOrder(files, explicitPaths) : flattenFileTree(buildFileTree(files))
 }
+
+export function groupByDir<T extends { path: string }>(files: readonly T[]): { dir: string; files: T[] }[] {
+  const order: string[] = []
+  const groups = new Map<string, T[]>()
+  for (const f of files) {
+    const slash = f.path.lastIndexOf('/')
+    const dir = slash === -1 ? '' : f.path.slice(0, slash + 1)
+    let group = groups.get(dir)
+    if (!group) {
+      group = []
+      groups.set(dir, group)
+      order.push(dir)
+    }
+    group.push(f)
+  }
+  return order.map((dir) => ({ dir, files: groups.get(dir) as T[] }))
+}

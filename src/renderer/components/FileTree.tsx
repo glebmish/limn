@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { isUncommittedOrigin, type FileDiff, type ViewMark } from '../../shared/types'
 import { clickable } from '../lib/clickable'
-import { buildFileTree, type FileTreeDir } from '../lib/fileOrder'
+import { buildFileTree, groupByDir, type FileTreeDir } from '../lib/fileOrder'
 import { combineReviewStatuses, reviewStatusForFile, reviewStatusLabel, type ReviewGlyphStatus } from '../lib/fileStatus'
 import { FileGlyph, FolderGlyph } from './FileGlyph'
 
@@ -48,7 +48,7 @@ export function FileTree({ files, viewedAt, headSha, currentFile, onFileClick, c
   currentFile: string | null
   onFileClick: (path: string, file: FileDiff) => void
   className?: string
-  order?: 'tree' | 'explicit'
+  order?: 'tree' | 'explicit' | 'grouped'
 }) {
   const tree = useMemo(() => buildFileTree(files), [files])
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
@@ -87,6 +87,21 @@ export function FileTree({ files, viewedAt, headSha, currentFile, onFileClick, c
     </>
   )
 
+  const renderGrouped = (items: FileDiff[]): ReactNode => (
+    <>
+      {groupByDir(items).map((group) =>
+        group.dir === '' ? (
+          <Fragment key={group.dir}>{renderFiles(group.files)}</Fragment>
+        ) : (
+          <Fragment key={group.dir}>
+            <div className="gnav-dirhead">{group.dir}</div>
+            <div className="gnav-dirkids">{renderFiles(group.files)}</div>
+          </Fragment>
+        )
+      )}
+    </>
+  )
+
   const renderDir = (dir: FileTreeDir): ReactNode => (
     <>
       {[...dir.dirs.values()].map((child) => (
@@ -98,5 +113,6 @@ export function FileTree({ files, viewedAt, headSha, currentFile, onFileClick, c
     </>
   )
 
-  return <div className={'gnav-tree' + (className ? ' ' + className : '')}>{order === 'explicit' ? renderFiles(files) : renderDir(tree)}</div>
+  const body = order === 'explicit' ? renderFiles(files) : order === 'grouped' ? renderGrouped(files) : renderDir(tree)
+  return <div className={'gnav-tree' + (className ? ' ' + className : '')}>{body}</div>
 }
