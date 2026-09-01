@@ -1086,9 +1086,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   // The agent rebase turn (merge sheet §6): rebase the compare branch onto the base in
   // the review workdir — batch-shaped (write-enabled, exclusive lane, thread's tier),
-  // with none of sendBatch's comment reconciliation. `git rebase` is classified unsafe
-  // (approvalPolicy.ts:54), so under ask/edits/auto the command parks an ApprovalCard;
-  // 'full' runs it unattended — the design's "same approvals ladder as send comments".
+  // with none of sendBatch's comment reconciliation. Under ask/edits/auto any
+  // surfaced command parks an ApprovalCard; 'full' runs it unattended — the design's
+  // "same approvals ladder as send comments".
   handle('sendRebase', async (threadId: number, opId: string, conflictFiles?: string[]) => {
     const sid = dao.chatThreadSessionId(db, threadId)
     const thread = dao.getChatThread(db, threadId)

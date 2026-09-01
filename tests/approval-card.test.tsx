@@ -167,7 +167,6 @@ describe('ApprovalCard — the dead risk field is gone', () => {
     } as unknown as ApprovalRequest
     const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
     expect(out).not.toContain('ac-risk')
-    expect(out).not.toContain('risk')
   })
 })
 

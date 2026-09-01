@@ -2,7 +2,7 @@ import type { ExecutionMode, ExecutionTier } from './types.js'
 
 /** The ladder, in order, with the reviewer-facing copy (wireframe J3). */
 export const EXECUTION_TIERS: ExecutionTier[] = [
-  { key: 'ask', label: 'Ask for approval', desc: 'Confirm before commands and file changes.' },
+  { key: 'ask', label: 'Ask for approval', desc: "Asks before anything the agent doesn't already run read-only." },
   { key: 'edits', label: 'Accept edits', desc: 'Auto-applies most edits; asks when the agent flags one, or for other actions.' },
   { key: 'auto', label: 'Auto mode', desc: 'Asks only when the agent itself flags something as risky.' },
   { key: 'full', label: 'Full access', desc: 'Unrestricted — network and any file.' },

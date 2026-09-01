@@ -249,10 +249,14 @@ export class AcpEngine implements ReviewEngine {
             // The tier is read PER REQUEST, not captured at turn start, so the mode
             // selector keeps working while a turn streams. What a mid-turn change can
             // reach is bounded by the session mode negotiated once at (f) below — it is
-            // never re-negotiated: a DOWNGRADE (auto→ask) always bites, because Limn's
-            // ladder is the thing that parks; an UPGRADE only affects the requests the
-            // agent still surfaces under the already-set session mode (whatever that
-            // mode auto-accepts engine-side never reaches us to be re-tiered).
+            // never re-negotiated. `ask`/`edits`/`auto` are identical at the ladder
+            // (ladderPolicy always answers 'ask' for a surfaced request below `full`),
+            // so switching among them mid-turn changes nothing until the next turn
+            // renegotiates the session mode. The only mid-turn transition with live
+            // effect is `full` ↔ a lower tier: dropping out of `full` makes the ladder
+            // start parking subsequent requests again; rising into `full` makes it
+            // start auto-allowing them (whatever the session mode auto-accepts
+            // engine-side never reaches us to be re-tiered either way).
             const tier = opts.currentMode?.() ?? mode
             const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(tier, req, write)
             // 'ask' parks on the reviewer's decision, racing cancel so a pending
@@ -304,7 +308,7 @@ export class AcpEngine implements ReviewEngine {
         if (opts.engineSessionId) {
           if (!canResume && !canLoad) throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
           try {
-            if (canResume) availableModes = modeIdsFrom((await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers })).modes)
+            if (canResume) availableModes = modeIdsFrom((await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers }))?.modes)
             else availableModes = modeIdsFrom((await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers }))?.modes)
           } catch (err) {
             throw new EngineSessionLostError(opts.engineSessionId, err)

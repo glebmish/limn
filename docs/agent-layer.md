@@ -140,19 +140,21 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 
 ## Execution modes & approvals
 
-One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `auto` for new chats — pre-existing threads created before this column carried a value keep `ask`) — is enforced in **two deliberate layers**, so the tiers finally mean the *same thing on both engines* (the old `auto`-tier divergence — Claude's `permissionMode:auto` vs Codex's `on-failure` — was a product bug this migration fixes).
+One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat (`ExecutionMode` = `ask | edits | auto | full`, persisted on the thread, default `auto` for new chats — pre-existing threads created before this column carried a value keep `ask`) — is enforced in **two deliberate layers**. The tiers mean the same *product* thing on both engines — how much the reviewer is asked — but the mechanism is delegated to each engine's native equivalent: Claude's own model classifier decides what's safe to auto-run, Codex's sandbox decides what's safe to execute unattended. Limn no longer classifies anything itself.
 
-**(a) Baseline engine mode** — set once per session via `session/set_mode` (`AcpEngineConfig.modeFor`), chosen so the engine is permissive enough to allow anything Limn might allow, yet restrictive enough that anything Limn might gate produces a `session/request_permission` rather than executing silently:
+**(a) Baseline engine mode** — set once per session via `session/set_mode` (`AcpEngineConfig.modeFor`), chosen to hand each engine its closest native equivalent of the tier:
 
 | Tier | Reviewer sees | claude-agent-acp mode | codex-acp mode |
 | --- | --- | --- | --- |
 | `ask` | Ask for approval | `default` | `read-only` |
 | `edits` | Accept edits | `acceptEdits` | `agent` |
-| `auto` | Auto mode | `acceptEdits` | `agent` |
+| `auto` | Auto mode | native `auto` (→ `acceptEdits` when the session doesn't advertise it) | `agent` |
 | `full` | Full access | `bypassPermissions` | `agent-full-access` |
 | read-only chat (`writeEnabled` false) | — | `default` + client-side deny | `read-only` |
 
-The two layers change at different rates: the ladder tier is re-read from the thread at **each** permission request (so a mid-turn tier change applies from the next request on), while this engine-session mode is negotiated **once** at turn start — which means a mid-turn downgrade always bites, but a mid-turn upgrade only affects the requests the engine still surfaces under the mode it started with.
+Codex has no fourth mode between `read-only` and `agent-full-access`, so `edits` and `auto` land on the same native mode (`agent`) — both park whatever the sandbox surfaces; the tiers are behaviourally identical on that engine.
+
+The two layers change at different rates: the ladder tier is re-read from the thread at **each** permission request (so a mid-turn tier change applies from the next request on), while this engine-session mode is negotiated **once** at turn start. In practice the only mid-turn transition with live effect is `full` ↔ a lower tier: dropping out of `full` mid-turn makes the ladder start parking subsequent requests again, and rising into `full` mid-turn makes it start auto-allowing them; moving among `ask`/`edits`/`auto` mid-turn changes nothing, since `ladderPolicy` treats those three identically (all `ask`) until the next turn renegotiates the session mode.
 
 **(b) One shared decision function** — `ladderPolicy(mode, req, writeEnabled)` (`shared/approvalPolicy.ts`, pure, unit-tested) runs on **every** incoming `session/request_permission`, identical for both engines. The ACP payload is normalized to Limn's `ApprovalRequest` (`acpPermissionToRequest`: `execute` → `command`, `edit|delete|move`/diff → `file_change`, else `tool_use`), then it decides:
 
