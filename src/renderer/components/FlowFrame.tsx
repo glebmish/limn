@@ -111,9 +111,13 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     }
   }
 
-  const lineCount = text.split('\n').length
+  const typedLines = text.split('\n')
+  const lineCount = typedLines.length
   const chip = frame.start === frame.end ? `line ${frame.start}` : `lines ${frame.start}–${frame.end}`
-  const gutter = frameGutter(frame.start, frame.end, lineCount)
+  // Before the working file arrives the frame is empty and disabled — nothing has
+  // been typed, so the rows are trivially the region's own lines.
+  const original = fileLines ? fileLines.slice(frame.start - 1, frame.end) : typedLines
+  const gutter = frameGutter(frame.start, original, typedLines)
   return (
     <div className="flow-frame" data-limn-frame={f.path}>
       <div className="ff-head">

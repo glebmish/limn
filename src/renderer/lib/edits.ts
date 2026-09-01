@@ -1,18 +1,26 @@
 import type { DiffLine, FileDiff, FileEdit } from '../../shared/types'
 import type { LoadedReview } from '../../shared/ipc'
 
+/** How many lines `a` and `b` share at each end, by exact text. The suffix scan is
+ *  bounded by what the prefix already claimed, so a repeated line is never counted
+ *  twice (['a','a'] vs ['a','a','a'] is prefix 2 + suffix 0, not 2 + 2). */
+function commonEdges(a: string[], b: string[]): { prefix: number; suffix: number } {
+  let prefix = 0
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++
+  let suffix = 0
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
+  ) suffix++
+  return { prefix, suffix }
+}
+
 /** Narrow a frame save to its changed core: the common prefix and suffix between the
  *  on-screen snapshot and the typed lines are dropped, so the CAS anchors to exactly
  *  the lines that changed. Returns null when nothing changed (a no-op save). */
 export function narrowEdit(start: number, snapshot: string[], typed: string[]): FileEdit | null {
-  let prefix = 0
-  while (prefix < snapshot.length && prefix < typed.length && snapshot[prefix] === typed[prefix]) prefix++
-  let suffix = 0
-  while (
-    suffix < snapshot.length - prefix &&
-    suffix < typed.length - prefix &&
-    snapshot[snapshot.length - 1 - suffix] === typed[typed.length - 1 - suffix]
-  ) suffix++
+  const { prefix, suffix } = commonEdges(snapshot, typed)
   const core = snapshot.slice(prefix, snapshot.length - suffix)
   const newLines = typed.slice(prefix, typed.length - suffix)
   if (core.length === 0 && newLines.length === 0) return null
@@ -38,13 +46,27 @@ export function frameKeyAction(
   return null
 }
 
-/** Gutter labels for the frame's rows. Rows that land on lines the frame actually
- *  covers get their working-tree number; a growing edit's extra rows are not file
- *  lines yet — numbering them would collide with the real lines still rendered
- *  below the frame — so they read as '+'. */
-export function frameGutter(start: number, end: number, lineCount: number): string[] {
-  const covered = end - start + 1
-  return Array.from({ length: lineCount }, (_, i) => (i < covered ? String(start + i) : '+'))
+/** Gutter labels for the frame's rows, aligned against the region as it stands on
+ *  disk (`original` = the frame's own working-tree lines, first one numbered
+ *  `start`). A row that still *is* one of those lines keeps that line's number; a
+ *  row the edit created or rewrote has no file line behind it yet and reads '+' —
+ *  numbering it would collide with a real line still rendered below the frame.
+ *
+ *  Alignment is the same common-prefix/suffix narrowing the save uses, so the '+'
+ *  rows are by construction exactly `narrowEdit`'s `newLines`: the gutter marks
+ *  precisely what the CAS payload will rewrite, never more and never less. A pure
+ *  LCS would additionally re-match an interior line that survived a rewrite around
+ *  it; here such a row reads '+', which is the conservative direction — it claims
+ *  no line number it cannot stand behind. */
+export function frameGutter(start: number, original: string[], typed: string[]): string[] {
+  const { prefix, suffix } = commonEdges(original, typed)
+  return typed.map((_, i) => {
+    if (i < prefix) return String(start + i)
+    // a suffix row is the same distance from the end in both, so it maps back to
+    // `original` by that distance — the rows below a growing edit keep their numbers
+    if (i >= typed.length - suffix) return String(start + original.length - (typed.length - i))
+    return '+'
+  })
 }
 
 /** Frame/pencil availability for a whole file. Rows additionally need working-tree

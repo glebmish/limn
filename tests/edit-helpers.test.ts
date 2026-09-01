@@ -74,17 +74,47 @@ describe('frameKeyAction', () => {
 })
 
 describe('frameGutter', () => {
-  it('numbers the rows the region covers', () => {
-    expect(frameGutter(11, 13, 3)).toEqual(['11', '12', '13'])
+  // a 3-line region (11–13) reached by the ↑/↓ growth gesture
+  const region = ['l11', 'l12', 'l13']
+
+  it('an untouched region is just its own line numbers', () => {
+    expect(frameGutter(11, region, region)).toEqual(['11', '12', '13'])
   })
 
-  it('marks rows the edit adds — they are not file lines yet', () => {
-    // one covered line, three typed: line 11 is real, the two new ones are not
-    expect(frameGutter(11, 11, 3)).toEqual(['11', '+', '+'])
+  it('a mid-region ⏎ keeps the lines below numbered, not shifted', () => {
+    // caret mid "l12", ⏎ → l12 becomes two rows; l13 is still the real line 13
+    expect(frameGutter(11, region, ['l11', 'l12a', 'l12b', 'l13']))
+      .toEqual(['11', '+', '+', '13'])
   })
 
-  it('a shrinking region just stops early', () => {
-    expect(frameGutter(11, 13, 2)).toEqual(['11', '12'])
+  it('a ⏎ on the last row marks only the rows it created', () => {
+    expect(frameGutter(11, region, ['l11', 'l12', 'l13a', 'l13b']))
+      .toEqual(['11', '12', '+', '+'])
+  })
+
+  it('an interior insertion keeps both sides numbered', () => {
+    expect(frameGutter(11, region, ['l11', 'new', 'l12', 'l13']))
+      .toEqual(['11', '+', '12', '13'])
+  })
+
+  it('joining two lines shrinks the gutter and marks the join', () => {
+    expect(frameGutter(11, region, ['l11', 'l12l13'])).toEqual(['11', '+'])
+  })
+
+  it('a one-line region grown at the tail keeps its number', () => {
+    expect(frameGutter(11, ['x'], ['x', 'added'])).toEqual(['11', '+'])
+  })
+
+  it('a ⏎ at the head of a one-line region pushes the number down', () => {
+    expect(frameGutter(11, ['x'], ['', 'x'])).toEqual(['+', '11'])
+  })
+
+  it("marks exactly the rows the save will rewrite — nothing more", () => {
+    // the '+' rows are narrowEdit's newLines by construction: the gutter and the
+    // CAS payload agree on what changed, because they share the same narrowing
+    const typed = ['l11', 'l12a', 'l12b', 'l13']
+    const marked = typed.filter((_, i) => frameGutter(11, region, typed)[i] === '+')
+    expect(narrowEdit(11, region, typed)?.newLines).toEqual(marked)
   })
 })
 
