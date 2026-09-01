@@ -165,8 +165,9 @@ export function installRouter(store: RouterStore, win: RouterWindow): void {
   // presses inside one round trip overlap, and the first one to finish must not
   // un-suppress the other's state landing (which would push during popstate handling).
   let suppressDepth = 0
-  // Bumped per URL-initiated navigation so a superseded one can tell it lost the race.
-  let navGen = 0
+  // What the address bar reads for the NEWEST URL-initiated navigation (null for a path
+  // no route can parse). Whichever dispatch settles last reconciles against it.
+  let pendingTarget: Route | null = null
 
   store.subscribe(() => {
     const next = routeFromState(store.getState())
@@ -199,17 +200,20 @@ export function installRouter(store: RouterStore, win: RouterWindow): void {
    *  where we actually are. `target` is what the address bar currently reads, which
    *  is `null` for a path no route can parse (always worth rewriting).
    *
-   *  A navigation that was superseded while it awaited skips its reconcile entirely:
-   *  the store it would read is halfway through someone else's dispatch, so both the
-   *  URL it would write and the `last` it would record are about a page nobody is on. */
+   *  The reconcile belongs to whichever dispatch settles LAST, not to whichever started
+   *  last: two Back presses can land out of order, and the one that finishes last is the
+   *  one whose state the store ends up showing — so it owes the address bar. Reconciling
+   *  mid-flight instead would read a store halfway through someone else's dispatch, so
+   *  the one still running defers (`suppressDepth > 0`) and lets that one finish the job.
+   *  The target it reconciles against is the NEWEST one — where the bar actually reads. */
   async function apply(route: Route, target: Route | null): Promise<void> {
-    const gen = ++navGen
+    pendingTarget = target
     suppressDepth++
     try { await dispatch(route) } finally { suppressDepth-- }
-    if (gen !== navGen) return
+    if (suppressDepth > 0) return
     const landed = routeFromState(store.getState())
     last = landed
-    if (!sameRoute(landed, target)) win.history.replaceState(null, '', routeUrl(landed, win.location.search))
+    if (!sameRoute(landed, pendingTarget)) win.history.replaceState(null, '', routeUrl(landed, win.location.search))
   }
 
   win.addEventListener('popstate', () => {
@@ -219,7 +223,14 @@ export function installRouter(store: RouterStore, win: RouterWindow): void {
 
   initialDispatch = async () => {
     const route = parseRoute(win.location.pathname, win.location.search)
-    if (!route || route.kind === 'dashboard') return false
+    // A URL no route can parse (/nope, /review/abc, /hub with no repo) renders the
+    // dashboard, so say so in the bar — same reconcile the popstate path does. `/` and
+    // `/?dev=…` parse AS the dashboard, so dev/screenshot boots are untouched.
+    if (!route) {
+      win.history.replaceState(null, '', routeUrl({ kind: 'dashboard' }, win.location.search))
+      return false
+    }
+    if (route.kind === 'dashboard') return false
     await apply(route, route)
     return true
   }

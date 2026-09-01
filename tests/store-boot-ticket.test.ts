@@ -11,7 +11,13 @@ const pushState = vi.fn()
 const win = {
   api: { getPrefs, dashboard, takeCliOpen },
   limnDev: {},
-  location: { pathname: '/', search: '?open=tkt', href: 'http://limn.localhost:5466/?open=tkt' },
+  // href is DERIVED, not a third field to keep in step: stripQuery() rebuilds the URL
+  // from it, so a stale href would silently hide whether the deep-link pathname survives.
+  location: {
+    pathname: '/',
+    search: '?open=tkt',
+    get href() { return `http://limn.localhost:5466${this.pathname}${this.search}` }
+  },
   history: { replaceState, pushState },
   addEventListener: (_type: string, _fn: () => void) => {}
 }
@@ -28,7 +34,7 @@ beforeEach(() => {
   __resetBootOnce()
   takeCliOpen.mockClear(); replaceState.mockClear(); pushState.mockClear()
   win.location.pathname = '/'
-  win.location.search = '?open=tkt'; win.location.href = 'http://limn.localhost:5466/?open=tkt'
+  win.location.search = '?open=tkt'
   useStore.setState({
     screen: 'dashboard', sessionId: null, repo: null, error: null,
     enterHub: vi.fn(async () => {}) as never,
@@ -62,7 +68,7 @@ describe('boot() with a cli:open ticket in the URL', () => {
   })
 
   it('no ticket → no redeem and history untouched', async () => {
-    win.location.search = ''; win.location.href = 'http://limn.localhost:5466/'
+    win.location.search = ''
     await useStore.getState().boot()
     expect(takeCliOpen).not.toHaveBeenCalled()
     expect(replaceState).not.toHaveBeenCalled()
@@ -80,6 +86,8 @@ describe('boot() with a cli:open ticket in the URL', () => {
     takeCliOpen.mockResolvedValueOnce(null)
     await useStore.getState().boot()
     expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(12)
+    // stripping the spent ?open= keeps the deep-link path — the bar still says /review/12
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/review/12')
   })
 
   it('a failed redeem also falls through to the URL route', async () => {
@@ -87,5 +95,6 @@ describe('boot() with a cli:open ticket in the URL', () => {
     takeCliOpen.mockRejectedValueOnce(new Error('fetch failed'))
     await useStore.getState().boot()
     expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(12)
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/review/12')
   })
 })

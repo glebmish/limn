@@ -93,6 +93,16 @@ describe('boot() applies the URL route exactly once', () => {
     expect(pushState).not.toHaveBeenCalled()
   })
 
+  it('an unparseable boot URL renders the dashboard AND rewrites the address bar to /', async () => {
+    win.location.pathname = '/nope'
+    await useStore.getState().boot()
+    expect(useStore.getState().screen).toBe('dashboard')
+    // same contract as the popstate case: a URL no route can parse is never the
+    // store's route, so the bar must not keep reading /nope.
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/')
+    expect(pushState).not.toHaveBeenCalled()
+  })
+
   it('falls through to the dev hooks when the URL carries no route', async () => {
     await useStore.getState().boot()
     expect(useStore.getState().resumeExisting).toHaveBeenCalledWith(3)
@@ -173,9 +183,12 @@ describe('popstate', () => {
     await flush()
 
     expect(pushState).not.toHaveBeenCalled()
-    // the superseded dispatch must not reconcile either — it would rewrite the URL to
-    // a page the user navigated away from.
-    expect(replaceState).not.toHaveBeenCalled()
+    // the LATE-settling dispatch wins the store, so it also owes the address bar: the
+    // store ends on review 7 while the bar reads /hub, and the reconcile — deferred to
+    // whichever dispatch lands last — must bring the URL back to the store's route.
+    expect(useStore.getState().screen).toBe('review')
+    expect(useStore.getState().sessionId).toBe(7)
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/review/7')
   })
 
   it('an unknown path is treated as the dashboard', async () => {
