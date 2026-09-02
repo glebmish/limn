@@ -207,6 +207,11 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline.since{position:relative}
 .dline.since::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;z-index:2;
   background:repeating-linear-gradient(135deg,var(--amber) 0 2px,var(--amber-line) 2px 4px)}
+/* the rails are 3px pseudo-elements and cannot take a hover of their own — this
+   transparent strip covers the rail's width plus a little slack so "what is this
+   mark?" is answerable in place, via its title. Sits under the gutter's own controls. */
+.dline .rail-hit{position:absolute;left:0;top:0;bottom:0;width:9px;z-index:3;cursor:help}
+
 /* working-tree rails: staged = solid (in the index, ready to commit); unstaged =
    dotted (working-tree only, "not yet pinned to a commit"). The dotted pattern is
    drawn by a pseudo-element so it survives where box-shadow can't. */

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { diffHunksForMode, useStore, type DiffMode } from '../store'
+import { sinceBasis } from '../../shared/sinceBasis'
 import { Composer, InlineThread } from './Threads'
 import type { CharRange } from '../lib/worddiff'
 import { disp, highlightLine, langForPath } from '../lib/highlight'
@@ -115,6 +116,9 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // ── in-place edits (specs/inplace-edits): the flow frame replaces the rows it
   // covers; a hover pencil / double-click on any working-tree row opens it.
   const loaded = useStore((s) => s.loaded)
+  // what the single drift rail is measured from — the same helper the header's key
+  // and the baseline labels read, so the rail's own tooltip can never disagree
+  const driftBasis = (loaded ? sinceBasis(loaded.state, loaded.skeleton.headSha)?.basis : null) ?? 'approved'
   const editFrame = useStore((s) => s.editFrame)
   const setEditFrame = useStore((s) => s.setEditFrame)
   const editable = fileEditable(loaded, f)
@@ -332,6 +336,14 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     const originCls = l.origin === 'staged' ? ' staged'
       : l.origin === 'unstaged' ? ' unstaged'
       : (l.since || l.sinceViewed) ? ' since' : ''
+    // the rail is a 3px pseudo-element, so it cannot be hovered on its own: a wider
+    // transparent strip sits over it carrying the explanation. Asking "what is this
+    // mark?" where the mark is beats walking up to the header's key.
+    const railTitle = l.origin === 'staged' ? 'Staged — in the index, not yet committed'
+      : l.origin === 'unstaged' ? 'Unstaged — a working-tree edit'
+      : l.since ? (driftBasis === 'approved' ? 'Changed since you approved this' : 'Changed since the review ran')
+      : l.sinceViewed ? 'Changed since you viewed this file'
+      : null
     const kindCls = l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : ''
     const commentable = r.fromHunk
     const threads = commentable ? threadsFor(lineNo, side) : []
@@ -342,6 +354,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
           data-limn-line={`${f.path}:${side}:${lineNo}`}
           onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
         >
+          {railTitle && <span className="rail-hit" title={railTitle} />}
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
           <CodeLine text={l.text} lang={lang} ranges={r.marks} html={r.html} />
