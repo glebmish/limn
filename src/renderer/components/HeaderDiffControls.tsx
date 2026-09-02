@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { I } from '../kit'
 import { MarkersKey } from './MarkersKey'
+import { baselineLabel, type SinceBasis } from '../../shared/sinceBasis'
 
-/** The global diff-baseline dropdown (design 07 `fh-dd`) + the markers key. Always
- *  renders the "Full diff" option; "Since approved"/"Since viewed" appear only when a
- *  file has that baseline. Picking one re-syncs every file via `setGlobalDiffMode`.
+/** The BULK diff-baseline dropdown (design 07 `fh-dd`) + the marks key. Always renders
+ *  the "Full diff" option; the since-baselines appear only when some file has that
+ *  slice. Picking one re-syncs every file (and drops per-file overrides) via
+ *  `setGlobalDiffMode` — a single file is switched from its own header picker instead.
  *  Shown in both the annotated (page-head) and flat (flat-toolbar) headers. */
-export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirty, setGlobalDiffMode }: {
+export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirty, sinceBasis, setGlobalDiffMode }: {
   globalMode: 'branch' | 'approved' | 'viewed'
   anySinceApproved: boolean
   anySinceViewed: boolean
   dirty: boolean
+  /** what the since-baseline actually is here, or null when the review has none */
+  sinceBasis: SinceBasis | null
   setGlobalDiffMode: (m: 'branch' | 'approved' | 'viewed') => void
 }) {
   const [open, setOpen] = useState(false)
@@ -21,8 +25,7 @@ export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewe
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
-  const labelFor = (m: 'branch' | 'approved' | 'viewed'): string =>
-    m === 'approved' ? 'Since approved' : m === 'viewed' ? 'Since viewed' : 'Full diff'
+  const labelFor = (m: 'branch' | 'approved' | 'viewed'): string => baselineLabel(m, sinceBasis ?? 'approved')
   const items: ('branch' | 'approved' | 'viewed')[] = [
     'branch',
     ...(anySinceApproved ? (['approved'] as const) : []),
@@ -59,7 +62,7 @@ export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewe
           ))}
         </span>
       </span>
-      {dirty && <MarkersKey />}
+      <MarkersKey dirty={dirty} since={sinceBasis} />
     </div>
   )
 }

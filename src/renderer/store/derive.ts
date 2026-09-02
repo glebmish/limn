@@ -92,6 +92,23 @@ export function diffHunksForMode(f: FileDiff, mode: 'branch' | 'approved' | 'vie
   return f.hunks
 }
 
+/** The baselines a single file can actually be read against. Always the full diff;
+ *  "since" baselines only when the server attached that slice for THIS file — so a
+ *  file that was never viewed (or a review that was never approved) never offers a
+ *  baseline it cannot show. Order is the order the picker lists them in. */
+export function baselinesForFile(f: FileDiff): DiffMode[] {
+  return [
+    'branch',
+    ...(f.sinceHunks ? (['approved'] as const) : []),
+    ...(f.sinceViewedHunks ? (['viewed'] as const) : [])
+  ]
+}
+
+/** The baseline a file is rendered at: its own override, else the global default. */
+export function modeForFile(s: { diffMode: DiffMode; fileDiffMode: Record<string, DiffMode> }, path: string): DiffMode {
+  return s.fileDiffMode[path] ?? s.diffMode
+}
+
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
  *  content hash (from the rendered diff — merged while dirty, else the spine). */
 export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark {

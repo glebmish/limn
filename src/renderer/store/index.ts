@@ -33,6 +33,8 @@ export {
   effectiveSections,
   fileViewed,
   diffHunksForMode,
+  baselinesForFile,
+  modeForFile,
   viewMarkFor,
   sectionViewState,
   sectionDisclosureState,

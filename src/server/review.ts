@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
+import { approvedShaList, sinceBasis } from '../shared/sinceBasis.js'
 import {
   attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
@@ -134,8 +135,10 @@ export async function assembleReview(
   }
   const copyCandidates = dao.reviewCopyCandidates(db, repo, session.id, pair.base.anchorSha, candidatePositions).slice(0, 3)
   let sinceTagged = false
-  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
-  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
+  // approved when there is an approval, else the sha the review was generated at —
+  // the UI labels the rails from the same helper, so it never calls a generation
+  // baseline "approved" (src/shared/sinceBasis.ts)
+  const baseline = sinceBasis(state, skeleton.headSha)?.sha
   if (baseline && baseline !== skeleton.headSha) {
     try {
       const since = await diffSince(repo, baseline, compareEff)
@@ -244,7 +247,7 @@ export async function assembleReview(
   if (!state.merged && pair.base.kind === 'branch' && pair.compare.kind === 'branch') {
     try {
       const baseHead = await headSha(repo, pair.base.symbol)
-      mergedExternally = approvedShas.includes(skeleton.headSha)
+      mergedExternally = approvedShaList(state).includes(skeleton.headSha)
         && await isAncestor(repo, skeleton.headSha, baseHead)
     } catch { /* base unreadable — no detection */ }
   }

@@ -67,8 +67,8 @@ reviews waiting under **Show archived** in its hub.
 When the working tree has uncommitted changes, the review shows the **merged
 base → working-tree diff** — committed and uncommitted changes in one view. Per-line
 left-edge **rails** distinguish where each line came from: committed (solid grey),
-staged (solid amber), and unstaged (dotted amber). The diff header's **"i" markers key**
-explains this legend in-app whenever the tree is dirty, so it is not repeated here.
+staged (solid amber), and unstaged (dotted amber). The diff header's **"?" marks key**
+explains this legend in-app, so it is not repeated here.
 
 Two titlebar affordances track uncommitted work. The **drift pill** (shown when the
 branch moved while you were reading) distinguishes, on hover, new commits from
@@ -85,6 +85,31 @@ One limit worth stating: the agent **cannot apply comments to a dirty tree**. Se
 queued comments requires a clean working tree on the checked-out compare branch; if that
 precondition is unmet, the agent run reports that edits are unavailable rather than
 silently answering read-only.
+
+## Diff baselines, per file
+
+A review can be read against three baselines: the **full diff** (the whole branch), what
+changed **since you viewed** a file, and what changed **since the review's baseline** — an
+approval if you made one, otherwise the commit the review was generated at. The header
+control sets the baseline for *every* file at once; each file's own header carries the
+same control for that file alone, and picking one there leaves the rest untouched. Using
+the header control again re-syncs everything.
+
+A file only offers the baselines it actually has: the per-file control is absent
+entirely on a file you have never viewed and that carries no drift, so a large review
+grows one control per file you have worked through rather than one per file.
+
+The since-baseline is named for what it is. A review nobody approved still has drift
+rails — measured from the sha it was generated at — and those read **"Since the review
+ran"**, never "Since approved".
+
+## The marks key
+
+The **?** next to the baseline control opens a compact key for everything the diff draws:
+the left-edge rails (committed / staged / unstaged / changed-since) and the colours
+(added, removed, and the word-level highlight inside an edited line). It lists only what
+the review in front of you can show — the working-tree rails appear when the tree is
+dirty, the drift rail when the review has a baseline to drift from.
 
 ## Resizing the sidebar and chat drawer
 

@@ -4,6 +4,7 @@ import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
 import { HeaderDiffControls } from '../components/HeaderDiffControls'
+import { sinceBasis } from '../../shared/sinceBasis'
 import { ReviewTimeline } from '../components/ReviewTimeline'
 import { ReviewSidebar } from '../components/ReviewSidebar'
 import { ReviewSummary } from '../components/ReviewSummary'
@@ -162,6 +163,9 @@ export default function Review() {
   const globalMode = diffMode
   const anySinceApproved = displayFiles.some((f) => f.sinceHunks)
   const anySinceViewed = displayFiles.some((f) => f.sinceViewedHunks)
+  // what the drift rails and the "since" baselines are measured from here — an
+  // approval, or (when nobody approved) the sha the review was generated at
+  const sinceBasisKind = sinceBasis(state, loaded.skeleton.headSha)?.basis ?? null
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine
   // entry — surfaced in a trailing band so they aren't dropped.
   const sectionedPaths = new Set(sections.flatMap((s) => s.files))
@@ -352,6 +356,7 @@ export default function Review() {
                     anySinceApproved={anySinceApproved}
                     anySinceViewed={anySinceViewed}
                     dirty={loaded.dirty}
+                    sinceBasis={sinceBasisKind}
                     setGlobalDiffMode={setGlobalDiffMode}
                   />
                   {verdictButton ?? approveButton}

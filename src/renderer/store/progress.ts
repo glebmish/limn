@@ -46,8 +46,12 @@ export interface ProgressSlice {
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
-  /** global diff baseline (Full diff / Since approved / Since viewed) applied to every file */
+  /** global diff baseline (Full diff / Since approved / Since viewed) — the default
+   *  every file falls back to */
   diffMode: DiffMode
+  /** per-file baseline overrides (path → mode). Set from a file's own header picker;
+   *  cleared wholesale by the global switch, which means "all files". */
+  fileDiffMode: Record<string, DiffMode>
 
   toggleViewed(file: string, currentlyViewed: boolean): void
   /** Flip an untracked file's exclude override (the per-row exclude / add-back button).
@@ -63,8 +67,10 @@ export interface ProgressSlice {
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
-  /** Set the global diff baseline applied to every file. */
+  /** Set the global diff baseline for every file, dropping per-file overrides. */
   setGlobalDiffMode(mode: DiffMode): void
+  /** Read one file against its own baseline, leaving every other file alone. */
+  setFileDiffMode(path: string, mode: DiffMode): void
 }
 
 export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> = (set, get) => ({
@@ -76,6 +82,7 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
   focusTarget: null,
   docPath: null,
   diffMode: 'branch',
+  fileDiffMode: {},
 
   toggleViewed(file, currentlyViewed) {
     const viewedAt = { ...get().viewedAt }
@@ -159,6 +166,11 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     set({ docPath: null })
   },
   setGlobalDiffMode(mode) {
-    set({ diffMode: mode })
+    // the global control reads as "all files" — leaving overrides in place would make
+    // it silently skip the very files the reader had singled out
+    set({ diffMode: mode, fileDiffMode: {} })
+  },
+  setFileDiffMode(path, mode) {
+    set((s) => ({ fileDiffMode: { ...s.fileDiffMode, [path]: mode } }))
   }
 })
