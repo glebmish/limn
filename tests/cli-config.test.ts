@@ -1,10 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { applyConfigChange, formatConfig, runConfig, remoteStore, localStore, type ConfigDeps, type PrefsStore } from '../src/cli/config'
-import type { AgentRef } from '../src/shared/types'
+import { runConfig, remoteStore, localStore, type ConfigDeps, type PrefsStore } from '../src/cli/config'
 import type { ServiceTarget } from '../src/cli/target'
 import type { Io } from '../src/cli/main'
 
@@ -25,60 +24,6 @@ function fakeStore(initial: Record<string, string> = {}): PrefsStore & { calls: 
     set: async (key, value) => { calls.push(`set:${key}`); data[key] = value }
   }
 }
-
-describe('applyConfigChange', () => {
-  const claudeOpusHigh: AgentRef = { engine: 'claude', model: 'opus', reasoningEffort: 'high' }
-
-  it('agent -> codex resets model/effort with a note', () => {
-    expect(applyConfigChange(claudeOpusHigh, 'agent', 'codex')).toEqual({
-      ok: true,
-      agent: { engine: 'codex' },
-      note: 'model and effort reset to auto (not available for codex)'
-    })
-  })
-
-  it('agent -> claude when already claude keeps model/effort and no note', () => {
-    const r = applyConfigChange(claudeOpusHigh, 'agent', 'claude')
-    expect(r).toEqual({ ok: true, agent: claudeOpusHigh })
-    expect((r as { note?: string }).note).toBeUndefined()
-  })
-
-  it('agent -> unknown engine errors', () => {
-    expect(applyConfigChange(claudeOpusHigh, 'agent', 'nope')).toEqual({ ok: false, error: 'unknown engine "nope" (claude, codex)' })
-  })
-
-  it('model -> a valid model on the current engine', () => {
-    expect(applyConfigChange({ engine: 'codex' }, 'model', 'gpt-5.5')).toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-5.5' } })
-  })
-
-  it('model -> auto clears model and effort', () => {
-    expect(applyConfigChange(claudeOpusHigh, 'model', 'auto')).toEqual({ ok: true, agent: { engine: 'claude' } })
-  })
-
-  it('effort -> a value with no model set errors', () => {
-    expect(applyConfigChange({ engine: 'claude' }, 'effort', 'high')).toEqual({
-      ok: false,
-      error: 'reasoning effort needs a model (set a model first)'
-    })
-  })
-
-  it('effort -> auto clears effort, keeping the model', () => {
-    expect(applyConfigChange(claudeOpusHigh, 'effort', 'auto')).toEqual({ ok: true, agent: { engine: 'claude', model: 'opus' } })
-  })
-
-  it('model with no reasoning-effort setting then an effort change errors', () => {
-    const afterModel = applyConfigChange(claudeOpusHigh, 'model', 'haiku')
-    expect(afterModel).toEqual({ ok: true, agent: { engine: 'claude', model: 'haiku' }, note: 'effort reset to auto (not available for haiku)' })
-    const agent = (afterModel as { agent: AgentRef }).agent
-    expect(applyConfigChange(agent, 'effort', 'low')).toEqual({ ok: false, error: 'model "haiku" has no reasoning-effort setting' })
-  })
-})
-
-describe('formatConfig', () => {
-  it('formats the three rows aligned', () => {
-    expect(formatConfig({ engine: 'claude' })).toBe('agent   claude\nmodel   auto\neffort  auto')
-  })
-})
 
 describe('runConfig', () => {
   function deps(over: Partial<ConfigDeps> = {}): ConfigDeps {
@@ -277,7 +222,7 @@ describe('localStore', () => {
     expect(await store.get()).toEqual({ 'engine.claude.path': '/usr/local/bin/claude' })
   })
 
-  it('closes its handle each call — a second call still works', async () => {
+  it('reuses one handle across calls on the same store — a second call still works', async () => {
     const io = fakeIo()
     const dbPath = tmpDbPath()
     const store = localStore(io, dbPath)
@@ -286,12 +231,39 @@ describe('localStore', () => {
     expect(await store.get()).toEqual({ a: '1', b: '2' })
   })
 
-  it('reports a recovered corrupt db to io.err rather than silently starting empty', async () => {
+  it('a `config set` flow (get then write) opens the db only once', async () => {
+    const io = fakeIo()
+    const dbPath = tmpDbPath()
+    const store = localStore(io, dbPath)
+    // openDb() calls fs.mkdirSync exactly once per open — a reliable proxy for
+    // "how many times was the db actually opened" without reaching into internals.
+    const spy = vi.spyOn(fs, 'mkdirSync')
+    const before = spy.mock.calls.length
+    expect(await store.get()).toEqual({})
+    await store.set('a', '1')
+    expect(spy.mock.calls.length - before).toBe(1)
+    spy.mockRestore()
+  })
+
+  it('a read never rotates a corrupt db aside — rejects with a clear message instead', async () => {
     const io = fakeIo()
     const dbPath = tmpDbPath()
     fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
     const store = localStore(io, dbPath)
-    expect(await store.get()).toEqual({})
+    await expect(store.get()).rejects.toThrow(/corrupt/)
+    expect(fs.existsSync(dbPath)).toBe(true)
+    expect(fs.readFileSync(dbPath, 'utf8')).toBe('not a sqlite file — garbage bytes to trip the integrity check')
+    expect(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.includes('.corrupt-'))).toEqual([])
+    expect(io.err_).toEqual([])
+  })
+
+  it('a write still recovers a corrupt db (moves it aside) and reports it', async () => {
+    const io = fakeIo()
+    const dbPath = tmpDbPath()
+    fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
+    const store = localStore(io, dbPath)
+    await store.set('a', '1')
+    expect(await store.get()).toEqual({ a: '1' })
     expect(io.err_).toHaveLength(1)
     expect(io.err_[0]).toMatch(/^note: database was corrupt; a backup was kept at .*\.corrupt-\d+$/)
   })

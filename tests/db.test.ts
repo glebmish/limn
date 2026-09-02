@@ -73,6 +73,24 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('recover: false on a corrupt file rejects instead of moving it aside', () => {
+    const file = tmpFile()
+    fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')
+    expect(() => openDb(file, { recover: false })).toThrow(/corrupt/)
+    // the file is untouched — no backup-aside, nothing renamed
+    expect(fs.existsSync(file)).toBe(true)
+    expect(fs.readFileSync(file, 'utf8')).toBe('this is not a sqlite database, not even close — pad pad pad')
+    expect(fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.corrupt-'))).toEqual([])
+  })
+
+  it('recover: true (the default) on a corrupt file still moves it aside', () => {
+    const file = tmpFile()
+    fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')
+    const { db, recoveredFrom } = openDb(file, { recover: true })
+    expect(recoveredFrom).toMatch(/limn\.db\.corrupt-/)
+    db.close()
+  })
+
   it('migration failure on a healthy db throws and preserves data', () => {
     const file = tmpFile()
     const first = openDb(file)

@@ -1,13 +1,16 @@
-import { openDb } from '../server/db/db.js'
+import type { DatabaseSync } from 'node:sqlite'
 import { defaultDbPath } from '../server/paths.js'
 import { probeHealth, type HealthInfo } from './health.js'
 import { serviceTarget, type ServiceTarget } from './target.js'
 import { rpc } from './rpc.js'
-import { validateAgentRef, validateAgentRefJson } from '../shared/agents.js'
+import { validateAgentRefJson } from '../shared/agents.js'
 import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../shared/prefs.js'
+import { applyConfigChange, formatConfig, type ConfigKey } from '../shared/agentConfig.js'
 import type { AgentRef } from '../shared/types.js'
-import type { ConfigCommand, ConfigKey } from './args.js'
+import type { ConfigCommand } from './args.js'
 import type { Io } from './main.js'
+
+export { applyConfigChange, formatConfig, type ConfigKey } from '../shared/agentConfig.js'
 
 /** Wherever a `defaultAgent` pref lives: the running service (over its RPC) or the
  *  sqlite file directly, when nothing is running to ask instead. */
@@ -41,23 +44,32 @@ export function remoteStore(t: ServiceTarget): PrefsStore {
  *  `io` — silently swapping in a fresh, empty db would otherwise look like the
  *  user's default agent pref just vanished. */
 export function localStore(io: Io, dbPath: string = defaultDbPath()): PrefsStore {
-  const open = () => {
-    const { db, recoveredFrom } = openDb(dbPath)
+  // A single, lazily-opened handle shared across every call this store instance
+  // makes (get + set for one `config set`, or just get for `list`/`get`). Opening
+  // is dynamic — `openDb` (and node:sqlite with it) is only ever loaded once a CLI
+  // command actually needs the local db, so `limn --version` never pulls it in.
+  // The handle is never explicitly closed: this store lives only for the lifetime
+  // of one CLI invocation, and node:sqlite's synchronous handle holds no event-loop
+  // resource that would keep the process alive past `main()` returning.
+  let cached: DatabaseSync | undefined
+  const open = async (opts: { recover: boolean }): Promise<DatabaseSync> => {
+    if (cached) return cached
+    const { openDb } = await import('../server/db/db.js')
+    const { db, recoveredFrom } = openDb(dbPath, opts)
     if (recoveredFrom) io.err(`note: database was corrupt; a backup was kept at ${recoveredFrom}`)
+    cached = db
     return db
   }
   return {
     get: async () => {
-      const db = open()
-      try {
-        const out: Record<string, string> = {}
-        for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
-          out[r.key] = r.value
-        }
-        return out
-      } finally {
-        db.close()
+      // recover: false — a read must never rotate the user's database aside; a
+      // corrupt file surfaces as a rejection instead (see openDb's `recover` option).
+      const db = await open({ recover: false })
+      const out: Record<string, string> = {}
+      for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
+        out[r.key] = r.value
       }
+      return out
     },
     set: async (key, value) => {
       if (key === DEFAULT_AGENT_PREF_KEY) {
@@ -65,13 +77,9 @@ export function localStore(io: Io, dbPath: string = defaultDbPath()): PrefsStore
         if (!check.ok) throw new Error(check.error)
         value = JSON.stringify(check.agent)
       }
-      const db = open()
-      try {
-        db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
-          ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
-      } finally {
-        db.close()
-      }
+      const db = await open({ recover: true })
+      db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
     }
   }
 }
@@ -81,55 +89,6 @@ export const defaultConfigDeps: ConfigDeps = {
   probe: probeHealth,
   remote: remoteStore,
   local: (io) => localStore(io)
-}
-
-/** Pure: apply one key change to an AgentRef, returning a validated next ref (or the
- *  validation error) plus an optional note when a change silently drops a value that
- *  no longer applies (an engine switch resets model/effort; a model switch that can't
- *  keep the current effort resets effort). */
-export function applyConfigChange(current: AgentRef, key: ConfigKey, value: string): { ok: true; agent: AgentRef; note?: string } | { ok: false; error: string } {
-  if (key === 'agent') {
-    const check = validateAgentRef({ engine: value })
-    if (!check.ok) return { ok: false, error: check.error }
-    const nextEngine = check.agent.engine
-    if (nextEngine === current.engine) return { ok: true, agent: current }
-    const hadExtra = current.model !== undefined || current.reasoningEffort !== undefined
-    return {
-      ok: true,
-      agent: { engine: nextEngine },
-      note: hadExtra ? `model and effort reset to auto (not available for ${nextEngine})` : undefined
-    }
-  }
-
-  if (key === 'model') {
-    if (value === 'auto') return { ok: true, agent: { engine: current.engine } }
-    const withEffort = validateAgentRef({ engine: current.engine, model: value, reasoningEffort: current.reasoningEffort })
-    if (withEffort.ok) return { ok: true, agent: withEffort.agent }
-    if (current.reasoningEffort === undefined) return { ok: false, error: withEffort.error }
-    // the model itself may still be fine — it's just incompatible with the effort
-    // that was set for the old model. Drop the effort rather than failing outright.
-    const withoutEffort = validateAgentRef({ engine: current.engine, model: value })
-    if (!withoutEffort.ok) return { ok: false, error: withEffort.error }
-    return { ok: true, agent: withoutEffort.agent, note: `effort reset to auto (not available for ${value})` }
-  }
-
-  // key === 'effort'
-  if (value === 'auto') {
-    return { ok: true, agent: current.model !== undefined ? { engine: current.engine, model: current.model } : { engine: current.engine } }
-  }
-  const check = validateAgentRef({ engine: current.engine, model: current.model, reasoningEffort: value })
-  if (!check.ok) return { ok: false, error: check.error }
-  return { ok: true, agent: check.agent }
-}
-
-/** "agent   claude\nmodel   auto\neffort  auto" — labels padded to one column. */
-export function formatConfig(agent: AgentRef): string {
-  const rows: [string, string][] = [
-    ['agent', agent.engine],
-    ['model', agent.model ?? 'auto'],
-    ['effort', agent.reasoningEffort ?? 'auto']
-  ]
-  return rows.map(([k, v]) => `${k.padEnd(8)}${v}`).join('\n')
 }
 
 function valueFor(agent: AgentRef, key: ConfigKey): string {

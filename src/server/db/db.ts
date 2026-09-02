@@ -5,11 +5,21 @@ import { MIGRATIONS } from './migrations.js'
 
 export interface OpenResult { db: DatabaseSync; recoveredFrom?: string }
 
+export interface OpenOptions {
+  /** When the file turns out to be corrupt: move it aside and create a fresh one
+   *  (the default, today's behaviour — appropriate for a genuine write path). Pass
+   *  `false` for a read-only caller (e.g. the CLI's local prefs read) that must
+   *  never risk renaming away a database the user still cares about — a corrupt
+   *  file then rejects instead. */
+  recover?: boolean
+}
+
 /** Open (creating if needed) and migrate the app database.
  *  A corrupt/unreadable file is moved aside — never silently dropped — and a
  *  fresh db is created; `recoveredFrom` carries the backup path for the UI.
  *  A migration failure on a healthy db throws (data preserved). */
-export function openDb(file: string): OpenResult {
+export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
+  const recover = opts.recover ?? true
   fs.mkdirSync(path.dirname(file), { recursive: true })
   let db: DatabaseSync
   let recoveredFrom: string | undefined
@@ -21,6 +31,7 @@ export function openDb(file: string): OpenResult {
     // error) must NOT rename the user's real database away and create an empty one
     // — that would be surprising data loss. Rethrow those instead.
     if (!isCorruptionError(err)) throw err
+    if (!recover) throw new Error(`database at ${file} is corrupt; run a command that writes to it to recover (a backup will be kept)`, { cause: err })
     recoveredFrom = `${file}.corrupt-${Date.now()}`
     fs.renameSync(file, recoveredFrom)
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
