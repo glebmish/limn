@@ -147,7 +147,11 @@ describe('ApprovalCard — agent-stated reason', () => {
     }
     const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
     expect(out).toContain('class="ac-reason"')
-    expect(out).toContain('Need to clear the stale build dir before rebuilding.')
+    // "Reason:" not "Agent's stated reason:" — Limn now derives some reasons itself
+    // (codex network/root escalations), so the label can no longer claim every
+    // reason came from the agent.
+    expect(out).toContain('Reason: Need to clear the stale build dir before rebuilding.')
+    expect(out).not.toContain("Agent's stated reason")
   })
 
   it('omits the reason line entirely when detail.reason is absent', () => {

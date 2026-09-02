@@ -118,10 +118,10 @@ describe('queuedIdleHeadline — idle queued-chip copy per outcome', () => {
   })
 
   it('reads as a clean prompt for a succeeded turn (a flush that was itself gated)', () => {
-    expect(queuedIdleHeadline('succeeded')).toBe("Not sent — send when you're ready")
+    expect(queuedIdleHeadline('succeeded')).toBe("Not sent — send when you’re ready")
   })
 
   it('reads as a clean prompt when there is no outcome yet', () => {
-    expect(queuedIdleHeadline(null)).toBe("Not sent — send when you're ready")
+    expect(queuedIdleHeadline(null)).toBe("Not sent — send when you’re ready")
   })
 })

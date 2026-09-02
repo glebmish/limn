@@ -53,7 +53,7 @@ export function composerMode(
 export function queuedIdleHeadline(outcome: OperationStatus | null): string {
   if (outcome === 'cancelled') return "Not sent — last turn was cancelled"
   if (outcome === 'failed') return "Not sent — last turn failed"
-  return "Not sent — send when you're ready"
+  return "Not sent — send when you’re ready"
 }
 
 /** Pure slice arithmetic for the message window: mount only the last `shown` messages,

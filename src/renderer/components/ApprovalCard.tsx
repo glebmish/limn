@@ -32,7 +32,7 @@ export function ApprovalCard({ request, index, total, onDecide, onStop, initialO
       </div>
       <div className="ac-summary">{request.summary}</div>
       {request.detail?.reason && (
-        <div className="ac-reason">Agent's stated reason: {request.detail.reason}</div>
+        <div className="ac-reason">Reason: {request.detail.reason}</div>
       )}
       {request.detail?.command && (
         <div className="ac-detail">
