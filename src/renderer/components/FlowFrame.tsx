@@ -252,6 +252,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   // survive — '+' would promise a line the next ⌫ is about to remove, so it wears
   // the key that removes it instead (#8).
   const gutter = deletesLines ? ['⌫'] : frameGutter(frame.start, original, typedLines)
+  const cue = yours ? reapplyCue(yours.removes) : null
   return (
     <div className={`flow-frame${deletesLines ? ' ff-emptied' : ''}`} data-limn-frame={f.path}>
       <div className="ff-head">
@@ -264,9 +265,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         <button className="ff-btn ff-ok" title={`Save (${saveChordLabel(typeof navigator !== 'undefined' ? navigator.platform : '')}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
-      {yours != null && (() => {
-        const cue = reapplyCue(yours.removes)
-        return (
+      {yours != null && cue != null && (
         <div className="ff-yours">
           <span>These lines changed while you were editing — refreshed to the new version; {yours.removes.length > 0 ? 'your deletion is kept' : 'your text is kept'}:</span>
           <code>{yours.removes.length > 0 ? '⌫ delete these lines' : yours.text}</code>
@@ -276,8 +275,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
             onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null, { yours: null }); void save(y.text, y.removes.length > 0) }}
           >Re-apply</button>
         </div>
-        )
-      })()}
+      )}
       <div className="ff-body">
         <span className="ff-gutter" aria-hidden>
           {gutter.map((n, i) => <span key={i}>{n}</span>)}

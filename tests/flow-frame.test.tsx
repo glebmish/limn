@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 
@@ -41,6 +41,7 @@ afterEach(() => {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = null
   ;(init as { editFrame: unknown }).editFrame = null
+  vi.unstubAllGlobals()
 })
 
 describe('in-place edit affordances', () => {
@@ -97,10 +98,20 @@ describe('in-place edit affordances', () => {
   it('save hint names the chord for the current navigator.platform (#7)', () => {
     seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
     const out = renderToStaticMarkup(<DiffView f={file} />)
-    // Vitest's test environment reports `navigator.platform` as 'MacIntel' —
-    // saveChordLabel('MacIntel') is pinned to '⌘⏎' in tests/platform.test.ts.
+    // Whatever the host reports (this varies by OS/Node — e.g. 'MacIntel' locally,
+    // 'Linux x86_64' on CI's ubuntu-latest runners), the title must name that exact
+    // chord. Both branches are pinned independently, host-agnostic, below.
     expect(out).toContain(`title="Save (${saveChordLabel(navigator.platform)}) — writes the working tree"`)
-    expect(out).toContain('title="Save (⌘⏎) — writes the working tree"')
+  })
+
+  it('names ⌘⏎ on an Apple platform and Ctrl+⏎ elsewhere, regardless of host (#7)', () => {
+    seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
+    vi.stubGlobal('navigator', { platform: 'MacIntel' })
+    expect(renderToStaticMarkup(<DiffView f={file} />))
+      .toContain('title="Save (⌘⏎) — writes the working tree"')
+    vi.stubGlobal('navigator', { platform: 'Linux x86_64' })
+    expect(renderToStaticMarkup(<DiffView f={file} />))
+      .toContain('title="Save (Ctrl+⏎) — writes the working tree"')
   })
 
   it('a frame for another file leaves this one untouched', () => {
