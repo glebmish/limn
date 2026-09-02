@@ -1,18 +1,13 @@
 # Using Limn — in-flow features
 
 Behaviors that shape a review without being obvious from the buttons alone: which
-untracked files are covered, which review opens when you reopen a repo, and how a dirty
-working tree is shown and approved — plus the background service that serves it all, and
-the one browser caveat.
+untracked files are covered, which review opens when you reopen a repo, how a dirty
+working tree is shown and approved, and how the review panes are resized — plus the
+background service that serves it all, and the one browser caveat.
 
 > **Audience:** reviewers using the app. This is the how-it-behaves companion to the
 > README "Using it" section — for the architecture behind these features see
 > [storage-layer.md](storage-layer.md) and [agent-layer.md](agent-layer.md).
-
-## Resizing the sidebar and chat drawer
-
-Drag the divider next to the sidebar or the chat drawer to resize it (arrow keys
-work when it is focused; double-click resets). Widths are remembered.
 
 ## Excluding untracked files
 
@@ -81,6 +76,15 @@ One limit worth stating: the agent **cannot apply comments to a dirty tree**. Se
 queued comments requires a clean working tree on the checked-out compare branch; if that
 precondition is unmet, the agent run reports that edits are unavailable rather than
 silently answering read-only.
+
+## Resizing the sidebar and chat drawer
+
+Drag the divider next to the sidebar or the chat drawer to resize it (arrow keys
+work when it is focused; double-click resets). Widths are remembered.
+
+On a window too narrow to hold both panes at their remembered widths, they are squeezed
+so the diff keeps a usable width and the drawer stays on screen. The widths you chose are
+not overwritten — widen the window and they come back.
 
 ## The service
 

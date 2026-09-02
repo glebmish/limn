@@ -39,8 +39,9 @@
 .art-peek .art-goal{font-size:11.5px;color:var(--ink-2);line-height:1.5;margin-bottom:6px}
 .art-peek .spec-req{padding:3px 0}
 /* Inline comments in the narrow left rail must not inherit the diff's 62px gutter
-   indent — in a 286px sidebar that crushes the bubble to a sliver. Drop the indent,
-   let the box fill the rail, and let the header wrap instead of clipping. */
+   indent — in a rail that narrow it crushes the bubble to a sliver, and the rail is
+   resizable so it can get narrower still. Drop the indent, let the box fill the rail,
+   and let the header wrap instead of clipping. */
 .art-peek .dthread{padding:4px 0 6px;border:none;background:none}
 .art-peek .dthread .box{max-width:none}
 .art-peek .dthread .bh{flex-wrap:wrap;white-space:normal;row-gap:2px}
@@ -90,11 +91,11 @@
   color:var(--muted);padding:3px 8px;height:18px;line-height:12px;border-radius:5px}
 .gnav-viewtoggle button:hover{color:var(--ink-2)}
 .gnav-viewtoggle button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 0 var(--line-2)}
-/* The toggle (~107px) and the progress string share a 286px rail with only ~13px
-   to spare at `5/8 sections · 12/34 viewed`; one more digit on either count
-   (`8/12 sections · 240/318 viewed`) overflows and wraps, so the header would
-   grow a row — and the whole rail would shift — as the counts tick over during a
-   review. With the toggle present, stack deliberately instead: control row, then
+/* The toggle (~107px) and the progress string share one resizable rail, and in a
+   narrow rail they barely fit at `5/8 sections · 12/34 viewed`; one more digit on
+   either count (`8/12 sections · 240/318 viewed`) overflows and wraps, so the header
+   would grow a row — and the whole rail would shift — as the counts tick over during
+   a review. With the toggle present, stack deliberately instead: control row, then
    the status line under it, at a height that never depends on the digits. */
 .gnav-planlabel:has(.gnav-viewtoggle){flex-wrap:nowrap;flex-direction:column;align-items:flex-start;gap:5px}
 .gnav-intent{font-size:11px;color:var(--muted);line-height:1.45;padding:1px 13px 6px 24px;cursor:pointer}
