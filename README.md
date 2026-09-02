@@ -170,6 +170,8 @@ limn ~/code/myrepo                   # same, for another repo (any path inside i
 limn --base main --branch feature/x  # review a specific pair
 limn --new                           # start a fresh review instead of resuming
 limn --hub                           # open the repo's saved-review list
+limn --generate                      # open the review and start generation immediately
+limn --generate --print-url          # print the review URL instead of opening a browser
 ```
 
 | Flag | Meaning |
@@ -180,6 +182,11 @@ limn --hub                           # open the repo's saved-review list
 | `--new` | Force a fresh review rather than resuming the latest one for the pair. |
 | `--hub` | Open the repo hub (every saved review) instead of a review. |
 | `--no-service` | Skip the service prompt; run in the foreground. |
+| `--generate` | Start generation immediately: a fresh review with no session, an update pass on an existing one, or (with `--new`) a full pass on a brand-new session. |
+| `--agent NAME` | Override the review agent (`claude` or `codex`) for this generation only. Needs `--generate`. |
+| `--model NAME` | Override the model for this generation only. Needs `--generate`. |
+| `--effort LEVEL` | Override the reasoning effort for this generation only. Needs `--generate` and a model. |
+| `--print-url` | Print the page URL on stdout instead of opening a browser (or a cmux pane). |
 
 ```bash
 limn service serve [--port N] [--port-80]   # foreground server (default 5466)

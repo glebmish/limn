@@ -115,6 +115,45 @@ code 1.
 `limn config` talks to the running service over the same connection the app uses;
 if none is running, it reads and writes the SQLite database file directly.
 
+## Review loop from your agent
+
+`limn --generate` opens a review and starts generation immediately, instead of
+waiting for a click: on a pair with no session it runs a full pass, on one with a
+live session it runs an update pass, and `--new` forces a fresh session first. Add
+`--print-url` to print the review's page URL on stdout — nothing else — so a script
+or an embedded browser (an editor pane, a coding agent's own browser tool) can pick
+it up without a terminal window opening a browser.
+
+The recipe this is built for is a Claude Code Stop hook that opens the review the
+moment the agent finishes its turn:
+
+```json
+{ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "limn --generate --print-url" }] }] } }
+```
+
+This starts generation on the service and prints the review's URL; open the printed
+link (or your service's dashboard) to watch it.
+
+`--agent`, `--model` and `--effort` override the default review agent (see [Default
+agent](#default-agent)) for this generation only — they need `--generate`, and
+`--effort` needs a model (its own or one already set), e.g. `limn --generate --effort
+high` with no model configured fails with `limn: reasoning effort needs a model (set
+a model first)`.
+
+If a review is already generating for the same repository when you run `--generate`
+again, Limn does not start a second pass — it answers with the review that's already
+running and a stderr note: `note: a review is already generating for this repository
+— opening this review`. Opening that URL in a browser tab that wasn't there when
+generation started still shows it live: the tab adopts the running pass and streams
+its output, and a second tab on the same URL does the same.
+
+Inside a [cmux](https://github.com/get-cmux/cmux) session (`CMUX_SOCKET` set, `cmux`
+on `PATH`), a plain `limn --generate` (no `--print-url`) opens the review in a
+browser pane beside the agent's own rather than a system browser window. If the pane
+fails to open, Limn falls back to the system browser and prints `note: cmux pane
+failed (<reason>) — opened in the browser`. `--print-url` wins over cmux — it always
+just prints the URL.
+
 ## The service
 
 Limn is a local Node server plus a browser tab. The first `limn` offers to install that
