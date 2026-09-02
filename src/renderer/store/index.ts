@@ -85,6 +85,11 @@ export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlic
    *  self-healing probe (a normal onRepoChanged) or any reload/navigation. */
   watchStopped: { reason: string } | null
 
+  /** true until boot()'s one-time entry dispatch (cli ticket / URL route / dev hooks)
+   *  has settled. Dashboard renders an empty placeholder while it's true, so a deep
+   *  link (`/review/12`, `/hub?repo=`) never flashes the plain dashboard first. */
+  booting: boolean
+
   boot(): Promise<void>
   applyCliOpen(msg: CliOpenMsg): void
   backToDashboard(): Promise<void>
@@ -117,39 +122,48 @@ export const useStore = create<AppStore>()((...a) => {
     settingsOpen: false,
     error: null,
     watchStopped: null,
+    booting: true,
 
     async boot() {
-      await get().loadPrefs()
-      await get().loadDashboard()
-      if (bootedOnce) return
-      bootedOnce = true
-      // Entry precedence, highest first: a cli:open ticket, then the URL's own route,
-      // then the dev/screenshot hooks. Each is exclusive — the winner decides the screen.
-      //
-      // `limn open` puts a one-time ticket in the URL; redeem it after the dashboard
-      // loads so its error toast survives loadDashboard's `error: null` reset.
-      const ticket = readOpenTicket(window.location.search)
-      if (ticket) {
-        stripQuery(['open'])
-        try {
-          const cli = await api().takeCliOpen(ticket)
-          // only a REDEEMED ticket claims the boot. A spent or unknown one (null) and a
-          // failed redeem fall through, so `/review/12?open=<expired>` still opens the
-          // review the URL names instead of stranding the address bar on a dead link.
-          if (cli) { get().applyCliOpen(cli); return }
-        } catch { /* server gone — fall through to whatever the URL says */ }
-      }
-      // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
-      // router reconciles the address bar if it turns out to be dead.
-      if (await dispatchInitialRoute()) return
-      // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
-      const openSession = dev.openSession
-      if (openSession) await get().resumeExisting(Number(openSession))
-      // dev/screenshot: LIMN_OPEN_HUB lands on the repo hub for a given repo path
-      const openHub = dev.openHub
-      if (openHub) {
-        if (dev.showArchived) set({ showArchived: true })
-        await get().enterHub(openHub)
+      // `booting` gates Dashboard's placeholder — cleared in `finally` so every exit
+      // from the entry dispatch below (the early bootedOnce return included, and a
+      // route dispatch that rejects) still settles it, and a deep link never sees the
+      // plain dashboard flash before its own screen takes over.
+      try {
+        await get().loadPrefs()
+        await get().loadDashboard()
+        if (bootedOnce) return
+        bootedOnce = true
+        // Entry precedence, highest first: a cli:open ticket, then the URL's own route,
+        // then the dev/screenshot hooks. Each is exclusive — the winner decides the screen.
+        //
+        // `limn open` puts a one-time ticket in the URL; redeem it after the dashboard
+        // loads so its error toast survives loadDashboard's `error: null` reset.
+        const ticket = readOpenTicket(window.location.search)
+        if (ticket) {
+          stripQuery(['open'])
+          try {
+            const cli = await api().takeCliOpen(ticket)
+            // only a REDEEMED ticket claims the boot. A spent or unknown one (null) and a
+            // failed redeem fall through, so `/review/12?open=<expired>` still opens the
+            // review the URL names instead of stranding the address bar on a dead link.
+            if (cli) { get().applyCliOpen(cli); return }
+          } catch { /* server gone — fall through to whatever the URL says */ }
+        }
+        // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
+        // router reconciles the address bar if it turns out to be dead.
+        if (await dispatchInitialRoute()) return
+        // dev/screenshot: LIMN_OPEN_SESSION auto-resumes a seeded session onto Review
+        const openSession = dev.openSession
+        if (openSession) await get().resumeExisting(Number(openSession))
+        // dev/screenshot: LIMN_OPEN_HUB lands on the repo hub for a given repo path
+        const openHub = dev.openHub
+        if (openHub) {
+          if (dev.showArchived) set({ showArchived: true })
+          await get().enterHub(openHub)
+        }
+      } finally {
+        set({ booting: false })
       }
     },
 

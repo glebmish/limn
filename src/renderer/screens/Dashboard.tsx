@@ -78,7 +78,7 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
 }
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, repo, error, boot, setFilter, openRepository, openRepo, enterHub, openReview, openSettings } = useStore()
+  const { dashboard, filter, sel, repo, error, booting, boot, setFilter, openRepository, openRepo, enterHub, openReview, openSettings } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void boot() }, [boot])
@@ -135,6 +135,11 @@ export default function Dashboard() {
   }, [])
 
   const hasRepos = (dashboard?.repos.length ?? 0) > 0
+
+  // While boot()'s one-time entry dispatch is still deciding the screen (a deep link
+  // may be about to take over), render nothing rather than the plain dashboard — a
+  // /review/12 or /hub?repo= link must not flash the repo index first.
+  if (booting) return <div className="wf-boot" aria-busy="true" />
 
   return (
     <div className="limn-dash">
