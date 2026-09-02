@@ -21,4 +21,16 @@ describe('SettingsDialog — default review agent', () => {
     expect(html).toContain('Default review agent')
     expect(html).toMatch(/class="ag-trigger"[^>]*>[\s\S]*?Codex/)
   })
+
+  it('associates the "Default review agent" label with the picker trigger via aria-labelledby, not a generic aria-label', () => {
+    const html = renderToStaticMarkup(<SettingsDialog onClose={() => {}} />)
+    const labelMatch = html.match(/<label id="([^"]+)">Default review agent<\/label>/)
+    expect(labelMatch).not.toBeNull()
+    const labelId = labelMatch![1]
+    const triggerMatch = html.match(/<button class="ag-trigger"[^>]*>/)
+    expect(triggerMatch).not.toBeNull()
+    const trigger = triggerMatch![0]
+    expect(trigger).toContain(`aria-labelledby="${labelId}"`)
+    expect(trigger).not.toContain('aria-label="agent"')
+  })
 })

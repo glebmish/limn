@@ -11,13 +11,18 @@ import { dev } from '../dev'
  *  is shown for whichever engine/model declares it — Claude Opus/Sonnet and all
  *  Codex models — and hidden for "Auto" and Haiku. Replaces the old three bare
  *  <select>s. */
-export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
+export function AgentPicker({ value, onChange, disabled, align = 'right', labelledBy }: {
   value: AgentRef
   onChange: (a: AgentRef) => void
   disabled?: boolean
   /** which edge the popover anchors to. 'right' (default) suits a right-sidebar
    *  trigger; 'left' opens rightward for triggers near a clipped column's left edge. */
   align?: 'left' | 'right'
+  /** id of an external `<label>` describing this picker (e.g. Settings' "Default
+   *  review agent"). When given, the trigger is `aria-labelledby` that id instead
+   *  of the generic `aria-label="agent"` — every other call site keeps the generic
+   *  label since they have no such sibling label element. */
+  labelledBy?: string
 }) {
   const [auth, setAuth] = useState<Record<EngineId, { ok: boolean; hint: string } | null>>({ claude: null, codex: null })
   // open state + on-screen positioning + outside-click dismissal in one. `align`
@@ -44,7 +49,14 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
 
   return (
     <div className="ag-wrap">
-      <button ref={anchorRef} className="ag-trigger" disabled={disabled} aria-expanded={open} onClick={toggle} aria-label="agent">
+      <button
+        ref={anchorRef}
+        className="ag-trigger"
+        disabled={disabled}
+        aria-expanded={open}
+        onClick={toggle}
+        {...(labelledBy ? { 'aria-labelledby': labelledBy } : { 'aria-label': 'agent' })}
+      >
         <EngineGlyph engine={value.engine} style={{ width: 13, height: 13, flex: '0 0 auto', color: 'var(--accent)' }} />
         {engineLabel(value.engine)}
         <span className="ag-sub">· {sub}</span>

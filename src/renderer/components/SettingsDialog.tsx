@@ -131,10 +131,17 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         api().setPref(ENGINE_PATH_PREF_KEYS.codex, codexPath.trim()),
         useStore.getState().setDefaultAgent(draftAgent)
       ])
-      await refreshStatus()
+      // Collect the write errors BEFORE refreshStatus() runs — refreshStatus can
+      // itself throw, and if it did after this point it would jump straight to
+      // the outer catch and discard whatever `results` already told us.
       const errors = results
         .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
         .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)))
+      try {
+        await refreshStatus()
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err))
+      }
       if (errors.length > 0) {
         setError(errors.join('; '))
       } else {
@@ -181,8 +188,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
         <div className="settings-body">
           <div className="settings-field">
-            <label>Default review agent</label>
-            <AgentPicker value={draftAgent} onChange={(a) => { setDraftAgent(a); setSaved(false) }} align="left" />
+            <label id="settings-default-agent-label">Default review agent</label>
+            <AgentPicker value={draftAgent} onChange={(a) => { setDraftAgent(a); setSaved(false) }} align="left" labelledBy="settings-default-agent-label" />
           </div>
           <PathField engine="claude" label="Claude executable" value={claudePath} status={claudeStatus} onChange={(v) => { setClaudePath(v); setSaved(false) }} />
           <PathField engine="codex" label="Codex executable" value={codexPath} status={codexStatus} onChange={(v) => { setCodexPath(v); setSaved(false) }} />
