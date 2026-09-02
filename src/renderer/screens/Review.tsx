@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
@@ -17,6 +17,7 @@ import { ChatDrawer } from '../components/ChatDrawer'
 import { MergeButton } from '../components/MergeSheet'
 import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
+import { SplitHandle } from '../components/SplitHandle'
 import { api } from '../lib/api'
 import { agentLabel } from '../../shared/agents'
 import { orderFilesForReview } from '../lib/fileOrder'
@@ -24,10 +25,38 @@ import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
 import { useDevReviewHooks } from '../lib/useDevReviewHooks'
 import { useReviewScroll } from '../lib/useReviewScroll'
 import { dev } from '../dev'
+import { PANELS, clampPanelWidth, panelVars, type PanelKind } from '../lib/panelWidths'
+
+/** Wraps a SplitHandle with the clamp/persist plumbing shared by the sidebar and
+ *  chat-drawer dividers: reads the panel's live width from the store, rounds and
+ *  clamps every dragged/keyed candidate against the current viewport and the
+ *  *other* panel's width, and reads the latest width from the store (not the
+ *  render's closure) when a gesture commits — a drag ends after many renders. */
+function ShellHandle({ kind, other }: { kind: PanelKind; other: number }) {
+  const spec = PANELS[kind]
+  const direction: 1 | -1 = kind === 'sidebar' ? 1 : -1
+  const value = useStore((s) => (kind === 'sidebar' ? s.sidebarWidth : s.chatWidth))
+  const setPanelWidth = useStore((s) => s.setPanelWidth)
+  return (
+    <SplitHandle
+      label={kind === 'sidebar' ? 'Resize sidebar' : 'Resize chat drawer'}
+      value={value}
+      min={spec.min}
+      max={spec.max}
+      direction={direction}
+      onChange={(w) => setPanelWidth(kind, clampPanelWidth(kind, Math.round(w), window.innerWidth, other))}
+      onCommit={() => {
+        const latest = kind === 'sidebar' ? useStore.getState().sidebarWidth : useStore.getState().chatWidth
+        setPanelWidth(kind, latest, { persist: true })
+      }}
+      onReset={() => setPanelWidth(kind, spec.default, { persist: true })}
+    />
+  )
+}
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode, sidebarWidth, chatWidth } = store
   // the review-generation op for THIS review (scoped to its threads); drives the gen
   // strip/CTA and the approve-disabled state. A concurrent read-only chat is a
   // separate op and does not gate the review surface.
@@ -219,7 +248,7 @@ export default function Review() {
         </div>
       )}
 
-      <div className="wf-body">
+      <div className="wf-body" style={panelVars(sidebarWidth, chatWidth) as CSSProperties}>
         {/* LEFT spine */}
         <ReviewSidebar
           loaded={loaded}
@@ -250,6 +279,7 @@ export default function Review() {
           toggleDoc={toggleDoc}
           closeDocBack={closeDocBack}
         />
+        <ShellHandle kind="sidebar" other={chatOpen ? chatWidth : 0} />
 
         {/* MAIN */}
         <main className="gmain" ref={scrollRef}>
@@ -331,6 +361,7 @@ export default function Review() {
           )}
         </main>
 
+        {chatOpen && <ShellHandle kind="chat" other={sidebarWidth} />}
         <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
     </div>

@@ -9,6 +9,11 @@ the one browser caveat.
 > README "Using it" section — for the architecture behind these features see
 > [storage-layer.md](storage-layer.md) and [agent-layer.md](agent-layer.md).
 
+## Resizing the sidebar and chat drawer
+
+Drag the divider next to the sidebar or the chat drawer to resize it (arrow keys
+work when it is focused; double-click resets). Widths are remembered.
+
 ## Excluding untracked files
 
 Only **untracked** working-tree files (files git does not track yet) can be excluded

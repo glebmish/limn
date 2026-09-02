@@ -358,7 +358,7 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .limn-toast { margin: 0 24px 10px; }
 
 /* ---- chat drawer ---- */
-.chat-drawer { width: 320px; flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+.chat-drawer { width: var(--chat-w, 320px); flex: 0 0 var(--chat-w, 320px); display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 /* agent avatar shows the engine brand mark (Claude sunburst / Codex knot) in the
    accent, on a soft disc — matching the design mockup. */
 .chat-msg.agent .ava { background: var(--accent-soft); color: var(--accent); }
@@ -692,4 +692,7 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
 .split-handle::after { content: ""; position: absolute; inset: 0 2px; background: transparent; transition: background .12s; }
 .split-handle:hover::after, .split-handle:focus-visible::after, .split-handle.is-dragging::after { background: var(--accent); }
 .split-handle:focus-visible { outline: none; }
+/* While dragging, the pointer can slide off the 6px handle onto surrounding text —
+   suppress selection and keep the resize cursor for the whole document. */
+body.is-resizing { user-select: none; cursor: col-resize; }
 .limn-refpick-list { max-height: 280px; overflow-y: auto; }

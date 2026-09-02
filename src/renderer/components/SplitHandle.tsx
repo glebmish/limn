@@ -39,9 +39,11 @@ export function SplitHandle({ label, value, min, max, direction, onChange, onCom
   const dragState = useRef<{ startX: number; startValue: number } | null>(null)
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     dragState.current = { startX: e.clientX, startValue: value }
     setDragging(true)
+    document.body.classList.add('is-resizing')
   }
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -54,6 +56,7 @@ export function SplitHandle({ label, value, min, max, direction, onChange, onCom
     if (!dragState.current) return
     dragState.current = null
     setDragging(false)
+    document.body.classList.remove('is-resizing')
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
     }
