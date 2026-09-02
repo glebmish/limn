@@ -87,7 +87,7 @@ export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlic
 
   boot(): Promise<void>
   applyCliOpen(msg: CliOpenMsg): void
-  backToDashboard(): void
+  backToDashboard(): Promise<void>
   /** mark the branch watcher stopped (carrying its reason) or live (null). */
   setWatchStopped(v: { reason: string } | null): void
   openSettings(): void
@@ -165,12 +165,12 @@ export const useStore = create<AppStore>()((...a) => {
       void get().openRepo(repo)
     },
 
-    backToDashboard() {
+    async backToDashboard() {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
         repoState: null, repoSessions: [], pendingDrift: null, watchStopped: null
       })
-      void get().loadDashboard()
+      await get().loadDashboard()
     },
 
     setWatchStopped(v) {

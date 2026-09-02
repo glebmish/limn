@@ -111,7 +111,19 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
 
   async enterHub(repoPath) {
     const repo = repoPath ?? get().repo
-    if (!repo) { get().backToDashboard(); return }
+    if (!repo) { void get().backToDashboard(); return }
+    // validate before touching the screen — a dead `/hub?repo=` deep link (a repo
+    // that's gone, or was never a git repo) must not strand the user on a broken
+    // hub. openRepo already throws `${repo} is not a git repository` for this.
+    try {
+      await api().openRepo(repo)
+    } catch (err) {
+      // backToDashboard's loadDashboard() resets `error` — await it before setting
+      // the toast so the toast survives (mirrors boot()'s ticket-ordering comment).
+      await get().backToDashboard()
+      set({ error: err instanceof Error ? err.message : `${repo} is not a git repository` })
+      return
+    }
     // remember the review we came from so the hub can offer a jump-back
     set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null, watchStopped: null })
     await loadRepoContext(repo)
