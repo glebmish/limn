@@ -25,57 +25,74 @@ import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
 import { useDevReviewHooks } from '../lib/useDevReviewHooks'
 import { useReviewScroll } from '../lib/useReviewScroll'
 import { dev } from '../dev'
-import { PANELS, clampPanelWidth, panelVarName, panelVars, type PanelKind } from '../lib/panelWidths'
+import {
+  PANELS, PANEL_DIRECTIONS, PANEL_LABELS, PREF_KEYS,
+  clampPanelRange, clampPanelWidth, effectiveWidths, panelVarName, panelVars, shouldPersist,
+  type PanelKind
+} from '../lib/panelWidths'
+import { useViewportWidth } from '../lib/useViewportWidth'
 
 /** Wraps a SplitHandle with the clamp/persist plumbing shared by the sidebar and
  *  chat-drawer dividers.
  *
+ *  Two widths, deliberately different. The STORE holds the reviewer's *preferred*
+ *  width (range-clamped only, and the only thing ever persisted); the panel is
+ *  painted and announced at its *effective* width — the preference put through the
+ *  viewport guard, recomputed by `Review` on every resize and handed down as
+ *  `effective`. So a window too narrow for the preference squeezes the panel and
+ *  gives the width back when the window widens, and a drag that starts on such a
+ *  window commits a real range-clamped preference, never a squeezed one.
+ *
  *  `Review` subscribes to the whole store (`useStore()`), so a store write on
  *  every pointer move would re-render the entire review tree per pixel dragged.
- *  Instead, a POINTER drag never touches the store: `onChange` rounds + clamps
- *  the candidate and writes the CSS var straight onto `bodyRef` (the `.wf-body`
- *  element), bypassing React for the whole gesture. The store is only written
- *  at gesture end — `onCommit` (pointerup) and `onReset` (double-click) — via
- *  `setPanelWidth(..., { persist: true })`. A keyboard nudge calls `onChange`
- *  then `onCommit` back-to-back with no drag in between, so it still commits
- *  (and persists) immediately, one key press = one store write.
+ *  Instead, a POINTER drag never touches the store: `onChange` rounds + clamps the
+ *  candidate and writes the CSS var straight onto `bodyRef` (the `.wf-body`
+ *  element), bypassing React for the whole gesture, and returns the applied width
+ *  for the handle to announce. The store is only written at gesture end —
+ *  `onCommit` (pointerup) and `onReset` (double-click) — via `setPanelWidth(...,
+ *  { persist: true })`. A keyboard nudge calls `onChange` then `onCommit`
+ *  back-to-back with no drag in between, so it still commits (and persists)
+ *  immediately, one key press = one store write.
  *
- *  `liveRef` tracks the last width actually applied (by `onChange`/`onReset`),
- *  read back by `onCommit`. It is kept equal to the store's committed value on
- *  every render (cheap — this component is memoized, so an unrelated re-render
- *  of `Review` doesn't touch it, only a change to its own props or its own
- *  `committed` subscription does) so that a bare click — pointerdown/up with no
- *  intervening move — sees `liveRef.current === committed` and `onCommit` skips
- *  the no-op persist. */
-const ShellHandle = memo(function ShellHandle({ kind, other, bodyRef }: { kind: PanelKind; other: number; bodyRef: RefObject<HTMLDivElement | null> }) {
+ *  No cross-render drag state lives here: `onCommit` is handed the gesture's final
+ *  width by the handle itself, so a mid-drag re-render of this component (an agent
+ *  opening the chat drawer flips the sidebar handle's `other` prop) can't discard
+ *  the gesture. The memo is a render-cost optimisation, not a correctness crutch. */
+const ShellHandle = memo(function ShellHandle(
+  { kind, other, effective, viewport, bodyRef }:
+  { kind: PanelKind; other: number; effective: number; viewport: number; bodyRef: RefObject<HTMLDivElement | null> }
+) {
   const spec = PANELS[kind]
-  const direction: 1 | -1 = kind === 'sidebar' ? 1 : -1
   const varName = panelVarName(kind)
-  const committed = useStore((s) => (kind === 'sidebar' ? s.sidebarWidth : s.chatWidth))
+  // No subscription to the committed width: `effective` already arrives as a prop
+  // (Review recomputes it whenever the preference or the viewport changes), and
+  // onCommit reads the store imperatively so a mid-drag render can't stale it.
   const setPanelWidth = useStore((s) => s.setPanelWidth)
-  const liveRef = useRef(committed)
-  liveRef.current = committed
 
-  const applyWidth = (w: number): void => {
-    liveRef.current = w
+  /** Paint a width straight onto `.wf-body`, bypassing React for the drag. */
+  const paint = (w: number): number => {
     bodyRef.current?.style.setProperty(varName, `${w}px`)
+    return w
   }
 
   return (
     <SplitHandle
-      label={kind === 'sidebar' ? 'Resize sidebar' : 'Resize chat drawer'}
-      value={committed}
+      label={PANEL_LABELS[kind]}
+      value={effective}
       min={spec.min}
       max={spec.max}
-      direction={direction}
-      onChange={(w) => applyWidth(clampPanelWidth(kind, Math.round(w), window.innerWidth, other))}
-      onCommit={() => {
-        const latest = kind === 'sidebar' ? useStore.getState().sidebarWidth : useStore.getState().chatWidth
-        if (liveRef.current === latest) return // bare click — nothing moved, don't persist
-        setPanelWidth(kind, liveRef.current, { persist: true })
+      direction={PANEL_DIRECTIONS[kind]}
+      onChange={(w) => paint(clampPanelWidth(kind, Math.round(w), viewport, other))}
+      onCommit={(w) => {
+        const preferred = clampPanelRange(kind, Math.round(w))
+        // Keep the DOM in step with what React would render for this preference,
+        // whether or not the store write below happens.
+        paint(clampPanelWidth(kind, preferred, viewport, other))
+        if (!shouldPersist(preferred, useStore.getState()[PREF_KEYS[kind]])) return
+        setPanelWidth(kind, preferred, { persist: true })
       }}
       onReset={() => {
-        applyWidth(spec.default)
+        paint(clampPanelWidth(kind, spec.default, viewport, other))
         setPanelWidth(kind, spec.default, { persist: true })
       }}
     />
@@ -94,6 +111,11 @@ export default function Review() {
   // the ShellHandles write --gside-w / --chat-w straight onto this element during
   // a pointer drag, bypassing the store (see ShellHandle above) until commit
   const wfBodyRef = useRef<HTMLDivElement>(null)
+  // The stored widths are *preferences*; what gets painted is derived per viewport,
+  // so shrinking the window squeezes the panels (keeping the main pane at MAIN_MIN
+  // and the drawer on screen) and widening it hands the preference back.
+  const viewport = useViewportWidth()
+  const panelW = effectiveWidths({ sidebar: sidebarWidth, chat: chatWidth, chatOpen, viewport })
 
   const sections = useMemo(() => loaded?.state.annotations ? effectiveSections(loaded) : [], [loaded])
   // When the tree is dirty, the merged base→working-tree diff (committed + uncommitted
@@ -279,7 +301,7 @@ export default function Review() {
         </div>
       )}
 
-      <div className="wf-body" ref={wfBodyRef} style={panelVars(sidebarWidth, chatWidth) as CSSProperties}>
+      <div className="wf-body" ref={wfBodyRef} style={panelVars(panelW.sidebar, panelW.chat) as CSSProperties}>
         {/* LEFT spine */}
         <ReviewSidebar
           loaded={loaded}
@@ -310,7 +332,7 @@ export default function Review() {
           toggleDoc={toggleDoc}
           closeDocBack={closeDocBack}
         />
-        <ShellHandle kind="sidebar" other={chatOpen ? chatWidth : 0} bodyRef={wfBodyRef} />
+        <ShellHandle kind="sidebar" other={chatOpen ? chatWidth : 0} effective={panelW.sidebar} viewport={viewport} bodyRef={wfBodyRef} />
 
         {/* MAIN */}
         <main className="gmain" ref={scrollRef}>
@@ -392,7 +414,7 @@ export default function Review() {
           )}
         </main>
 
-        {chatOpen && <ShellHandle kind="chat" other={sidebarWidth} bodyRef={wfBodyRef} />}
+        {chatOpen && <ShellHandle kind="chat" other={panelW.sidebar} effective={panelW.chat} viewport={viewport} bodyRef={wfBodyRef} />}
         <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
     </div>

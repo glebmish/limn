@@ -8,11 +8,15 @@ import { SplitHandle, keyDelta } from '../src/renderer/components/SplitHandle'
 // that the drag/keyboard handlers share.
 
 const noop = (): void => {}
+// onChange returns the width the parent actually APPLIED (the viewport-guarded
+// effective width); the handle announces that number, not the raw candidate.
+const applyRaw = (n: number): number => n
+const commit = (_n: number): void => {}
 
 describe('SplitHandle — markup', () => {
   it('renders the separator role, orientation, value bounds, label and class', () => {
     const out = renderToStaticMarkup(
-      <SplitHandle label="Resize sidebar" value={286} min={220} max={520} direction={1} onChange={noop} onCommit={noop} onReset={noop} />
+      <SplitHandle label="Resize sidebar" value={286} min={220} max={520} direction={1} onChange={applyRaw} onCommit={commit} onReset={noop} />
     )
     expect(out).toContain('role="separator"')
     expect(out).toContain('aria-orientation="vertical"')
@@ -22,6 +26,14 @@ describe('SplitHandle — markup', () => {
     expect(out).toContain('aria-label="Resize sidebar"')
     expect(out).toContain('tabindex="0"')
     expect(out).toContain('class="split-handle"')
+  })
+
+  it('announces an integer width even when the applied width is fractional', () => {
+    const out = renderToStaticMarkup(
+      <SplitHandle label="Resize sidebar" value={286.4} min={220} max={520} direction={1} onChange={applyRaw} onCommit={commit} onReset={noop} />
+    )
+    expect(out).toContain('aria-valuenow="286"')
+    expect(out).not.toContain('286.4')
   })
 })
 

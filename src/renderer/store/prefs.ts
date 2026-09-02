@@ -4,7 +4,7 @@ import { defaultAgent } from '../../shared/agents'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import type { PanelKind } from '../lib/panelWidths'
-import { PANELS, parseStoredWidth } from '../lib/panelWidths'
+import { PANELS, PREF_KEYS, parseStoredWidth } from '../lib/panelWidths'
 
 /** The review rail's left-hand nav layout: guided sections (with the plan-mapped
  *  narration) or a flat directory tree. */
@@ -17,18 +17,21 @@ export interface PrefsSlice {
   agent: AgentRef
   /** the review rail's nav layout — sections (default) or tree */
   sidebarView: SidebarView
-  /** the review rail's current width, in px */
+  /** the review rail's PREFERRED width in px — range-clamped only. The width it is
+   *  actually painted at is derived per viewport (see `effectiveWidths`); a narrow
+   *  window squeezes the rail without ever overwriting this. */
   sidebarWidth: number
-  /** the chat drawer's current width, in px */
+  /** the chat drawer's PREFERRED width in px — see `sidebarWidth` */
   chatWidth: number
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
   setAgent(a: AgentRef): void
   setSidebarView(v: SidebarView): void
-  /** Update a panel's width in memory (called per pointer move while dragging).
-   *  Pass `{ persist: true }` to also write the pref (drag end / key / reset) —
-   *  the caller is responsible for clamping; the shell knows the viewport. */
+  /** Update a panel's preferred width in memory. Pass `{ persist: true }` to also
+   *  write the pref — which is what every caller does, since a pointer drag paints
+   *  the CSS var imperatively and only reaches the store once, at gesture end. The
+   *  caller range-clamps (`clampPanelRange`); the viewport guard is never stored. */
   setPanelWidth(kind: PanelKind, width: number, opts?: { persist?: boolean }): void
 }
 
@@ -77,11 +80,8 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   },
 
   setPanelWidth(kind, width, opts) {
-    if (kind === 'sidebar') set({ sidebarWidth: width })
-    else set({ chatWidth: width })
-    if (opts?.persist) {
-      const key = kind === 'sidebar' ? 'sidebarWidth' : 'chatWidth'
-      void api().setPref(key, JSON.stringify(width))
-    }
+    const key = PREF_KEYS[kind]
+    set({ [key]: width } as Pick<PrefsSlice, 'sidebarWidth'> | Pick<PrefsSlice, 'chatWidth'>)
+    if (opts?.persist) void api().setPref(key, JSON.stringify(width))
   }
 })
