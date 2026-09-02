@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { I } from '../kit'
 import { MarkersKey } from './MarkersKey'
 import { baselineLabel, type SinceBasis } from '../../shared/sinceBasis'
-import type { DiffMode } from '../store'
+import { DIFF_LAYOUTS, layoutLabel, type DiffLayout, type DiffMode } from '../store'
 
 /** The BULK diff-baseline dropdown (design 07 `fh-dd`) + the marks key. Always renders
  *  the "Full diff" option; the since-baselines appear only when some file has that
  *  slice. Picking one re-syncs every file (and drops per-file overrides) via
  *  `setGlobalDiffMode` — a single file is switched from its own header picker instead.
  *  Shown in both the annotated (page-head) and flat (flat-toolbar) headers. */
-export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApproved, anySinceViewed, dirty, sinceBasis, setGlobalDiffMode }: {
+export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApproved, anySinceViewed, dirty, sinceBasis, setGlobalDiffMode, layout, setLayout }: {
   globalMode: DiffMode
   /** some file has a slice since the sha the review was generated at */
   anySinceReview: boolean
@@ -19,6 +19,9 @@ export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApprove
   /** what the since-baseline actually is here, or null when the review has none */
   sinceBasis: SinceBasis | null
   setGlobalDiffMode: (m: DiffMode) => void
+  /** the global layout — Unified | Split | Multi — a persisted pref, no per-file override */
+  layout: DiffLayout
+  setLayout: (l: DiffLayout) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
@@ -36,8 +39,24 @@ export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApprove
     ...(anySinceApproved ? (['approved'] as const) : []),
     ...(anySinceViewed ? (['viewed'] as const) : [])
   ]
+  const layoutTitle = (l: DiffLayout): string =>
+    l === 'multi' ? 'Multi — base · checkpoint · now, both side columns diffed against base'
+    : l === 'split' ? 'Split — old and now side by side'
+    : 'Unified — one column'
   return (
     <div className="diffmode-bar">
+      <span className="fh-layout" role="group" aria-label="Diff layout">
+        {DIFF_LAYOUTS.map((l) => (
+          <button
+            key={l}
+            type="button"
+            className={'fh-layout-btn' + (layout === l ? ' on' : '')}
+            aria-pressed={layout === l}
+            title={layoutTitle(l)}
+            onClick={() => setLayout(l)}
+          >{layoutLabel(l)}</button>
+        ))}
+      </span>
       <span className={'fh-dd' + (open ? ' open' : '')} ref={ref}>
         <button
           type="button"
@@ -67,7 +86,7 @@ export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApprove
           ))}
         </span>
       </span>
-      <MarkersKey dirty={dirty} since={sinceBasis} />
+      <MarkersKey dirty={dirty} since={sinceBasis} multi={layout === 'multi'} />
     </div>
   )
 }

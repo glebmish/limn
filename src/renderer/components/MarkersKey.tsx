@@ -16,11 +16,13 @@ import type { SinceBasis } from '../../shared/sinceBasis'
  *  (src/shared/sinceBasis.ts). Calling that second case "approved" is what made the
  *  rail unreadable — you cannot be "past your approval" on a review you never
  *  approved. */
-export function MarkersKey({ dirty, since }: {
+export function MarkersKey({ dirty, since, multi = false }: {
   /** working tree has uncommitted changes — the staged/unstaged/committed rails */
   dirty: boolean
   /** what the drift rail is measured from, or null when the review has no baseline */
   since: SinceBasis | null
+  /** the Multi layout is on — its two attribution marks replace the drift rail there */
+  multi?: boolean
 }) {
   return (
     <span className="fh-rails" tabIndex={0} role="button" aria-label="What the diff marks mean">
@@ -37,6 +39,13 @@ export function MarkersKey({ dirty, since }: {
         {since && (
           <span className="rail-row"><span className="rail-sw since" /><span className="rail-tx"><b>changed</b>
             <em>{since === 'approved' ? 'since you approved this' : 'since the review ran'}</em></span></span>
+        )}
+        {multi && (
+          <>
+            <span className="key-h">Multi columns</span>
+            <span className="rail-row"><span className="rail-sw since" /><span className="rail-tx"><b>since</b><em>now differs from the checkpoint column</em></span></span>
+            <span className="rail-row"><span className="rail-sw gone" /><span className="rail-tx"><b>gone</b><em>the checkpoint had it, now does not</em></span></span>
+          </>
         )}
         <span className="key-h">Colour</span>
         <span className="rail-row"><span className="key-sw add">+</span><span className="rail-tx"><b>added</b><em>new line on this branch</em></span></span>

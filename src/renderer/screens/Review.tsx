@@ -102,7 +102,7 @@ const ShellHandle = memo(function ShellHandle(
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode, sidebarWidth, chatWidth } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode, diffLayout, setDiffLayout, sidebarWidth, chatWidth } = store
   // the review-generation op for THIS review (scoped to its threads); drives the gen
   // strip/CTA and the approve-disabled state. A concurrent read-only chat is a
   // separate op and does not gate the review surface.
@@ -360,6 +360,8 @@ export default function Review() {
                     dirty={loaded.dirty}
                     sinceBasis={sinceBasisKind}
                     setGlobalDiffMode={setGlobalDiffMode}
+                    layout={diffLayout}
+                    setLayout={setDiffLayout}
                   />
                   {verdictButton ?? approveButton}
                   <MergeButton loaded={loaded} />

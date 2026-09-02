@@ -25,7 +25,7 @@ export function describeModeChange(m: { from: string; to: string }): string {
 
 /** Presentational file header (the `gfile-head` block). Every value it renders is
  *  computed by the DiffView shell and handed down; it owns no state. */
-export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, baselineMode, onToggleOpen, onToggleViewed, onToggleExcluded, onPickBaseline }: {
+export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, baselineMode, foldsOpen = false, layoutNote = null, onToggleOpen, onToggleViewed, onToggleExcluded, onPickBaseline, onToggleFolds }: {
   f: FileDiff
   excluded: boolean
   isViewed: boolean
@@ -40,6 +40,11 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
   onToggleViewed: () => void
   onToggleExcluded: () => void
   onPickBaseline: (mode: DiffMode) => void
+  /** every collapsed run in the body is open (the header's Expand all / Collapse) */
+  foldsOpen?: boolean
+  /** why the body is not in the layout the switch says — Multi with no checkpoint */
+  layoutNote?: string | null
+  onToggleFolds?: () => void
 }) {
   const { dir, name } = splitPath(f.path)
   return (
@@ -74,7 +79,20 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
       </span>
       <Delta add={f.add} del={f.del} />
       <span className="grow"></span>
+      {layoutNote && (
+        <span className="pill layout-note" title="Multi needs a checkpoint to show as its middle column; this file has none, so it shows Split">{layoutNote}</span>
+      )}
       <FileBaselinePicker f={f} mode={baselineMode} onPick={onPickBaseline} />
+      {!f.binary && onToggleFolds && (
+        <button
+          className="file-folds"
+          onClick={(e) => { e.stopPropagation(); onToggleFolds() }}
+          aria-label={foldsOpen ? 'Collapse folds' : 'Expand all folds'}
+          title={foldsOpen ? 'Fold the unchanged lines away again' : 'Show every unchanged line of the file'}
+        >
+          {foldsOpen ? 'Collapse' : 'Expand all'}
+        </button>
+      )}
       {/* excluded files carry no review state, so they show no Viewed checkbox */}
       {!excluded && (
         <label className={'file-viewed' + (changedSinceViewed ? ' amber' : '')} onClick={(e) => e.stopPropagation()}>

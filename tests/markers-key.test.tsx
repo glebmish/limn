@@ -64,4 +64,11 @@ describe('MarkersKey legend', () => {
     const swatches = html.match(/class="(rail|key)-sw /g) ?? []
     expect(rows).toHaveLength(swatches.length)
   })
+
+  it('explains the Multi attribution marks only while Multi is on', () => {
+    const on = renderToStaticMarkup(<MarkersKey dirty={false} since={null} multi />)
+    expect(on).toContain('rail-sw gone')
+    expect(on).toContain('now does not')
+    expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} />)).not.toContain('rail-sw gone')
+  })
 })

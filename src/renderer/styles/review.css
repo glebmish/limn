@@ -201,6 +201,13 @@
 .diffmode-bar{display:inline-flex;align-items:center;gap:9px}
 .wf .page-head .diffmode-bar{margin-top:10px}
 /* ── diff-mode dropdown (design fh-dd/fh-seg/fh-chev/fh-dd-menu/fh-dd-item) ── */
+/* the layout switch: Unified | Split | Multi, a segmented control beside the baseline */
+.fh-layout{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;overflow:hidden;background:var(--panel)}
+.fh-layout-btn{font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--muted-2);padding:4px 9px;border:none;background:none;cursor:pointer;border-left:1px solid var(--line-2)}
+.fh-layout-btn:first-child{border-left:none}
+.fh-layout-btn:hover{color:var(--ink-2)}
+.fh-layout-btn.on{color:var(--accent-ink);background:var(--accent-soft)}
+.fh-layout-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:-2px}
 .fh-dd{position:relative;display:inline-flex}
 .fh-seg{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--ink-2);border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:4px 9px;cursor:pointer}
 .fh-seg svg{width:13px;height:13px;color:var(--muted-2)}
@@ -555,6 +562,11 @@
 .wf.dz-spacious .rr-summary{margin:18px 44px 4px}
 
 /* ---- per-file "Viewed" tick ---- */
+/* per-file Expand all / Collapse for the body's folds; quiet until the header is hovered */
+.file-folds{font-family:var(--sans);font-size:10.5px;font-weight:600;color:var(--muted-2);border:1px solid transparent;background:none;border-radius:6px;padding:2px 7px;cursor:pointer;white-space:nowrap}
+.gfile-head:hover .file-folds,.file-folds:focus-visible{border-color:var(--line-2);background:var(--panel);color:var(--ink-2)}
+.pill.layout-note{font-family:var(--sans);font-weight:500;color:var(--muted);border:1px dashed var(--line-3);background:none}
+.rail-sw.gone{background:var(--muted-2)}
 .file-viewed{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
   color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
 /* visually hidden but focusable + in the a11y tree (was display:none, which removed

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { CmtPlus } from '../kit'
 import { fileViewed, fileIsExcluded, modeForFile, useStore } from '../store'
@@ -27,6 +27,13 @@ export function DiffView({ f }: {
   // manual open/collapse override for this file's diff. null = follow the default
   // (open when unviewed, collapsed when viewed); true/false = explicitly toggled.
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  // the header's Expand all / Collapse — every fold in the body at once. Reset with
+  // the baseline: the body's own fold state resets there too (line numbers move).
+  const [foldsOpen, setFoldsOpen] = useState(false)
+  useEffect(() => setFoldsOpen(false), [mode])
+  // Multi asked for, no checkpoint column for this file → the body shows Split and
+  // the header says so (DiffBody reports it; the note itself is presentational)
+  const [layoutFellBack, setLayoutFellBack] = useState(false)
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
@@ -59,6 +66,9 @@ export function DiffView({ f }: {
           effectiveOpen={effectiveOpen}
           artifact={artifact}
           baselineMode={mode}
+          foldsOpen={foldsOpen}
+          layoutNote={layoutFellBack ? 'no checkpoint for this file' : null}
+          onToggleFolds={() => setFoldsOpen((o) => !o)}
           onPickBaseline={(m) => setFileDiffMode(f.path, m)}
           onToggleOpen={() => setManualOpen(!effectiveOpen)}
           onToggleViewed={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }}
@@ -90,6 +100,8 @@ export function DiffView({ f }: {
           fileComments={fileComments}
           composerAt={composerAt}
           setComposerAt={setComposerAt}
+          revealAllFlag={foldsOpen}
+          onLayoutFallback={setLayoutFellBack}
         />
       </div>
     </div>

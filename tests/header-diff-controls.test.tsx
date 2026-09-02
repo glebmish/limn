@@ -12,6 +12,8 @@ const render = (over: Partial<Parameters<typeof HeaderDiffControls>[0]> = {}): s
       dirty={false}
       sinceBasis={null}
       setGlobalDiffMode={() => {}}
+      layout="unified"
+      setLayout={() => {}}
       {...over}
     />
   )
@@ -44,5 +46,19 @@ describe('the page-header diff controls', () => {
     const html = render({ anySinceReview: true, anySinceApproved: true, anySinceViewed: true })
     const order = [...html.matchAll(/role="option"[^>]*>(?:<[^>]*>|\u2713)*([^<]+)</g)].map((m) => m[1])
     expect(order).toEqual(['Full diff', 'Since the review ran', 'Since approved', 'Since viewed'])
+  })
+
+  it('offers the three layouts as a segmented control, the current one pressed', () => {
+    const html = render({ layout: 'split' })
+    expect(html).toContain('aria-label="Diff layout"')
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Split</)
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Unified</)
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Multi</)
+    expect(html).not.toContain('three-way')
+  })
+
+  it('tells the marks key when Multi is on', () => {
+    expect(render({ layout: 'multi' })).toContain('Multi columns')
+    expect(render({ layout: 'split' })).not.toContain('Multi columns')
   })
 })
