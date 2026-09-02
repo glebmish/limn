@@ -154,7 +154,11 @@ class FakeAgent implements Agent {
     for (const u of this.script.loadReplayUpdates ?? []) {
       await this.conn.sessionUpdate({ sessionId: params.sessionId, update: u })
     }
-    return {}
+    // Echo `availableModes` the same way newSession does (T2 for the resume
+    // path: proves AcpEngine's `modeIdsFrom` capture on a LOADED session, not
+    // just a freshly-created one).
+    const ids = this.script.availableModes
+    return ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {}
   }
 
   setSessionMode(params: Parameters<NonNullable<Agent['setSessionMode']>>[0]): Record<string, never> {

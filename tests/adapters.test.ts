@@ -49,6 +49,18 @@ describe('CLAUDE_ACP_CONFIG', () => {
     expect(CLAUDE_ACP_CONFIG.modeFor('auto', false, ['default', 'acceptEdits', 'auto', 'bypassPermissions'])).toBe('default')
   })
 
+  it('modeFor full selects bypassPermissions when the session advertises it', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('full', true, ['default', 'acceptEdits', 'auto', 'bypassPermissions'])).toBe('bypassPermissions')
+  })
+
+  it('modeFor full falls back to auto when bypassPermissions is unavailable but auto is listed', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('full', true, ['default', 'acceptEdits', 'auto'])).toBe('auto')
+  })
+
+  it('modeFor full falls back to acceptEdits when neither bypassPermissions nor auto is listed', () => {
+    expect(CLAUDE_ACP_CONFIG.modeFor('full', true, ['default', 'acceptEdits'])).toBe('acceptEdits')
+  })
+
   it('binaryEnv points CLAUDE_CODE_EXECUTABLE at the resolved (Settings-configured) binary', () => {
     setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.claude]: '/opt/claude' })
     expect(CLAUDE_ACP_CONFIG.binaryEnv?.()).toEqual({ CLAUDE_CODE_EXECUTABLE: '/opt/claude' })

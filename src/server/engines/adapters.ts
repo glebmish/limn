@@ -86,7 +86,11 @@ export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   modeFor: (mode, writeEnabled, availableModes) => {
     if (!writeEnabled) return 'default'
     if (mode === 'auto') return !availableModes || availableModes.includes('auto') ? 'auto' : 'acceptEdits'
-    return { ask: 'default', edits: 'acceptEdits', full: 'bypassPermissions' }[mode] ?? 'default'
+    if (mode === 'full') {
+      if (!availableModes || availableModes.includes('bypassPermissions')) return 'bypassPermissions'
+      return availableModes.includes('auto') ? 'auto' : 'acceptEdits'
+    }
+    return { ask: 'default', edits: 'acceptEdits' }[mode] ?? 'default'
   },
   env: (t): Record<string, string> => (t.model ? { ANTHROPIC_MODEL: t.model } : {}),
   configOptions: (t) => (t.reasoningEffort ? [{ configId: 'effort', value: claudeEffort(t.reasoningEffort) }] : []),

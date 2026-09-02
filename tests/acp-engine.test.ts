@@ -530,6 +530,29 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(readRecords().find((r) => r.event === 'setSessionMode')?.modeId).toBe('acceptEdits')
   })
 
+  it('14b. a RESUMED session (session/load) under tier auto falls back to acceptEdits when the LOADED session\'s modes lack "auto"', async () => {
+    // engineSessionId set -> acp.ts takes the resume path (canLoad, since this
+    // script advertises no `resume` capability) and calls conn.loadSession(),
+    // whose `modes` must feed the same modeIdsFrom capture as a fresh
+    // session/new (T2, tests 13/14) — previously untested, since the fake's
+    // loadSession never echoed availableModes. Asserting the
+    // fallback (not "auto") is what actually pins the capture: with
+    // availableModes advertising "auto", modeFor's optimistic default for an
+    // UNKNOWN session (no modes captured at all) is ALSO "auto" — so only the
+    // fallback case can fail if the load path drops the session's modes.
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'unused',
+      loadSession: true,
+      availableModes: ['default', 'acceptEdits', 'bypassPermissions'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'resume-auto', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    await drain(run.events)
+    const { sessionId } = await run.result
+    expect(sessionId).toBe('resume-auto') // loaded, not fresh
+    expect(readRecords().find((r) => r.event === 'setSessionMode')?.modeId).toBe('acceptEdits')
+  })
+
   it('15. a rejected setSessionMode retries once with the tier\'s fallback id, and the turn still completes', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'chat-mode-retry',
