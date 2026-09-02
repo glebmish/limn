@@ -160,6 +160,31 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
 
 export type DiffMode = 'branch' | 'review' | 'approved' | 'viewed'
 
+/** How a file body lays its columns out: one column (Unified), old beside now
+ *  (Split), or base · checkpoint · now with both side columns diffed against base
+ *  (Multi — deliberately not "three-way", which is git's ours/base/theirs merge
+ *  vocabulary and would promise conflict resolution). A global, persisted pref. */
+export type DiffLayout = 'unified' | 'split' | 'multi'
+export const DIFF_LAYOUTS: DiffLayout[] = ['unified', 'split', 'multi']
+export function layoutLabel(l: DiffLayout): string {
+  return l === 'unified' ? 'Unified' : l === 'split' ? 'Split' : 'Multi'
+}
+
+/** The Multi layout's middle column: base → the file's checkpoint. Undefined when the
+ *  file has no such checkpoint (or the mode is the full diff), which the body renders
+ *  as Split. `[]` is a real answer: the checkpoint exists and the file was untouched. */
+export function multiHunksForMode(f: FileDiff, mode: DiffMode): Hunk[] | undefined {
+  if (mode === 'review') return f.baseToReviewHunks
+  if (mode === 'approved') return f.baseToApprovedHunks
+  if (mode === 'viewed') return f.baseToViewedHunks
+  return undefined
+}
+
+/** The middle column's name in the column strip. */
+export function checkpointLabel(mode: DiffMode): string {
+  return mode === 'review' ? 'At review' : mode === 'approved' ? 'Approved' : mode === 'viewed' ? 'Viewed' : 'Base'
+}
+
 export function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
   return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
 }
