@@ -88,6 +88,10 @@ export interface Api {
   listRepoSessions(repo: string, includeArchived?: boolean): Promise<SessionListItem[]>
   /** Restore a soft-deleted (archived) session. */
   unarchiveSession(sessionId: number): Promise<void>
+  /** Drop a repo from the dashboard index: archive its live reviews and clear its
+   *  last-opened stamp. Nothing is deleted — opening the repo again brings the row
+   *  back, with those reviews under the hub's archived list. */
+  forgetRepo(repo: string): Promise<void>
   /** Check out `branch` in the repo's primary worktree. Rejects on a dirty tree. */
   switchBranch(repo: string, branch: string): Promise<RepoState>
   /** Check out `branch` into a specific worktree dir (primary repo or a linked
@@ -223,7 +227,7 @@ export interface RendererApi extends Api {
 }
 
 export const API_CHANNELS: (keyof Api)[] = [
-  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'switchBranch',
+  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'forgetRepo', 'switchBranch',
   'checkoutInto', 'addWorktreeFor',
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',

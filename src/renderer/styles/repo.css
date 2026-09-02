@@ -231,6 +231,9 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
 .limn-repo-row .rr-name { font-size: 14px; font-weight: 700; color: var(--ink); letter-spacing: -.2px; flex: 0 0 auto; }
 .limn-repo-row .rr-path { font-family: var(--mono); font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; min-width: 0; }
 .limn-repo-row .rr-age { font-family: var(--mono); font-size: 11px; color: var(--muted-2); flex: 0 0 auto; min-width: 34px; text-align: right; }
+.limn-repo-row .rr-forget { background: none; border: none; color: var(--muted-2); cursor: pointer; padding: 3px; border-radius: var(--r-sm); display: inline-flex; flex: 0 0 auto; opacity: 0; transition: opacity .12s, color .12s; }
+.limn-repo-row:hover .rr-forget, .limn-repo-row.sel .rr-forget, .rr-forget:focus-visible { opacity: 1; }
+.limn-repo-row .rr-forget:hover { color: var(--red); background: var(--red-soft); }
 .limn-repo-row .rr-chev { color: var(--muted-2); flex: 0 0 auto; transition: transform .12s, color .12s; }
 .limn-repo-row.sel .rr-chev { color: var(--accent-ink); }
 

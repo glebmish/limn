@@ -49,12 +49,21 @@ function WorktreePill({ entry, onOpen }: { entry: RepoIndexEntry; onOpen: (branc
   )
 }
 
+/** The confirm shown before a repo leaves the index. Forgetting is recoverable, so
+ *  the prompt says both halves: what happens to the reviews, and how it comes back. */
+export function forgetPrompt(entry: RepoIndexEntry): string {
+  const n = entry.sessionCount
+  const reviews = n === 0 ? '' : ` Its ${n} review${n === 1 ? ' is' : 's are'} archived (recoverable), and`
+  return `Remove ${repoName(entry.path)} from this list?${reviews}${n === 0 ? ' Opening' : ' opening'} it again brings it back.`
+}
+
 /** One repository row in the Level-1 index. */
-function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
+function RepoRow({ entry, selected, onEnter, onOpenBranch, onForget }: {
   entry: RepoIndexEntry
   selected: boolean
   onEnter: () => void
   onOpenBranch: (branch: string) => void
+  onForget: () => void
 }) {
   const detached = entry.current === 'HEAD'
   const sameAsBase = entry.current === entry.defaultBase
@@ -72,13 +81,18 @@ function RepoRow({ entry, selected, onEnter, onOpenBranch }: {
       </Tooltip>
       <WorktreePill entry={entry} onOpen={onOpenBranch} />
       <span className="rr-age" title={`last activity ${ago(entry.lastActivity)}`}>{ago(entry.lastActivity).replace(' ago', '')}</span>
+      <button className="rr-forget" aria-label={`Remove ${repoName(entry.path)} from this list`}
+        title="Remove from this list — reviews are archived, not deleted"
+        onClick={(e) => { e.stopPropagation(); if (window.confirm(forgetPrompt(entry))) onForget() }}>
+        <I.x style={{ width: 11, height: 11 }} />
+      </button>
       <I.chevR className="rr-chev" style={{ width: 13, height: 13 }} />
     </div>
   )
 }
 
 export default function Dashboard() {
-  const { dashboard, filter, sel, repo, error, booting, boot, setFilter, openRepository, openRepo, enterHub, openReview, openSettings } = useStore()
+  const { dashboard, filter, sel, repo, error, booting, boot, setFilter, openRepository, openRepo, enterHub, openReview, openSettings, forgetRepo } = useStore()
   const filterRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void boot() }, [boot])
@@ -206,6 +220,7 @@ export default function Dashboard() {
             selected={sel === i}
             onEnter={() => openRepoSessions(r)}
             onOpenBranch={(branch) => openBranch(r.path, branch)}
+            onForget={() => void forgetRepo(r.path)}
           />
         ))}
       </div>

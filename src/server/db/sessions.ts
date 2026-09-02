@@ -75,6 +75,26 @@ export function recentRepoPaths(db: DatabaseSync, limit: number): string[] {
   ).all(limit) as { path: string }[]).map((r) => r.path)
 }
 
+/** Drop a repo from the dashboard index without losing anything: archive its live
+ *  sessions and clear `last_opened_at`, the two things `repoIndexRows` selects on.
+ *  Returns how many sessions were archived. The repo row, its reviews and their
+ *  history stay put — opening the repo again brings it back, with those reviews
+ *  under the hub's "Show archived". */
+export function forgetRepo(db: DatabaseSync, repoPath: string, at = now()): number {
+  db.exec('BEGIN')
+  try {
+    const archived = db.prepare(`UPDATE sessions SET archived_at = ?, updated_at = ?
+      WHERE archived_at IS NULL AND repo_id = (SELECT id FROM repos WHERE path = ?)`)
+      .run(at, at, repoPath)
+    db.prepare('UPDATE repos SET last_opened_at = NULL WHERE path = ?').run(repoPath)
+    db.exec('COMMIT')
+    return Number(archived.changes)
+  } catch (err) {
+    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
+    throw err
+  }
+}
+
 /** Repos shown in the dashboard's Level-1 index. A repo enters the index either
  *  by being opened (last_opened_at) or by having at least one live session. The
  *  activity timestamp is whichever is newer: latest live-session update or latest

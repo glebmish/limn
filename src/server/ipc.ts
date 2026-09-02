@@ -464,6 +464,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('unarchiveSession', async (sessionId: number) => { dao.unarchiveSession(db, sessionId) })
 
+  handle('forgetRepo', async (repo: string) => { dao.forgetRepo(db, repo) })
+
   handle('switchBranch', async (repo: string, branch: string) => {
     await checkoutBranch(repo, branch) // throws "commit or stash first" on a dirty tree
     return repoState(repo)

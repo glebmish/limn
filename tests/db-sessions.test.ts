@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/server/db/db'
 import {
   ensureRepo, touchRepo, recentRepoPaths,
-  repoIndexRows,
+  repoIndexRows, forgetRepo,
   createSession, findSession, getSession, archiveSession, retargetSession,
   listRepoSessions, latestSessionForBranch, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
@@ -209,6 +209,39 @@ describe('sessions DAO', () => {
       { path: '/repo-session', sessionCount: 1, lastActivity: sessionRepo.updatedAt },
       { path: '/repo-preview', sessionCount: 0, lastActivity: '2026-06-12T10:00:00Z' }
     ])
+  })
+
+  it('forgetting a repo archives its live reviews and drops it from the index', () => {
+    touchRepo(db, '/repo-forget', '2026-06-12T10:00:00Z')
+    const s = createSession(db, '/repo-forget', pair)
+    touchRepo(db, '/repo-keep', '2026-06-12T09:00:00Z')
+
+    expect(forgetRepo(db, '/repo-forget')).toBe(1)
+
+    expect(repoIndexRows(db).map((r) => r.path)).toEqual(['/repo-keep'])
+    expect(recentRepoPaths(db, 8)).toEqual(['/repo-keep'])
+    // the reviews survive, archived — recoverable once the repo is opened again
+    expect(listRepoSessions(db, '/repo-forget', true).map((x) => [x.id, x.archived]))
+      .toEqual([[s.id, true]])
+  })
+
+  it('a forgotten repo returns to the index when it is opened again', () => {
+    touchRepo(db, '/repo-forget', '2026-06-12T10:00:00Z')
+    forgetRepo(db, '/repo-forget')
+    touchRepo(db, '/repo-forget', '2026-06-12T12:00:00Z')
+
+    expect(repoIndexRows(db)).toEqual([
+      { path: '/repo-forget', sessionCount: 0, lastActivity: '2026-06-12T12:00:00Z' }
+    ])
+  })
+
+  it('forgetting counts only live reviews and tolerates an unknown repo', () => {
+    const s = createSession(db, '/repo-forget', pair)
+    archiveSession(db, s.id)
+
+    expect(forgetRepo(db, '/repo-forget')).toBe(0)
+    expect(forgetRepo(db, '/never-opened')).toBe(0)
+    expect(repoIndexRows(db)).toEqual([])
   })
 
   it('nextIterationNumber appends generated review history', () => {

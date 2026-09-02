@@ -13,6 +13,9 @@ export interface DashboardSlice {
   loadDashboard(): Promise<void>
   setFilter(s: string): void
   openRepository(): Promise<void>
+  /** Drop a repo from the index (its live reviews are archived, nothing deleted),
+   *  then reload so the row disappears. */
+  forgetRepo(repoPath: string): Promise<void>
 }
 
 export const createDashboardSlice: StateCreator<AppStore, [], [], DashboardSlice> = (set, get) => ({
@@ -33,6 +36,17 @@ export const createDashboardSlice: StateCreator<AppStore, [], [], DashboardSlice
 
   setFilter(s) {
     set({ filter: s, sel: 0 })
+  },
+
+  async forgetRepo(repoPath) {
+    try {
+      await api().forgetRepo(repoPath)
+    } catch (err) {
+      // leave the index as it is — a failed forget must not look like it worked
+      set({ error: err instanceof Error ? err.message : String(err) })
+      return
+    }
+    await get().loadDashboard()
   },
 
   async openRepository() {

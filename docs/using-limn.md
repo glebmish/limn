@@ -54,6 +54,14 @@ Older reviews stay listed in the hub (most-recently-touched first). Any of them 
 resumed, **archived** (a soft-delete — hidden from live lists and from the resume hint,
 never destroyed), and later restored.
 
+## Removing a repository from the list
+
+The Dashboard lists every repo you have opened, plus every repo that still has a live
+review. The **✕** on a row (it appears on hover) removes it from that list: its live
+reviews are **archived**, and its last-opened stamp is cleared — the two things that
+put it there. Nothing is deleted. Open the repo again and the row returns, with those
+reviews waiting under **Show archived** in its hub.
+
 ## Reviewing a dirty working tree
 
 When the working tree has uncommitted changes, the review shows the **merged
