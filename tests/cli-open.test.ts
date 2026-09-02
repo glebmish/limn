@@ -99,11 +99,11 @@ describe('cli:open --generate', () => {
   it("passes the kicker's note through to the CLI", async () => {
     _resetTickets()
     const fx = makeFixtureRepo()
-    setGenerationKicker(async () => ({ sessionId: 3, note: 'a review is already generating for this repository — opening it' }))
+    setGenerationKicker(async () => ({ sessionId: 3, note: 'a review is already generating for this repository — opening this review' }))
 
     const result = await issueCliOpen({ dir: fx.dir, generate: true })
     expect(result).toMatchObject({
-      path: '/review/3', note: 'a review is already generating for this repository — opening it'
+      path: '/review/3', note: 'a review is already generating for this repository — opening this review'
     })
   })
 

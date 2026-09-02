@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
-import { getSession, listChatThreads, loadReviewState } from '../src/server/db/sessions'
+import { getSession, listChatThreads, loadReviewState, markSessionMerged } from '../src/server/db/sessions'
 import { registerIpc, shutdownIpc } from '../src/server/ipc'
-import { issueCliOpen, setGenerationKicker, _getGenerationKicker, _resetTickets } from '../src/server/cliOpen'
+import { issueCliOpen, setGenerationKicker, _getGenerationKicker, _resetTickets, _ticketCount } from '../src/server/cliOpen'
 import { releaseFakeHolds } from '../src/server/engines/fake'
 import { makeFixtureRepo, fixtureGit } from './helpers/fixtureRepo'
-import type { EngineId } from '../src/shared/types'
+import type { EngineId, MergeRecord } from '../src/shared/types'
 import type { EngineRun, ReviewRequest } from '../src/server/engines/types'
 import type { ParsedReview } from '../src/server/engines/schema'
 import type { LoadedReview, OpEventMsg, OpResultMsg } from '../src/shared/ipc'
@@ -146,12 +146,71 @@ describe('cli:open --generate — the service kicks the pass', () => {
 
     const second = await issueCliOpen({ dir: h.repo, generate: true })
     expect(second.path).toBe(first.path)
-    expect(second.note).toBe('a review is already generating for this repository — opening it')
+    expect(second.note).toBe('a review is already generating for this repository — opening this review')
     // no second op: a kicked generation registers its live op synchronously, so by the
     // time the call above returned a second one would already be visible here.
     const during = await h.handlers.get('loadSession')!(1) as LoadedReview
     expect(during.activeOps.map((o) => o.opId)).toEqual([opId])
     expect(listChatThreads(h.db, 1).filter((t) => t.kind === 'review')).toHaveLength(1)
+
+    releaseFakeHolds()
+    await settled(h, opId)
+  })
+
+  it('mints nothing for --new while the lane is held — it reuses the pair session', async () => {
+    const h = setup()
+    engineHooks.hold = true
+    await issueCliOpen({ dir: h.repo, generate: true })
+    await heldGeneration(h)
+    const opId = await kickedOpId(h)
+
+    // `fresh` is dropped on the busy path: a session minted here would never be
+    // generated into, and the note would point the reviewer at an empty review.
+    const second = await issueCliOpen({ dir: h.repo, generate: true, fresh: true })
+    expect(second.path).toBe('/review/1')
+    expect(second.note).toBe('a review is already generating for this repository — opening this review')
+    expect(getSession(h.db, 2)).toBeNull()
+
+    releaseFakeHolds()
+    await settled(h, opId)
+  })
+
+  it('refuses to generate into a merged session, before the CLI is handed anything', async () => {
+    const h = setup()
+    await issueCliOpen({ dir: h.repo, generate: true })
+    await settled(h, await kickedOpId(h))
+
+    const record: MergeRecord = {
+      strategy: 'squash', mergedSha: 'c'.repeat(40), reviewedTipSha: 'd'.repeat(40),
+      baseSymbol: 'main', baseShaBefore: 'e'.repeat(40), mergedAt: new Date().toISOString(),
+      overrides: [], dependents: [], cleanup: { archived: false, branchDeleted: false, worktreeRemoved: false, retargeted: [], failures: [] }
+    }
+    markSessionMerged(h.db, 1, record)
+    _resetTickets()
+    h.events.length = 0
+
+    await expect(issueCliOpen({ dir: h.repo, generate: true }))
+      .rejects.toThrow('This review is merged and read-only')
+    expect(_ticketCount()).toBe(0)   // no ticket for an open that cannot generate
+    expect(h.events).toEqual([])     // no op started
+    // the refusal lands before beginReview: no orphan user turn in the review thread
+    expect(listChatThreads(h.db, 1).filter((t) => t.kind === 'review')).toHaveLength(1)
+  })
+
+  it('surfaces an override note, and joins it with the busy note', async () => {
+    const h = setup()
+    // a default agent carrying a model: switching engine cannot keep it
+    await h.handlers.get('setPref')!('defaultAgent', JSON.stringify({ engine: 'claude', model: 'opus' }))
+    const dropped = 'model and effort reset to auto (not available for codex)'
+
+    engineHooks.hold = true
+    const first = await issueCliOpen({ dir: h.repo, generate: true, agent: { engine: 'codex' } })
+    expect(first.note).toBe(dropped)
+    await heldGeneration(h)
+    const opId = await kickedOpId(h)
+
+    const second = await issueCliOpen({ dir: h.repo, generate: true, agent: { engine: 'codex' } })
+    expect(second.note).toBe(`${dropped}; a review is already generating for this repository — opening this review`)
 
     releaseFakeHolds()
     await settled(h, opId)

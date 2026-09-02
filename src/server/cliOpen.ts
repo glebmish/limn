@@ -79,6 +79,10 @@ export async function issueCliOpen(args: CliOpenArgs): Promise<CliOpenResult> {
   const now = Date.now()
   for (const [k, v] of tickets) if (v.expires < now) tickets.delete(k)
   tickets.set(ticket, { msg, expires: now + (args.printUrl ? PRINT_TICKET_TTL_MS : TICKET_TTL_MS) })
+  // A ticket is minted even for a `--generate` open, but the CLI does not use it: it
+  // opens the durable `path` instead. Deliberate — redeeming the ticket runs the
+  // renderer's own open path, which for `--new` would mint a SECOND fresh session
+  // beside the one just generated into. The ticket is the plain-open fallback only.
   return {
     ticket,
     ...(kicked ? { path: `/review/${kicked.sessionId}` } : {}),

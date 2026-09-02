@@ -592,9 +592,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('beginReview', beginReviewFor)
 
-  const generateFor = async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void> => {
+  /** The guards a generation must pass BEFORE its op is registered: a missing session
+   *  and a merged (terminal, read-only) one. Split out so a caller that isn't a
+   *  renderer request — the CLI kicker, which never awaits the run — can fail loudly
+   *  in its own call instead of throwing into an un-awaited promise. */
+  const preflightGenerate = (sessionId: number): SessionMeta => {
     const session = mustGetSession(db, sessionId)
     assertNotMerged(db, sessionId)
+    return session
+  }
+
+  const generateFor = async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void> => {
+    const session = preflightGenerate(sessionId)
     const repo = session.repo
     // register before the lane is taken: a generation always holds the exclusive lane,
     // and its events must be recorded from the very first one.
@@ -1421,11 +1430,21 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       if (applied.note) notes.push(applied.note)
     }
 
-    const { sessionId } = await startSessionFor(repo, baseInput, compareInput, agent, fresh)
-    // an agent iteration already holds the repo's exclusive lane: kicking would only
-    // queue behind it (or fail), so point the reviewer at the run that's already going.
-    if (operations.repoBusy(repo)) {
-      notes.push('a review is already generating for this repository — opening it')
+    // An agent iteration already holds the repo's exclusive lane: this open cannot
+    // generate, so it must not mint anything either — `--new` on a busy repo would
+    // otherwise leave an empty session nobody ever generates into. Read the lane ONCE,
+    // up front, so the fresh decision and the kick decision can't disagree.
+    // TOCTOU: if a generation starts between this check and `run` acquiring the lane,
+    // `run` returns RepoBusyError and the pass fails after beginReviewFor persisted its
+    // user turn — accepted: two kicks racing inside one tick is unreachable from a
+    // human at a terminal, and the failed turn is visible in the review thread.
+    const busy = operations.repoBusy(repo)
+    const { sessionId } = await startSessionFor(repo, baseInput, compareInput, agent, fresh && !busy)
+    // everything that can refuse this generation outright (no such session, a merged
+    // terminal record) runs HERE, while the CLI is still awaiting us — see below.
+    preflightGenerate(sessionId)
+    if (busy) {
+      notes.push('a review is already generating for this repository — opening this review')
       return { sessionId, note: notes.join('; ') }
     }
     // reusing a session that already has a review means folding the new commits in
@@ -1433,9 +1452,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const update = !fresh && dao.loadReviewState(db, sessionId).annotations != null
     const reviewThreadId = await beginReviewFor(sessionId, agent, update)
     const opId = `op-cli-${randomBytes(6).toString('hex')}`
-    // deliberately NOT awaited: the CLI gets its URL immediately and the run streams
-    // to whatever tab opens it. A rejection here is already reported to tabs as the
-    // op:result — this log is for the terminal running the service.
+    // deliberately NOT awaited: the CLI gets its URL immediately and the run streams to
+    // whatever tab opens it. From `liveOps.start` on, a failure reaches every tab as this
+    // op's op:result; what does NOT is a throw from the post-outcome bookkeeping (the
+    // failure note write) — that is what this log is for, and why the guards that can
+    // refuse the run outright were already awaited above.
     void generateFor(sessionId, agent, opId, reviewThreadId, undefined, update)
       .catch((err) => { console.error('[cli generate]', err) })
     return { sessionId, ...(notes.length ? { note: notes.join('; ') } : {}) }
