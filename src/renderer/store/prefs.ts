@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { AgentRef } from '../../shared/types'
-import { defaultAgent } from '../../shared/agents'
+import { defaultAgent as defaultAgentFor } from '../../shared/agents'
+import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../../shared/prefs'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import type { PanelKind } from '../lib/panelWidths'
@@ -13,7 +14,10 @@ export type SidebarView = 'sections' | 'tree'
 /** Reviewer preferences persisted across runs — the selected agent and the rail's
  *  nav layout. Loaded on boot (loadPrefs) and written through setAgent/setSidebarView. */
 export interface PrefsSlice {
-  /** the agent selected for creating / regenerating a review */
+  /** the reviewer's persisted default agent — the seed for `agent` at boot */
+  defaultAgent: AgentRef
+  /** the agent selected for creating / regenerating THIS review — seeded from
+   *  `defaultAgent` at `loadPrefs`, then per-review from the picker (`setAgent`) */
   agent: AgentRef
   /** the review rail's nav layout — sections (default) or tree */
   sidebarView: SidebarView
@@ -26,7 +30,13 @@ export interface PrefsSlice {
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
+  /** Select the agent for the next review only — in-memory (and the loaded
+   *  review's patch, see below). Never writes the default-agent pref. */
   setAgent(a: AgentRef): void
+  /** Change the reviewer's persisted default agent. Writes the `defaultAgent`
+   *  pref, then seeds both `defaultAgent` and `agent` from it. Rejects (state
+   *  left unchanged) when the server rejects the value. */
+  setDefaultAgent(a: AgentRef): Promise<void>
   setSidebarView(v: SidebarView): void
   /** Update a panel's preferred width in memory. Pass `{ persist: true }` to also
    *  write the pref — which is what every caller does, since a pointer drag paints
@@ -36,7 +46,8 @@ export interface PrefsSlice {
 }
 
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
-  agent: defaultAgent('claude'),
+  defaultAgent: defaultAgentFor('claude'),
+  agent: defaultAgentFor('claude'),
   sidebarView: 'sections',
   sidebarWidth: PANELS.sidebar.default,
   chatWidth: PANELS.chat.default,
@@ -48,8 +59,10 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
         try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
       }
       const sidebarView = parse<string>('sidebarView', 'sections')
+      const seededAgent = resolveDefaultAgent(prefs)
       set({
-        agent: parse<AgentRef>('agent', defaultAgent('claude')),
+        defaultAgent: seededAgent,
+        agent: seededAgent,
         sidebarView: sidebarView === 'tree' ? 'tree' : 'sections',
         sidebarWidth: parseStoredWidth('sidebar', prefs.sidebarWidth),
         chatWidth: parseStoredWidth('chat', prefs.chatWidth)
@@ -58,12 +71,12 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   },
 
   setAgent(a) {
-    void api().setPref('agent', JSON.stringify(a))
     // The picker (and generate) read the *loaded review's* agent
     // (`loaded.state.agent ?? agent`), so updating only the top-level `agent`
     // is shadowed whenever a review is loaded — the click looked like a no-op.
     // Patch the loaded state/session too so the choice shows and is what
-    // generate runs with.
+    // generate runs with. This is a per-review choice — it never writes the
+    // `defaultAgent` pref (use `setDefaultAgent` for that).
     set((s) => ({
       agent: a,
       loaded: s.loaded
@@ -72,6 +85,11 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
             session: { ...s.loaded.session, agent: a, engine: a.engine } }
         : s.loaded
     }))
+  },
+
+  async setDefaultAgent(a) {
+    await api().setPref(DEFAULT_AGENT_PREF_KEY, JSON.stringify(a))
+    set({ defaultAgent: a, agent: a })
   },
 
   setSidebarView(v) {
