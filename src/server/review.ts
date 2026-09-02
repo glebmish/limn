@@ -259,7 +259,8 @@ export async function assembleReview(
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
     writeCapability,
-    // Populated by the live-op registry in a later task; every load starts empty.
+    // `loadSession` populates this from the live-op registry after this returns
+    // (a transient preview never has ops, so it stays empty there).
     activeOps: [],
     ...(mergedExternally ? { mergedExternally: true } : {})
   }

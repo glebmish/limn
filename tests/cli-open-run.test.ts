@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import http from 'node:http'
 import { issueRemote, runOpen, type OpenDeps } from '../src/cli/open'
+import { RpcError } from '../src/cli/rpc'
 import type { ServiceTarget } from '../src/cli/target'
 import type { Io } from '../src/cli/main'
 
@@ -167,6 +168,62 @@ describe('runOpen', () => {
     // fire-and-forget off `onReady`, so give its promise chain a tick to settle.
     await vi.waitFor(() => { expect(opened[0]).toBeDefined() })
     expect(opened[0]).toMatch(/^http:\/\/limn\.localhost:5466\/\?open=[0-9a-f]{32}$/)
+  })
+
+  it('client role: an RpcError from issueRemote reaches the user verbatim, exit 1', async () => {
+    const io = fakeIo()
+    const { deps, calls } = fakeDeps({
+      probe: async () => health,
+      issueRemote: async () => { throw new RpcError('reasoning effort needs a model (set a model first)', 400) }
+    })
+    expect(await runOpen(cmd, io, deps)).toBe(1)
+    expect(io.out_).toEqual([])
+    expect(io.err_).toEqual(['limn: reasoning effort needs a model (set a model first)'])
+    expect(calls).not.toContain('openBrowser')
+  })
+
+  it('client role: a bare Error from issueRemote is a transport failure, exit 1', async () => {
+    const io = fakeIo()
+    const { deps } = fakeDeps({
+      probe: async () => health,
+      issueRemote: async () => { throw new Error('fetch failed') }
+    })
+    expect(await runOpen(cmd, io, deps)).toBe(1)
+    expect(io.out_).toEqual([])
+    expect(io.err_).toEqual(['error: could not reach the Limn server on 127.0.0.1:5466: fetch failed'])
+  })
+
+  it('non-TTY --generate/--print-url with no service running fails fast instead of hanging in a foreground server', async () => {
+    const out_: string[] = [], err_: string[] = []
+    const io: Io = { out: (l) => { out_.push(l) }, err: (l) => { err_.push(l) }, ask: async () => true, isTTY: false }
+    const { deps, calls } = fakeDeps({ backend: () => null })
+    const generateCmd = { ...cmd, generate: true }
+    expect(await runOpen(generateCmd, io, deps)).toBe(1)
+    expect(out_).toEqual([])
+    expect(err_).toEqual(['limn: no Limn service is running — run `limn service install`'])
+    expect(calls).not.toContain('serve')
+  })
+
+  it('server role: a --generate rejection stops the server it just started and returns 1', async () => {
+    const io = fakeIo(true)
+    let closed = false
+    const { deps, opened } = fakeDeps({
+      backend: () => null,
+      // Mirrors production `runServe`: the outer promise only resolves on
+      // SIGINT/SIGTERM, never merely because `close()` was called — the fix under
+      // test must not depend on `serve`'s own promise settling.
+      serve: async (_c, _io, onReady) => new Promise<number>(() => {
+        onReady?.({
+          port: 5466, url: 'http://limn.localhost:5466', vanity: false, aliasPort: null,
+          close: async () => { closed = true }
+        })
+      })
+    })
+    const generateCmd = { ...cmd, generate: true }
+    expect(await runOpen(generateCmd, io, deps)).toBe(1)
+    expect(closed).toBe(true)
+    expect(io.err_).toEqual(['limn: generation is not available on this server'])
+    expect(opened).toEqual([])
   })
 })
 

@@ -1444,7 +1444,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // terminal record) runs HERE, while the CLI is still awaiting us — see below.
     preflightGenerate(sessionId)
     if (busy) {
-      notes.push('a review is already generating for this repository — opening this review')
+      // `fresh` was already dropped above (see the comment on `busy` there) — say so
+      // when it was actually requested, so `--new` on a busy repo doesn't look silently
+      // ignored.
+      notes.push(fresh
+        ? 'a review is already generating for this repository — opening this review (--new ignored while a pass is running)'
+        : 'a review is already generating for this repository — opening this review')
       return { sessionId, note: notes.join('; ') }
     }
     // reusing a session that already has a review means folding the new commits in

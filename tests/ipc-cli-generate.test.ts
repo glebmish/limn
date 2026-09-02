@@ -168,7 +168,7 @@ describe('cli:open --generate — the service kicks the pass', () => {
     // generated into, and the note would point the reviewer at an empty review.
     const second = await issueCliOpen({ dir: h.repo, generate: true, fresh: true })
     expect(second.path).toBe('/review/1')
-    expect(second.note).toBe('a review is already generating for this repository — opening this review')
+    expect(second.note).toBe('a review is already generating for this repository — opening this review (--new ignored while a pass is running)')
     expect(getSession(h.db, 2)).toBeNull()
 
     releaseFakeHolds()

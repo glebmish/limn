@@ -10,7 +10,7 @@ import { readCliState, writeCliState, type CliState } from './state.js'
 import { findOldShim } from './shim.js'
 import { isServiceInstalled, installService, serviceBackend } from './service/index.js'
 import { issueCliOpen, type CliOpenArgs, type CliOpenResult } from '../server/cliOpen.js'
-import { rpc } from './rpc.js'
+import { rpc, RpcError } from './rpc.js'
 import { tryOpenInCmux } from './cmux.js'
 import type { RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
@@ -114,13 +114,20 @@ function openResolved(result: CliOpenResult, target: ServiceTarget, cmd: OpenCom
 }
 
 /** Ask a running server for a ticket (or a --generate answer) and open the page.
- *  Exit code, never a stack trace. */
+ *  Exit code, never a stack trace. An `RpcError` is the server rejecting the request
+ *  (bad ref, `--effort` with no model, merged session, …) — that message is already
+ *  meant for the user, verbatim; anything else is the fetch itself failing, which
+ *  means the server we just health-probed is no longer reachable. */
 async function openViaServer(t: ServiceTarget, cmd: OpenCommand, io: Io, deps: OpenDeps): Promise<number> {
   let result: CliOpenResult
   try {
     result = await deps.issueRemote(t, toArgs(cmd))
   } catch (err) {
-    io.err(`error: could not reach the Limn server on ${t.host}:${t.port}: ${err instanceof Error ? err.message : String(err)}`)
+    if (err instanceof RpcError) {
+      io.err(`limn: ${err.message}`)
+    } else {
+      io.err(`error: could not reach the Limn server on ${t.host}:${t.port}: ${err instanceof Error ? err.message : String(err)}`)
+    }
     return 1
   }
   openResolved(result, t, cmd, io, deps)
@@ -189,6 +196,15 @@ export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = default
 
   if (decision.role === 'client') return openViaServer(target, cmd, io, deps)
 
+  // A Stop-hook (or any non-interactive caller) that reaches for --generate/--print-url
+  // with no service running would otherwise fall through to a foreground server —
+  // fine for a human at a terminal, but a hook process has no terminal to Ctrl-C out
+  // of, so it would just hang. Fail fast instead: the recipe needs the service.
+  if ((cmd.generate || cmd.printUrl) && !io.isTTY) {
+    io.err('limn: no Limn service is running — run `limn service install`')
+    return 1
+  }
+
   if (decision.offerService && backend) {
     const npx = deps.npx()
     const question = serviceQuestion({ url: target.url, npx, backend })
@@ -206,11 +222,27 @@ export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = default
 
   // Server role: run the server in this process and open the browser once it is up.
   // The ticket/--generate answer is issued in-process — no HTTP round trip to ourselves.
-  return deps.serve({ port80: false }, io, (server) => {
+  // A plain open's failure keeps the server serving (the user asked to review a
+  // directory in a browser; the server is still useful for a retry). A --generate or
+  // --print-url rejection is different: nothing was started for the caller to watch,
+  // so the freshly-started server has no reason to stay up — stop it and fail the
+  // whole `limn` invocation. `servePromise` alone won't reflect that in production
+  // (it only resolves on SIGINT/SIGTERM), so a failFast race lets the close() side
+  // effect decide the exit code without waiting on a signal.
+  let failFast: ((code: number) => void) | null = null
+  const failFastPromise = new Promise<number>((resolve) => { failFast = resolve })
+  const servePromise = deps.serve({ port80: false }, io, (server) => {
     void issueCliOpen(toArgs(cmd)).then((result) => {
       openResolved(result, { ...target, url: server.url }, cmd, io, deps)
     }, (err: unknown) => {
-      io.err(`error: could not open the review: ${err instanceof Error ? err.message : String(err)}`)
+      const message = err instanceof Error ? err.message : String(err)
+      if (cmd.generate || cmd.printUrl) {
+        io.err(`limn: ${message}`)
+        void server.close().then(() => failFast?.(1))
+      } else {
+        io.err(`error: could not open the review: ${message}`)
+      }
     })
   })
+  return Promise.race([servePromise, failFastPromise])
 }

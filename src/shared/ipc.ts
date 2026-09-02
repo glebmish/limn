@@ -61,7 +61,9 @@ export interface ActiveOpSnapshot {
    *  the live stream */
   events: EngineEvent[]
   /** the sequence number the next OpEventMsg for this op will carry (see
-   *  OpEventMsg.seq) — a joining tab uses this to detect a gap in its live stream. */
+   *  OpEventMsg.seq) — a joining tab drops any live `op:event` with `seq < nextSeq`
+   *  as already covered by these replayed `events`, deduping the two sources rather
+   *  than detecting a gap between them. */
   nextSeq: number
 }
 
@@ -179,9 +181,10 @@ export interface OpEventMsg {
    *  read-only). Present once the turn is running; the renderer corrects its
    *  startOp-time lane prediction from it (concurrent-chat §4 / OQ7). */
   exclusive?: boolean
-  /** Monotonic per-op sequence number, so a (re)joining tab can detect a gap between
-   *  the events it replayed from ActiveOpSnapshot and the live stream it just
-   *  subscribed to. Absent is fine for a tab that was present for the whole op. */
+  /** Monotonic per-op sequence number, so a (re)joining tab can dedupe the live
+   *  stream against the events it already replayed from ActiveOpSnapshot (drop any
+   *  event with `seq < nextSeq`) instead of double-applying them. Absent is fine for
+   *  a tab that was present for the whole op. */
   seq?: number
 }
 export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'

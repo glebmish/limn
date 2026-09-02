@@ -132,7 +132,11 @@ moment the agent finishes its turn:
 ```
 
 This starts generation on the service and prints the review's URL; open the printed
-link (or your service's dashboard) to watch it.
+link (or your service's dashboard) to watch it. The hook needs the service installed
+(`limn service install`) first: a Stop hook runs non-interactively, with no terminal
+to answer the "install as a background service?" prompt or to Ctrl-C a foreground
+server, so `--generate`/`--print-url` with no service running fails fast instead of
+hanging — `limn: no Limn service is running — run \`limn service install\``, exit 1.
 
 `--agent`, `--model` and `--effort` override the default review agent (see [Default
 agent](#default-agent)) for this generation only — they need `--generate`, and
@@ -145,7 +149,9 @@ again, Limn does not start a second pass — it answers with the review that's a
 running and a stderr note: `note: a review is already generating for this repository
 — opening this review`. Opening that URL in a browser tab that wasn't there when
 generation started still shows it live: the tab adopts the running pass and streams
-its output, and a second tab on the same URL does the same.
+its output, and a second tab on the same URL does the same. `--new` on a busy repo
+does not mint a fresh session either — the note adds `(--new ignored while a pass is
+running)` so it's not silently dropped.
 
 Inside a [cmux](https://github.com/get-cmux/cmux) session (`CMUX_SOCKET` set, `cmux`
 on `PATH`), a plain `limn --generate` (no `--print-url`) opens the review in a
