@@ -4,7 +4,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 import type { FrameDraft } from '../src/renderer/lib/edits'
 import {
   caretAfterGrowth, discardSpanAt, fileEditable, frameDeletesLines, frameGutter, frameHint,
-  frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn,
+  frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn, reapplyCue,
   seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../src/renderer/lib/edits'
 
@@ -146,6 +146,20 @@ describe('frameHint', () => {
   it('names what ⌫ is about to remove, and what ⌘⏎ would do instead (#8)', () => {
     expect(frameHint(true, 'line 11')).toBe('⌫ deletes line 11 · ⌘⏎ leaves a blank line · esc cancel')
     expect(frameHint(true, 'lines 11–13')).toBe('⌫ deletes lines 11–13 · ⌘⏎ leaves a blank line · esc cancel')
+  })
+})
+
+describe('reapplyCue', () => {
+  it('an ordinary re-apply (no deletion) carries no danger cue', () => {
+    expect(reapplyCue([])).toEqual({ danger: false, title: 'Re-apply' })
+  })
+
+  it('re-applying a single-line deletion names the count, singular', () => {
+    expect(reapplyCue([11])).toEqual({ danger: true, title: 'Re-apply — deletes 1 line' })
+  })
+
+  it('re-applying a multi-line deletion names the count, plural', () => {
+    expect(reapplyCue([11, 12, 13])).toEqual({ danger: true, title: 'Re-apply — deletes 3 lines' })
   })
 })
 
@@ -368,13 +382,13 @@ describe('seedFrameRestore', () => {
   })
 
   it('carries the conflict banner (kept text / delete intent) across the remount', () => {
-    const yours = { text: 'my version', removes: false }
+    const yours = { text: 'my version', removes: [] }
     const d = mkDraft({ frameId: 'a', text: 'fresh', fileLines: ['fresh'], yours })
     expect(seedFrameRestore(d, 'a')).toEqual({ text: 'fresh', fileLines: ['fresh'], yours })
   })
 
   it('carries a delete intent, not just text — the banner must not degrade to a blank line', () => {
-    const yours = { text: '', removes: true }
+    const yours = { text: '', removes: [11, 12] }
     const d = mkDraft({ frameId: 'a', text: 'fresh', fileLines: ['fresh'], yours })
     expect(seedFrameRestore(d, 'a')?.yours).toEqual(yours)
   })

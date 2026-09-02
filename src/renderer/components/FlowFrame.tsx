@@ -7,7 +7,7 @@ import { saveChordLabel } from '../lib/platform'
 import type { FrameDraft, FrameYours } from '../lib/edits'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
-  narrowEdit, seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
+  narrowEdit, reapplyCue, seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
@@ -171,7 +171,13 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     const end = Math.min(frame.end, res.current.length)
     const start = Math.max(1, Math.min(frame.start, end || 1))
     const fresh = res.current.slice(start - 1, end).join('\n')
-    const kept: FrameYours = { text: value, removes: removeLines }
+    // The line numbers a deletion Re-apply would remove — the region as it stood
+    // right before the conflict, since by the time the banner renders `frame` has
+    // already been re-anchored onto the fresh post-conflict scope (see below).
+    const removedLines = removeLines
+      ? Array.from({ length: frame.end - frame.start + 1 }, (_, i) => frame.start + i)
+      : []
+    const kept: FrameYours = { text: value, removes: removedLines }
     setYours(kept)
     setFileLines(res.current)
     setText(fresh)
@@ -258,13 +264,20 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         <button className="ff-btn ff-ok" title={`Save (${saveChordLabel(typeof navigator !== 'undefined' ? navigator.platform : '')}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
-      {yours != null && (
+      {yours != null && (() => {
+        const cue = reapplyCue(yours.removes)
+        return (
         <div className="ff-yours">
-          <span>These lines changed while you were editing — refreshed to the new version; {yours.removes ? 'your deletion is kept' : 'your text is kept'}:</span>
-          <code>{yours.removes ? '⌫ delete these lines' : yours.text}</code>
-          <button className="ff-btn ff-ok" onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null, { yours: null }); void save(y.text, y.removes) }}>Re-apply</button>
+          <span>These lines changed while you were editing — refreshed to the new version; {yours.removes.length > 0 ? 'your deletion is kept' : 'your text is kept'}:</span>
+          <code>{yours.removes.length > 0 ? '⌫ delete these lines' : yours.text}</code>
+          <button
+            className={`ff-btn${cue.danger ? ' ff-danger' : ' ff-ok'}`}
+            title={cue.title}
+            onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null, { yours: null }); void save(y.text, y.removes.length > 0) }}
+          >Re-apply</button>
         </div>
-      )}
+        )
+      })()}
       <div className="ff-body">
         <span className="ff-gutter" aria-hidden>
           {gutter.map((n, i) => <span key={i}>{n}</span>)}

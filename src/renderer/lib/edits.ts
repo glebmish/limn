@@ -155,10 +155,22 @@ export function lineColToCaret(lines: string[], lineIdx: number, col: number): n
 }
 
 /** The save held across a CAS conflict, offered back via Re-apply. `removes` carries
- *  the #8 delete intent alongside the text: an emptied frame's typed text is `''`
- *  either way, so without it a Re-apply after a conflicted deletion would write a
- *  blank line instead of removing the lines — a different edit than the one asked for. */
-export interface FrameYours { text: string; removes: boolean }
+ *  the #8 delete intent alongside the text — the line numbers the held save deletes,
+ *  empty for an ordinary text save: an emptied frame's typed text is `''` either way,
+ *  so without it a Re-apply after a conflicted deletion would write a blank line
+ *  instead of removing the lines — a different edit than the one asked for. Also
+ *  drives Re-apply's danger cue (see `reapplyCue`). */
+export interface FrameYours { text: string; removes: number[] }
+
+/** Re-apply's danger cue: a non-empty `removes` means the held save deletes lines
+ *  from the file rather than merely changing their text, so Re-apply gets a red cue
+ *  and a title naming exactly how many lines are about to go. */
+export function reapplyCue(removes: number[]): { danger: boolean; title: string } {
+  const n = removes.length
+  return n > 0
+    ? { danger: true, title: `Re-apply — deletes ${n} line${n === 1 ? '' : 's'}` }
+    : { danger: false, title: 'Re-apply' }
+}
 
 /** A flow frame's live draft (#6 fix-round-1): everything about an in-progress edit
  *  that must outlive the component instance, kept in the store under the edit
