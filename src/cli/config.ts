@@ -1,8 +1,8 @@
 import { openDb } from '../server/db/db.js'
 import { defaultDbPath } from '../server/paths.js'
-import { hostForUrl } from '../server/guard.js'
 import { probeHealth, type HealthInfo } from './health.js'
 import { serviceTarget, type ServiceTarget } from './target.js'
+import { rpc } from './rpc.js'
 import { validateAgentRef } from '../shared/agents.js'
 import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../shared/prefs.js'
 import type { AgentRef } from '../shared/types.js'
@@ -21,42 +21,34 @@ export interface ConfigDeps {
   target: () => ServiceTarget
   probe: (port: number, host: string) => Promise<HealthInfo | null>
   remote: (t: ServiceTarget) => PrefsStore
-  local: () => PrefsStore
+  local: (io: Io) => PrefsStore
 }
 
-/** POST one `/rpc/<channel>` call — same headers/host rules as `issueRemote` in open.ts —
- *  and unwrap `{ value }` / `{ error }`. */
-async function rpcCall<T>(t: ServiceTarget, channel: string, args: unknown[]): Promise<T> {
-  const res = await fetch(`http://${hostForUrl(t.host)}:${t.port}/rpc/${channel}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(t.token ? { Authorization: `Bearer ${t.token}` } : {}) },
-    body: JSON.stringify(args)
-  })
-  const fallback = `${channel} failed (${res.status})`
-  // Status first: an error page (a proxy's HTML, say) must not blow up in JSON.parse.
-  if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null
-    throw new Error(body?.error || fallback)
-  }
-  const body = (await res.json()) as { value?: T }
-  return body.value as T
-}
-
-function remoteStore(t: ServiceTarget): PrefsStore {
+/** Talk `getPrefs`/`setPref` to a running service over its RPC — see `rpc()` in
+ *  rpc.ts for the header/host/error-unwrap rules shared with `issueRemote`. */
+export function remoteStore(t: ServiceTarget): PrefsStore {
   return {
-    get: () => rpcCall<Record<string, string>>(t, 'getPrefs', []),
-    set: async (key, value) => { await rpcCall<void>(t, 'setPref', [key, value]) }
+    get: async () => (await rpc<Record<string, string>>(t, 'getPrefs', [])).value ?? {},
+    set: async (key, value) => { await rpc<void>(t, 'setPref', [key, value]) }
   }
 }
 
 /** Read/write the prefs table directly. Only used when the health probe says no
  *  service is running — the service owns the db file while it's up (see
  *  src/server/paths.ts) — and validates the write itself since there's no server
- *  handler to do it for us. */
-function localStore(): PrefsStore {
+ *  handler to do it for us. `dbPath` defaults to the real db but is overridable
+ *  for tests. A corrupt db that `openDb` recovers by moving aside is reported to
+ *  `io` — silently swapping in a fresh, empty db would otherwise look like the
+ *  user's default agent pref just vanished. */
+export function localStore(io: Io, dbPath: string = defaultDbPath()): PrefsStore {
+  const open = () => {
+    const { db, recoveredFrom } = openDb(dbPath)
+    if (recoveredFrom) io.err(`note: database was corrupt; a backup was kept at ${recoveredFrom}`)
+    return db
+  }
   return {
     get: async () => {
-      const { db } = openDb(defaultDbPath())
+      const db = open()
       try {
         const out: Record<string, string> = {}
         for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
@@ -79,7 +71,7 @@ function localStore(): PrefsStore {
         if (!check.ok) throw new Error(check.error)
         value = JSON.stringify(check.agent)
       }
-      const { db } = openDb(defaultDbPath())
+      const db = open()
       try {
         db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value)
@@ -94,7 +86,7 @@ export const defaultConfigDeps: ConfigDeps = {
   target: serviceTarget,
   probe: probeHealth,
   remote: remoteStore,
-  local: localStore
+  local: (io) => localStore(io)
 }
 
 /** Pure: apply one key change to an AgentRef, returning a validated next ref (or the
@@ -156,7 +148,7 @@ export async function runConfig(cmd: ConfigCommand, io: Io, deps: ConfigDeps = d
   const target = deps.target()
   try {
     const health = await deps.probe(target.port, target.host)
-    const store = health ? deps.remote(target) : deps.local()
+    const store = health ? deps.remote(target) : deps.local(io)
     const prefs = await store.get()
     const current = resolveDefaultAgent(prefs)
 

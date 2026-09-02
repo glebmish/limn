@@ -10,7 +10,7 @@ import { readCliState, writeCliState, type CliState } from './state.js'
 import { findOldShim } from './shim.js'
 import { isServiceInstalled, installService, serviceBackend } from './service/index.js'
 import { issueCliOpen, type CliOpenArgs } from '../server/cliOpen.js'
-import { hostForUrl } from '../server/guard.js'
+import { rpc } from './rpc.js'
 import type { RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
 
@@ -36,21 +36,9 @@ function toArgs(cmd: OpenCommand): CliOpenArgs {
 
 /** POST cli:open to a running service and return the one-time page ticket. */
 export async function issueRemote(t: ServiceTarget, args: CliOpenArgs): Promise<string> {
-  const res = await fetch(`http://${hostForUrl(t.host)}:${t.port}/rpc/cli:open`, {
-    method: 'POST',
-    // the header form, not ?token= — a token in a URL lands in logs and shell history
-    headers: { 'Content-Type': 'application/json', ...(t.token ? { Authorization: `Bearer ${t.token}` } : {}) },
-    body: JSON.stringify([args])
-  })
-  const fallback = `cli:open failed (${res.status})`
-  // Status first: an error page (a proxy's HTML, say) must not blow up in JSON.parse.
-  if (!res.ok) {
-    const body = await res.json().catch(() => null) as { error?: string } | null
-    throw new Error(body?.error || fallback)
-  }
-  const body = (await res.json()) as { value?: { ticket: string } }
-  if (!body.value) throw new Error(fallback)
-  return body.value.ticket
+  const { value, status } = await rpc<{ ticket: string }>(t, 'cli:open', [args])
+  if (!value) throw new Error(`cli:open failed (${status})`)
+  return value.ticket
 }
 
 /** Everything `runOpen` reaches outside its own process, injectable for tests. */
