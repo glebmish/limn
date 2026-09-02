@@ -3,6 +3,8 @@ import type { AgentRef } from '../../shared/types'
 import { defaultAgent } from '../../shared/agents'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
+import type { PanelKind } from '../lib/panelWidths'
+import { PANELS, parseStoredWidth } from '../lib/panelWidths'
 
 /** The review rail's left-hand nav layout: guided sections (with the plan-mapped
  *  narration) or a flat directory tree. */
@@ -15,16 +17,26 @@ export interface PrefsSlice {
   agent: AgentRef
   /** the review rail's nav layout — sections (default) or tree */
   sidebarView: SidebarView
+  /** the review rail's current width, in px */
+  sidebarWidth: number
+  /** the chat drawer's current width, in px */
+  chatWidth: number
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
   setAgent(a: AgentRef): void
   setSidebarView(v: SidebarView): void
+  /** Update a panel's width in memory (called per pointer move while dragging).
+   *  Pass `{ persist: true }` to also write the pref (drag end / key / reset) —
+   *  the caller is responsible for clamping; the shell knows the viewport. */
+  setPanelWidth(kind: PanelKind, width: number, opts?: { persist?: boolean }): void
 }
 
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
   agent: defaultAgent('claude'),
   sidebarView: 'sections',
+  sidebarWidth: PANELS.sidebar.default,
+  chatWidth: PANELS.chat.default,
 
   async loadPrefs() {
     try {
@@ -35,7 +47,9 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
       const sidebarView = parse<string>('sidebarView', 'sections')
       set({
         agent: parse<AgentRef>('agent', defaultAgent('claude')),
-        sidebarView: sidebarView === 'tree' ? 'tree' : 'sections'
+        sidebarView: sidebarView === 'tree' ? 'tree' : 'sections',
+        sidebarWidth: parseStoredWidth('sidebar', prefs.sidebarWidth),
+        chatWidth: parseStoredWidth('chat', prefs.chatWidth)
       })
     } catch { /* prefs unavailable — visual defaults stand */ }
   },
@@ -60,5 +74,14 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   setSidebarView(v) {
     void api().setPref('sidebarView', JSON.stringify(v))
     set({ sidebarView: v })
+  },
+
+  setPanelWidth(kind, width, opts) {
+    if (kind === 'sidebar') set({ sidebarWidth: width })
+    else set({ chatWidth: width })
+    if (opts?.persist) {
+      const key = kind === 'sidebar' ? 'sidebarWidth' : 'chatWidth'
+      void api().setPref(key, JSON.stringify(width))
+    }
   }
 })
