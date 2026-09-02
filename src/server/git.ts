@@ -521,7 +521,7 @@ export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' 
 /** Attach a real per-baseline `git diff` (e.g. approvedSha→working) to each rendered
  *  file under `key`, so the "Since approved" / "Since viewed" tabs render an actual
  *  diff from that base commit rather than a filtered slice of the full diff. */
-export function attachSinceHunks(target: FileDiff[], since: FileDiff[], key: 'sinceHunks' | 'sinceViewedHunks', onlyPaths?: Set<string>): void {
+export function attachSinceHunks(target: FileDiff[], since: FileDiff[], key: 'sinceHunks' | 'sinceReviewHunks' | 'sinceViewedHunks', onlyPaths?: Set<string>): void {
   const byPath = new Map(since.map((f) => [f.path, f]))
   for (const f of target) {
     if (onlyPaths && !onlyPaths.has(f.path)) continue

@@ -6,6 +6,7 @@ const render = (over: Partial<Parameters<typeof HeaderDiffControls>[0]> = {}): s
   renderToStaticMarkup(
     <HeaderDiffControls
       globalMode="branch"
+      anySinceReview={false}
       anySinceApproved={false}
       anySinceViewed={false}
       dirty={false}
@@ -26,17 +27,22 @@ describe('the page-header diff controls', () => {
     expect(render({ dirty: true, sinceBasis: null })).toContain('rail-sw staged')
   })
 
-  it('names the bulk since-baseline for what it is', () => {
-    const generated = render({ anySinceApproved: true, sinceBasis: 'generated' })
-    expect(generated).toContain('Since the review ran')
-    expect(generated).not.toContain('Since approved')
-
-    expect(render({ anySinceApproved: true, sinceBasis: 'approved' })).toContain('Since approved')
+  it('offers the review window and the approval window as separate options', () => {
+    const html = render({ anySinceReview: true, anySinceApproved: true, sinceBasis: 'approved' })
+    expect(html).toContain('Since the review ran')
+    expect(html).toContain('Since approved')
   })
 
   it('still offers only the baselines some file actually has', () => {
     const html = render({ anySinceViewed: true, sinceBasis: 'approved' })
     expect(html).toContain('Since viewed')
     expect(html).not.toContain('Since approved')
+    expect(html).not.toContain('Since the review ran')
+  })
+
+  it('lists the baselines oldest checkpoint first', () => {
+    const html = render({ anySinceReview: true, anySinceApproved: true, anySinceViewed: true })
+    const order = [...html.matchAll(/role="option"[^>]*>(?:<[^>]*>|\u2713)*([^<]+)</g)].map((m) => m[1])
+    expect(order).toEqual(['Full diff', 'Since the review ran', 'Since approved', 'Since viewed'])
   })
 })

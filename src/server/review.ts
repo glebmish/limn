@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
-import { approvedShaList, sinceBasis } from '../shared/sinceBasis.js'
+import { approvedShaList, commitBaselines, sinceBasis } from '../shared/sinceBasis.js'
 import {
   attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
@@ -135,16 +135,19 @@ export async function assembleReview(
   }
   const copyCandidates = dao.reviewCopyCandidates(db, repo, session.id, pair.base.anchorSha, candidatePositions).slice(0, 3)
   let sinceTagged = false
-  // approved when there is an approval, else the sha the review was generated at —
-  // the UI labels the rails from the same helper, so it never calls a generation
-  // baseline "approved" (src/shared/sinceBasis.ts)
-  const baseline = sinceBasis(state, skeleton.headSha)?.sha
-  if (baseline && baseline !== skeleton.headSha) {
+  // The reader can switch a file to either commit baseline (see commitBaselines), so
+  // each gets its own slice. The RAIL, though, stays single — one amber hatch means
+  // "moved since your latest checkpoint" (the approval if there is one, else the sha
+  // the review was generated at); a rail per baseline is the density that made the
+  // marks unreadable. src/shared/sinceBasis.ts owns both rules.
+  const railSha = sinceBasis(state, skeleton.headSha)?.sha
+  const baselines = commitBaselines(state, skeleton.headSha)
+  const HUNK_KEY = { review: 'sinceReviewHunks', approved: 'sinceHunks' } as const
+  for (const b of baselines) {
     try {
-      const since = await diffSince(repo, baseline, compareEff)
-      markSince(skeleton, since, 'since')
-      attachSinceHunks(skeleton.files, since.files, 'sinceHunks')
-      sinceTagged = true
+      const since = await diffSince(repo, b.sha, compareEff)
+      if (b.sha === railSha) { markSince(skeleton, since, 'since'); sinceTagged = true }
+      attachSinceHunks(skeleton.files, since.files, HUNK_KEY[b.mode])
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
   const byViewSha = new Map<string, Set<string>>()
@@ -176,11 +179,13 @@ export async function assembleReview(
       // means "this line changed since that baseline", even for a wholly-new (untracked)
       // file whose since-diff equals its full diff. The renderer decides how to present a
       // wholly-new file (diffHunksForMode); the data layer no longer suppresses it here.
-      if (baseline) {
+      // includeHead: approved AT this commit and then edited — the uncommitted delta
+      // is the whole point of the "since approved" window while dirty
+      for (const b of commitBaselines(state, skeleton.headSha, { includeHead: true })) {
         try {
-          const sinceW = await diffSinceWorking(wt, baseline)
-          markSince(asSkel(merged), asSkel(sinceW), 'since')
-          attachSinceHunks(merged, sinceW, 'sinceHunks')
+          const sinceW = await diffSinceWorking(wt, b.sha)
+          if (b.sha === railSha) markSince(asSkel(merged), asSkel(sinceW), 'since')
+          attachSinceHunks(merged, sinceW, HUNK_KEY[b.mode])
         } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {

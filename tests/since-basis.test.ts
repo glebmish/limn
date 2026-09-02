@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { approvedShaList, baselineLabel, sinceBasis, sinceModeLabel } from '../src/shared/sinceBasis'
+import { approvedShaList, baselineLabel, commitBaselines, sinceBasis, sinceModeLabel } from '../src/shared/sinceBasis'
 
 const HEAD = 'h'.repeat(40)
 const OLD = 'o'.repeat(40)
@@ -48,13 +48,39 @@ describe('approvedShaList — the one normalization of the approval history', ()
 })
 
 describe('baselineLabel — one naming for the header switch and the per-file picker', () => {
-  it('names the full diff and the viewed baseline the same either way', () => {
-    expect(baselineLabel('branch', 'generated')).toBe('Full diff')
-    expect(baselineLabel('viewed', 'generated')).toBe('Since viewed')
+  it('names each of the four baselines for the checkpoint it measures from', () => {
+    expect(baselineLabel('branch')).toBe('Full diff')
+    expect(baselineLabel('review')).toBe('Since the review ran')
+    expect(baselineLabel('approved')).toBe('Since approved')
+    expect(baselineLabel('viewed')).toBe('Since viewed')
+  })
+})
+
+describe('commitBaselines — the review-wide baselines a reader can switch to', () => {
+  it('offers the approval and the generation sha as two independent baselines', () => {
+    expect(commitBaselines({ approvedSha: OLD, reviewedAtSha: GEN }, HEAD))
+      .toEqual([{ mode: 'review', sha: GEN }, { mode: 'approved', sha: OLD }])
   })
 
-  it('bends the since-baseline name to what it actually is', () => {
-    expect(baselineLabel('approved', 'approved')).toBe('Since approved')
-    expect(baselineLabel('approved', 'generated')).toBe('Since the review ran')
+  it('collapses them into one when the review was generated at the sha you approved', () => {
+    expect(commitBaselines({ approvedSha: OLD, reviewedAtSha: OLD }, HEAD))
+      .toEqual([{ mode: 'approved', sha: OLD }])
+  })
+
+  it('drops a baseline that IS the head — there is nothing since it', () => {
+    expect(commitBaselines({ approvedShas: [HEAD], approvedSha: HEAD, reviewedAtSha: GEN }, HEAD))
+      .toEqual([{ mode: 'review', sha: GEN }])
+    expect(commitBaselines({ reviewedAtSha: HEAD }, HEAD)).toEqual([])
+  })
+
+  it('is empty for a review with no approval and no generated baseline', () => {
+    expect(commitBaselines({}, HEAD)).toEqual([])
+  })
+
+  it('keeps a head-equal baseline when asked — a dirty tree still has a delta since it', () => {
+    // approve the commit, then edit the working tree: "since approved" is exactly
+    // those uncommitted lines, so the working-tree pass must not drop this baseline
+    expect(commitBaselines({ approvedShas: [HEAD], approvedSha: HEAD }, HEAD, { includeHead: true }))
+      .toEqual([{ mode: 'approved', sha: HEAD }])
   })
 })

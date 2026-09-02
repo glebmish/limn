@@ -4,7 +4,7 @@ import type { FileDiff } from '../src/shared/types'
 const dashboard = vi.fn(async () => ({ repos: [], recents: [], recentSessions: [], notices: [] }))
 ;(globalThis as unknown as { window: unknown }).window = { api: { dashboard } }
 
-import { useStore, baselinesForFile, modeForFile } from '../src/renderer/store'
+import { useStore, baselinesForFile, modeForFile, diffHunksForMode } from '../src/renderer/store'
 
 const file = (path: string, extra: Partial<FileDiff> = {}): FileDiff => ({
   path, status: 'modified', binary: false, add: 1, del: 0, hunks: [], ...extra
@@ -20,9 +20,30 @@ describe('baselinesForFile — a file only offers the baselines it actually has'
     expect(baselinesForFile(file('a.ts', { sinceViewedHunks: [] }))).toEqual(['branch', 'viewed'])
   })
 
-  it('offers both when both exist', () => {
-    expect(baselinesForFile(file('a.ts', { sinceHunks: [], sinceViewedHunks: [] })))
-      .toEqual(['branch', 'approved', 'viewed'])
+  it('offers the review window as its own baseline', () => {
+    expect(baselinesForFile(file('a.ts', { sinceReviewHunks: [] }))).toEqual(['branch', 'review'])
+  })
+
+  it('lists all four oldest-checkpoint-first when the file has them all', () => {
+    expect(baselinesForFile(file('a.ts', { sinceReviewHunks: [], sinceHunks: [], sinceViewedHunks: [] })))
+      .toEqual(['branch', 'review', 'approved', 'viewed'])
+  })
+})
+
+describe('diffHunksForMode — each baseline renders its own slice', () => {
+  const hunks = (t: string) => [{ range: '@@', header: '', lines: [{ old: null, new: 1, kind: 'add' as const, text: t }] }]
+  const f = file('a.ts', {
+    hunks: hunks('branch'), sinceReviewHunks: hunks('review'),
+    sinceHunks: hunks('approved'), sinceViewedHunks: hunks('viewed')
+  })
+
+  it('reads the review window from its own slice, not the approval\'s', () => {
+    expect(diffHunksForMode(f, 'review')[0].lines[0].text).toBe('review')
+    expect(diffHunksForMode(f, 'approved')[0].lines[0].text).toBe('approved')
+  })
+
+  it('renders an honest empty when the file has no slice at that baseline', () => {
+    expect(diffHunksForMode(file('a.ts'), 'review')).toEqual([])
   })
 })
 

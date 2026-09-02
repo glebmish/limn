@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { CmtPlus } from '../kit'
 import { fileViewed, fileIsExcluded, modeForFile, useStore } from '../store'
-import { sinceBasis } from '../../shared/sinceBasis'
 import { Composer, InlineThread } from './Threads'
 import { reviewStatusForFile } from '../lib/fileStatus'
 import { FileHeader, splitPath } from './FileHeader'
@@ -12,10 +11,8 @@ export function DiffView({ f }: {
   f: FileDiff
 }) {
   const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, setFileDiffMode } = useStore()
-  // this file's own baseline (its override, else the global default), and what that
-  // baseline actually is — an approval, or the sha the review was generated at
+  // this file's own baseline: its override, else the global default
   const mode = modeForFile(useStore.getState(), f.path)
-  const basis = (loaded ? sinceBasis(loaded.state, loaded.skeleton.headSha)?.basis : null) ?? 'approved'
   const excluded = fileIsExcluded(loaded, f)
   const comments = loaded?.state.comments ?? []
   const { name } = splitPath(f.path)
@@ -62,7 +59,6 @@ export function DiffView({ f }: {
           effectiveOpen={effectiveOpen}
           artifact={artifact}
           baselineMode={mode}
-          baselineBasis={basis}
           onPickBaseline={(m) => setFileDiffMode(f.path, m)}
           onToggleOpen={() => setManualOpen(!effectiveOpen)}
           onToggleViewed={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }}

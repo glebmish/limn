@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
-import { diffHunksForMode, useStore } from '../store'
+import { diffHunksForMode, useStore, type DiffMode } from '../store'
 import { Composer, InlineThread } from './Threads'
 import type { CharRange } from '../lib/worddiff'
 import { disp, highlightLine, langForPath } from '../lib/highlight'
@@ -94,7 +94,7 @@ function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | n
  *  tearing it down and remounting it. */
 export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt }: {
   f: FileDiff
-  mode: 'branch' | 'approved' | 'viewed'
+  mode: DiffMode
   showBody: boolean
   fileComments: Comment[]
   composerAt: ComposerAt | null

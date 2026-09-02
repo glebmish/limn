@@ -57,25 +57,28 @@ describe('a file is read against its own baseline', () => {
     expect(html).toContain('aria-label="Diff baseline for src/a.ts"')
   })
 
-  it('labels the baseline "Since the review ran" on a review nobody approved', () => {
-    const loaded = makeLoaded({ files: [f], headSha: 'head' })
-    ;(loaded.state as unknown as { reviewedAtSha: string }).reviewedAtSha = 'gen'
-    seed({ loaded, fileDiffMode: { 'src/a.ts': 'approved' } })
+  it('offers only the review window on a review nobody approved', () => {
+    // no approval → the server attaches the review slice and no approved slice
+    const unapproved = { ...f, sinceReviewHunks: [hunk('since the review ran')] } as FileDiff
+    seed({ loaded: makeLoaded({ files: [unapproved], headSha: 'head' }), fileDiffMode: {} })
 
-    const html = renderToStaticMarkup(<DiffView f={{ ...f, sinceHunks: [hunk('x')] } as FileDiff} />)
+    const html = renderToStaticMarkup(<DiffView f={unapproved} />)
 
     expect(html).toContain('Since the review ran')
     expect(html).not.toContain('Since approved')
   })
 
-  it('calls it "Since approved" once there really is an approval', () => {
-    const loaded = makeLoaded({ files: [f], headSha: 'head' })
-    ;(loaded.state as unknown as { approvedSha: string }).approvedSha = 'old'
-    seed({ loaded, fileDiffMode: { 'src/a.ts': 'approved' } })
+  it('reads the review window from its own slice, not the approval\'s', () => {
+    const both = {
+      ...f,
+      sinceReviewHunks: [hunk('landed after the review ran')],
+      sinceHunks: [hunk('landed after you approved')]
+    } as FileDiff
+    seed({ loaded: makeLoaded({ files: [both], headSha: 'head' }), fileDiffMode: { 'src/a.ts': 'review' } })
 
-    const html = renderToStaticMarkup(<DiffView f={{ ...f, sinceHunks: [hunk('x')] } as FileDiff} />)
+    const html = renderToStaticMarkup(<DiffView f={both} />)
 
-    expect(html).toContain('Since approved')
-    expect(html).not.toContain('Since the review ran')
+    expect(html).toContain('landed after the review ran')
+    expect(html).not.toContain('landed after you approved')
   })
 })

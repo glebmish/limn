@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
-import type { SinceBasis } from '../../shared/sinceBasis'
 import { baselineLabel } from '../../shared/sinceBasis'
 import { baselinesForFile, type DiffMode } from '../store'
 
@@ -8,10 +7,9 @@ import { baselinesForFile, type DiffMode } from '../store'
  *  the page head is a bulk default, too far from the file you are actually reading.
  *  Renders NOTHING for a file with only the full diff to show, so a 38-file review
  *  grows one control per file you have viewed, not 38. */
-export function FileBaselinePicker({ f, mode, basis, onPick }: {
+export function FileBaselinePicker({ f, mode, onPick }: {
   f: FileDiff
   mode: DiffMode
-  basis: SinceBasis
   onPick: (mode: DiffMode) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -37,7 +35,7 @@ export function FileBaselinePicker({ f, mode, basis, onPick }: {
         onClick={() => setOpen((o) => !o)}
         onBlur={(e) => { if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) setOpen(false) }}
       >
-        <span className="fb-label">{baselineLabel(mode, basis)}</span>
+        <span className="fb-label">{baselineLabel(mode)}</span>
         <span className="fh-chev">▾</span>
       </button>
       <span className="fb-menu" role="listbox">
@@ -50,7 +48,7 @@ export function FileBaselinePicker({ f, mode, basis, onPick }: {
             className={'fh-dd-item' + (mode === m ? ' sel' : '')}
             onClick={() => { onPick(m); setOpen(false) }}
           >
-            <span className="fh-dd-check">✓</span>{baselineLabel(m, basis)}
+            <span className="fh-dd-check">✓</span>{baselineLabel(m)}
           </button>
         ))}
       </span>

@@ -2,20 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import { I } from '../kit'
 import { MarkersKey } from './MarkersKey'
 import { baselineLabel, type SinceBasis } from '../../shared/sinceBasis'
+import type { DiffMode } from '../store'
 
 /** The BULK diff-baseline dropdown (design 07 `fh-dd`) + the marks key. Always renders
  *  the "Full diff" option; the since-baselines appear only when some file has that
  *  slice. Picking one re-syncs every file (and drops per-file overrides) via
  *  `setGlobalDiffMode` — a single file is switched from its own header picker instead.
  *  Shown in both the annotated (page-head) and flat (flat-toolbar) headers. */
-export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewed, dirty, sinceBasis, setGlobalDiffMode }: {
-  globalMode: 'branch' | 'approved' | 'viewed'
+export function HeaderDiffControls({ globalMode, anySinceReview, anySinceApproved, anySinceViewed, dirty, sinceBasis, setGlobalDiffMode }: {
+  globalMode: DiffMode
+  /** some file has a slice since the sha the review was generated at */
+  anySinceReview: boolean
   anySinceApproved: boolean
   anySinceViewed: boolean
   dirty: boolean
   /** what the since-baseline actually is here, or null when the review has none */
   sinceBasis: SinceBasis | null
-  setGlobalDiffMode: (m: 'branch' | 'approved' | 'viewed') => void
+  setGlobalDiffMode: (m: DiffMode) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
@@ -25,9 +28,11 @@ export function HeaderDiffControls({ globalMode, anySinceApproved, anySinceViewe
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
-  const labelFor = (m: 'branch' | 'approved' | 'viewed'): string => baselineLabel(m, sinceBasis ?? 'approved')
-  const items: ('branch' | 'approved' | 'viewed')[] = [
+  const labelFor = (m: DiffMode): string => baselineLabel(m)
+  // oldest checkpoint first, mirroring a file's own picker (baselinesForFile)
+  const items: DiffMode[] = [
     'branch',
+    ...(anySinceReview ? (['review'] as const) : []),
     ...(anySinceApproved ? (['approved'] as const) : []),
     ...(anySinceViewed ? (['viewed'] as const) : [])
   ]

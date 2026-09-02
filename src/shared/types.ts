@@ -45,6 +45,9 @@ export interface FileDiff { path: string; oldPath?: string; status: 'modified' |
    *  approved" tab). Absent when the file is unchanged since approval. NOT a filtered
    *  view of `hunks` — an independent `git diff` from a different base commit. */
   sinceHunks?: Hunk[];
+  /** the file's diff measured from the sha the REVIEW was generated at — what the
+   *  narration never saw. Independent of sinceHunks (the approval window). */
+  sinceReviewHunks?: Hunk[];
   /** Real git-diff hunks from this file's viewed sha → current surface ("Since viewed"). */
   sinceViewedHunks?: Hunk[] }
 /** A "viewed" snapshot: the compare head sha + the file's content hash at view time. */

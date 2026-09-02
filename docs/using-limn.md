@@ -88,20 +88,31 @@ silently answering read-only.
 
 ## Diff baselines, per file
 
-A review can be read against three baselines: the **full diff** (the whole branch), what
-changed **since you viewed** a file, and what changed **since the review's baseline** — an
-approval if you made one, otherwise the commit the review was generated at. The header
-control sets the baseline for *every* file at once; each file's own header carries the
-same control for that file alone, and picking one there leaves the rest untouched. Using
-the header control again re-syncs everything.
+A review can be read against four baselines, oldest checkpoint first:
 
-A file only offers the baselines it actually has: the per-file control is absent
-entirely on a file you have never viewed and that carries no drift, so a large review
-grows one control per file you have worked through rather than one per file.
+| Baseline | Measured from | Answers |
+| --- | --- | --- |
+| **Full diff** | the base ref | what this branch changes |
+| **Since the review ran** | the commit the review was generated at | what the narration never saw |
+| **Since approved** | your latest approval | what landed after you signed off |
+| **Since viewed** | that file's own view mark | what moved since you last read it |
 
-The since-baseline is named for what it is. A review nobody approved still has drift
-rails — measured from the sha it was generated at — and those read **"Since the review
-ran"**, never "Since approved".
+They are tracked independently, so they can disagree: approve, then regenerate the
+review, and the review baseline is *newer* than the approval. Each is offered under its
+own name, so no option ever stands in for another.
+
+The header control sets the baseline for *every* file at once; each file's own header
+carries the same control for that file alone, and picking one there leaves the rest
+untouched. Using the header control again re-syncs everything.
+
+A file only offers the baselines it actually has — the per-file control is absent
+entirely on a file with nothing to switch to, so a large review grows one control per
+file you have worked through rather than one per file. Two baselines that resolve to the
+same commit are offered once, under the approval's name.
+
+The left-edge drift rail stays **single** whatever you pick: one amber hatch meaning
+"this moved since your latest checkpoint" — your approval if you made one, otherwise the
+commit the review was generated at. The marks key names which.
 
 ## The marks key
 

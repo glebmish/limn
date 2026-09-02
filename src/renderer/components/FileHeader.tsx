@@ -5,7 +5,6 @@ import { clickable } from '../lib/clickable'
 import type { ReviewGlyphStatus } from '../lib/fileStatus'
 import { FileGlyph } from './FileGlyph'
 import { FileBaselinePicker } from './FileBaselinePicker'
-import type { SinceBasis } from '../../shared/sinceBasis'
 import type { DiffMode } from '../store'
 
 export function splitPath(path: string): { dir: string; name: string } {
@@ -26,7 +25,7 @@ export function describeModeChange(m: { from: string; to: string }): string {
 
 /** Presentational file header (the `gfile-head` block). Every value it renders is
  *  computed by the DiffView shell and handed down; it owns no state. */
-export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, baselineMode, baselineBasis, onToggleOpen, onToggleViewed, onToggleExcluded, onPickBaseline }: {
+export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, baselineMode, onToggleOpen, onToggleViewed, onToggleExcluded, onPickBaseline }: {
   f: FileDiff
   excluded: boolean
   isViewed: boolean
@@ -37,8 +36,6 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
   artifact: Artifact | undefined
   /** the baseline THIS file is rendered against (its override, else the global default) */
   baselineMode: DiffMode
-  /** what that baseline is — a real approval, or the sha the review was generated at */
-  baselineBasis: SinceBasis
   onToggleOpen: () => void
   onToggleViewed: () => void
   onToggleExcluded: () => void
@@ -77,7 +74,7 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
       </span>
       <Delta add={f.add} del={f.del} />
       <span className="grow"></span>
-      <FileBaselinePicker f={f} mode={baselineMode} basis={baselineBasis} onPick={onPickBaseline} />
+      <FileBaselinePicker f={f} mode={baselineMode} onPick={onPickBaseline} />
       {/* excluded files carry no review state, so they show no Viewed checkbox */}
       {!excluded && (
         <label className={'file-viewed' + (changedSinceViewed ? ' amber' : '')} onClick={(e) => e.stopPropagation()}>

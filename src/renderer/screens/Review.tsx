@@ -161,6 +161,7 @@ export default function Review() {
   // global diff-baseline switch: the active mode + which baselines exist to switch to
   // across the changed files.
   const globalMode = diffMode
+  const anySinceReview = displayFiles.some((f) => f.sinceReviewHunks)
   const anySinceApproved = displayFiles.some((f) => f.sinceHunks)
   const anySinceViewed = displayFiles.some((f) => f.sinceViewedHunks)
   // what the drift rails and the "since" baselines are measured from here — an
@@ -353,6 +354,7 @@ export default function Review() {
                   </h1>
                   <HeaderDiffControls
                     globalMode={globalMode}
+                    anySinceReview={anySinceReview}
                     anySinceApproved={anySinceApproved}
                     anySinceViewed={anySinceViewed}
                     dirty={loaded.dirty}

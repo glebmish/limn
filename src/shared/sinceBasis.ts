@@ -31,13 +31,47 @@ export function sinceBasis(state: SinceBaselineState, headSha: string): { sha: s
   return null
 }
 
+/** A baseline the reader can switch the diff to, beyond the full branch diff. The
+ *  two commit-level ones are tracked independently — `reviewedAtSha` moves on every
+ *  generate, `approvedSha` on every approval — so after an approve-then-regenerate
+ *  the newer of the two is NOT always the approval. Listing them separately is what
+ *  keeps "since approved" from silently showing an older slice than the review you
+ *  are reading. (The per-file "since viewed" baseline is not here: it is per file,
+ *  from that file's own view mark.) */
+export interface CommitBaseline { mode: 'review' | 'approved'; sha: string }
+
+/** The distinct commit baselines this review offers, oldest concern first. Collapses
+ *  the two into one when they are the same commit — a review generated at the sha you
+ *  approved has one window, not two identical ones.
+ *
+ *  A baseline equal to the head is dropped by default: nothing has changed since it in
+ *  COMMITTED space. Pass `includeHead` for the working-tree pass, where it is exactly
+ *  the interesting case — approve a commit, then edit the tree, and "since approved" is
+ *  those uncommitted lines (the per-surface approval rule in docs/using-limn.md). */
+export function commitBaselines(
+  state: SinceBaselineState, headSha: string, opts: { includeHead?: boolean } = {}
+): CommitBaseline[] {
+  const approved = approvedShaList(state).includes(headSha) ? headSha : state.approvedSha
+  const keep = (sha: string): boolean => opts.includeHead === true || sha !== headSha
+  const out: CommitBaseline[] = []
+  if (state.reviewedAtSha && keep(state.reviewedAtSha) && state.reviewedAtSha !== approved) {
+    out.push({ mode: 'review', sha: state.reviewedAtSha })
+  }
+  if (approved && keep(approved)) out.push({ mode: 'approved', sha: approved })
+  return out
+}
+
 /** The baseline's name wherever it is offered or explained. */
 export function sinceModeLabel(basis: SinceBasis): string {
   return basis === 'approved' ? 'Since approved' : 'Since the review ran'
 }
 
-/** The label a diff baseline goes by anywhere it is offered — the page header's
- *  bulk switch and each file's own picker read from here, so the two never disagree. */
-export function baselineLabel(mode: 'branch' | 'approved' | 'viewed', basis: SinceBasis): string {
-  return mode === 'approved' ? sinceModeLabel(basis) : mode === 'viewed' ? 'Since viewed' : 'Full diff'
+/** The label a diff baseline goes by anywhere it is offered — the page header's bulk
+ *  switch and each file's own picker read from here, so the two never disagree. Each
+ *  baseline now names its own checkpoint: no label has to stand in for two of them. */
+export function baselineLabel(mode: 'branch' | 'review' | 'approved' | 'viewed'): string {
+  return mode === 'review' ? sinceModeLabel('generated')
+    : mode === 'approved' ? sinceModeLabel('approved')
+    : mode === 'viewed' ? 'Since viewed'
+    : 'Full diff'
 }

@@ -86,7 +86,8 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>, head
  *  doesn't contradict the mode the way a tracked-file fallback would, and it avoids the
  *  misleading "No changes since you viewed" on a brand-new file that was never (or only
  *  just) viewed. */
-export function diffHunksForMode(f: FileDiff, mode: 'branch' | 'approved' | 'viewed'): Hunk[] {
+export function diffHunksForMode(f: FileDiff, mode: DiffMode): Hunk[] {
+  if (mode === 'review') return f.untracked ? f.hunks : (f.sinceReviewHunks ?? [])
   if (mode === 'approved') return f.untracked ? f.hunks : (f.sinceHunks ?? [])
   if (mode === 'viewed') return f.untracked ? f.hunks : (f.sinceViewedHunks ?? [])
   return f.hunks
@@ -97,8 +98,11 @@ export function diffHunksForMode(f: FileDiff, mode: 'branch' | 'approved' | 'vie
  *  file that was never viewed (or a review that was never approved) never offers a
  *  baseline it cannot show. Order is the order the picker lists them in. */
 export function baselinesForFile(f: FileDiff): DiffMode[] {
+  // oldest checkpoint first: the whole branch, then the review, the approval, and
+  // finally the file's own view mark — the order they normally happened in
   return [
     'branch',
+    ...(f.sinceReviewHunks ? (['review'] as const) : []),
     ...(f.sinceHunks ? (['approved'] as const) : []),
     ...(f.sinceViewedHunks ? (['viewed'] as const) : [])
   ]
@@ -154,7 +158,7 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
   return { viewState, done, amber, open }
 }
 
-export type DiffMode = 'branch' | 'approved' | 'viewed'
+export type DiffMode = 'branch' | 'review' | 'approved' | 'viewed'
 
 export function renderedFiles(loaded: LoadedReview | null): FileDiff[] {
   return loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
