@@ -1,9 +1,10 @@
 import type { StateCreator } from 'zustand'
-import type { OpErrorCode, OperationStatus } from '../../shared/ipc'
+import type { ActiveOpSnapshot, OpErrorCode, OperationStatus } from '../../shared/ipc'
 import type { AgentRef, ApprovalDecision, EngineEvent } from '../../shared/types'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { useStore } from './index'
+import { drainOrphans } from './bridge'
 import type { GenState, OpState } from './derive'
 import { checkoutGate, anyExclusiveRunning } from './derive'
 
@@ -42,7 +43,16 @@ export interface OpsSlice {
    *  and `setOpLane` applies the correction. Evicts any prior FINISHED op on
    *  `threadId`; a still-running one is kept so its stream/result keep landing. */
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number, exclusive?: boolean): void
-  pushOpEvent(opId: string, ev: EngineEvent): void
+  /** Rejoin the ops a load snapshot reports as still running (another tab's turn, or
+   *  a CLI-kicked generation). Registers only ops this tab does NOT already know —
+   *  re-adopting one would restart its stream from the snapshot and lose the live log
+   *  (and, for a finished one, resurrect it) — then replays each snapshot's events and
+   *  drains anything the bridge parked for it while the load was in flight. */
+  adoptOps(snaps: ActiveOpSnapshot[]): void
+  /** Append a streamed event. `seq` (when the envelope carries one) is checked against
+   *  the op's `nextSeq` so an event the adoption snapshot already replayed is dropped
+   *  instead of double-logged. */
+  pushOpEvent(opId: string, ev: EngineEvent, seq?: number): void
   /** correct the op's lane from main's authoritative announcement (OQ7). */
   setOpLane(opId: string, exclusive: boolean): void
   finishOp(opId: string, status: OperationStatus, error?: string, errorCode?: OpErrorCode): void
@@ -58,8 +68,9 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
   startOp(kind, opId, threadId, exclusive) {
     const isExclusive = exclusive ?? !anyExclusiveRunning(get().ops)
     // per-thread cleanup: drop any prior FINISHED op streaming into this thread. A
-    // still-RUNNING op must survive — evicting it would freeze its stream and drop its
-    // terminal result (the bridge ignores unknown opIds), and it is reachable: an
+    // still-RUNNING op must survive — evicting it would freeze its stream and strand its
+    // terminal result (the bridge only parks unknown opIds, and nothing re-adopts an op
+    // mid-flight while it is still in this map), and it is reachable: an
     // update-generation reuses the review thread while a shared chat turn streams into
     // it. Per-thread selectors (opForThread) prefer the running op to disambiguate.
     const next: Record<string, OpState> = {}
@@ -68,10 +79,34 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     set({ ops: next })
   },
 
-  pushOpEvent(opId, ev) {
+  adoptOps(snaps) {
+    // adopt one at a time: each replay/drain reads the map back, and a drained
+    // op:result can reload (which re-enters adoptOps) — so never batch a stale copy.
+    for (const s of snaps) {
+      if (get().ops[s.opId]) continue // already ours (running or finished) — leave it alone
+      get().startOp(s.kind, s.opId, s.threadId ?? undefined, s.exclusive)
+      const op = get().ops[s.opId]
+      // Replay through appendCapped, not a raw assign: `events` is the trailing window
+      // PLUS any still-pending approval_request, so it can exceed LOG_CAP and must go
+      // through the same carry rule the live path uses.
+      let log: EngineEvent[] = []
+      for (const ev of s.events) log = appendCapped(log, ev, op.answeredApprovals)
+      const startedAt = Date.parse(s.startedAt)
+      set({ ops: { ...get().ops, [s.opId]: { ...op, log, nextSeq: s.nextSeq, startedAt: Number.isNaN(startedAt) ? op.startedAt : startedAt } } })
+      // now that the op exists, replay whatever raced ahead of this load
+      drainOrphans(s.opId)
+    }
+  },
+
+  pushOpEvent(opId, ev, seq) {
     const op = get().ops[opId]
     if (!op || !op.running) return
-    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals) } } })
+    // an event the adoption snapshot already carried — drop it rather than double-log.
+    // Never derive the replayed range from the event count: the snapshot's `events` can
+    // exceed the window (carried approvals), so `nextSeq` is the only safe watermark.
+    if (seq !== undefined && op.nextSeq !== undefined && seq < op.nextSeq) return
+    const nextSeq = seq !== undefined ? seq + 1 : op.nextSeq
+    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals), nextSeq } } })
   },
 
   setOpLane(opId, exclusive) {

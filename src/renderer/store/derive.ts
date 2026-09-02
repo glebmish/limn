@@ -193,6 +193,12 @@ export interface GenState {
    *  `anyExclusiveRunning`, then corrected by main's authoritative `exclusive` flag on
    *  op:event / op:result envelopes via `setOpLane` (concurrent-chat §4 / OQ7). */
   exclusive: boolean
+  /** The seq the next accepted `op:event` for this op must carry (see OpEventMsg.seq).
+   *  Set when the op is ADOPTED from a load snapshot — the snapshot replays events the
+   *  live subscription may also deliver, so anything below this was already logged and
+   *  is dropped. Undefined for an op this tab started itself (it saw the whole stream);
+   *  the first seq-carrying event still starts the tracking. */
+  nextSeq?: number
 }
 
 /** Alias: an entry in the per-op `ops` map. Same shape as a single op's state. */

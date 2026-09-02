@@ -1,26 +1,32 @@
 import type { OpEventMsg, OpResultMsg, RepoChangedMsg } from '../../shared/ipc'
 import { useStore } from './index'
 import { anyExclusiveRunning } from './derive'
+import { bufferOrphan, takeOrphans } from './orphans'
 
 // Push-event reducers extracted verbatim from App.tsx's useEffect. Each is exactly
 // today's guard + dispatch (opId equality, screen/gen.running checks, finishOp →
 // conditional reload ordering); App.tsx now only subscribes/unsubscribes these.
 
-export function handleOpEvent({ opId, event, exclusive }: OpEventMsg): void {
-  // route by opId into the op's own log; unknown opIds (e.g. a second window's op we
-  // never started) are dropped, exactly as the single-`gen` demux did.
+export function handleOpEvent(msg: OpEventMsg): void {
+  const { opId, event, exclusive, seq } = msg
+  // route by opId into the op's own log. An unknown opId is NOT necessarily foreign:
+  // it is usually an event racing the load that is about to adopt its op, so park it
+  // in the orphan buffer and let adoptOps drain it. A genuinely foreign op (another
+  // session's stream) is simply never claimed, and the buffer forgets it.
   const st = useStore.getState()
-  if (!st.ops[opId]) return
+  if (!st.ops[opId]) { bufferOrphan({ opId, at: Date.now(), kind: 'event', msg }); return }
   // main announces the lane it actually chose on the event envelope — correct the
   // startOp-time prediction as soon as the first event lands (concurrent-chat OQ7).
   if (exclusive !== undefined) st.setOpLane(opId, exclusive)
-  useStore.getState().pushOpEvent(opId, event)
+  useStore.getState().pushOpEvent(opId, event, seq)
 }
 
-export function handleOpResult({ opId, status, error, reload, errorCode, exclusive }: OpResultMsg): void {
+export function handleOpResult(msg: OpResultMsg): void {
+  const { opId, status, error, reload, errorCode, exclusive } = msg
   const st = useStore.getState()
   const finished = st.ops[opId]
-  if (!finished) return
+  // same race as an event: the op may finish between the snapshot and the adoption.
+  if (!finished) { bufferOrphan({ opId, at: Date.now(), kind: 'result', msg }); return }
   // terminal lane correction — covers ops that emitted no events before finishing.
   if (exclusive !== undefined) st.setOpLane(opId, exclusive)
   st.finishOp(opId, status, error, errorCode)
@@ -34,6 +40,17 @@ export function handleOpResult({ opId, status, error, reload, errorCode, exclusi
   const { threadId } = finished
   const flush = (): void => { if (threadId != null) useStore.getState().flushQueuedTurn(threadId, status) }
   if (status === 'succeeded' || reload) void st.reload().then(flush, flush)
+}
+
+/** Replay everything the buffer parked for `opId`, in arrival order — called by
+ *  `adoptOps` right after the op enters the store, so the drained events land behind
+ *  the snapshot's replay and `pushOpEvent`'s `seq` check dedupes the overlap. A parked
+ *  result therefore applies last, finishing the op exactly as a live one would. */
+export function drainOrphans(opId: string): void {
+  for (const entry of takeOrphans(opId)) {
+    if (entry.kind === 'event') handleOpEvent(entry.msg)
+    else handleOpResult(entry.msg)
+  }
 }
 
 export function handleRepoChanged(msg: RepoChangedMsg): void {

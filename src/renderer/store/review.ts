@@ -149,6 +149,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
           real.state.fileExcluded = { ...real.state.fileExcluded, ...keepExcluded }
         }
         set({ sessionId, loaded: real, transientFresh: false, error: loadWarningStrip(real) })
+        get().adoptOps(real.activeOps ?? []) // the shell may already carry a live op
         void loadRepoContext(repo)
         return sessionId
       } catch (err) {
@@ -188,9 +189,10 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       set({
         sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
         // reset the op map so a previous session's running/errored op doesn't bleed
-        // its strip or error banner onto the one being opened. Switching sessions
-        // orphans any live stream (main keeps running; its result is dropped by the
-        // unknown-opId rule) — acceptable per the concurrent-chat cancellation matrix.
+        // its strip or error banner onto the one being opened; `adoptOps` below then
+        // rejoins whatever is live on THIS session. Switching sessions orphans the old
+        // session's stream (main keeps running; its events park unclaimed in the bridge
+        // buffer) — acceptable per the concurrent-chat cancellation matrix.
         ops: {},
         repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: loaded.state.viewedAt,
@@ -202,6 +204,10 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
         pendingDrift: null,
         watchStopped: null
       })
+      // rejoin anything still running on the session we just opened (another tab's
+      // turn, a CLI-kicked generation) — AFTER the `ops: {}` reset above, or the reset
+      // would wipe the ops we just adopted.
+      get().adoptOps(loaded.activeOps ?? [])
       void loadRepoContext(loaded.state.repo)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
@@ -237,6 +243,9 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       pendingDrift: null, // the reload folded any drift in; the watcher re-baselines
       watchStopped: null
     })
+    // an op may have started elsewhere while this tab sat idle; known ops are skipped,
+    // so this never disturbs a stream this tab is already rendering.
+    get().adoptOps(loaded.activeOps ?? [])
     void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
   },
 
