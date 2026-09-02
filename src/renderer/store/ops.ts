@@ -88,7 +88,9 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
       const op = get().ops[s.opId]
       // Replay through appendCapped, not a raw assign: `events` is the trailing window
       // PLUS any still-pending approval_request, so it can exceed LOG_CAP and must go
-      // through the same carry rule the live path uses.
+      // through the same carry rule the live path uses. Server guarantee (liveOps
+      // forSession): every approval_request in `events` is still PARKED — which is why
+      // adopting with an empty `answeredApprovals` set cannot show a stale card.
       let log: EngineEvent[] = []
       for (const ev of s.events) log = appendCapped(log, ev, op.answeredApprovals)
       const startedAt = Date.parse(s.startedAt)

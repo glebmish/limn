@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { makeLoaded } from './helpers/loaded'
 import type { ApprovalRequest, EngineEvent } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
@@ -14,11 +14,16 @@ import { pendingApprovals, useStore } from '../src/renderer/store'
 // Exercise the REAL App.tsx push-event bridge handlers (step 4 extracted them from
 // App.tsx's useEffect into store/bridge.ts), so the safety net covers the live wiring.
 import { handleOpEvent, handleOpResult } from '../src/renderer/store/bridge'
+import { clearOrphans } from '../src/renderer/store/orphans'
 
 const flush = () => new Promise((r) => setTimeout(r))
 const ev = (n: number): EngineEvent => ({ type: 'token', text: `t${n}` } as unknown as EngineEvent)
 const approvalEv = (id: string): EngineEvent => ({ type: 'approval_request', request: { id, engine: 'claude', kind: 'command', summary: `run ${id}` } as ApprovalRequest })
 const op = (id: string) => useStore.getState().ops[id]
+
+// unknown-opId messages are PARKED now, not dropped — drop them between cases so a
+// parked entry can never be claimed by a later test that reuses the same opId.
+afterEach(() => { clearOrphans() })
 
 describe('op lifecycle', () => {
   beforeEach(() => {
@@ -51,7 +56,8 @@ describe('op lifecycle', () => {
   it('startOp does NOT evict a still-RUNNING op on the same thread — its events and result still land', async () => {
     // reachable: beginReview(update) reuses the review thread while a shared chat
     // turn is still streaming into it. Evicting the chat op would freeze its stream
-    // and drop its terminal result (the bridge ignores unknown opIds).
+    // and strand its terminal result (the bridge parks messages for an unknown opId
+    // in the orphan buffer, and only a load snapshot ever claims them back).
     useStore.getState().startOp('chat', 'op-chat', 7, false)
     useStore.getState().startOp('review', 'op-review', 7, true)
     expect(op('op-chat')).toBeDefined()
@@ -199,7 +205,9 @@ describe('op:event / op:result bridge handlers (store/bridge.ts)', () => {
     expect(op('op-same')).toBe(before) // identical state object — no churn
   })
 
-  it('drops an op:event whose opId is not a known op', () => {
+  it('keeps an op:event whose opId is not a known op out of every known op (it is parked)', () => {
+    // the unknown event goes to the orphan buffer, not into a neighbouring op's log;
+    // tests/bridge-orphans.test.ts covers what happens when it is later claimed.
     useStore.getState().startOp('chat', 'op-A', 1)
     handleOpEvent({ opId: 'op-DIFFERENT', event: ev(1) })
     expect(op('op-A').log).toEqual([])

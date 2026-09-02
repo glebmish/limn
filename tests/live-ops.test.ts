@@ -105,6 +105,48 @@ describe('LiveOpRegistry', () => {
     expect(snap.events[0]).toEqual(status('e50'))
   })
 
+  it('drops an ANSWERED approval_request that sits inside the trailing window', () => {
+    // the joining tab's adoptOps starts with an empty answeredApprovals set, so any
+    // approval_request that reaches it renders as a live, actionable card. A request
+    // that already ran must therefore never be replayed — not from the carried head,
+    // and not from the window either.
+    const reg = new LiveOpRegistry()
+    reg.start({ opId: 'op-1', sessionId: 1, kind: 'chat', threadId: 1, exclusive: true })
+    reg.record('op-1', status('before'))
+    reg.record('op-1', approval('req-answered'))
+    reg.record('op-1', status('after'))
+
+    const [snap] = reg.forSession(1, nonePending)
+    expect(snap.events).toEqual([status('before'), status('after')])
+    expect(snap.nextSeq).toBe(3) // the drop does NOT move the live-stream watermark
+  })
+
+  it('keeps a PENDING approval_request inside the window exactly once', () => {
+    const reg = new LiveOpRegistry()
+    reg.start({ opId: 'op-1', sessionId: 1, kind: 'chat', threadId: 1, exclusive: true })
+    reg.record('op-1', status('before'))
+    reg.record('op-1', approval('req-1'))
+    reg.record('op-1', status('after'))
+
+    const [snap] = reg.forSession(1, allPending)
+    expect(snap.events).toEqual([status('before'), approval('req-1'), status('after')])
+    expect(snap.events.filter((e) => e.type === 'approval_request')).toHaveLength(1)
+    expect(snap.nextSeq).toBe(3)
+  })
+
+  it('drops an answered request from the window while carrying an earlier pending one', () => {
+    const reg = new LiveOpRegistry()
+    reg.start({ opId: 'op-1', sessionId: 1, kind: 'chat', threadId: 1, exclusive: true })
+    reg.record('op-1', approval('req-old'))            // before the cut, still parked
+    for (let i = 0; i < 250; i++) reg.record('op-1', status(`e${i}`))
+    reg.record('op-1', approval('req-done'))           // inside the window, answered
+
+    const [snap] = reg.forSession(1, (_opId, requestId) => requestId === 'req-old')
+    expect(snap.events[0]).toEqual(approval('req-old'))
+    expect(snap.events.filter((e) => e.type === 'approval_request')).toEqual([approval('req-old')])
+    expect(snap.nextSeq).toBe(252)
+  })
+
   it('passes opId and requestId to the pending predicate', () => {
     const reg = new LiveOpRegistry()
     reg.start({ opId: 'op-1', sessionId: 1, kind: 'chat', threadId: 1, exclusive: true })

@@ -14,7 +14,7 @@ export function handleOpEvent(msg: OpEventMsg): void {
   // in the orphan buffer and let adoptOps drain it. A genuinely foreign op (another
   // session's stream) is simply never claimed, and the buffer forgets it.
   const st = useStore.getState()
-  if (!st.ops[opId]) { bufferOrphan({ opId, at: Date.now(), kind: 'event', msg }); return }
+  if (!st.ops[opId]) { bufferOrphan({ opId, kind: 'event', msg }); return }
   // main announces the lane it actually chose on the event envelope — correct the
   // startOp-time prediction as soon as the first event lands (concurrent-chat OQ7).
   if (exclusive !== undefined) st.setOpLane(opId, exclusive)
@@ -26,7 +26,7 @@ export function handleOpResult(msg: OpResultMsg): void {
   const st = useStore.getState()
   const finished = st.ops[opId]
   // same race as an event: the op may finish between the snapshot and the adoption.
-  if (!finished) { bufferOrphan({ opId, at: Date.now(), kind: 'result', msg }); return }
+  if (!finished) { bufferOrphan({ opId, kind: 'result', msg }); return }
   // terminal lane correction — covers ops that emitted no events before finishing.
   if (exclusive !== undefined) st.setOpLane(opId, exclusive)
   st.finishOp(opId, status, error, errorCode)

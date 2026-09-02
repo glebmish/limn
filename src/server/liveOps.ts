@@ -75,22 +75,29 @@ export class LiveOpRegistry {
   /** Snapshots of every op running against `sessionId`. Each carries the trailing
    *  {@link SNAPSHOT_TRAILING_EVENTS} events plus — ahead of that window, in stream
    *  order — any EARLIER `approval_request` still parked, so a tab that joins during
-   *  a long-parked approval still renders the card it must answer. */
+   *  a long-parked approval still renders the card it must answer.
+   *
+   *  A snapshot NEVER replays an already-answered `approval_request`, wherever it sits
+   *  in the stream: the joining renderer adopts the op with an empty `answeredApprovals`
+   *  set, so every replayed request reads as pending — an answered one would render a
+   *  live, actionable card (and hold the "waiting for approval" strip) for a command
+   *  that already ran. Dropping it does not move `nextSeq`: that is the live stream's
+   *  watermark, counted over everything recorded, not over what this snapshot replays. */
   forSession(sessionId: number, isPending: IsPending): ActiveOpSnapshot[] {
     const snapshots: ActiveOpSnapshot[] = []
     for (const [opId, op] of this.ops) {
       if (op.sessionId !== sessionId) continue
       const cut = Math.max(0, op.events.length - SNAPSHOT_TRAILING_EVENTS)
-      const carried = op.events.slice(0, cut).filter(
-        (e) => e.type === 'approval_request' && isPending(opId, e.request.id)
-      )
+      const replayable = (e: EngineEvent): boolean =>
+        e.type !== 'approval_request' || isPending(opId, e.request.id)
+      const carried = op.events.slice(0, cut).filter((e) => e.type === 'approval_request' && replayable(e))
       snapshots.push({
         opId,
         kind: op.kind,
         threadId: op.threadId,
         exclusive: op.exclusive,
         startedAt: op.startedAt,
-        events: [...carried, ...op.events.slice(cut)],
+        events: [...carried, ...op.events.slice(cut).filter(replayable)],
         nextSeq: op.events.length
       })
     }

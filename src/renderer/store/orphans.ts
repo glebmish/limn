@@ -5,9 +5,12 @@ import type { OpEventMsg, OpResultMsg } from '../../shared/ipc'
  *  broadcasts `op:event` the moment the engine emits, while the tab is still awaiting
  *  `loadSession`. Dropping it (the old rule) left a hole in the adopted stream — every
  *  token emitted between the snapshot and the subscription was gone for good. */
-export type OrphanEntry =
-  | { opId: string; at: number; kind: 'event'; msg: OpEventMsg }
-  | { opId: string; at: number; kind: 'result'; msg: OpResultMsg }
+export type OrphanMsg =
+  | { opId: string; kind: 'event'; msg: OpEventMsg }
+  | { opId: string; kind: 'result'; msg: OpResultMsg }
+/** A parked message plus its arrival stamp — the module stamps it, so every entry's
+ *  age is measured on one clock and no caller can park something pre-aged. */
+export type OrphanEntry = OrphanMsg & { at: number }
 
 /** Hard ceiling on buffered entries ACROSS all ops. The buffer exists for a race
  *  measured in milliseconds, so this only has to cover one op's burst; past it the
@@ -29,9 +32,10 @@ function prune(now: number): void {
 }
 
 /** Park a push message for an op that is not in the store yet. */
-export function bufferOrphan(entry: OrphanEntry): void {
-  prune(entry.at)
-  buffer.push(entry)
+export function bufferOrphan(entry: OrphanMsg): void {
+  const at = Date.now()
+  prune(at)
+  buffer.push({ ...entry, at })
   if (buffer.length > ORPHAN_CAP) buffer = buffer.slice(buffer.length - ORPHAN_CAP)
 }
 
