@@ -682,4 +682,14 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
 /* worktree the branch is checked out in: a single git branch-off icon, right-aligned.
    The worktree name is in the row tooltip, so a long name never crowds the row. */
 .limn-refpick-item .ri-at { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; color: var(--muted); }
+
+/* ---- split handles ---- */
+/* The draggable divider between a fixed-width side panel and the main pane.
+   Zero layout width: it's a 6px flex item with a -3px margin on each side, so it
+   overlaps its neighbors instead of adding to the row's total width. The visible
+   line is a pseudo-element so hover/focus/drag states don't shift layout. */
+.split-handle { flex: 0 0 6px; margin: 0 -3px; cursor: col-resize; position: relative; z-index: 2; background: transparent; touch-action: none; }
+.split-handle::after { content: ""; position: absolute; inset: 0 2px; background: transparent; transition: background .12s; }
+.split-handle:hover::after, .split-handle:focus-visible::after, .split-handle.is-dragging::after { background: var(--accent); }
+.split-handle:focus-visible { outline: none; }
 .limn-refpick-list { max-height: 280px; overflow-y: auto; }
