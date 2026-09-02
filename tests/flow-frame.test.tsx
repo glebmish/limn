@@ -79,8 +79,9 @@ describe('in-place edit affordances', () => {
     seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).toContain('editing line 11')
-    // ⏎ must never read as "save" — it inserts a newline in every frame now
-    expect(out).toContain('⌘⏎ save')
+    // ⏎ must never read as "save" — it inserts a newline in every frame now.
+    // The chord itself is host-dependent (#7) — pinned host-agnostically below.
+    expect(out).toContain(`${saveChordLabel(navigator.platform)} save`)
     expect(out).toContain('⏎ new line')
     expect(out).not.toContain('>⏎ save')
   })
@@ -90,9 +91,17 @@ describe('in-place edit affordances', () => {
     // only *deletable* once the file (and so the CAS snapshot) is there
     seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
     const out = renderToStaticMarkup(<DiffView f={file} />)
-    expect(out).toContain('⌘⏎ save · ⏎ new line · esc cancel')
+    expect(out).toContain(`${saveChordLabel(navigator.platform)} save · ⏎ new line · esc cancel`)
     expect(out).not.toContain('⌫')
     expect(out).not.toContain('ff-emptied')
+  })
+
+  it('the hint names the same chord as the Save button title, host-agnostic (#7)', () => {
+    seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
+    vi.stubGlobal('navigator', { platform: 'MacIntel' })
+    expect(renderToStaticMarkup(<DiffView f={file} />)).toContain('⌘⏎ save · ⏎ new line')
+    vi.stubGlobal('navigator', { platform: 'Linux x86_64' })
+    expect(renderToStaticMarkup(<DiffView f={file} />)).toContain('Ctrl+⏎ save · ⏎ new line')
   })
 
   it('save hint names the chord for the current navigator.platform (#7)', () => {

@@ -106,15 +106,17 @@ export function frameKeyAction(
 }
 
 /** The frame's keymap hint. Normally the whole keymap; once ⌫ would take the lines
- *  out (#8) it names *what* is about to go and what ⌘⏎ would do instead — the
- *  distinction the empty frame otherwise hides, since saving empty text writes a
- *  blank line where deleting writes no line at all. `chip` is the region label the
+ *  out (#8) it names *what* is about to go and what the save chord would do instead
+ *  — the distinction the empty frame otherwise hides, since saving empty text writes
+ *  a blank line where deleting writes no line at all. `chip` is the region label the
  *  head already shows ("line 11" / "lines 11–13"), so the cue points at the same
- *  lines the user is looking at. */
-export function frameHint(deletesLines: boolean, chip: string): string {
+ *  lines the user is looking at. `chord` is the platform's save chord label (see
+ *  `saveChordLabel`) — passed in rather than derived here so this stays a pure
+ *  function of its inputs. */
+export function frameHint(deletesLines: boolean, chip: string, chord: string): string {
   return deletesLines
-    ? `⌫ deletes ${chip} · ⌘⏎ leaves a blank line · esc cancel`
-    : '⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends'
+    ? `⌫ deletes ${chip} · ${chord} leaves a blank line · esc cancel`
+    : `${chord} save · ⏎ new line · esc cancel · ↑/↓ past the edge extends`
 }
 
 /** Gutter labels for the frame's rows, aligned against the region as it stands on

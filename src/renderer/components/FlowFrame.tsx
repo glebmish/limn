@@ -253,16 +253,17 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   // the key that removes it instead (#8).
   const gutter = deletesLines ? ['⌫'] : frameGutter(frame.start, original, typedLines)
   const cue = yours ? reapplyCue(yours.removes) : null
+  const chord = saveChordLabel(typeof navigator !== 'undefined' ? navigator.platform : '')
   return (
     <div className={`flow-frame${deletesLines ? ' ff-emptied' : ''}`} data-limn-frame={f.path}>
       <div className="ff-head">
         <span className="ff-chip">editing {chip}</span>
-        <span className="ff-hint">{frameHint(deletesLines, chip)}</span>
+        <span className="ff-hint">{frameHint(deletesLines, chip, chord)}</span>
         <span className="grow" />
         {deletesLines && (
           <button className="ff-btn ff-del" title={`Remove ${chip} from the file (⌫)`} aria-label={`Delete ${chip}`} onClick={() => void save(text, true)}>⌫</button>
         )}
-        <button className="ff-btn ff-ok" title={`Save (${saveChordLabel(typeof navigator !== 'undefined' ? navigator.platform : '')}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
+        <button className="ff-btn ff-ok" title={`Save (${chord}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
       {yours != null && cue != null && (

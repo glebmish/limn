@@ -139,13 +139,15 @@ describe('frameDeletesLines', () => {
 })
 
 describe('frameHint', () => {
-  it('the ordinary keymap hint', () => {
-    expect(frameHint(false, 'line 11')).toBe('⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends')
+  it('the ordinary keymap hint, chord named explicitly', () => {
+    expect(frameHint(false, 'line 11', '⌘⏎')).toBe('⌘⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends')
+    expect(frameHint(false, 'line 11', 'Ctrl+⏎')).toBe('Ctrl+⏎ save · ⏎ new line · esc cancel · ↑/↓ past the edge extends')
   })
 
-  it('names what ⌫ is about to remove, and what ⌘⏎ would do instead (#8)', () => {
-    expect(frameHint(true, 'line 11')).toBe('⌫ deletes line 11 · ⌘⏎ leaves a blank line · esc cancel')
-    expect(frameHint(true, 'lines 11–13')).toBe('⌫ deletes lines 11–13 · ⌘⏎ leaves a blank line · esc cancel')
+  it('names what ⌫ is about to remove, and what the given chord would do instead (#8)', () => {
+    expect(frameHint(true, 'line 11', '⌘⏎')).toBe('⌫ deletes line 11 · ⌘⏎ leaves a blank line · esc cancel')
+    expect(frameHint(true, 'lines 11–13', '⌘⏎')).toBe('⌫ deletes lines 11–13 · ⌘⏎ leaves a blank line · esc cancel')
+    expect(frameHint(true, 'line 11', 'Ctrl+⏎')).toBe('⌫ deletes line 11 · Ctrl+⏎ leaves a blank line · esc cancel')
   })
 })
 
