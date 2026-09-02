@@ -98,6 +98,10 @@ const MAX_DIFF_CHARS = 4000
  *  `acpPermissionToRequest` surfaces the omitted count via `detail.moreFiles`
  *  so the reviewer isn't silently shown a partial diff as if it were complete. */
 const MAX_DIFF_FILES = 20
+/** Cap on `ApprovalRequest.detail.reason` — the agent's stated justification
+ *  is free text from the model, so a runaway explanation still yields a
+ *  bounded card. Truncated reasons get a trailing `…`. */
+const REASON_MAX_LENGTH = 280
 
 /** Cap a diff's old/new text so a huge file rewrite doesn't bloat the
  *  approval payload — the reviewer sees a bounded preview, not the whole file. */
@@ -330,7 +334,7 @@ export function acpPermissionToRequest(req: RequestPermissionRequest, engine: En
   }
 
   const reason = escalationJustification(req)
-  if (reason !== undefined) detail.reason = reason
+  if (reason !== undefined) detail.reason = reason.length > REASON_MAX_LENGTH ? reason.slice(0, REASON_MAX_LENGTH) + '…' : reason
 
   return { id: tc.toolCallId, engine, kind, summary, detail }
 }

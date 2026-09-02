@@ -632,4 +632,17 @@ describe('acpPermissionToRequest — codex-acp escalation justification (_meta.c
     const result = acpPermissionToRequest(req, 'codex')
     expect(result.detail?.reason).toBe('Need to fix the hosts file.')
   })
+
+  it('caps a long justification at 280 characters with a trailing ellipsis', () => {
+    const long = 'x'.repeat(281)
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc10', kind: 'execute', title: 'Run npm test', rawInput: { command: 'npm test' } },
+      _meta: { codex: { params: { justification: long } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBe('x'.repeat(280) + '…')
+    expect(result.detail?.reason?.length).toBe(281)
+  })
 })
