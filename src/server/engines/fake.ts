@@ -53,6 +53,13 @@ export class FakeEngine implements ReviewEngine {
       q.push({ type: 'status', text: 'Exploring the repository…' })
       q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'run' } })
       q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'ok', meta: '12 commits' } })
+      if (req.steer?.includes('[hold]')) {
+        // the generation twin of the `[hold]` chat turn: park mid-pass (exclusive lane
+        // held, op still live) until releaseFakeHolds() fires, so a test can observe a
+        // generation that is genuinely in flight.
+        q.push({ type: 'status', text: 'holding…' })
+        await new Promise<void>((resolve) => { fakeHoldResolvers.push(resolve) })
+      }
       const byDir = new Map<string, string[]>()
       for (const f of req.diff.files) {
         const dir = f.path.includes('/') ? f.path.split('/')[0] : '(root)'

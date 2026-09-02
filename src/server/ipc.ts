@@ -27,7 +27,7 @@ import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
-import { resolveDecision } from './engines/approvals.js'
+import { isPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
 import { agentLabel, validateAgentRefJson } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
@@ -39,11 +39,17 @@ import type { ScopedReviewPatch } from './engines/schema.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator, RepoBusyError, ThreadBusyError, type OperationOutcome } from './operations.js'
+import { LiveOpRegistry } from './liveOps.js'
 import { EngineSessionLostError, isCancellation } from './engines/errors.js'
 import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
 import { createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
+
+// The ops running right now, mirrored so a tab that (re)loads mid-op can rejoin it
+// (LoadedReview.activeOps) instead of showing a stale idle surface. Every op:event
+// is recorded here and carries the seq the registry assigned.
+const liveOps = new LiveOpRegistry()
 
 // Thread ids with a chat/batch turn in flight. The lane locks are per REPO; this is
 // the per-THREAD guard on top, so a second client (web serve / second window) can't
@@ -230,7 +236,23 @@ function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMs
   transport.broadcast(channel, msg)
 }
 
+/** The single door every `op:event` goes through: record it in the live-op registry
+ *  (so a joining tab can replay it) and broadcast it stamped with the seq the registry
+ *  assigned. An op that never registered — a merge op, or an event emitted after its
+ *  result went out — still broadcasts, just without a seq. */
+function emitOpEvent(opId: string, event: EngineEvent, exclusive?: boolean): void {
+  const seq = liveOps.has(opId) ? liveOps.record(opId, event) : undefined
+  send('op:event', {
+    opId, event,
+    ...(exclusive === undefined ? {} : { exclusive }),
+    ...(seq === undefined ? {} : { seq })
+  })
+}
+
 function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean, errorCode?: OpErrorCode, exclusive?: boolean): void {
+  // the op is over — drop it from the registry before the result goes out, so a
+  // loadSession racing the result can never report an op the renderer already retired.
+  liveOps.end(opId)
   send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}), ...(errorCode ? { errorCode } : {}), ...(exclusive === undefined ? {} : { exclusive }) })
 }
 
@@ -319,11 +341,19 @@ interface OpRecorder {
  *  the tool-call/action lifecycle into the persisted ChatMessage. Tool-host actions
  *  use the same recorder as engine events so segments preserve true stream order. */
 function opRecorder(opId: string): OpRecorder {
+  let exclusive: boolean | undefined
   const recorder: OpRecorder = {
     events: [],
+    get exclusive(): boolean | undefined { return exclusive },
+    // setting the lane also corrects it in the live-op registry, so a tab joining
+    // after a chat turn was coerced onto the shared lane sees the real lane.
+    set exclusive(value: boolean | undefined) {
+      exclusive = value
+      if (value !== undefined) liveOps.setLane(opId, value)
+    },
     emit(event: EngineEvent): void {
       recorder.events.push(event)
-      send('op:event', { opId, event, ...(recorder.exclusive === undefined ? {} : { exclusive: recorder.exclusive }) })
+      emitOpEvent(opId, event, exclusive)
     }
   }
   return recorder
@@ -496,6 +526,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // message or a bound engine session.
     dao.pruneEmptyUserChats(db, sessionId)
     const loaded = await buildLoadedReview(db, session)
+    // hand a (re)joining tab the ops running against this session right now, so it can
+    // rejoin their live streams instead of rendering a stale idle surface.
+    loaded.activeOps = liveOps.forSession(sessionId, isPending)
     // merged sessions are terminal read-only records: nothing to watch, no drift to
     // compute — and post-merge the compare is commit-kind anyway; this gate is the
     // backstop for records whose retarget didn't land (spec §7).
@@ -548,6 +581,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const session = mustGetSession(db, sessionId)
     assertNotMerged(db, sessionId)
     const repo = session.repo
+    // register before the lane is taken: a generation always holds the exclusive lane,
+    // and its events must be recorded from the very first one.
+    liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true })
     const outcome = await operations.run(opId, repo, async () => {
       const baseEff = effectiveRef(session.pair.base)
       const compareEff = effectiveRef(session.pair.compare)
@@ -617,7 +653,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       } catch (err) {
         // couldn't decide (a git probe threw) — fall through to today's full update.
         scopedPlan = null
-        send('op:event', { opId, event: { type: 'status', text: `note: could not assess drift (${errorMessage(err).split('\n')[0]}) — running a full update` } })
+        emitOpEvent(opId, { type: 'status', text: `note: could not assess drift (${errorMessage(err).split('\n')[0]}) — running a full update` })
       }
 
       // a cancel during the pre-engine async setup above lands before run.cancel is
@@ -745,7 +781,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         }
       }
 
-      for (const w of warnings) send('op:event', { opId, event: { type: 'status', text: `note: ${w}` } })
+      for (const w of warnings) emitOpEvent(opId, { type: 'status', text: `note: ${w}` })
       if (annotations.artifactPaths) {
         // accept agent-reported paths only when they match a recognized format —
         // the role comes from the convention, never a guess
@@ -942,6 +978,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
     // Per-thread guard: a thread can host at most one in-flight turn, whatever lane it
     // would take — a concurrent send (second client) fails fast (ThreadBusyError).
+    // The registered lane is main's current best guess; doTurn's `recorder.exclusive`
+    // corrects it (setLane) the moment the lane is actually chosen.
+    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: !operations.repoBusy(repo) })
     const outcome = await withBusyThread(threadId, async () => {
       // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
       // shared lane forced read-only; otherwise take the exclusive lane at full tier.
@@ -1009,6 +1048,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a batch turn is write-capable → always the exclusive lane
     // Per-thread guard, as in sendChat: one in-flight turn per thread, fail fast.
+    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
     const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
       // Write guards are computed from the same capability object the renderer
       // consumes. A refine turn (answering an intent question) stays read-only.
@@ -1099,6 +1139,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a rebase turn is write-capable → always the exclusive lane
     // Per-thread guard, as in sendChat/sendBatch: one in-flight turn per thread, fail fast.
+    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
     const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
       // Same precheck as sendBatch: the agent can only rebase where it can write — the
       // compare branch checked out somewhere with a clean tree (spec §6 / branch-dirty gate).

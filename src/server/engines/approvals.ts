@@ -37,6 +37,13 @@ export function clearPending(opId: string): void {
   }
 }
 
+/** Is this exact request still parked? The live-op registry uses it to decide whether
+ *  an approval_request that has fallen out of a snapshot's trailing window still needs
+ *  to be replayed to a (re)joining tab (see liveOps.ts). */
+export function isPending(opId: string, requestId: string): boolean {
+  return parked.has(key(opId, requestId))
+}
+
 /** Test/diagnostic: how many requests are currently parked for an op. */
 export function pendingCount(opId: string): number {
   let n = 0
