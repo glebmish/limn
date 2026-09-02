@@ -53,6 +53,8 @@ export const I = {
   pin: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4.5 2h5M6 2.2 5 6M8 2.2 9 6M3.8 6h6.4M7 6v5.6" /></svg>,
   // merge — branch graph folding into the base (design 08 ic-merge)
   merge: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="3.5" cy="3" r="1.5" /><circle cx="3.5" cy="11" r="1.5" /><circle cx="10.5" cy="8.5" r="1.5" /><path d="M3.5 4.5v5M3.5 5c0 3.2 7 1 7 2" /></svg>,
+  // MCP tool-call rows — a plug, distinct from the doc/read/edit/bash verb glyphs
+  plug: (p: P) => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M4.7 1.5v3.2M9.3 1.5v3.2" /><rect x="3" y="4.7" width="8" height="4" rx="1.2" /><path d="M7 8.7v1.8a2 2 0 0 1-2 2H3.5" /></svg>,
 }
 
 export function Ava({ ai, children }: { ai?: boolean; children: ReactNode }) {

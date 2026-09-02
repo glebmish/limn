@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { mcpToolInfo, ToolCallLog, unwrapMcpOutput } from '../src/renderer/components/ToolCallLog'
+import { isMcpToolRow, mcpToolInfo, ToolCallLog, unwrapMcpOutput } from '../src/renderer/components/ToolCallLog'
 import { inferSubmittedCommentRefs, SegmentBody, SubmittedCommentRefs } from '../src/renderer/components/ChatDrawer'
 import type { AgentAction, MessageSegment, ToolCall } from '../src/shared/types'
 
@@ -82,6 +82,26 @@ describe('ToolCallLog', () => {
 
     expect(out).toContain('>bash</span>')
     expect(out).toContain('npm test')
+    // the plain-bash row keeps the term-verb glyph, not the MCP plug's telltale path
+    expect(out).not.toContain('M4.7 1.5v3.2M9.3 1.5v3.2')
+  })
+
+  it('gives MCP rows a distinct plug icon, both by direct name and by the Codex kv shape', () => {
+    const calls: ToolCall[] = [
+      { id: 'a', verb: 'edit', name: 'mcp__limn__reply_to_comment', state: 'ok' },
+      { id: 'mcp-1', verb: 'bash', name: '', kv: [['server', 'limn'], ['tool', 'list_comments']], state: 'ok' },
+    ]
+
+    const out = renderToStaticMarkup(<ToolCallLog calls={calls} />)
+
+    expect((out.match(/M4\.7 1\.5v3\.2M9\.3 1\.5v3\.2/g) ?? []).length).toBe(2)
+  })
+
+  it('isMcpToolRow recognizes both the direct mcp__server__tool name and the recovered kv shape', () => {
+    expect(isMcpToolRow({ id: 'a', verb: 'edit', name: 'mcp__limn__reply_to_comment', state: 'ok' })).toBe(true)
+    expect(isMcpToolRow({ id: 'b', verb: 'bash', name: '', kv: [['server', 'limn'], ['tool', 'x']], state: 'ok' })).toBe(true)
+    expect(isMcpToolRow({ id: 'c', verb: 'bash', name: 'Bash', arg: 'npm test', state: 'ok' })).toBe(false)
+    expect(isMcpToolRow({ id: 'd', verb: 'other', name: 'weird', kv: [['tool', 'x']], state: 'ok' })).toBe(false)
   })
 
   it('falls back to the raw text when the output is not the MCP envelope shape', () => {

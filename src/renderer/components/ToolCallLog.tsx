@@ -35,6 +35,13 @@ export function mcpToolInfo(c: ToolCall): { tool: string; kv: [string, string][]
   return { tool, kv: c.kv!.filter(([k]) => k !== 'tool' && k !== 'server') }
 }
 
+/** Whether a row is an MCP tool call — named `mcp__server__tool` directly, or (the
+ *  Codex ACP shape) recovered by `mcpToolInfo`'s `server`+`tool` kv detection. Drives
+ *  the distinct plug icon so MCP calls read differently from the verb-bucketed rows. */
+export function isMcpToolRow(c: ToolCall): boolean {
+  return /^mcp__[^_]+__/.test(c.name) || mcpToolInfo(c) !== undefined
+}
+
 /** Best-effort unwrap of an MCP result envelope (`{"result":{"content":[{"type":
  *  "text","text":"…"}]}}`) plus a pretty-print of the inner JSON payload, so
  *  tool output isn't a wall of double-escaped JSON. Defensive: any shape
@@ -77,7 +84,7 @@ export function ToolCallLog({ calls }: { calls: ToolCall[] }) {
   return (
     <div className="tlog">
       {calls.map((c, i) => {
-        const Ico = I[VERB_ICON[c.verb]]
+        const Ico = I[isMcpToolRow(c) ? 'plug' : VERB_ICON[c.verb]]
         const isOpen = open.has(i)
         const cls = 'tcall' + (c.state === 'run' ? ' run' : c.state === 'err' ? ' err' : '')
         const Caret = isOpen ? I.chevD : I.chevR
