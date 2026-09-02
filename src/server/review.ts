@@ -5,7 +5,7 @@ import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, 
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import { approvedShaList, commitBaselines, sinceBasis } from '../shared/sinceBasis.js'
 import {
-  attachSinceHunks, branchCheckedOutAt, describeSide, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
+  attachBaseHunks, attachSinceHunks, branchCheckedOutAt, describeSide, diffRefs, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
@@ -143,11 +143,15 @@ export async function assembleReview(
   const railSha = sinceBasis(state, skeleton.headSha)?.sha
   const baselines = commitBaselines(state, skeleton.headSha)
   const HUNK_KEY = { review: 'sinceReviewHunks', approved: 'sinceHunks' } as const
+  // …and the base→checkpoint slice beside each checkpoint→now one: the Multi
+  // layout's middle column, aligned on base line numbers like `hunks` itself.
+  const BASE_KEY = { review: 'baseToReviewHunks', approved: 'baseToApprovedHunks' } as const
   for (const b of baselines) {
     try {
       const since = await diffSince(repo, b.sha, compareEff)
       if (b.sha === railSha) { markSince(skeleton, since, 'since'); sinceTagged = true }
       attachSinceHunks(skeleton.files, since.files, HUNK_KEY[b.mode])
+      attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, b.sha), BASE_KEY[b.mode])
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
   const byViewSha = new Map<string, Set<string>>()
@@ -161,6 +165,7 @@ export async function assembleReview(
       const since = await diffSince(repo, sha, compareEff)
       markSince(skeleton, since, 'sinceViewed', paths)
       attachSinceHunks(skeleton.files, since.files, 'sinceViewedHunks', paths)
+      attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, sha), 'baseToViewedHunks', paths)
     } catch {
       for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
     }
@@ -186,6 +191,7 @@ export async function assembleReview(
           const sinceW = await diffSinceWorking(wt, b.sha)
           if (b.sha === railSha) markSince(asSkel(merged), asSkel(sinceW), 'since')
           attachSinceHunks(merged, sinceW, HUNK_KEY[b.mode])
+          attachBaseHunks(merged, await diffRefs(wt, skeleton.mergeBase, b.sha), BASE_KEY[b.mode])
         } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
@@ -193,6 +199,7 @@ export async function assembleReview(
           const sinceW = await diffSinceWorking(wt, sha)
           markSince(asSkel(merged), asSkel(sinceW), 'sinceViewed', paths)
           attachSinceHunks(merged, sinceW, 'sinceViewedHunks', paths)
+          attachBaseHunks(merged, await diffRefs(wt, skeleton.mergeBase, sha), 'baseToViewedHunks', paths)
         } catch { /* view sha unreachable */ }
       }
     } catch { merged = undefined /* fall back to skeleton + volatile band */ }

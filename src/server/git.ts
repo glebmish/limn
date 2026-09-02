@@ -480,6 +480,25 @@ export async function diffSince(dir: string, sinceSha: string, branch: string): 
   return { base: sinceSha, branch, mergeBase: sinceSha, headSha: tip, files: parseUnifiedDiff(raw) }
 }
 
+/** Plain `git diff from to` — the base→checkpoint slice the Multi layout's middle
+ *  column reads. Both operands are shas the review already resolved. */
+export async function diffRefs(dir: string, from: string, to: string): Promise<FileDiff[]> {
+  return parseUnifiedDiff(await execGit(dir, ['diff', ...DIFF_ARGS, from, to]))
+}
+
+export type BaseHunkKey = 'baseToReviewHunks' | 'baseToApprovedHunks' | 'baseToViewedHunks'
+
+/** Like `attachSinceHunks`, but a target file absent from `diff` gets `[]`: the
+ *  checkpoint exists, the file simply had not changed by then — which the renderer
+ *  must tell apart from "no checkpoint" (field absent). */
+export function attachBaseHunks(target: FileDiff[], diff: FileDiff[], key: BaseHunkKey, onlyPaths?: Set<string>): void {
+  const byPath = new Map(diff.map((f) => [f.path, f]))
+  for (const f of target) {
+    if (onlyPaths && !onlyPaths.has(f.path)) continue
+    f[key] = byPath.get(f.path)?.hunks ?? []
+  }
+}
+
 /** Tag hunks/lines in `full` that overlap changes present in `since` (mutates `full`).
  *  `key` selects which flag to set; `onlyPaths` restricts tagging to those files. */
 export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' | 'sinceViewed' = 'since', onlyPaths?: Set<string>): void {

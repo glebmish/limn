@@ -49,7 +49,14 @@ export interface FileDiff { path: string; oldPath?: string; status: 'modified' |
    *  narration never saw. Independent of sinceHunks (the approval window). */
   sinceReviewHunks?: Hunk[];
   /** Real git-diff hunks from this file's viewed sha → current surface ("Since viewed"). */
-  sinceViewedHunks?: Hunk[] }
+  sinceViewedHunks?: Hunk[];
+  /** git diff from the branch base to each checkpoint — the middle column of the
+   *  Multi layout, base-relative like `hunks`. Present (possibly `[]`: the checkpoint
+   *  exists, the file was unchanged there) only where that checkpoint exists for
+   *  this file — so the renderer can tell "no change" from "no checkpoint". */
+  baseToReviewHunks?: Hunk[];
+  baseToApprovedHunks?: Hunk[];
+  baseToViewedHunks?: Hunk[] }
 /** A "viewed" snapshot: the compare head sha + the file's content hash at view time. */
 export interface ViewMark { sha: string; hash: string }
 export interface DiffSkeleton { base: string; branch: string; mergeBase: string; headSha: string; files: FileDiff[] }
