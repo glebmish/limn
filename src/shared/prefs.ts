@@ -1,4 +1,4 @@
-import { defaultAgent, validateAgentRef } from './agents.js'
+import { defaultAgent, validateAgentRefJson } from './agents.js'
 import type { AgentRef } from './types.js'
 
 export const ENGINE_PATH_PREF_KEYS = {
@@ -12,13 +12,7 @@ export const LEGACY_AGENT_PREF_KEY = 'agent'
 
 function parseValidAgent(json: string | undefined): AgentRef | undefined {
   if (json === undefined) return undefined
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(json)
-  } catch {
-    return undefined
-  }
-  const check = validateAgentRef(parsed)
+  const check = validateAgentRefJson(json)
   return check.ok ? check.agent : undefined
 }
 

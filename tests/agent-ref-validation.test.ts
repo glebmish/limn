@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateAgentRef } from '../src/shared/agents'
+import { validateAgentRef, validateAgentRefJson } from '../src/shared/agents'
 import { DEFAULT_AGENT_PREF_KEY, LEGACY_AGENT_PREF_KEY, resolveDefaultAgent } from '../src/shared/prefs'
 
 describe('validateAgentRef', () => {
@@ -59,6 +59,22 @@ describe('validateAgentRef', () => {
   it('rejects an effort not in the model ladder', () => {
     expect(validateAgentRef({ engine: 'claude', model: 'opus', reasoningEffort: 'ultra' }))
       .toEqual({ ok: false, error: 'unknown effort "ultra" for opus (low, medium, high, xhigh, max)' })
+  })
+})
+
+describe('validateAgentRefJson', () => {
+  it('accepts valid JSON, returning a normalised agent', () => {
+    expect(validateAgentRefJson('{"engine":"codex","model":"gpt-5.5"}'))
+      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-5.5' } })
+  })
+
+  it('rejects invalid JSON with a single guard message', () => {
+    expect(validateAgentRefJson('not json')).toEqual({ ok: false, error: 'invalid JSON for defaultAgent' })
+  })
+
+  it('rejects valid JSON that fails ref validation, with the validator message', () => {
+    expect(validateAgentRefJson('{"engine":"nope"}'))
+      .toEqual({ ok: false, error: 'unknown engine "nope" (claude, codex)' })
   })
 })
 

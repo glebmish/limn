@@ -29,7 +29,7 @@ import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
-import { agentLabel, validateAgentRef } from '../shared/agents.js'
+import { agentLabel, validateAgentRefJson } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
 import { stampAnnotationAnchors } from './engines/stampAnnotations.js'
 import { mintHotspotComments, supersededHotspotIds } from './engines/hotspots.js'
@@ -1272,13 +1272,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('setPref', async (key: string, value: string) => {
     if (key === DEFAULT_AGENT_PREF_KEY) {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(value)
-      } catch {
-        throw new Error(`invalid JSON for ${DEFAULT_AGENT_PREF_KEY}`)
-      }
-      const check = validateAgentRef(parsed)
+      const check = validateAgentRefJson(value)
       if (!check.ok) throw new Error(check.error)
       value = JSON.stringify(check.agent)
     }

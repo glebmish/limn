@@ -19,6 +19,13 @@ export interface PrefsSlice {
   /** the agent selected for creating / regenerating THIS review — seeded from
    *  `defaultAgent` at `loadPrefs`, then per-review from the picker (`setAgent`) */
   agent: AgentRef
+  /** internal: has `agent` been seeded from `defaultAgent` yet this page
+   *  session? `boot()` re-runs `loadPrefs` on every Dashboard mount, so
+   *  without this flag an unrun agent pick on a draft/transient review would
+   *  be clobbered by the stored default on a Dashboard round-trip. Seeding
+   *  happens once per page load; `defaultAgent` itself still refreshes every
+   *  call so a Settings/CLI change is picked up promptly. */
+  agentSeeded: boolean
   /** the review rail's nav layout — sections (default) or tree */
   sidebarView: SidebarView
   /** the review rail's PREFERRED width in px — range-clamped only. The width it is
@@ -48,6 +55,7 @@ export interface PrefsSlice {
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
   defaultAgent: defaultAgentFor('claude'),
   agent: defaultAgentFor('claude'),
+  agentSeeded: false,
   sidebarView: 'sections',
   sidebarWidth: PANELS.sidebar.default,
   chatWidth: PANELS.chat.default,
@@ -60,13 +68,17 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
       }
       const sidebarView = parse<string>('sidebarView', 'sections')
       const seededAgent = resolveDefaultAgent(prefs)
-      set({
+      set((s) => ({
         defaultAgent: seededAgent,
-        agent: seededAgent,
+        // See agentSeeded's doc comment: only seed the next-review pick the
+        // first time this runs in a page session, so a Dashboard remount
+        // doesn't erase a pick the user already made on a draft review.
+        agent: s.agentSeeded ? s.agent : seededAgent,
+        agentSeeded: true,
         sidebarView: sidebarView === 'tree' ? 'tree' : 'sections',
         sidebarWidth: parseStoredWidth('sidebar', prefs.sidebarWidth),
         chatWidth: parseStoredWidth('chat', prefs.chatWidth)
-      })
+      }))
     } catch { /* prefs unavailable — visual defaults stand */ }
   },
 
@@ -89,7 +101,7 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
 
   async setDefaultAgent(a) {
     await api().setPref(DEFAULT_AGENT_PREF_KEY, JSON.stringify(a))
-    set({ defaultAgent: a, agent: a })
+    set({ defaultAgent: a, agent: a, agentSeeded: true })
   },
 
   setSidebarView(v) {

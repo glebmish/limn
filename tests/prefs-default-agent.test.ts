@@ -12,7 +12,7 @@ import { defaultAgent } from '../src/shared/agents'
 beforeEach(() => {
   getPrefs.mockReset(); getPrefs.mockResolvedValue({})
   setPref.mockReset(); setPref.mockResolvedValue(undefined)
-  useStore.setState({ agent: defaultAgent('claude'), defaultAgent: defaultAgent('claude'), loaded: undefined })
+  useStore.setState({ agent: defaultAgent('claude'), defaultAgent: defaultAgent('claude'), agentSeeded: false, loaded: undefined })
 })
 
 describe('defaultAgent pref', () => {
@@ -42,6 +42,19 @@ describe('defaultAgent pref', () => {
     expect(setPref).toHaveBeenCalledWith('defaultAgent', '{"engine":"codex"}')
     expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex' })
     expect(useStore.getState().agent).toEqual({ engine: 'codex' })
+  })
+
+  it('a second loadPrefs with a changed stored default updates defaultAgent but leaves the in-session agent pick alone', async () => {
+    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"claude"}' })
+    await useStore.getState().loadPrefs()
+    expect(useStore.getState().agent).toEqual({ engine: 'claude' })
+
+    useStore.getState().setAgent({ engine: 'codex', model: 'gpt-5.5' })
+
+    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-5.4"}' })
+    await useStore.getState().loadPrefs()
+    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-5.4' })
+    expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-5.5' })
   })
 
   it('setDefaultAgent rejects with the server message and leaves state unchanged on failure', async () => {

@@ -194,9 +194,9 @@ saved reviews lands on its session list, and one with none shows a draft review 
 the current branch. Either way it opens in a new browser tab.
 
 ```bash
-limn config                       # show the default review agent: engine, model, effort
-limn config get agent|model|effort   # print one value
-limn config set agent|model|effort <value>   # change the default (validated; "auto" clears model/effort)
+limn config                                # show the default review agent: engine, model, effort
+limn config get agent|model|effort         # print one value
+limn config set agent|model|effort <value> # change the default (validated; "auto" clears model/effort)
 ```
 
 `limn config` talks to the running service when one is up, else reads/writes its

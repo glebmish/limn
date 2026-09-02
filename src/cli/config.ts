@@ -3,7 +3,7 @@ import { defaultDbPath } from '../server/paths.js'
 import { probeHealth, type HealthInfo } from './health.js'
 import { serviceTarget, type ServiceTarget } from './target.js'
 import { rpc } from './rpc.js'
-import { validateAgentRef } from '../shared/agents.js'
+import { validateAgentRef, validateAgentRefJson } from '../shared/agents.js'
 import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../shared/prefs.js'
 import type { AgentRef } from '../shared/types.js'
 import type { ConfigCommand, ConfigKey } from './args.js'
@@ -61,13 +61,7 @@ export function localStore(io: Io, dbPath: string = defaultDbPath()): PrefsStore
     },
     set: async (key, value) => {
       if (key === DEFAULT_AGENT_PREF_KEY) {
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(value)
-        } catch {
-          throw new Error(`invalid JSON for ${DEFAULT_AGENT_PREF_KEY}`)
-        }
-        const check = validateAgentRef(parsed)
+        const check = validateAgentRefJson(value)
         if (!check.ok) throw new Error(check.error)
         value = JSON.stringify(check.agent)
       }

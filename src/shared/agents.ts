@@ -108,3 +108,17 @@ export function validateAgentRef(input: unknown): AgentRefCheck {
 
   return { ok: true, agent: { engine: catalog.engine, model: modelOpt.id, reasoningEffort: reasoningEffort as ReasoningEffort } }
 }
+
+/** JSON-guard around `validateAgentRef`, so every call site that stores a
+ *  `defaultAgent` pref as a JSON string (server `setPref`, the CLI's local
+ *  store, the shared prefs resolver) shares one "invalid JSON" message
+ *  instead of each throwing its own copy. */
+export function validateAgentRefJson(value: string): AgentRefCheck {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return { ok: false, error: 'invalid JSON for defaultAgent' }
+  }
+  return validateAgentRef(parsed)
+}

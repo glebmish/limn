@@ -102,8 +102,9 @@ limn config get agent|model|effort         # print one value
 limn config set agent|model|effort <value> # change it
 ```
 
-Setting `agent` to a different engine clears model and effort for the old one and
-prints `note: model and effort reset to auto (not available for <engine>)`. Setting
+Setting `agent` to a different engine clears model and effort for the old one; if
+there was a model or effort set to clear, it prints `note: model and effort reset
+to auto (not available for <engine>)`. Setting
 `model` to one that doesn't support the current effort clears it instead, with
 `note: effort reset to auto (not available for <model>)`. `set model auto` clears any
 model and effort. An invalid value — an unknown engine, model, or effort, or an
