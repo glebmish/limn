@@ -592,4 +592,44 @@ describe('acpPermissionToRequest — codex-acp escalation justification (_meta.c
     expect(result.kind).toBe('tool_use')
     expect(result.detail?.reason).toBe('Need to leave a note on the risky change.')
   })
+
+  // codex-acp's file-change permission requests carry `params.grantRoot` (the
+  // same field it reads to label its own "Allow Root for Session" option —
+  // dist/index.js's buildFileChangeOptions) and its command-execution requests
+  // carry `params.networkApprovalContext` (same idea, "Allow Host for
+  // Session" — buildCommandOptions). Neither is a justification string, but
+  // both are still a reason worth stating when the model didn't give one.
+
+  it('states a grantRoot file-change escalation with no justification as a write-outside-workspace reason', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc7', kind: 'edit', title: 'Edit /etc/hosts' },
+      _meta: { codex: { params: { grantRoot: true } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBe('requests write access outside the workspace')
+  })
+
+  it('states a networkApprovalContext command escalation with no justification as a network-access reason', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc8', kind: 'execute', title: 'Run curl', rawInput: { command: 'curl example.com' } },
+      _meta: { codex: { params: { networkApprovalContext: { host: 'example.com' } } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBe('requests network access')
+  })
+
+  it('a present justification still wins over grantRoot/networkApprovalContext', () => {
+    const req: RequestPermissionRequest = {
+      sessionId: 's1',
+      toolCall: { toolCallId: 'esc9', kind: 'edit', title: 'Edit /etc/hosts' },
+      _meta: { codex: { params: { grantRoot: true, justification: 'Need to fix the hosts file.' } } },
+      options: []
+    }
+    const result = acpPermissionToRequest(req, 'codex')
+    expect(result.detail?.reason).toBe('Need to fix the hosts file.')
+  })
 })

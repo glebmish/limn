@@ -237,16 +237,26 @@ function isMcpToolApproval(req: RequestPermissionRequest): boolean {
 /** codex-acp attaches the raw params it decided to surface as `_meta.codex.params`
  *  on every permission request.
  *  For a `require_escalated` command, `params.justification` is the model's own
- *  user-facing question for why it needs the escalation — the one field Limn
- *  maps into `detail.reason`; other params (network access, `grantRoot`) are out
- *  of scope for this mapping. Returns undefined unless justification is a
- *  non-empty string, so a missing/empty/wrongly-typed value never sets `reason`. */
+ *  user-facing question for why it needs the escalation — the field Limn
+ *  prefers for `detail.reason`. When there's no justification, two other
+ *  codex-acp param shapes still carry a reason worth stating: `params.grantRoot`
+ *  (a file_change request; the same field codex-acp reads to label its own
+ *  "Allow Root for Session" option in buildFileChangeOptions) means the edit
+ *  writes outside the workspace, and `params.networkApprovalContext` (a
+ *  command/execute request; same idea, "Allow Host for Session" in
+ *  buildCommandOptions) means the command needs network access. Both are
+ *  forwarded straight from the native process with no guaranteed shape, so
+ *  only their presence/truthiness is checked, never their contents. */
 function escalationJustification(req: RequestPermissionRequest): string | undefined {
   const meta = req._meta as Record<string, unknown> | null | undefined
   const codex = meta && typeof meta === 'object' ? (meta.codex as Record<string, unknown> | undefined) : undefined
   const params = codex && typeof codex === 'object' ? (codex.params as Record<string, unknown> | undefined) : undefined
-  const justification = params && typeof params === 'object' ? params.justification : undefined
-  return typeof justification === 'string' && justification.length > 0 ? justification : undefined
+  if (!params || typeof params !== 'object') return undefined
+  const justification = params.justification
+  if (typeof justification === 'string' && justification.length > 0) return justification
+  if (params.grantRoot === true) return 'requests write access outside the workspace'
+  if (params.networkApprovalContext) return 'requests network access'
+  return undefined
 }
 
 /** Normalize an ACP `session/request_permission` payload to Limn's engine-
