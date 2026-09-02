@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { Artifact, Comment, FileDiff, ReviewAnnotations, Section, ViewMark } from '../../shared/types'
 import { narrationText } from '../../shared/types'
@@ -15,6 +15,15 @@ import { Composer, InlineThread } from './Threads'
  *  a raw jump would poll for a `[data-limn-file]` that isn't there and quietly give up.
  *  Route sectioned paths through `jumpToFile`, which force-opens the section first; only
  *  paths no section claims (working-tree extras) jump raw. */
+/** Arrow keys that move the Sections/Tree radiogroup selection — a 2-option group, so
+ *  any of the four counts as "move to the other one" (there's no other direction to go). */
+const VIEW_TOGGLE_ARROW_KEYS = new Set(['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'])
+
+/** The other radio in the Sections/Tree toggle — what ArrowLeft/Up/Right/Down moves to. */
+export function otherSidebarView(view: 'sections' | 'tree'): 'sections' | 'tree' {
+  return view === 'sections' ? 'tree' : 'sections'
+}
+
 export function makeTreeFileJump(
   sectionOfPath: Map<string, string>,
   jumpToFile: (sectionId: string, path: string) => void,
@@ -90,6 +99,17 @@ export function ReviewSidebar({
   closeDocBack: () => void
 }) {
   const { sidebarView, setSidebarView } = useStore()
+  const sectionsBtnRef = useRef<HTMLButtonElement>(null)
+  const treeBtnRef = useRef<HTMLButtonElement>(null)
+  // roving tabindex: an arrow key moves the radiogroup selection to the other radio
+  // (there are only two) and focuses it, matching native radio-group behavior.
+  const onViewToggleKeyDown = (e: { key: string; preventDefault: () => void }): void => {
+    if (!VIEW_TOGGLE_ARROW_KEYS.has(e.key)) return
+    e.preventDefault()
+    const next = otherSidebarView(sidebarView)
+    setSidebarView(next)
+    ;(next === 'sections' ? sectionsBtnRef : treeBtnRef).current?.focus()
+  }
   const sectionOfPath = useMemo(() => sectionIndex(sections), [sections])
   const jumpToTreeFile = makeTreeFileJump(sectionOfPath, jumpToFile, jumpToRawFile)
   const [commentStep, setCommentStep] = useState<number | null>(null)
@@ -212,18 +232,24 @@ export function ReviewSidebar({
           {annotations ? (
             <div className="gnav-viewtoggle" role="radiogroup" aria-label="Sidebar view">
               <button
+                ref={sectionsBtnRef}
                 type="button"
                 role="radio"
                 aria-checked={sidebarView === 'sections'}
+                tabIndex={sidebarView === 'sections' ? 0 : -1}
                 className={sidebarView === 'sections' ? 'on' : undefined}
                 onClick={() => setSidebarView('sections')}
+                onKeyDown={onViewToggleKeyDown}
               >Sections</button>
               <button
+                ref={treeBtnRef}
                 type="button"
                 role="radio"
                 aria-checked={sidebarView === 'tree'}
+                tabIndex={sidebarView === 'tree' ? 0 : -1}
                 className={sidebarView === 'tree' ? 'on' : undefined}
                 onClick={() => setSidebarView('tree')}
+                onKeyDown={onViewToggleKeyDown}
               >Tree</button>
             </div>
           ) : (

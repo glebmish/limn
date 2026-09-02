@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ComponentProps } from 'react'
 import type { FileDiff, ReviewAnnotations, Section } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
-import { ReviewSidebar, makeTreeFileJump } from '../src/renderer/components/ReviewSidebar'
+import { ReviewSidebar, makeTreeFileJump, otherSidebarView } from '../src/renderer/components/ReviewSidebar'
 import { sectionIndex } from '../src/renderer/lib/fileOrder'
 import { useStore } from '../src/renderer/store'
 
@@ -116,6 +116,33 @@ describe('ReviewSidebar — Sections/Tree toggle', () => {
     const out = renderToStaticMarkup(<ReviewSidebar {...baseProps({ annotations: undefined })} />)
 
     expect(out).not.toContain('role="radiogroup"')
+  })
+
+  function radiogroupMarkup(out: string): string {
+    const m = out.match(/<div class="gnav-viewtoggle"[\s\S]*?<\/div>/)
+    if (!m) throw new Error('radiogroup markup not found')
+    return m[0]
+  }
+
+  it('roving tabindex: exactly one radio is tabbable, and it is the checked one', () => {
+    seedSidebarView('sections')
+    let toggle = radiogroupMarkup(html())
+    expect((toggle.match(/tabindex="0"/g) ?? []).length).toBe(1)
+    expect(toggle).toMatch(/<button[^>]*tabindex="0"[^>]*>Sections<\/button>/)
+    expect(toggle).toMatch(/<button[^>]*tabindex="-1"[^>]*>Tree<\/button>/)
+
+    seedSidebarView('tree')
+    toggle = radiogroupMarkup(html())
+    expect((toggle.match(/tabindex="0"/g) ?? []).length).toBe(1)
+    expect(toggle).toMatch(/<button[^>]*tabindex="0"[^>]*>Tree<\/button>/)
+    expect(toggle).toMatch(/<button[^>]*tabindex="-1"[^>]*>Sections<\/button>/)
+  })
+})
+
+describe('otherSidebarView — roving tabindex arrow-key target', () => {
+  it('moves selection to the other radio regardless of which arrow key fired', () => {
+    expect(otherSidebarView('sections')).toBe('tree')
+    expect(otherSidebarView('tree')).toBe('sections')
   })
 })
 
