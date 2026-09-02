@@ -5,53 +5,64 @@ import { describe, expect, it } from 'vitest'
 
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
+import { railExplanation } from '../src/renderer/lib/railExplanation'
 import { makeLoaded, makeFile } from './helpers/loaded'
 import type { DiffLine, FileDiff } from '../src/shared/types'
 
+const line = (over: Partial<DiffLine> = {}): DiffLine => ({ old: null, new: 1, kind: 'add', text: 'x', ...over })
+
+describe('what a rail says when you point at it', () => {
+  it('names the baseline the drift rail measures from', () => {
+    expect(railExplanation(line({ since: true }), 'approved')).toBe('Changed since you approved this')
+    expect(railExplanation(line({ since: true }), 'generated')).toBe('Changed since the review ran')
+  })
+
+  it('names the per-file viewed rail for the file, not the review', () => {
+    expect(railExplanation(line({ sinceViewed: true }), 'approved')).toBe('Changed since you viewed this file')
+  })
+
+  it('explains the working-tree rails', () => {
+    expect(railExplanation(line({ origin: 'staged' }), 'approved')).toBe('Staged — in the index, not yet committed')
+    expect(railExplanation(line({ origin: 'unstaged' }), 'approved')).toBe('Unstaged — a working-tree edit')
+  })
+
+  it('prefers the checkpoint rail over the view mark when a line carries both', () => {
+    expect(railExplanation(line({ since: true, sinceViewed: true }), 'approved'))
+      .toBe('Changed since you approved this')
+  })
+
+  it('says nothing for a line with no rail', () => {
+    expect(railExplanation(line(), 'approved')).toBeNull()
+  })
+})
+
+// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot.
 type State = ReturnType<typeof useStore.getState>
 const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
 
-const line = (text: string, over: Partial<DiffLine> = {}): DiffLine =>
-  ({ old: null, new: 1, kind: 'add', text, ...over })
-
-/** Render one file whose single row carries the given rail flags. */
-function render(l: DiffLine, state: Record<string, unknown> = {}): string {
+function render(l: DiffLine): string {
   const f: FileDiff = makeFile({
     path: 'src/a.ts', hunks: [{ range: '@@ -1,1 +1,1 @@', header: '', lines: [l] }]
   } as never)
-  const loaded = makeLoaded({ files: [f], headSha: 'head' })
-  Object.assign(loaded.state, state)
-  const patch = { loaded, diffMode: 'branch' as const, fileDiffMode: {}, viewedAt: {}, focusTarget: null }
+  const patch = {
+    loaded: makeLoaded({ files: [f], headSha: 'head' }),
+    diffMode: 'branch' as const, fileDiffMode: {}, viewedAt: {}, focusTarget: null
+  }
   Object.assign(initial(), patch)
   useStore.setState(patch)
   return renderToStaticMarkup(<DiffView f={f} />)
 }
 
-const titleOf = (html: string): string | null =>
-  html.match(/class="rail-hit" title="([^"]*)"/)?.[1] ?? null
-
-describe('the diff rails explain themselves on hover', () => {
-  it('says what the drift rail measures from — an approval', () => {
-    expect(titleOf(render(line('x', { since: true }), { approvedSha: 'old' })))
-      .toBe('Changed since you approved this')
+describe('the rail hover target', () => {
+  it('covers a marked rail with a hit strip — the 3px rail itself cannot be hovered', () => {
+    expect(render(line({ since: true }))).toContain('class="rail-hit"')
   })
 
-  it('… or the sha the review was generated at, when nobody approved', () => {
-    expect(titleOf(render(line('x', { since: true }), { reviewedAtSha: 'gen' })))
-      .toBe('Changed since the review ran')
+  it('adds nothing to a line that carries no rail', () => {
+    expect(render(line())).not.toContain('rail-hit')
   })
 
-  it('names the per-file viewed rail for the file, not the review', () => {
-    expect(titleOf(render(line('x', { sinceViewed: true }))))
-      .toBe('Changed since you viewed this file')
-  })
-
-  it('explains the working-tree rails', () => {
-    expect(titleOf(render(line('x', { origin: 'staged' })))).toBe('Staged — in the index, not yet committed')
-    expect(titleOf(render(line('x', { origin: 'unstaged' })))).toBe('Unstaged — a working-tree edit')
-  })
-
-  it('puts no hover target on a line that carries no rail', () => {
-    expect(titleOf(render(line('x')))).toBeNull()
+  it('leaves no native title behind — the delayed browser tooltip is what it replaces', () => {
+    expect(render(line({ since: true }))).not.toMatch(/class="rail-hit"[^>]*title=/)
   })
 })

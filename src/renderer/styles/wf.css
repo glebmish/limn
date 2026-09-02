@@ -210,7 +210,10 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 /* the rails are 3px pseudo-elements and cannot take a hover of their own — this
    transparent strip covers the rail's width plus a little slack so "what is this
    mark?" is answerable in place, via its title. Sits under the gutter's own controls. */
-.dline .rail-hit{position:absolute;left:0;top:0;bottom:0;width:9px;z-index:3;cursor:help}
+.dline .rail-hit{position:absolute;left:0;top:0;bottom:0;width:9px;z-index:3}
+.rail-tip{z-index:80;box-sizing:border-box;max-width:min(240px,calc(100vw - 32px));white-space:normal;
+  background:var(--ink);color:#fff;font-family:var(--sans);font-size:10.5px;padding:5px 9px;border-radius:var(--r-sm);
+  pointer-events:none;box-shadow:0 8px 22px rgba(40,38,32,.28);animation:limn-tip-in .12s ease}
 
 /* working-tree rails: staged = solid (in the index, ready to commit); unstaged =
    dotted (working-tree only, "not yet pinned to a commit"). The dotted pattern is
