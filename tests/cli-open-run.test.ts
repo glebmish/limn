@@ -7,7 +7,7 @@ import type { Io } from '../src/cli/main'
 const loopback: ServiceTarget = { host: '127.0.0.1', port: 5466, token: '', url: 'http://limn.localhost:5466' }
 
 const health = { app: 'limn' as const, version: '0.4.0', pid: 7, startedAt: new Date().toISOString(), port: 5466 }
-const cmd = { kind: 'open' as const, dir: '/repo', hub: false, fresh: false, noService: false }
+const cmd = { kind: 'open' as const, dir: '/repo', hub: false, fresh: false, noService: false, generate: false, printUrl: false }
 
 function fakeIo(answer = true): Io & { out_: string[]; err_: string[] } {
   const out_: string[] = [], err_: string[] = []

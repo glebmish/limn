@@ -49,13 +49,17 @@ export const HELP = `limn — agentic local branch review, in your browser
 
 usage:
   limn [DIR] [--base REF] [--branch BRANCH] [--new] [--hub] [--no-service]
+       [--generate [--agent NAME] [--model NAME] [--effort LEVEL]] [--print-url]
   limn open …                      same as above
   limn service <command>           background service (limn service --help)
   limn config …                    read/set the default review agent (limn config --help)
   limn --version | --help
 
 open: review DIR (default: current directory). If a Limn service is running it
-opens there; otherwise a server is started for you.`
+opens there; otherwise a server is started for you. --generate starts review
+generation immediately (--agent/--model/--effort override it for this run only;
+they need --generate and can't combine with --hub). --print-url prints the page
+URL instead of opening a browser.`
 
 export const HELP_SERVICE = `limn service — the always-on Limn server
 

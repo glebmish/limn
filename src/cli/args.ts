@@ -1,12 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ConfigKey } from '../shared/agentConfig.js'
+import type { AgentOverride } from '../server/cliOpen.js'
 
 export class CliUsageError extends Error {}
 
-export type ConfigKey = 'agent' | 'model' | 'effort'
+export type { ConfigKey }
 
 export type CliCommand =
-  | { kind: 'open'; dir: string; base?: string; compare?: string; hub: boolean; fresh: boolean; noService: boolean }
+  | { kind: 'open'; dir: string; base?: string; compare?: string; hub: boolean; fresh: boolean; noService: boolean; generate: boolean; printUrl: boolean; agent?: AgentOverride }
   | { kind: 'serve'; port?: number; port80: boolean }
   | { kind: 'service-install'; port80: boolean }
   | { kind: 'service-uninstall' }
@@ -50,7 +52,9 @@ function boolFlag(tok: string, name: string): boolean {
 }
 
 function parseOpen(argv: string[], cwd: string): CliCommand {
-  const out: Extract<CliCommand, { kind: 'open' }> = { kind: 'open', dir: cwd, hub: false, fresh: false, noService: false }
+  const out: Extract<CliCommand, { kind: 'open' }> = { kind: 'open', dir: cwd, hub: false, fresh: false, noService: false, generate: false, printUrl: false }
+  const agent: AgentOverride = {}
+  let agentTouched = false
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i]
     if (tok === '--base' || tok.startsWith('--base=')) { [out.base, i] = takeValue(argv, i, '--base'); continue }
@@ -58,9 +62,17 @@ function parseOpen(argv: string[], cwd: string): CliCommand {
     if (tok === '--new' || tok.startsWith('--new=')) { out.fresh = boolFlag(tok, '--new'); continue }
     if (tok === '--hub' || tok.startsWith('--hub=')) { out.hub = boolFlag(tok, '--hub'); continue }
     if (tok === '--no-service' || tok.startsWith('--no-service=')) { out.noService = boolFlag(tok, '--no-service'); continue }
+    if (tok === '--generate' || tok.startsWith('--generate=')) { out.generate = boolFlag(tok, '--generate'); continue }
+    if (tok === '--print-url' || tok.startsWith('--print-url=')) { out.printUrl = boolFlag(tok, '--print-url'); continue }
+    if (tok === '--agent' || tok.startsWith('--agent=')) { [agent.engine, i] = takeValue(argv, i, '--agent'); agentTouched = true; continue }
+    if (tok === '--model' || tok.startsWith('--model=')) { [agent.model, i] = takeValue(argv, i, '--model'); agentTouched = true; continue }
+    if (tok === '--effort' || tok.startsWith('--effort=')) { [agent.effort, i] = takeValue(argv, i, '--effort'); agentTouched = true; continue }
     if (tok.startsWith('-')) throw new CliUsageError(`unknown flag ${tok}`)
     out.dir = path.resolve(cwd, tok)
   }
+  if (agentTouched && !out.generate) throw new CliUsageError('--agent/--model/--effort need --generate')
+  if (out.generate && out.hub) throw new CliUsageError('--generate cannot be combined with --hub')
+  if (agentTouched) out.agent = agent
   return out
 }
 

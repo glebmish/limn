@@ -42,6 +42,27 @@ export interface LoadedReview {
   mergedExternally?: boolean
   /** Generated reviews from other sessions whose endpoint pair can seed this review. */
   copyCandidates?: ReviewCopyCandidate[]
+  /** Live ops (review generation, chat turns) currently running against this
+   *  session, so a tab that (re)loads mid-op can rejoin it instead of showing a
+   *  stale idle state. Empty for a freshly-loaded review with nothing in flight. */
+  activeOps: ActiveOpSnapshot[]
+}
+
+/** A live op's state as of load time — enough for a (re)joining tab to render its
+ *  progress and replay/continue its event stream from `nextSeq`. */
+export interface ActiveOpSnapshot {
+  opId: string
+  kind: 'review' | 'chat'
+  threadId: number | null
+  /** the lane main chose for this op — see OpEventMsg.exclusive */
+  exclusive: boolean
+  startedAt: string
+  /** events emitted so far, for a joining tab to replay before it starts consuming
+   *  the live stream */
+  events: EngineEvent[]
+  /** the sequence number the next OpEventMsg for this op will carry (see
+   *  OpEventMsg.seq) — a joining tab uses this to detect a gap in its live stream. */
+  nextSeq: number
 }
 
 export interface DashboardData { repos: RepoIndexEntry[]; recents: string[]; recentSessions: RecentSession[]; notices: string[] }
@@ -158,6 +179,10 @@ export interface OpEventMsg {
    *  read-only). Present once the turn is running; the renderer corrects its
    *  startOp-time lane prediction from it (concurrent-chat §4 / OQ7). */
   exclusive?: boolean
+  /** Monotonic per-op sequence number, so a (re)joining tab can detect a gap between
+   *  the events it replayed from ActiveOpSnapshot and the live stream it just
+   *  subscribed to. Absent is fine for a tab that was present for the whole op. */
+  seq?: number
 }
 export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
 /** Stable, engine-agnostic classification of an op failure. Set when the failure has

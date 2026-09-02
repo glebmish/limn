@@ -8,7 +8,7 @@ const cwd = '/work/repo'
 
 describe('parseArgs', () => {
   it('bare invocation is `open` on cwd', () => {
-    expect(parseArgs([], cwd)).toEqual({ kind: 'open', dir: cwd, hub: false, fresh: false, noService: false })
+    expect(parseArgs([], cwd)).toEqual({ kind: 'open', dir: cwd, hub: false, fresh: false, noService: false, generate: false, printUrl: false })
   })
   it('open takes a positional dir (absolute or relative to cwd) and ref flags', () => {
     expect(parseArgs(['open', '/x', '--base', 'main', '--branch', 'feat'], cwd)).toMatchObject({ kind: 'open', dir: '/x', base: 'main', compare: 'feat' })
@@ -54,6 +54,26 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['service', 'status', 'extra'], cwd)).toThrow(/unexpected argument "extra"/)
     expect(() => parseArgs(['service', 'serve', '--port', '7000', 'x'], cwd)).toThrow(/unexpected argument "x"/)
     expect(() => parseArgs(['service', 'logs', '-f', 'limn.log'], cwd)).toThrow(/unexpected argument "limn.log"/)
+  })
+  it('--generate flags generation; --agent/--model/--effort build an AgentOverride', () => {
+    expect(parseArgs(['--generate'], cwd)).toMatchObject({ kind: 'open', generate: true })
+    expect(parseArgs(['--generate'], cwd)).not.toHaveProperty('agent')
+    expect(parseArgs(['--generate', '--agent', 'codex', '--model', 'gpt-5.5', '--effort', 'high'], cwd))
+      .toMatchObject({ kind: 'open', generate: true, agent: { engine: 'codex', model: 'gpt-5.5', effort: 'high' } })
+  })
+  it('--print-url sets printUrl', () => {
+    expect(parseArgs(['--print-url'], cwd)).toMatchObject({ kind: 'open', printUrl: true })
+  })
+  it('--agent/--model/--effort without --generate is a usage error', () => {
+    expect(() => parseArgs(['--model', 'opus'], cwd)).toThrow('--agent/--model/--effort need --generate')
+  })
+  it('--generate cannot be combined with --hub', () => {
+    expect(() => parseArgs(['--generate', '--hub'], cwd)).toThrow('--generate cannot be combined with --hub')
+  })
+  it('HELP mentions `--generate` and `--print-url`', async () => {
+    const { HELP } = await import('../src/cli/main')
+    expect(HELP).toMatch(/--generate/)
+    expect(HELP).toMatch(/--print-url/)
   })
   it('rejects an empty `=value` on a value-taking flag', () => {
     expect(() => parseArgs(['open', '--base='], cwd)).toThrow(/--base needs a value/)

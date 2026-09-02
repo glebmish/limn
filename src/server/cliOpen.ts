@@ -2,6 +2,10 @@ import crypto from 'node:crypto'
 import type { CliOpenMsg } from '../shared/ipc.js'
 import { repoRoot } from './git.js'
 
+/** An `--agent/--model/--effort` override for a `--generate` open — raw flag values,
+ *  unvalidated here (validation happens where the generation is actually kicked off). */
+export interface AgentOverride { engine?: string; model?: string; effort?: string }
+
 export interface CliOpenArgs {
   dir: string
   base?: string
@@ -9,6 +13,21 @@ export interface CliOpenArgs {
   compare?: string
   hub?: boolean
   fresh?: boolean
+  /** `limn open --generate`: kick off generation immediately once the review loads,
+   *  rather than waiting for the reviewer to click Generate. */
+  generate?: boolean
+  agent?: AgentOverride
+  /** print the page URL instead of opening a browser (headless / scripted use). */
+  printUrl?: boolean
+}
+
+/** The outcome of a CLI open request: the one-time page ticket, plus fields that
+ *  only apply to a `--generate` open — `path` (once generation lands somewhere
+ *  worth pointing at) and `note` (a caveat worth surfacing, e.g. a dropped override). */
+export interface CliOpenResult {
+  ticket: string
+  path?: string
+  note?: string
 }
 
 const TICKET_TTL_MS = 60_000

@@ -105,7 +105,8 @@ export async function assembleReview(
         branchHash: '',
         artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
         writeCapability: await writeCapabilityFor(repo, pair.compare),
-        refMissing: { side, symbol }
+        refMissing: { side, symbol },
+        activeOps: []
       }
     }
   }
@@ -258,6 +259,8 @@ export async function assembleReview(
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
     writeCapability,
+    // Populated by the live-op registry in a later task; every load starts empty.
+    activeOps: [],
     ...(mergedExternally ? { mergedExternally: true } : {})
   }
 }
