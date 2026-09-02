@@ -9,8 +9,9 @@ import { serviceTarget, type ServiceTarget } from './target.js'
 import { readCliState, writeCliState, type CliState } from './state.js'
 import { findOldShim } from './shim.js'
 import { isServiceInstalled, installService, serviceBackend } from './service/index.js'
-import { issueCliOpen, type CliOpenArgs } from '../server/cliOpen.js'
+import { issueCliOpen, type CliOpenArgs, type CliOpenResult } from '../server/cliOpen.js'
 import { rpc } from './rpc.js'
+import { tryOpenInCmux } from './cmux.js'
 import type { RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
 
@@ -31,14 +32,18 @@ export function isNpxInvocation(entryPath: string): boolean {
 }
 
 function toArgs(cmd: OpenCommand): CliOpenArgs {
-  return { dir: cmd.dir, base: cmd.base, compare: cmd.compare, hub: cmd.hub, fresh: cmd.fresh }
+  return {
+    dir: cmd.dir, base: cmd.base, compare: cmd.compare, hub: cmd.hub, fresh: cmd.fresh,
+    generate: cmd.generate, agent: cmd.agent, printUrl: cmd.printUrl
+  }
 }
 
-/** POST cli:open to a running service and return the one-time page ticket. */
-export async function issueRemote(t: ServiceTarget, args: CliOpenArgs): Promise<string> {
-  const { value, status } = await rpc<{ ticket: string }>(t, 'cli:open', [args])
-  if (!value) throw new Error(`cli:open failed (${status})`)
-  return value.ticket
+/** POST cli:open to a running service and return the full result — the one-time page
+ *  ticket, plus (for a `--generate` open) the durable path and any note. */
+export async function issueRemote(t: ServiceTarget, args: CliOpenArgs): Promise<CliOpenResult> {
+  const { value, status } = await rpc<CliOpenResult>(t, 'cli:open', [args])
+  if (!value?.ticket) throw new Error(`cli:open failed (${status})`)
+  return value
 }
 
 /** Everything `runOpen` reaches outside its own process, injectable for tests. */
@@ -47,7 +52,7 @@ export interface OpenDeps {
   /** null on a platform with no background-service backend (Windows) */
   backend: () => 'launchd' | 'systemd' | null
   probe: (port: number, host: string) => Promise<HealthInfo | null>
-  issueRemote: (target: ServiceTarget, args: CliOpenArgs) => Promise<string>
+  issueRemote: (target: ServiceTarget, args: CliOpenArgs) => Promise<CliOpenResult>
   install: (opts: { port80: boolean }, io: Io) => Promise<number>
   installed: () => Promise<boolean>
   openBrowser: (url: string) => void
@@ -56,6 +61,9 @@ export interface OpenDeps {
   npx: () => boolean
   serve: (cmd: { port?: number; port80: boolean }, io: Io, onReady?: (s: RunningServer) => void) => Promise<number>
   findShim: () => string | null
+  /** Open a URL in a cmux pane. null when cmux isn't available at all (no CMUX_SOCKET,
+   *  or no `cmux` on PATH) — distinct from a tried-and-failed attempt. */
+  openInCmux: (url: string) => { ok: true } | { ok: false; reason: string } | null
 }
 
 export const defaultOpenDeps: OpenDeps = {
@@ -70,27 +78,52 @@ export const defaultOpenDeps: OpenDeps = {
   writeState: writeCliState,
   npx: () => isNpxInvocation(process.argv[1] ?? ''),
   serve: runServe,
-  findShim: findOldShim
+  findShim: findOldShim,
+  openInCmux: tryOpenInCmux
 }
 
-/** The page to open: the ticket, plus the token when there is a perimeter — the tab
- *  stashes it in sessionStorage, and without it every RPC it makes would 401. */
-function pageUrl(base: string, ticket: string, token: string): string {
-  return `${base}/?open=${ticket}${token ? `&token=${encodeURIComponent(token)}` : ''}`
+/** Build a page URL: `base` plus a path (or `/?open=<ticket>`) plus `?token=`/`&token=`
+ *  when there is a perimeter — the tab stashes it in sessionStorage, and without it
+ *  every RPC it makes would 401. */
+function pageUrl(base: string, pathAndQuery: string, token: string): string {
+  if (!token) return `${base}${pathAndQuery}`
+  const sep = pathAndQuery.includes('?') ? '&' : '?'
+  return `${base}${pathAndQuery}${sep}token=${encodeURIComponent(token)}`
 }
 
-/** Ask a running server for a ticket and open the page. Exit code, never a stack trace. */
+/** The URL a CliOpenResult resolves to: the durable `/review/<id>` path once
+ *  `--generate` has somewhere worth pointing at, else the one-time ticket URL. */
+function resultUrl(base: string, result: CliOpenResult, token: string): string {
+  return pageUrl(base, result.path ?? `/?open=${result.ticket}`, token)
+}
+
+/** Turn a CliOpenResult into the actual "open a page" side effect — shared by the
+ *  client role (issueRemote over HTTP) and the server role (issueCliOpen in-process).
+ *  `--print-url` wins over cmux: it never launches anything, only prints the URL. */
+function openResolved(result: CliOpenResult, target: ServiceTarget, cmd: OpenCommand, io: Io, deps: OpenDeps): void {
+  const url = resultUrl(target.url, result, target.token)
+  if (result.note) io.err(`note: ${result.note}`)
+  if (cmd.printUrl) { io.out(url); return }
+  const cmuxResult = deps.openInCmux(url)
+  if (cmuxResult) {
+    if (cmuxResult.ok) { io.out(`opened in cmux: ${url}`); return }
+    io.err(`note: cmux pane failed (${cmuxResult.reason}) — opened in the browser`)
+  }
+  io.out(`opening ${url}`)
+  deps.openBrowser(url)
+}
+
+/** Ask a running server for a ticket (or a --generate answer) and open the page.
+ *  Exit code, never a stack trace. */
 async function openViaServer(t: ServiceTarget, cmd: OpenCommand, io: Io, deps: OpenDeps): Promise<number> {
-  let ticket: string
+  let result: CliOpenResult
   try {
-    ticket = await deps.issueRemote(t, toArgs(cmd))
+    result = await deps.issueRemote(t, toArgs(cmd))
   } catch (err) {
     io.err(`error: could not reach the Limn server on ${t.host}:${t.port}: ${err instanceof Error ? err.message : String(err)}`)
     return 1
   }
-  const url = pageUrl(t.url, ticket, t.token)
-  io.out(`opening ${url}`)
-  deps.openBrowser(url)
+  openResolved(result, t, cmd, io, deps)
   return 0
 }
 
@@ -172,12 +205,10 @@ export async function runOpen(cmd: OpenCommand, io: Io, deps: OpenDeps = default
   }
 
   // Server role: run the server in this process and open the browser once it is up.
-  // The ticket is issued in-process — no HTTP round trip to ourselves.
+  // The ticket/--generate answer is issued in-process — no HTTP round trip to ourselves.
   return deps.serve({ port80: false }, io, (server) => {
-    void issueCliOpen(toArgs(cmd)).then(({ ticket }) => {
-      const url = pageUrl(server.url, ticket, target.token)
-      io.out(`opening ${url}`)
-      deps.openBrowser(url)
+    void issueCliOpen(toArgs(cmd)).then((result) => {
+      openResolved(result, { ...target, url: server.url }, cmd, io, deps)
     }, (err: unknown) => {
       io.err(`error: could not open the review: ${err instanceof Error ? err.message : String(err)}`)
     })
