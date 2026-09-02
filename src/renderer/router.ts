@@ -103,7 +103,7 @@ export interface RouterState {
   resumeExisting(sessionId: number): Promise<void>
   enterHub(repoPath?: string): Promise<void>
   openReview(repo: string, refs?: { base?: string; compare?: string }, opts?: { fresh?: boolean }): Promise<void>
-  backToDashboard(): void
+  backToDashboard(): Promise<void>
 }
 
 export interface RouterStore {
@@ -190,7 +190,7 @@ export function installRouter(store: RouterStore, win: RouterWindow): void {
       case 'review': await s.resumeExisting(route.sessionId); break
       case 'hub': await s.enterHub(route.repo); break
       case 'transient': await s.openReview(route.repo, { base: route.base, compare: route.compare }); break
-      case 'dashboard': s.backToDashboard(); break
+      case 'dashboard': await s.backToDashboard(); break
     }
   }
 

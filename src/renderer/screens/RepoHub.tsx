@@ -168,7 +168,7 @@ export default function RepoHub() {
       </div>
 
       <div className="limn-dash-head">
-        <button className="btn btn-sm btn-ghost limn-back" onClick={() => backToDashboard()} title="Back to repositories">
+        <button className="btn btn-sm btn-ghost limn-back" onClick={() => void backToDashboard()} title="Back to repositories">
           <I.arrow style={{ width: 12, height: 12, transform: 'rotate(180deg)' }} />Repositories
         </button>
         <RepoSwitcher repo={repo} repos={repos} onSwitch={(p) => void enterHub(p)} onOpenRepository={() => void openRepository()} />

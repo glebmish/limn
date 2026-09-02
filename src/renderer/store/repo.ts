@@ -112,17 +112,27 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
   async enterHub(repoPath) {
     const repo = repoPath ?? get().repo
     if (!repo) { void get().backToDashboard(); return }
-    // validate before touching the screen — a dead `/hub?repo=` deep link (a repo
-    // that's gone, or was never a git repo) must not strand the user on a broken
-    // hub. openRepo already throws `${repo} is not a git repository` for this.
-    try {
-      await api().openRepo(repo)
-    } catch (err) {
-      // backToDashboard's loadDashboard() resets `error` — await it before setting
-      // the toast so the toast survives (mirrors boot()'s ticket-ordering comment).
-      await get().backToDashboard()
-      set({ error: err instanceof Error ? err.message : `${repo} is not a git repository` })
-      return
+    // RepoSlice.openRepo already proved this exact repo (it just called api().openRepo
+    // for it) before landing here — skip re-validating so the openRepo→enterHub path,
+    // and any other caller that already holds this repo's live state, don't pay for a
+    // second round trip.
+    const alreadyProven = get().repo === repo && get().repoState != null
+    if (!alreadyProven) {
+      // validate before touching the screen — a dead `/hub?repo=` deep link (a repo
+      // that's gone, or was never a git repo) must not strand the user on a broken
+      // hub. repoState is the cheap check here (no dao.touchRepo write, no bump to
+      // the repo's Recent ranking, unlike openRepo) — any rejection means the path
+      // isn't usable, so the message is the fixed wording rather than whatever git
+      // error text repoState's failure happened to carry.
+      try {
+        await api().repoState(repo)
+      } catch {
+        // backToDashboard's loadDashboard() resets `error` — await it before setting
+        // the toast so the toast survives (mirrors boot()'s ticket-ordering comment).
+        await get().backToDashboard()
+        set({ error: `${repo} is not a git repository` })
+        return
+      }
     }
     // remember the review we came from so the hub can offer a jump-back
     set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null, watchStopped: null })
