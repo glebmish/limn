@@ -44,8 +44,17 @@ export function parseStoredWidth(kind: PanelKind, raw: string | undefined): numb
   return Math.min(Math.max(value, spec.min), spec.max)
 }
 
+/** The CSS custom property a panel's width is written to — both the initial
+ *  `panelVars` inline style below and the shell's imperative writes during a
+ *  pointer drag (the shell bypasses the store on every move, so a drag doesn't
+ *  ripple a store update through the whole review tree; see ShellHandle in
+ *  Review.tsx). */
+export function panelVarName(kind: PanelKind): '--gside-w' | '--chat-w' {
+  return kind === 'sidebar' ? '--gside-w' : '--chat-w'
+}
+
 /** The CSS custom properties the shell sets on its root element for the current
  *  sidebar / chat widths. */
 export function panelVars(sidebarWidth: number, chatWidth: number): Record<string, string> {
-  return { '--gside-w': `${sidebarWidth}px`, '--chat-w': `${chatWidth}px` }
+  return { [panelVarName('sidebar')]: `${sidebarWidth}px`, [panelVarName('chat')]: `${chatWidth}px` }
 }

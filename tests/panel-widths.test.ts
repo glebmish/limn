@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clampPanelWidth, parseStoredWidth, panelVars, PANELS, MAIN_MIN, KEY_STEP, HARD_FLOOR } from '../src/renderer/lib/panelWidths'
+import { clampPanelWidth, parseStoredWidth, panelVars, panelVarName, PANELS, MAIN_MIN, KEY_STEP, HARD_FLOOR } from '../src/renderer/lib/panelWidths'
 
 describe('PANELS / constants', () => {
   it('defines sidebar and chat specs', () => {
@@ -63,5 +63,15 @@ describe('parseStoredWidth', () => {
 describe('panelVars', () => {
   it('produces the CSS custom properties the shell sets', () => {
     expect(panelVars(300, 400)).toEqual({ '--gside-w': '300px', '--chat-w': '400px' })
+  })
+})
+
+describe('panelVarName', () => {
+  // Pins the live-width -> CSS-var-name mapping the shell uses both for the
+  // initial panelVars() inline style and for its imperative writes onto the
+  // .wf-body element during a pointer drag (see ShellHandle in Review.tsx).
+  it('maps sidebar to --gside-w and chat to --chat-w', () => {
+    expect(panelVarName('sidebar')).toBe('--gside-w')
+    expect(panelVarName('chat')).toBe('--chat-w')
   })
 })

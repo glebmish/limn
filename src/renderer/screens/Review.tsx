@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { memo, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
@@ -25,34 +25,62 @@ import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
 import { useDevReviewHooks } from '../lib/useDevReviewHooks'
 import { useReviewScroll } from '../lib/useReviewScroll'
 import { dev } from '../dev'
-import { PANELS, clampPanelWidth, panelVars, type PanelKind } from '../lib/panelWidths'
+import { PANELS, clampPanelWidth, panelVarName, panelVars, type PanelKind } from '../lib/panelWidths'
 
 /** Wraps a SplitHandle with the clamp/persist plumbing shared by the sidebar and
- *  chat-drawer dividers: reads the panel's live width from the store, rounds and
- *  clamps every dragged/keyed candidate against the current viewport and the
- *  *other* panel's width, and reads the latest width from the store (not the
- *  render's closure) when a gesture commits — a drag ends after many renders. */
-function ShellHandle({ kind, other }: { kind: PanelKind; other: number }) {
+ *  chat-drawer dividers.
+ *
+ *  `Review` subscribes to the whole store (`useStore()`), so a store write on
+ *  every pointer move would re-render the entire review tree per pixel dragged.
+ *  Instead, a POINTER drag never touches the store: `onChange` rounds + clamps
+ *  the candidate and writes the CSS var straight onto `bodyRef` (the `.wf-body`
+ *  element), bypassing React for the whole gesture. The store is only written
+ *  at gesture end — `onCommit` (pointerup) and `onReset` (double-click) — via
+ *  `setPanelWidth(..., { persist: true })`. A keyboard nudge calls `onChange`
+ *  then `onCommit` back-to-back with no drag in between, so it still commits
+ *  (and persists) immediately, one key press = one store write.
+ *
+ *  `liveRef` tracks the last width actually applied (by `onChange`/`onReset`),
+ *  read back by `onCommit`. It is kept equal to the store's committed value on
+ *  every render (cheap — this component is memoized, so an unrelated re-render
+ *  of `Review` doesn't touch it, only a change to its own props or its own
+ *  `committed` subscription does) so that a bare click — pointerdown/up with no
+ *  intervening move — sees `liveRef.current === committed` and `onCommit` skips
+ *  the no-op persist. */
+const ShellHandle = memo(function ShellHandle({ kind, other, bodyRef }: { kind: PanelKind; other: number; bodyRef: RefObject<HTMLDivElement | null> }) {
   const spec = PANELS[kind]
   const direction: 1 | -1 = kind === 'sidebar' ? 1 : -1
-  const value = useStore((s) => (kind === 'sidebar' ? s.sidebarWidth : s.chatWidth))
+  const varName = panelVarName(kind)
+  const committed = useStore((s) => (kind === 'sidebar' ? s.sidebarWidth : s.chatWidth))
   const setPanelWidth = useStore((s) => s.setPanelWidth)
+  const liveRef = useRef(committed)
+  liveRef.current = committed
+
+  const applyWidth = (w: number): void => {
+    liveRef.current = w
+    bodyRef.current?.style.setProperty(varName, `${w}px`)
+  }
+
   return (
     <SplitHandle
       label={kind === 'sidebar' ? 'Resize sidebar' : 'Resize chat drawer'}
-      value={value}
+      value={committed}
       min={spec.min}
       max={spec.max}
       direction={direction}
-      onChange={(w) => setPanelWidth(kind, clampPanelWidth(kind, Math.round(w), window.innerWidth, other))}
+      onChange={(w) => applyWidth(clampPanelWidth(kind, Math.round(w), window.innerWidth, other))}
       onCommit={() => {
         const latest = kind === 'sidebar' ? useStore.getState().sidebarWidth : useStore.getState().chatWidth
-        setPanelWidth(kind, latest, { persist: true })
+        if (liveRef.current === latest) return // bare click — nothing moved, don't persist
+        setPanelWidth(kind, liveRef.current, { persist: true })
       }}
-      onReset={() => setPanelWidth(kind, spec.default, { persist: true })}
+      onReset={() => {
+        applyWidth(spec.default)
+        setPanelWidth(kind, spec.default, { persist: true })
+      }}
     />
   )
-}
+})
 
 export default function Review() {
   const store = useStore()
@@ -63,6 +91,9 @@ export default function Review() {
   const gen = reviewOp(store.ops, loaded)
   const [titleCommenting, setTitleCommenting] = useState(false)
   const chatOpen = store.chatOpen
+  // the ShellHandles write --gside-w / --chat-w straight onto this element during
+  // a pointer drag, bypassing the store (see ShellHandle above) until commit
+  const wfBodyRef = useRef<HTMLDivElement>(null)
 
   const sections = useMemo(() => loaded?.state.annotations ? effectiveSections(loaded) : [], [loaded])
   // When the tree is dirty, the merged base→working-tree diff (committed + uncommitted
@@ -248,7 +279,7 @@ export default function Review() {
         </div>
       )}
 
-      <div className="wf-body" style={panelVars(sidebarWidth, chatWidth) as CSSProperties}>
+      <div className="wf-body" ref={wfBodyRef} style={panelVars(sidebarWidth, chatWidth) as CSSProperties}>
         {/* LEFT spine */}
         <ReviewSidebar
           loaded={loaded}
@@ -279,7 +310,7 @@ export default function Review() {
           toggleDoc={toggleDoc}
           closeDocBack={closeDocBack}
         />
-        <ShellHandle kind="sidebar" other={chatOpen ? chatWidth : 0} />
+        <ShellHandle kind="sidebar" other={chatOpen ? chatWidth : 0} bodyRef={wfBodyRef} />
 
         {/* MAIN */}
         <main className="gmain" ref={scrollRef}>
@@ -361,7 +392,7 @@ export default function Review() {
           )}
         </main>
 
-        {chatOpen && <ShellHandle kind="chat" other={sidebarWidth} />}
+        {chatOpen && <ShellHandle kind="chat" other={sidebarWidth} bodyRef={wfBodyRef} />}
         <ChatDrawer open={chatOpen} onClose={() => store.closeChat()} />
       </div>
     </div>

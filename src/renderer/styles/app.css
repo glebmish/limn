@@ -695,4 +695,5 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
 /* While dragging, the pointer can slide off the 6px handle onto surrounding text —
    suppress selection and keep the resize cursor for the whole document. */
 body.is-resizing { user-select: none; cursor: col-resize; }
+body.is-resizing * { cursor: col-resize !important; }
 .limn-refpick-list { max-height: 280px; overflow-y: auto; }
