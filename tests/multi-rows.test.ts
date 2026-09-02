@@ -40,7 +40,7 @@ describe('buildMultiRows', () => {
     expect(yz.cells[1]).toMatchObject({ l: { text: 'const y = 1' }, attribution: 'gone' })
     expect(yz.cells[2]).toMatchObject({ l: { text: 'const y = 2', origin: 'unstaged' }, attribution: 'since' })
     expect(yz.cells[2].marks).toEqual([{ start: 10, len: 1 }])
-    expect(yz.now).toEqual({ run: now[0].lines, idx: 5 })
+    expect(yz.run).toEqual({ lines: now[0].lines, idx: 5 })
     expect(yz.anchor).toEqual({ side: 'new', lineNo: 5 })
   })
 
@@ -51,7 +51,7 @@ describe('buildMultiRows', () => {
     expect(six.cells[1]).toMatchObject({ side: 'mid', lineNo: 7, kind: '', l: { text: 'l6' } })
     expect(six.cells[2]).toMatchObject({ l: null, deleted: true, attribution: 'since' })
     expect(six.anchor).toEqual({ side: 'old', lineNo: 6 })
-    expect(six.now).toBeNull()
+    expect(six.run).toEqual({ lines: now[0].lines, idx: 7 })
     const three = rows.find((r) => r.key === 'old:3')!
     expect(three.cells[0]).toMatchObject({ kind: 'del' })
     expect(three.cells[1]).toMatchObject({ deleted: true })
@@ -60,11 +60,11 @@ describe('buildMultiRows', () => {
     expect(three.cells[2].attribution).toBeUndefined()
   })
 
-  it('anchors a kept line on its now number and carries the now run for discard', () => {
+  it('anchors a kept line on its now number and carries its run for discard', () => {
     const rows = aligned(buildMultiRows(mid, now, null))
     const four = rows.find((r) => r.key === 'old:4')!
     expect(four.anchor).toEqual({ side: 'new', lineNo: 4 })
-    expect(four.now).toEqual({ run: now[0].lines, idx: 4 })
+    expect(four.run).toEqual({ lines: now[0].lines, idx: 4 })
     expect(four.cells[2].l).toMatchObject({ old: 4, new: 4 })
   })
 
@@ -83,7 +83,7 @@ describe('buildMultiRows', () => {
     expect(r.cells[2]).toMatchObject({ lineNo: 21, kind: '', l: { text: 'r', new: 21 } })
     // not inside a now hunk: real content, but no anchor payload to hand the pipeline
     expect(r.anchor).toBeNull()
-    expect(r.now).toBeNull()
+    expect(r.run).toBeNull()
   })
 
   it('lays gaps between covered segments in now coordinates with both offsets', () => {

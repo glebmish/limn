@@ -309,9 +309,11 @@ export interface AlignedRow {
   anchor: { side: 'old' | 'new'; lineNo: number } | null
   hunkRange: string
   fromHunk: boolean
-  /** the now cell's line in its run, for the discard span and the frame sliver;
-   *  null when the row has no now line */
-  now: { run: DiffLine[]; idx: number } | null
+  /** the anchor line's hunk run with the row's index in it — what `discardSpanAt`
+   *  walks (an unstaged span is discarded from its deletion row too). Null for a
+   *  revealed context row (which belongs to no run) — and, in Multi, for a base
+   *  line git's now-diff never touched. */
+  run: { lines: DiffLine[]; idx: number } | null
 }
 
 export type ViewRow = AlignedRow | GapRow
@@ -327,7 +329,7 @@ export function asAligned(r: LineRow): AlignedRow {
     cells: [cellOf(r.l, r.side, r.lineNo, { marks: r.marks, html: r.html })],
     anchor: r.fromHunk ? { side: r.side, lineNo: r.lineNo } : null,
     hunkRange: r.hunkRange, fromHunk: r.fromHunk,
-    now: r.l.new != null ? { run: r.run, idx: r.runIdx } : null
+    run: { lines: r.run, idx: r.runIdx }
   }
 }
 
@@ -337,14 +339,14 @@ export function contextRows(lines: DiffLine[], layout: Layout, lang: string | nu
   const html = runHighlight(lines, lang).new
   const out: AlignedRow[] = []
   let ni = -1
-  lines.forEach((l, i) => {
+  lines.forEach((l) => {
     if (l.new == null) return
     ni++
     const h = html[ni]
     const cells: Cell[] = layout === 'unified' ? [cellOf(l, 'new', l.new, { html: h })]
       : layout === 'split' ? [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'new', l.new, { html: h })]
       : [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'mid', l.new - midOffset, { html: h }), cellOf(l, 'new', l.new, { html: h })]
-    out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, now: { run: lines, idx: i } })
+    out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, run: null })
   })
   return out
 }
@@ -374,7 +376,7 @@ function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
       cells: [j != null ? cellAt(j, 'old') : pad('old'), k != null ? cellAt(k, 'new') : pad('new')],
       anchor: nowL?.new != null ? { side: 'new', lineNo: nowL.new } : { side: 'old', lineNo: oldL!.old! },
       hunkRange: h.range, fromHunk: true,
-      now: k != null ? { run, idx: k } : null
+      run: { lines: run, idx: k ?? j! }
     }
   }
   const out: AlignedRow[] = []

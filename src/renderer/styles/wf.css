@@ -278,6 +278,12 @@ button.expander-row:hover{background:var(--accent-soft);color:var(--accent-ink)}
 .expander-row.gap-static{color:var(--faint);cursor:default;user-select:none}
 /* where the run leads — the useful half of the old `@@ … @@ ctx` header, as prose */
 .expander-row .gap-fn{color:var(--faint);font-family:var(--mono);font-size:10.5px}
+/* stepped fold (GitHub's): a two-button rail on the gutter, the label beside it */
+.expander-row.fold-steps{padding:0;gap:0;align-items:stretch}
+.fold-btns{display:flex;flex-direction:column;flex:0 0 auto;width:46px;border-right:1px solid var(--line)}
+.fold-btn{border:none;background:none;color:var(--muted-2);cursor:pointer;padding:1px 0;line-height:1;flex:1 1 auto;display:flex;align-items:center;justify-content:center}
+.fold-btn:hover{background:var(--accent-soft);color:var(--accent-ink)}
+.fold-text{padding:5px 14px;display:flex;gap:6px;align-items:center}
 /* covered − rows ride inside the frame's span as inert grey slivers */
 .dline.frame-sliver{opacity:.45;filter:grayscale(.7)}
 .dline.frame-sliver .gutter-add,.dline.frame-sliver .pencil-btn{display:none}

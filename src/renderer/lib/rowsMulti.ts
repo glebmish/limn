@@ -147,7 +147,7 @@ export function buildMultiRows(mid: Hunk[], now: Hunk[], lang: string | null, op
         anchor: n ? { side: 'new', lineNo: n.l.new! } : null,
         hunkRange: n ? n.hunk.range : '',
         fromHunk: n != null,
-        now: n ? { run: n.hunk.lines, idx: n.idx } : null
+        run: n ? { lines: n.hunk.lines, idx: n.idx } : null
       })
     }
   }
@@ -182,7 +182,7 @@ export function buildMultiRows(mid: Hunk[], now: Hunk[], lang: string | null, op
       anchor: nowAt ? (nowDel ? { side: 'old', lineNo: b } : { side: 'new', lineNo: nowNo! }) : null,
       hunkRange: nowAt?.hunk.range ?? '',
       fromHunk: nowAt != null,
-      now: nowAt && !nowDel ? { run: nowAt.hunk.lines, idx: nowAt.idx } : null
+      run: nowAt ? { lines: nowAt.hunk.lines, idx: nowAt.idx } : null
     })
   }
   const tail = gaps[gaps.length - 1]

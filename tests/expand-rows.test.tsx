@@ -52,7 +52,10 @@ describe('expand-context rows', () => {
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).toContain('expand 11 unchanged lines above')
     expect(out).toContain('expand 16 unchanged lines') // between: 15..30
-    expect(out).toContain('expand unchanged lines below') // EOF unknown before fetch
+    // EOF unknown before fetch: a step control down, no count yet
+    expect(out).toContain('unchanged lines below')
+    expect(out).toContain('aria-label="Expand 20 lines down"')
+    expect(out).not.toContain('aria-label="Expand 20 lines up"') // ≤20 runs get the single control
   })
 
   // final review, finding 4: a hunk's leading gap block is returned straight into the
@@ -99,52 +102,24 @@ describe('expand-context rows', () => {
     }
   })
 
-  it('no clickable expanders when the worktree is not available (read-only review)', () => {
+  // the fold reads its text through `readFileAt`, which needs no worktree: a
+  // read-only (ref vs ref, or checked-out-nowhere) review folds like any other
+  it('folds open in a read-only review too', () => {
     seed(false)
     const out = renderToStaticMarkup(<DiffView f={file} />)
-    expect(out).not.toContain('<button class="expander-row"')
-    expect(out).not.toContain('Expand hidden lines')
-    expect(out).not.toContain('expand 11 unchanged')
+    expect(out).toContain('<button class="expander-row"')
+    expect(out).toContain('expand 11 unchanged lines above')
+    expect(out).not.toContain('gap-static')
   })
 })
 
 // Fix round 1, Important: with the `@@` head gone, the collapsed run is the ONLY
 // thing marking a discontinuity — and `.dline` has no top border, so dropping it made
 // hunks at 12–16 and 31–33 render as eight adjacent rows with the gutter silently
-// jumping 16 → 31. The run is now always modelled; only *opening* it needs a worktree.
-describe('discontinuity markers where the run cannot be opened', () => {
-  const markers = (out: string): string[] =>
-    [...out.matchAll(/<div class="expander-row gap-static">(.*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''))
-
-  // the trailing run is the one marker that marks no discontinuity *between shown
-  // rows* — there is nothing after it — and its length is unknowable without the
-  // working file, so the inert variant would say only "there is more file", forever.
-  // It exists to be opened; where it can't be, it isn't drawn (final review, finding 2).
-  it('read-only review still marks every run between/above rows, inertly', () => {
-    seed(false)
-    const out = renderToStaticMarkup(<DiffView f={file} />)
-    expect(markers(out)).toEqual(['11 unchanged lines above', '16 unchanged lines'])
-    expect(out).not.toContain('unchanged lines below')
-    // and the marker sits between the two runs of rows, not after them
-    expect(out.indexOf('src/a.ts:new:14')).toBeLessThan(out.indexOf('16 unchanged lines<'))
-    expect(out.indexOf('16 unchanged lines<')).toBeLessThan(out.indexOf('src/a.ts:new:31'))
-  })
-
-  it('the marker is not interactive: no button, no chevron, no aria-label, no handler', () => {
-    seed(false)
-    const out = renderToStaticMarkup(<DiffView f={file} />)
-    expect(out).not.toMatch(/<button[^>]*expander-row/)
-    expect(out).not.toContain('Expand hidden lines')
-    // the marker element itself carries no interactive affordance: no role, no
-    // tabindex, no chevron — those all ride the clickable variant only
-    const marker = out.slice(out.indexOf('<div class="expander-row gap-static"'))
-      .slice(0, out.slice(out.indexOf('<div class="expander-row gap-static"')).indexOf('</div>'))
-    expect(marker).not.toContain('role=')
-    expect(marker).not.toContain('tabindex')
-    expect(marker).not.toContain('<svg')
-  })
-
-  it('"Since approved" / "Since viewed" mark the runs too, and keep the fn label', () => {
+// jumping 16 → 31. The run is always modelled — and, since the layouts landed, always
+// openable: the text comes from `readFileAt`, in every baseline, worktree or not.
+describe('folds in every baseline', () => {
+  it('"Since approved" / "Since viewed" fold the runs too, and keep the fn label', () => {
     const sinceHunks = [
       { range: '@@ -12,2 +12,3 @@', header: 'def alpha(x):', lines: [
         { old: 12, new: 12, kind: '', text: 'a' },
@@ -156,22 +131,26 @@ describe('discontinuity markers where the run cannot be opened', () => {
     // 'approved' reads sinceHunks, 'viewed' reads sinceViewedHunks (store/derive.ts)
     const since = { ...file, sinceHunks, sinceViewedHunks: sinceHunks } as unknown as FileDiff
     for (const mode of ['approved', 'viewed'] as const) {
-      // writable, so this isolates the mode gate from the worktree gate
-      seed(true, since, mode)
-      const out = renderToStaticMarkup(<DiffView f={since} />)
-      // the fn label survives on the inert marker too (rendered in its own span, so
-      // the stripped text runs the two together)
-      expect(markers(out)).toEqual(['11 unchanged lines abovein alpha', '16 unchanged linesin Beta'])
-      expect(out).not.toMatch(/<button[^>]*expander-row/)
-      expect(out).not.toContain('@@')
+      for (const writable of [true, false]) {
+        seed(writable, since, mode)
+        const out = renderToStaticMarkup(<DiffView f={since} />)
+        expect(out).toContain('expand 11 unchanged lines above')
+        expect(out).toContain('in alpha')
+        expect(out).toContain('in Beta')
+        expect(out).not.toContain('gap-static')
+        expect(out).not.toContain('@@')
+        // and the fold sits between the two runs of rows, not after them
+        expect(out.indexOf('src/a.ts:new:14')).toBeLessThan(out.indexOf('16 unchanged lines'))
+        expect(out.indexOf('16 unchanged lines')).toBeLessThan(out.indexOf('src/a.ts:new:31'))
+      }
     }
   })
 
-  it('branch mode on a writable review still renders the clickable expander', () => {
+  it('branch mode on a writable review renders the clickable fold', () => {
     seed(true)
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).toContain('<button class="expander-row"')
-    expect(out).toContain('aria-label="Expand hidden lines above"')
+    expect(out).toContain('aria-label="Expand 11 hidden lines"')
     expect(out).not.toContain('gap-static')
   })
 
@@ -232,6 +211,6 @@ describe('discontinuity markers where the run cannot be opened', () => {
     expect(at('expand 11 unchanged lines above')).toBeLessThan(at('src/a.ts:new:12'))
     expect(at('src/a.ts:new:14')).toBeLessThan(at('expand 16 unchanged lines'))
     expect(at('expand 16 unchanged lines')).toBeLessThan(at('src/a.ts:new:31'))
-    expect(at('src/a.ts:new:31')).toBeLessThan(at('expand unchanged lines below'))
+    expect(at('src/a.ts:new:31')).toBeLessThan(at('unchanged lines below'))
   })
 })

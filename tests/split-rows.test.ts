@@ -25,7 +25,7 @@ describe('buildSplitRows', () => {
     expect(rows[2].cells.map((c) => c.l?.text)).toEqual(['gone', 'extra'])
     expect(rows[3].cells[0]).toMatchObject({ l: null, side: 'old', lineNo: null })
     expect(rows[3].cells[1]).toMatchObject({ lineNo: 13, kind: 'add' })
-    expect(rows[1].now).toEqual({ run: h.lines, idx: 3 })
+    expect(rows[1].run).toEqual({ lines: h.lines, idx: 3 })
   })
 
   it('a pure deletion keys and anchors on the old side; everything else on new', () => {
@@ -36,7 +36,7 @@ describe('buildSplitRows', () => {
     expect(rows[1].key).toBe('old:2')
     expect(rows[1].anchor).toEqual({ side: 'old', lineNo: 2 })
     expect(rows[0].anchor).toEqual({ side: 'new', lineNo: 1 })
-    expect(rows[1].now).toBeNull()
+    expect(rows[1].run).toEqual({ lines: del.lines, idx: 1 }) // the deletion's own run, for discard
   })
 
   it('word-marks a paired del/add per cell', () => {

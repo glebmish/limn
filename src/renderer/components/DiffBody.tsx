@@ -1,19 +1,23 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
-import { diffHunksForMode, useStore, type DiffMode } from '../store'
+import { checkpointLabel, diffHunksForMode, multiHunksForMode, useStore, type DiffMode } from '../store'
 import { sinceBasis } from '../../shared/sinceBasis'
-import { railExplanation } from '../lib/railExplanation'
+import { attributionExplanation, railExplanation } from '../lib/railExplanation'
 import { Tooltip } from './Tooltip'
 import { Composer, InlineThread } from './Threads'
 import type { CharRange } from '../lib/worddiff'
 import { disp, highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
 import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
-import { gapLines, hunkGaps, type Gap } from '../lib/expand'
-import { buildFileRows, viewRows, type FileRow, type LineRow } from '../lib/rows'
+import {
+  STEP, foldControls, gapContaining, hunkGaps, revealLines, stepReveal, type Gap, type GapReveal
+} from '../lib/expand'
+import { asAligned, buildFileRows, buildSplitRows, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
+import { buildMultiRows, multiGaps } from '../lib/rowsMulti'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
+import { FoldRow } from './FoldRow'
 
 /** Which line the per-line comment composer is open on, in the file-line key space
  *  (`lib/rows.ts`): working-tree rows are addressed on the new side, deletions on the
@@ -21,6 +25,8 @@ import { FlowFrame } from './FlowFrame'
  *  the property the old `{ hunkIdx, lineIdx }` pair bought, now expressed in terms
  *  the reader (and the anchor pipeline) actually think in. */
 export interface ComposerAt { side: 'new' | 'old'; line: number }
+
+const NO_REVEAL: GapReveal = { top: 0, bottom: 0 }
 
 /** The raw-text column under a double-click, for placing the caret when a flow frame
  *  opens (#5). Best-effort and browser-only (no jsdom equivalent exists to test
@@ -86,6 +92,14 @@ function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | n
   )
 }
 
+/** The origin / drift rail class for a line, shared by the unified row and a cell. */
+function originCls(l: DiffLine | null, driftRails: boolean): string {
+  if (!l) return ''
+  if (l.origin === 'staged') return ' staged'
+  if (l.origin === 'unstaged') return ' unstaged'
+  return driftRails && (l.since || l.sinceViewed) ? ' since' : ''
+}
+
 /** The file body: guidance note, the file's continuous rows (changed lines plus the
  *  collapsed runs of unchanged lines between them — #11: this reads as the file, not
  *  as a stack of git hunks), per-line comment gutter/threads/composer, empty-state
@@ -94,20 +108,41 @@ function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | n
  *  Every row — hunk line, revealed context line, collapsed run — lives in ONE flat
  *  keyed array, keyed by its file line (`lib/rows.ts`). That single key space is what
  *  lets an edit frame grow across what used to be a hunk boundary without React
- *  tearing it down and remounting it. */
-export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt }: {
+ *  tearing it down and remounting it. Since the layouts landed the rows are *aligned
+ *  rows* — one cell per column: Unified renders its single cell in exactly the DOM it
+ *  always had; Split and Multi render a `.dcell` per column inside the same `.dline`.
+ *
+ *  The collapsed runs fold the way GitHub's do (`FoldRow`, `lib/expand.ts`): STEP
+ *  lines from either edge, in every baseline and in read-only reviews — the text
+ *  comes from `readFileAt`, not the write capability. ONE reveal primitive
+ *  (`reveal(gap, edge)`) serves the fold buttons, the post-save ↑/↓ walk and the
+ *  FlowFrame growth gesture alike. */
+export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt, revealAllFlag = false, onLayoutFallback }: {
   f: FileDiff
   mode: DiffMode
   showBody: boolean
   fileComments: Comment[]
   composerAt: ComposerAt | null
   setComposerAt: (v: ComposerAt | null) => void
+  /** the file header's Expand all / Collapse: true reveals every run, false folds them */
+  revealAllFlag?: boolean
+  /** told whether Multi had to fall back to Split for this file (no checkpoint) */
+  onLayoutFallback?: (fellBack: boolean) => void
 }) {
+  // ── layout: the global pref, with Multi needing a checkpoint column to show. A
+  // file without one renders Split (and the header says so) rather than pretending.
+  const layoutPref = useStore((s) => s.diffLayout)
+  const midHunks = layoutPref === 'multi' ? multiHunksForMode(f, mode) : undefined
+  const fellBack = layoutPref === 'multi' && midHunks == null
+  const layout: Layout = layoutPref === 'multi' ? (midHunks ? 'multi' : 'split') : layoutPref
+  useEffect(() => { onLayoutFallback?.(fellBack) }, [fellBack, onLayoutFallback])
   // show exactly the selected baseline — if a tracked file has no diff at that baseline
   // it renders the empty state below, rather than silently falling back to the full diff
   // (which made the shown content contradict the selected "Since …" mode). Untracked
   // files are wholly new, so their since-diff equals the full diff (see diffHunksForMode).
-  const hunks = diffHunksForMode(f, mode)
+  // In Multi the baseline picks the MIDDLE column instead: the now column is always the
+  // full base→now diff, so both side columns are measured from the same base.
+  const hunks = layout === 'multi' ? f.hunks : diffHunksForMode(f, mode)
   const lang = langForPath(f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   // resolved comments are included: the re-anchor pipeline now maintains their
@@ -185,64 +220,90 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // ── collapsed runs: the unchanged file lines around/between the changes. Revealed
   // rows are plain working-tree rows — same pencil, same frame. Component state,
   // reset when the file re-renders after a save (line numbers may have shifted).
-  const [expandedGaps, setExpandedGaps] = useState<Record<string, DiffLine[]>>({})
-  const fileLinesRef = useRef<string[] | null>(null)
-  // Reset on the MODE too, not just the file: `diffMode` is independent store state,
-  // so `f` keeps its identity across a "Since approved/viewed" tab switch — while the
-  // gap keys (`g<from>`, and the leading gap is `g1` in every mode) do not change with
-  // it. A fold opened in branch mode would otherwise still be "open" in the since view,
-  // over rows that start somewhere else entirely. `viewRows` refuses to splice a stale
-  // reveal regardless (folds open only in branch mode); this keeps the state honest so
-  // re-entering branch mode starts from a closed body rather than a half-remembered one.
-  useEffect(() => { setExpandedGaps({}); fileLinesRef.current = null }, [f, mode])
+  // Reset on the MODE and LAYOUT too, not just the file: both are independent store
+  // state, so `f` keeps its identity across a "Since approved" switch or a Split
+  // toggle — while the gap keys (`g<from>`) do not change with it. A fold opened in
+  // one mode would otherwise still be "open" over rows that start elsewhere.
+  const [reveals, setReveals] = useState<Record<string, GapReveal>>({})
+  const [fileLines, setFileLines] = useState<string[] | null>(null)
+  const [readFailed, setReadFailed] = useState(false)
+  const linesPromise = useRef<Promise<string[] | null> | null>(null)
+  useEffect(() => { setReveals({}); setFileLines(null); setReadFailed(false); linesPromise.current = null }, [f, mode, layout])
   // The runs themselves are pure arithmetic over the hunks and are ALWAYS modelled:
   // they are the only thing marking a discontinuity now that the `@@` head is gone,
   // and a `.dline` has no top border, so leaving them out makes two distant hunks
-  // read as one continuous block with the gutter quietly jumping. *Opening* one needs
-  // a worktree to read from (same availability as editing, v1) — where that is
-  // missing the run renders as an inert marker instead of a button.
-  const gaps = useMemo(() => (f.binary ? [] : hunkGaps(hunks)), [f.binary, hunks])
-  const canExpand = editable && mode === 'branch' && !f.binary
+  // read as one continuous block with the gutter quietly jumping. In Multi a run is
+  // unchanged in every column, so it is measured once, in now coordinates, with the
+  // offsets back to the other two (lib/rowsMulti.ts).
+  const gaps = useMemo(
+    () => (f.binary ? [] : layout === 'multi' ? multiGaps(midHunks ?? [], hunks) : hunkGaps(hunks)),
+    [f.binary, layout, midHunks, hunks]
+  )
   /** the file's row model: changed rows and collapsed runs, in file order. `lang` in
    *  the deps: it's a pure function of `f.path`, so it never actually changes without
    *  `hunks`/`gaps` also changing, but exhaustive-deps wants it named since the
    *  highlight pass (#7) now depends on it directly. */
-  const rows = useMemo(
+  const rows = useMemo((): ViewRow[] => {
+    if (f.binary) return []
     // an added file's hunks ARE the whole file, so there is no run trailing off below
     // its last line to offer (lib/rows.ts spots the wholly-deleted case itself)
-    () => buildFileRows(hunks, gaps, lang, { trailing: f.status !== 'added' }),
-    [hunks, gaps, lang, f.status]
-  )
-  const expand = async (gap: Gap): Promise<void> => {
-    if (!loaded || !canExpand) return
-    try {
-      if (!fileLinesRef.current) {
-        const wf = await api().readWorkingFile(loaded.state.repo, loaded.session.pair.compare, f.path)
-        if (!wf.ok) return
-        fileLinesRef.current = wf.lines
-      }
-      const revealed = gapLines(fileLinesRef.current, gap)
-      if (revealed.length) setExpandedGaps((prev) => ({ ...prev, [gap.key]: revealed }))
-    } catch { /* worktree read failed — leave the fold closed */ }
-  }
-  /** the fold (unrevealed, openable run) whose span contains working-tree line `n` */
-  const hiddenGapContaining = (n: number): Gap | undefined =>
-    canExpand ? gaps.find((g) => !expandedGaps[g.key] && n >= g.from && (g.to == null || n <= g.to)) : undefined
+    const trailing = f.status !== 'added'
+    if (layout === 'multi') return buildMultiRows(midHunks ?? [], hunks, lang, { trailing })
+    if (layout === 'split') return buildSplitRows(hunks, gaps, lang, { trailing })
+    return buildFileRows(hunks, gaps, lang, { trailing }).map((r) => (r.type === 'line' ? asAligned(r) : r))
+  }, [f.binary, f.status, layout, midHunks, hunks, gaps, lang])
 
-  // Growth across a fold (board 01): when the frame's edge enters a fold, the
-  // fold's lines reveal in one batch — only the adjacent line joined the frame.
+  /** The file's text as it is now — fetched once per file/mode, shared by every
+   *  reveal. `readFileAt` needs no write capability, so a read-only review and every
+   *  since-baseline get their folds too. A failed read leaves them inert. */
+  const ensureLines = (): Promise<string[] | null> => {
+    if (fileLines) return Promise.resolve(fileLines)
+    if (!loaded || readFailed) return Promise.resolve(null)
+    if (!linesPromise.current) {
+      linesPromise.current = api().readFileAt(loaded.state.repo, loaded.session.pair.compare, f.path, { kind: 'now' })
+        .then((r) => {
+          if (!r.ok) { setReadFailed(true); return null }
+          setFileLines(r.lines)
+          return r.lines
+        })
+        .catch(() => { setReadFailed(true); return null })
+    }
+    return linesPromise.current
+  }
+  const total = fileLines?.length ?? null
+  /** THE reveal primitive: `n` more lines of `gap` from `edge`. Fold buttons, the
+   *  ↑/↓ walk and frame growth all come through here — none of them fetches or keeps
+   *  state of its own. */
+  const reveal = async (gap: Gap, edge: 'top' | 'bottom', n = STEP): Promise<void> => {
+    const lines = await ensureLines()
+    if (!lines) return
+    setReveals((prev) => ({ ...prev, [gap.key]: stepReveal(gap, prev[gap.key] ?? NO_REVEAL, edge, lines.length, n) }))
+  }
+  const revealAll = (gap: Gap): Promise<void> => reveal(gap, 'top', Infinity)
+  /** the fold still hiding now-line `n`, and the edge to open it from */
+  const revealPlan = (n: number): { gap: Gap; edge: 'top' | 'bottom' } | undefined => gapContaining(gaps, reveals, total, n)
+
+  // the file header's Expand all / Collapse (the same primitive, every run at once)
+  useEffect(() => {
+    if (revealAllFlag) { for (const g of gaps) void revealAll(g) }
+    else setReveals({})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealAllFlag])
+
+  // Growth across a fold (board 01): when the frame's edge enters a fold, the fold
+  // reveals STEP lines from that edge — only the adjacent line joined the frame.
   useEffect(() => {
     if (!frame) return
     for (const n of [frame.start - 1, frame.start, frame.end, frame.end + 1]) {
-      const g = hiddenGapContaining(n)
-      if (g) void expand(g)
+      const p = revealPlan(n)
+      if (p) void reveal(p.gap, p.edge)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frame?.start, frame?.end])
 
   // ── post-save keyboard round trip (board 01): the save leaves a selection on the
-  // line; ↑/↓ move it (folds reveal in batches as crossed), ⏎ re-enters edit on the
-  // selected line, esc clears. Active only while no frame is open in this file.
+  // line; ↑/↓ move it (folds reveal in STEP-line batches as crossed), ⏎ re-enters
+  // edit on the selected line, esc clears. Active only while no frame is open here.
   const lineSelect = useStore((s) => s.lineSelect)
   const setLineSelect = useStore((s) => s.setLineSelect)
   const selected = lineSelect && lineSelect.file === f.path && !frame && editable ? lineSelect : null
@@ -262,17 +323,17 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
       void (async () => {
         const target = selected.line + (e.key === 'ArrowDown' ? 1 : -1)
         if (target < 1) return
-        const g = hiddenGapContaining(target)
-        if (g) await expand(g) // crossing a fold reveals it in one batch
-        const eof = fileLinesRef.current?.length
-        if (eof != null && target > eof) return
+        const p = revealPlan(target)
+        if (p) await reveal(p.gap, p.edge) // crossing a fold reveals its next step
+        const lines = await ensureLines()
+        if (lines && target > lines.length) return
         setLineSelect({ file: f.path, line: target })
       })()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, f.path])
+  }, [selected, f.path, reveals, total])
   // keep the moving selection on screen
   useEffect(() => {
     if (!selected) return
@@ -285,71 +346,135 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
       c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
     )
 
-  // The rows as they actually render — revealed runs spliced in, stale reveals and
-  // the un-openable trailing marker dropped (lib/rows.ts `viewRows`, which is where
-  // the reasoning and the tests for both live). Memoized: it re-runs the per-run
-  // highlight join for every expanded fold, which has no business happening on a
-  // render that only moved the line selection.
-  const view = useMemo(
-    () => viewRows(rows, expandedGaps, canExpand, lang),
-    [rows, expandedGaps, canExpand, lang]
-  )
-  const lineAt = (i: number): DiffLine | null => {
-    const r = view[i]
-    return r && r.type === 'line' ? r.l : null
+  // The rows as they actually render — each fold's revealed edges spliced in around
+  // it (lib/rows.ts `viewAlignedRows`). Memoized: it re-runs the per-run highlight
+  // join for every revealed edge, which has no business happening on a render that
+  // only moved the line selection.
+  const revealed = useMemo(() => {
+    const out: Record<string, { top: DiffLine[]; bottom: DiffLine[] }> = {}
+    if (!fileLines) return out
+    for (const g of gaps) {
+      const r = reveals[g.key]
+      if (r && (r.top || r.bottom)) out[g.key] = revealLines(fileLines, g, r)
+    }
+    return out
+  }, [gaps, reveals, fileLines])
+  const view = useMemo(() => viewAlignedRows(rows, revealed, layout, lang), [rows, revealed, layout, lang])
+  /** the now-side line of an aligned row, if it has one */
+  const nowLine = (r: ViewRow | undefined): DiffLine | null => {
+    if (!r || r.type !== 'aligned') return null
+    const c = r.cells[r.cells.length - 1]
+    return c.side === 'new' && c.l ? c.l : null
   }
 
-  /** A collapsed run of unchanged file lines. Openable where there is a worktree to
-   *  read the lines from; everywhere else (a read-only review, the "Since …" tabs)
-   *  the same hairline renders as an inert marker — it still has to say the file
-   *  jumps here, which is the job the `@@` head used to do by accident. */
-  const gapNode = (r: Extract<FileRow, { type: 'gap' }>): React.ReactNode => {
-    const count = r.gap.to != null ? r.gap.to - r.gap.from + 1 : null
-    const lines = count != null ? `${count} unchanged line${count === 1 ? '' : 's'}` : 'unchanged lines'
-    const text = r.where ? `${lines} ${r.where}` : lines
-    // the one genuinely useful half of the old `@@ … @@ ctx` header, as plain prose:
-    // where in the file this collapsed run leads
-    const fn = r.fn ? <span className="gap-fn">in {r.fn}</span> : null
-    if (!canExpand) {
-      return <div key={r.key} className="expander-row gap-static">{text}{fn}</div>
-    }
+  /** A collapsed run of unchanged file lines — see `FoldRow`. Inert (a marker, not a
+   *  control) only when the text could not be read; the trailing run then has
+   *  nothing true to say ("there is more file", forever) and is dropped. */
+  const gapNode = (r: GapRow): React.ReactNode => {
+    const inert = readFailed || f.binary
+    if (inert && r.where === 'below') return null
+    const controls = foldControls(r.gap, reveals[r.gap.key] ?? NO_REVEAL, total, r.where)
+    if (!controls && !inert) return null // fully revealed
     return (
-      <button
+      <FoldRow
         key={r.key}
-        className="expander-row"
-        onClick={() => void expand(r.gap)}
-        aria-label={r.where ? `Expand hidden lines ${r.where}` : 'Expand hidden lines'}
-      >
-        <I.chevR style={{ width: 10, height: 10, transform: 'rotate(90deg)' }} />
-        {`expand ${text}`}
-        {fn}
-      </button>
+        row={r}
+        controls={controls}
+        inert={inert}
+        onReveal={(edge) => void reveal(r.gap, edge)}
+        onRevealAll={() => void revealAll(r.gap)}
+      />
     )
   }
 
-  const lineNode = (r: LineRow, i: number): React.ReactNode => {
-    const { l, side, lineNo, key } = r
+  // the rail is a 3px pseudo-element, so it cannot be hovered on its own: a wider
+  // transparent strip sits over it carrying the explanation. Asking "what is this
+  // mark?" where the mark is beats walking up to the header's key. In Multi the
+  // attribution mark replaces the drift rail on the side columns.
+  const railTipFor = (c: Cell): string | null =>
+    c.attribution ? attributionExplanation(c.attribution, mode)
+    : c.l ? railExplanation(c.l, driftBasis) : null
+  const driftRails = layout !== 'multi'
+
+  const commentButton = (anchor: NonNullable<AlignedRow['anchor']>): React.ReactNode => (
+    <button
+      className="gutter-add limn-line-add"
+      title="Comment on this line"
+      aria-label={`Comment on line ${anchor.lineNo}`}
+      onClick={() => setComposerAt({ side: anchor.side, line: anchor.lineNo })}
+    >
+      <I.plus style={{ width: 12, height: 12 }} />
+    </button>
+  )
+  const pencil = (l: DiffLine): React.ReactNode => (
+    <button
+      className="pencil-btn limn-line-edit"
+      title="Edit this line in place — saves as an uncommitted change"
+      aria-label={`Edit line ${l.new}`}
+      onClick={() => openFrameAt(l)}
+    >
+      <I.edit style={{ width: 12, height: 12 }} />
+    </button>
+  )
+  const discardButton = (r: AlignedRow, l: DiffLine): React.ReactNode =>
+    r.run && l.origin === 'unstaged' && discardSpanAt(r.run.lines, r.run.idx) != null ? (
+      <button
+        className="rail-undo limn-line-discard"
+        title="Discard — git checkout -- (reverts this uncommitted span)"
+        aria-label={`Discard uncommitted change at line ${l.new ?? l.old}`}
+        onClick={() => void discardAt(r.run!.lines, r.run!.idx)}
+      >
+        <I.undo style={{ width: 10, height: 10 }} />
+      </button>
+    ) : null
+  const afterRow = (r: AlignedRow): React.ReactNode => {
+    if (!r.anchor) return null
+    const { side, lineNo } = r.anchor
+    const threads = threadsFor(lineNo, side)
+    const l = r.cells.find((c) => c.side === side)?.l
+    return (
+      <>
+        {threads.map((c) => (
+          <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />
+        ))}
+        {composerAt && composerAt.side === side && composerAt.line === lineNo && (
+          <Composer
+            placeholder="Leave a comment for the agent…"
+            onCancel={() => setComposerAt(null)}
+            onSubmit={(text) => {
+              // derive the anchor from the identified row — byte-identical to what
+              // the hunk-indexed composer produced, `hunkRange` included: the row
+              // model carries its hunk's range for exactly this field, even though
+              // nothing renders it any more (#11).
+              void useStore.getState().addComment(
+                { kind: 'diff', file: f.path, side, line: lineNo, hunkRange: r.hunkRange, lineContent: l?.text ?? '' },
+                text
+              )
+              setComposerAt(null)
+            }}
+          />
+        )}
+      </>
+    )
+  }
+
+  /** Unified: the one cell rendered as the `.dline` it has always been. */
+  const unifiedNode = (r: AlignedRow, i: number): React.ReactNode => {
+    const c = r.cells[0]
+    const l = c.l!
     // rows the open frame covers: the first mounts the editor, the rest hide; a −
     // row adjacent to covered rows stays as a grey sliver (its text is what the edit
     // may replace — scope marker, not input). Returned bare (never wrapped in a
     // Fragment keyed by this row's own position) — see the comment on mountFrame.
     if (coveredBy(l)) return mountFrame()
-    const sliver = frame != null && l.new == null && (coveredBy(lineAt(i - 1)) || coveredBy(lineAt(i + 1)))
-    const originCls = l.origin === 'staged' ? ' staged'
-      : l.origin === 'unstaged' ? ' unstaged'
-      : (l.since || l.sinceViewed) ? ' since' : ''
-    // the rail is a 3px pseudo-element, so it cannot be hovered on its own: a wider
-    // transparent strip sits over it carrying the explanation. Asking "what is this
-    // mark?" where the mark is beats walking up to the header's key.
-    const railTip = railExplanation(l, driftBasis)
+    const sliver = frame != null && l.new == null && (coveredBy(nowLine(view[i - 1])) || coveredBy(nowLine(view[i + 1])))
+    const railTip = railTipFor(c)
     const kindCls = l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : ''
-    const commentable = r.fromHunk
-    const threads = commentable ? threadsFor(lineNo, side) : []
     return (
-      <Fragment key={key}>
+      <Fragment key={r.key}>
         <div
-          className={'dline ' + kindCls + originCls + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
-          data-limn-line={`${f.path}:${side}:${lineNo}`}
+          className={'dline ' + kindCls + originCls(l, driftRails) + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
+          data-limn-line={`${f.path}:${c.side}:${c.lineNo}`}
           onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
         >
           {railTip && (
@@ -360,69 +485,103 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
           )}
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-          <CodeLine text={l.text} lang={lang} ranges={r.marks} html={r.html} />
-          {commentable && (
-            <button
-              className="gutter-add limn-line-add"
-              title="Comment on this line"
-              aria-label={`Comment on line ${lineNo}`}
-              onClick={() => setComposerAt({ side, line: lineNo })}
-            >
-              <I.plus style={{ width: 12, height: 12 }} />
-            </button>
-          )}
-          {editable && l.new != null && (
-            <button
-              className="pencil-btn limn-line-edit"
-              title="Edit this line in place — saves as an uncommitted change"
-              aria-label={`Edit line ${l.new}`}
-              onClick={() => openFrameAt(l)}
-            >
-              <I.edit style={{ width: 12, height: 12 }} />
-            </button>
-          )}
-          {editable && l.origin === 'unstaged' && discardSpanAt(r.run, r.runIdx) != null && (
-            <button
-              className="rail-undo limn-line-discard"
-              title="Discard — git checkout -- (reverts this uncommitted span)"
-              aria-label={`Discard uncommitted change at line ${lineNo}`}
-              onClick={() => void discardAt(r.run, r.runIdx)}
-            >
-              <I.undo style={{ width: 10, height: 10 }} />
-            </button>
-          )}
+          <CodeLine text={l.text} lang={lang} ranges={c.marks} html={c.html} />
+          {r.anchor && commentButton(r.anchor)}
+          {editable && l.new != null && pencil(l)}
+          {editable && discardButton(r, l)}
         </div>
-        {threads.map((c) => (
-          <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />
-        ))}
-        {commentable && composerAt && composerAt.side === side && composerAt.line === lineNo && (
-          <Composer
-            placeholder="Leave a comment for the agent…"
-            onCancel={() => setComposerAt(null)}
-            onSubmit={(text) => {
-              // derive the anchor from the identified row — byte-identical to what
-              // the hunk-indexed composer produced, `hunkRange` included: the row
-              // model carries its hunk's range for exactly this field, even though
-              // nothing renders it any more (#11).
-              void useStore.getState().addComment(
-                { kind: 'diff', file: f.path, side, line: lineNo, hunkRange: r.hunkRange, lineContent: l.text },
-                text
-              )
-              setComposerAt(null)
-            }}
-          />
-        )}
+        {afterRow(r)}
       </Fragment>
     )
   }
 
+  /** Split / Multi: a `.dcell` per column. The frame lives in the now cell only —
+   *  the rows it covers merge into one row whose other cells stack the lines they
+   *  showed, so the columns stay aligned and base/checkpoint text stays readable
+   *  beside the editor. */
+  const columnsNode = (r: AlignedRow, i: number): React.ReactNode => {
+    const nowL = nowLine(r)
+    if (nowL && coveredBy(nowL)) {
+      if (!frame || frameMounted) return null
+      frameMounted = true
+      const covered: AlignedRow[] = []
+      for (let j = i; j < view.length; j++) {
+        const cr = view[j]
+        if (cr.type !== 'aligned' || !coveredBy(nowLine(cr))) break
+        covered.push(cr)
+      }
+      return (
+        <div key={`flow-${frame.frameId}`} className="dline dmerged">
+          {r.cells.slice(0, -1).map((_, ci) => (
+            <div key={ci} className="dcell dstack">
+              {covered.map((cr) => {
+                const c = cr.cells[ci]
+                return (
+                  <div key={cr.key} className="dstack-line">
+                    <span className="gut"><span>{c.lineNo ?? ''}</span></span>
+                    {c.l ? <CodeLine text={c.l.text} lang={lang} html={c.html} /> : <span className="code" />}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+          <div className="dcell dframe"><FlowFrame f={f} frame={frame} /></div>
+        </div>
+      )
+    }
+    const nowCell = r.cells[r.cells.length - 1]
+    return (
+      <Fragment key={r.key}>
+        <div className="dline split">
+          {r.cells.map((c, ci) => {
+            const isNow = c === nowCell && c.side === 'new'
+            const railTip = railTipFor(c)
+            const kindCls = c.deleted ? 'del-slot' : c.kind
+            const cls = 'dcell ' + kindCls + originCls(c.l, driftRails && isNow)
+              + (c.attribution ? ' attr-' + c.attribution : '')
+              + (isNow && nowL && selected && nowL.new === selected.line ? ' line-selected' : '')
+            return (
+              <div
+                key={ci}
+                className={cls}
+                data-limn-line={c.l && c.side !== 'mid' && c.lineNo != null ? `${f.path}:${c.side}:${c.lineNo}` : undefined}
+                onDoubleClick={isNow && editable && nowL ? (e) => openFrameAt(nowL, e) : undefined}
+              >
+                {railTip && <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />}
+                <span className="gut"><span>{c.lineNo ?? ''}</span></span>
+                <span className="sign">{c.kind === 'add' ? '+' : c.kind === 'del' || c.deleted ? '−' : ''}</span>
+                {c.l ? <CodeLine text={c.l.text} lang={lang} ranges={c.marks} html={c.html} /> : <span className="code" />}
+                {r.anchor && c.side === r.anchor.side && c.l && commentButton(r.anchor)}
+                {isNow && editable && nowL && pencil(nowL)}
+                {editable && r.anchor && c.side === r.anchor.side && c.l && discardButton(r, c.l)}
+              </div>
+            )
+          })}
+        </div>
+        {afterRow(r)}
+      </Fragment>
+    )
+  }
+
+  const columnStrip = layout === 'unified' ? null : (
+    <div className="dcols">
+      {(layout === 'multi' ? ['Base', checkpointLabel(mode), 'Now'] : ['Old', 'Now']).map((name) => <span key={name}>{name}</span>)}
+    </div>
+  )
+  const empty = !f.binary && hunks.length === 0 && (layout !== 'multi' || (midHunks ?? []).length === 0)
+
   return (
     <>
       {showBody && (
-        <div className="gfile-diff">
+        <div className={'gfile-diff layout-' + layout}>
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
-          {!f.binary && hunks.length === 0 && (
-            mode === 'approved' ? <div className="nodiff">No changes since you approved.</div>
+          {fellBack && !f.binary && (
+            <div className="nodiff layout-note">no checkpoint for this file — showing Split</div>
+          )}
+          {empty && (
+            layout === 'multi' ? <div className="nodiff">No changes at either checkpoint.</div>
+            : mode === 'review' ? <div className="nodiff">No changes since the review ran.</div>
+            : mode === 'approved' ? <div className="nodiff">No changes since you approved.</div>
             : mode === 'viewed' ? <div className="nodiff">No changes since you viewed.</div>
             : f.modeChange ? (
               // mode-only change: surface the bit transition explicitly rather than an
@@ -431,8 +590,9 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
             )
             : <div className="nodiff">No textual changes.</div>
           )}
+          {!empty && columnStrip}
           {/* ONE flat array for the whole file — see the component doc comment */}
-          {view.map((r, i) => (r.type === 'gap' ? gapNode(r) : lineNode(r, i)))}
+          {view.map((r, i) => (r.type === 'gap' ? gapNode(r) : layout === 'unified' ? unifiedNode(r, i) : columnsNode(r, i)))}
           {notShown.length > 0 && (
             <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
               {notShown.length} comment{notShown.length > 1 ? 's' : ''} anchored to lines not shown in this diff:

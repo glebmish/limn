@@ -157,7 +157,7 @@ describe('DiffView renders the file, not hunks', () => {
       expect(out).toContain(`data-limn-line="${sel}"`)
     }
     // and they are siblings of one another inside the single diff body
-    const body = out.slice(out.indexOf('class="gfile-diff"'))
+    const body = out.slice(out.indexOf('class="gfile-diff'))
     expect(body.indexOf('src/a.ts:new:6')).toBeLessThan(body.indexOf('src/a.ts:new:21'))
   })
 
