@@ -1,6 +1,6 @@
-import { takeCliOpen } from './cliOpen.js'
+import { setGenerationKicker, takeCliOpen } from './cliOpen.js'
 import { applyEditToFile, readWorkingFile, withWriteQueue } from './fileEdits.js'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -41,7 +41,8 @@ import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktre
 import { OperationCoordinator, RepoBusyError, ThreadBusyError, type OperationOutcome } from './operations.js'
 import { LiveOpRegistry } from './liveOps.js'
 import { EngineSessionLostError, isCancellation } from './engines/errors.js'
-import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
+import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../shared/prefs.js'
+import { applyConfigChange } from '../shared/agentConfig.js'
 import { createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
@@ -203,6 +204,9 @@ export function shutdownIpc(): void {
   // nothing is running once the server is down — drain the live-op registry so a
   // reused module (tests, an embedded restart) can't report phantom ops.
   liveOps.clear()
+  // the kicker closes over this server's db/transport: leaving it installed would let
+  // a CLI open kick generation into a closed database.
+  setGenerationKicker(null)
 }
 
 /** Test seam: the watch generation. Every stopWatch (and so every startWatch and
@@ -487,7 +491,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     return repoState(repo)
   })
 
-  handle('startSession', async (repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean) => {
+  // ── The three review-launch bodies live as functions rather than inline handler
+  //    closures: the CLI generation kicker (installed at the end of registerIpc) runs
+  //    exactly the same path a renderer click takes — one implementation, one set of
+  //    invariants. The handlers below are plain delegations.
+  const startSessionFor = async (repo: string, baseInput: string, compareInput: string, agent: AgentRef, fresh?: boolean): Promise<{ sessionId: number }> => {
     const base = await resolveRefInput(repo, baseInput)
     const compare = await resolveRefInput(repo, compareInput)
     if (base.sha === compare.sha) throw new Error('base and compare point at the same commit')
@@ -505,7 +513,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
     dao.touchRepo(db, repo)
     return { sessionId: session.id }
-  })
+  }
+
+  handle('startSession', startSessionFor)
 
   handle('findSession', async (repo: string, baseInput: string, compareInput: string) => {
     const base = await resolveRefInput(repo, baseInput)
@@ -564,7 +574,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   // Create the review thread up front so the review agent is a real, persisted
   // chat from the moment generation starts (the live stream renders through the
   // normal chat path). The matching `generate(...threadId...)` call finalizes it.
-  handle('beginReview', async (sessionId: number, agent: AgentRef, update?: boolean, steer?: string) => {
+  const beginReviewFor = async (sessionId: number, agent: AgentRef, update?: boolean, steer?: string): Promise<number> => {
     const session = mustGetSession(db, sessionId)
     const existing = update
       ? dao.listChatThreads(db, sessionId).filter((t) => t.kind === 'review').at(-1)
@@ -578,9 +588,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       text: `${action} a guided review of ${session.pair.compare.symbol} against ${session.pair.base.symbol}.${note ? `\n\nReviewer steer: ${note}` : ''}`
     })
     return thread.id
-  })
+  }
 
-  handle('generate', async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean) => {
+  handle('beginReview', beginReviewFor)
+
+  const generateFor = async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void> => {
     const session = mustGetSession(db, sessionId)
     assertNotMerged(db, sessionId)
     const repo = session.repo
@@ -877,7 +889,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     } finally {
       liveOps.end(opId)
     }
-  })
+  }
+
+  handle('generate', generateFor)
 
   handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
     const target = mustGetSession(db, targetSessionId)
@@ -1384,4 +1398,46 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   })
 
   handle('takeCliOpen', async (ticket: string) => takeCliOpen(ticket))
+
+  // ── `limn --generate`: the service, not the CLI, mints the session and starts the
+  //    pass (design 2026-09-02, "Server kicks it"). cliOpen.ts owns no server state —
+  //    registerIpc hands it this closure and shutdownIpc takes it back.
+  setGenerationKicker(async ({ repo, base, compare, fresh, agent: override }) => {
+    const baseInput = base ?? await defaultBase(repo)
+    // `rev-parse --abbrev-ref HEAD` answers 'HEAD' on a detached checkout: there is no
+    // branch to review, and guessing a ref would review the wrong thing.
+    const compareInput = compare ?? await currentBranch(repo)
+    if (!compareInput || compareInput === 'HEAD') throw new Error('no branch checked out — pass --branch')
+
+    // the reviewer's default agent, then the CLI's overrides in flag order — the same
+    // validation `limn config set` applies, and its errors reach the CLI verbatim.
+    let agent = resolveDefaultAgent(readPrefs())
+    const notes: string[] = []
+    for (const [key, value] of [['agent', override?.engine], ['model', override?.model], ['effort', override?.effort]] as const) {
+      if (value === undefined) continue
+      const applied = applyConfigChange(agent, key, value)
+      if (!applied.ok) throw new Error(applied.error)
+      agent = applied.agent
+      if (applied.note) notes.push(applied.note)
+    }
+
+    const { sessionId } = await startSessionFor(repo, baseInput, compareInput, agent, fresh)
+    // an agent iteration already holds the repo's exclusive lane: kicking would only
+    // queue behind it (or fail), so point the reviewer at the run that's already going.
+    if (operations.repoBusy(repo)) {
+      notes.push('a review is already generating for this repository — opening it')
+      return { sessionId, note: notes.join('; ') }
+    }
+    // reusing a session that already has a review means folding the new commits in
+    // (an update pass); a fresh session, or one never generated, takes a full pass.
+    const update = !fresh && dao.loadReviewState(db, sessionId).annotations != null
+    const reviewThreadId = await beginReviewFor(sessionId, agent, update)
+    const opId = `op-cli-${randomBytes(6).toString('hex')}`
+    // deliberately NOT awaited: the CLI gets its URL immediately and the run streams
+    // to whatever tab opens it. A rejection here is already reported to tabs as the
+    // op:result — this log is for the terminal running the service.
+    void generateFor(sessionId, agent, opId, reviewThreadId, undefined, update)
+      .catch((err) => { console.error('[cli generate]', err) })
+    return { sessionId, ...(notes.length ? { note: notes.join('; ') } : {}) }
+  })
 }
