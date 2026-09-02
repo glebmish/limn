@@ -2,8 +2,9 @@
 
 Behaviors that shape a review without being obvious from the buttons alone: which
 untracked files are covered, which review opens when you reopen a repo, how a dirty
-working tree is shown and approved, and how the review panes are resized — plus the
-background service that serves it all, and the one browser caveat.
+working tree is shown and approved, how the review panes are resized, and which agent
+a new review starts with — plus the background service that serves it all, and the
+one browser caveat.
 
 > **Audience:** reviewers using the app. This is the how-it-behaves companion to the
 > README "Using it" section — for the architecture behind these features see
@@ -85,6 +86,33 @@ work when it is focused; double-click resets). Widths are remembered.
 On a window too narrow to hold both panes at their remembered widths, they are squeezed
 so the diff keeps a usable width and the drawer stays on screen. The widths you chose are
 not overwritten — widen the window and they come back.
+
+## Default agent
+
+Every new review starts from a default review agent — an engine (Claude or Codex),
+optionally a model, and, for models that support it, a reasoning effort. Changing
+the agent picker inside an open review changes that review only; it doesn't touch
+the default.
+
+Set the default from **Settings → Agents → Default review agent**, or from the CLI:
+
+```bash
+limn config                                # show the current default
+limn config get agent|model|effort         # print one value
+limn config set agent|model|effort <value> # change it
+```
+
+Setting `agent` to a different engine clears model and effort for the old one and
+prints `note: model and effort reset to auto (not available for <engine>)`. Setting
+`model` to one that doesn't support the current effort clears it instead, with
+`note: effort reset to auto (not available for <model>)`. `set model auto` clears any
+model and effort. An invalid value — an unknown engine, model, or effort, or an
+effort with no model set — is rejected without changing anything, e.g. `limn: unknown
+effort "ultra" for gpt-5.5 (low, medium, high, xhigh)`, printed to stderr with exit
+code 1.
+
+`limn config` talks to the running service over the same connection the app uses;
+if none is running, it reads and writes the SQLite database file directly.
 
 ## The service
 

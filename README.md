@@ -193,9 +193,19 @@ Bare `limn` behaves exactly like opening the repo from the Dashboard: a repo wit
 saved reviews lands on its session list, and one with none shows a draft review of
 the current branch. Either way it opens in a new browser tab.
 
+```bash
+limn config                       # show the default review agent: engine, model, effort
+limn config get agent|model|effort   # print one value
+limn config set agent|model|effort <value>   # change the default (validated; "auto" clears model/effort)
+```
+
+`limn config` talks to the running service when one is up, else reads/writes its
+database file directly. Every new review starts from this default; changing the
+agent inside a review changes that review only.
+
 More in-flow details — excluding untracked files, multiple reviews per branch,
-dirty-worktree review — plus the service lifecycle and the Tailscale recipe are in
-[docs/using-limn.md](docs/using-limn.md).
+dirty-worktree review, the default review agent — plus the service lifecycle and
+the Tailscale recipe are in [docs/using-limn.md](docs/using-limn.md).
 
 ## Limitations
 
