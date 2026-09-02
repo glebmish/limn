@@ -39,8 +39,8 @@ export function MarkersKey({ dirty, since }: {
             <em>{since === 'approved' ? 'since you approved this' : 'since the review ran'}</em></span></span>
         )}
         <span className="key-h">Colour</span>
-        <span className="rail-row"><span className="key-sw add" /><span className="rail-tx"><b>added</b><em>new line on this branch</em></span></span>
-        <span className="rail-row"><span className="key-sw del" /><span className="rail-tx"><b>removed</b><em>line the branch deletes</em></span></span>
+        <span className="rail-row"><span className="key-sw add">+</span><span className="rail-tx"><b>added</b><em>new line on this branch</em></span></span>
+        <span className="rail-row"><span className="key-sw del">−</span><span className="rail-tx"><b>removed</b><em>line the branch deletes</em></span></span>
         <span className="rail-row"><span className="key-sw word" /><span className="rail-tx"><b>edited</b><em>the part of the line that changed</em></span></span>
       </span>
     </span>

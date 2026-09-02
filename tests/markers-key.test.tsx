@@ -46,6 +46,12 @@ describe('MarkersKey legend', () => {
     expect(html).toContain('key-sw word')
   })
 
+  it('carries the +/− sign in the swatch — the tint alone is too pale to tell apart at this size', () => {
+    const html = render({ dirty: false, since: null })
+    expect(html).toMatch(/class="key-sw add"[^>]*>\+</)
+    expect(html).toMatch(/class="key-sw del"[^>]*>\u2212</)
+  })
+
   it('is a labelled "?" affordance, not a bare icon', () => {
     const html = render({ dirty: false, since: null })
     expect(html).toContain('aria-label="What the diff marks mean"')

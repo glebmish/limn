@@ -29,10 +29,12 @@
   --red-soft:#f4e7e3;
   --red-line:#e2c2b8;
 
-  --add-bg:#e9f2eb;
-  --del-bg:#f6e9e5;
-  --add-wd:#c2e2cc;          /* word-level add highlight */
-  --del-wd:#eccabd;          /* word-level del highlight */
+  /* row tints: deep enough to name at a glance (a 14px legend swatch has no +/−
+     sign or ink colour to lean on), still light enough to read code over */
+  --add-bg:#dbeade;
+  --del-bg:#f6ded7;
+  --add-wd:#a9d7b7;          /* word-level add highlight */
+  --del-wd:#e8b6a4;          /* word-level del highlight */
   --del-ink:#9c4636;         /* deleted-line code text */
 
   --r-sm:5px;
