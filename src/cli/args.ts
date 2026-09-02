@@ -3,6 +3,8 @@ import path from 'node:path'
 
 export class CliUsageError extends Error {}
 
+export type ConfigKey = 'agent' | 'model' | 'effort'
+
 export type CliCommand =
   | { kind: 'open'; dir: string; base?: string; compare?: string; hub: boolean; fresh: boolean; noService: boolean }
   | { kind: 'serve'; port?: number; port80: boolean }
@@ -10,10 +12,17 @@ export type CliCommand =
   | { kind: 'service-uninstall' }
   | { kind: 'service-status' }
   | { kind: 'service-logs'; follow: boolean }
+  | { kind: 'config-list' }
+  | { kind: 'config-get'; key: ConfigKey }
+  | { kind: 'config-set'; key: ConfigKey; value: string }
   | { kind: 'version' }
-  | { kind: 'help'; topic?: 'service' }
+  | { kind: 'help'; topic?: 'service' | 'config' }
+
+/** The three `config-*` command kinds — the shape `runConfig` accepts. */
+export type ConfigCommand = Extract<CliCommand, { kind: 'config-list' | 'config-get' | 'config-set' }>
 
 const SERVICE_COMMANDS = ['serve', 'install', 'uninstall', 'status', 'logs']
+const CONFIG_KEYS: ConfigKey[] = ['agent', 'model', 'effort']
 
 /** `--name value` / `--name=value` reader shared by every command. */
 function takeValue(argv: string[], i: number, name: string): [string, number] {
@@ -93,11 +102,38 @@ function parseService(argv: string[]): CliCommand {
   }
 }
 
+function parseConfigKey(key: string): ConfigKey {
+  if ((CONFIG_KEYS as string[]).includes(key)) return key as ConfigKey
+  throw new CliUsageError(`unknown config key "${key}" (${CONFIG_KEYS.join(', ')})`)
+}
+
+function parseConfig(argv: string[]): CliCommand {
+  const [sub, ...rest] = argv
+  if (!sub) return { kind: 'config-list' }
+  if (sub === '--help' || sub === '-h') return { kind: 'help', topic: 'config' }
+  switch (sub) {
+    case 'get': {
+      const [key, extra] = rest
+      if (!key) throw new CliUsageError('config get needs a key')
+      if (extra !== undefined) throw new CliUsageError(`unexpected argument "${extra}"`)
+      return { kind: 'config-get', key: parseConfigKey(key) }
+    }
+    case 'set': {
+      const [key, value, extra] = rest
+      if (!key || value === undefined) throw new CliUsageError('config set needs a key and a value')
+      if (extra !== undefined) throw new CliUsageError(`unexpected argument "${extra}"`)
+      return { kind: 'config-set', key: parseConfigKey(key), value }
+    }
+    default: throw new CliUsageError(`unknown config command "${sub}" (get, set)`)
+  }
+}
+
 export function parseArgs(argv: string[], cwd: string): CliCommand {
   const [first] = argv
   if (first === '--version' || first === '-v') return { kind: 'version' }
   if (first === '--help' || first === '-h') return { kind: 'help' }
   if (first === 'service') return parseService(argv.slice(1))
+  if (first === 'config') return parseConfig(argv.slice(1))
   if (first === 'open') return parseOpen(argv.slice(1), cwd)
 
   // Anything else is a positional `open` dir — unless it's a bare word that

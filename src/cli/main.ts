@@ -4,6 +4,7 @@ import { APP_VERSION } from '../server/http.js'
 import { runServe } from './serve.js'
 import { runOpen } from './open.js'
 import { runServiceCommand } from './service/index.js'
+import { runConfig } from './config.js'
 
 export interface Io {
   out(line: string): void
@@ -50,6 +51,7 @@ usage:
   limn [DIR] [--base REF] [--branch BRANCH] [--new] [--hub] [--no-service]
   limn open …                      same as above
   limn service <command>           background service (limn service --help)
+  limn config …                    read/set the default review agent (limn config --help)
   limn --version | --help
 
 open: review DIR (default: current directory). If a Limn service is running it
@@ -63,6 +65,14 @@ export const HELP_SERVICE = `limn service — the always-on Limn server
   status                         activation, URL, pid, node path, native stop/restart commands
   logs [-f]                      show (or follow) the service log`
 
+export const HELP_CONFIG = `limn config — read and set the default review agent
+
+  config                          show the current agent, model and effort
+  config get <agent|model|effort> print one value
+  config set <key> <value>        set one value ("auto" clears model/effort)
+
+Talks to the running Limn service when one is up, else edits its database directly.`
+
 export async function main(argv: string[], io: Io = defaultIo()): Promise<number> {
   let cmd
   try { cmd = parseArgs(argv, process.cwd()) } catch (err) {
@@ -71,9 +81,10 @@ export async function main(argv: string[], io: Io = defaultIo()): Promise<number
   }
   switch (cmd.kind) {
     case 'version': io.out(`limn ${APP_VERSION}`); return 0
-    case 'help': io.out(cmd.topic === 'service' ? HELP_SERVICE : HELP); return 0
+    case 'help': io.out(cmd.topic === 'service' ? HELP_SERVICE : cmd.topic === 'config' ? HELP_CONFIG : HELP); return 0
     case 'serve': return runServe(cmd, io)
     case 'open': return runOpen(cmd, io)
+    case 'config-list': case 'config-get': case 'config-set': return runConfig(cmd, io)
     default: return runServiceCommand(cmd, io)
   }
 }

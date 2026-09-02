@@ -60,4 +60,19 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--branch=', '--hub'], cwd)).toThrow(/--branch needs a value/)
     expect(() => parseArgs(['service', 'serve', '--port='], cwd)).toThrow(/--port needs a value/)
   })
+  it('config subcommands', () => {
+    expect(parseArgs(['config'], cwd)).toEqual({ kind: 'config-list' })
+    expect(parseArgs(['config', 'get', 'model'], cwd)).toEqual({ kind: 'config-get', key: 'model' })
+    expect(parseArgs(['config', 'set', 'effort', 'high'], cwd)).toEqual({ kind: 'config-set', key: 'effort', value: 'high' })
+    expect(parseArgs(['config', '--help'], cwd)).toEqual({ kind: 'help', topic: 'config' })
+  })
+  it('rejects bad config subcommands', () => {
+    expect(() => parseArgs(['config', 'get', 'colour'], cwd)).toThrow(/unknown config key "colour" \(agent, model, effort\)/)
+    expect(() => parseArgs(['config', 'set', 'model'], cwd)).toThrow(/config set needs a key and a value/)
+    expect(() => parseArgs(['config', 'frob'], cwd)).toThrow(CliUsageError)
+  })
+  it('HELP mentions `limn config`', async () => {
+    const { HELP } = await import('../src/cli/main')
+    expect(HELP).toMatch(/limn config/)
+  })
 })
