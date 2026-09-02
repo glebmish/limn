@@ -15,6 +15,11 @@ function fakeIo(): Io & { out_: string[]; err_: string[] } {
   return { out_, err_, isTTY: false, out: (l) => { out_.push(l) }, err: (l) => { err_.push(l) }, ask: async () => false }
 }
 
+function tmpDbPath(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-cli-config-'))
+  return path.join(dir, 'limn.db')
+}
+
 function fakeStore(initial: Record<string, string> = {}): PrefsStore & { calls: string[]; data: Record<string, string> } {
   const data = { ...initial }
   const calls: string[] = []
@@ -109,6 +114,47 @@ describe('runConfig', () => {
     expect(code).toBe(1)
     expect(io.err_).toEqual(['limn: unknown model "bogus" for codex (gpt-5.5, gpt-5.4, gpt-5.4-mini)'])
   })
+
+  describe('against a corrupt local db (real localStore, no service running)', () => {
+    function corruptDb(): string {
+      const dbPath = tmpDbPath()
+      fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
+      return dbPath
+    }
+
+    it('`config get` (read-only) rejects and leaves the corrupt file untouched', async () => {
+      const io = fakeIo()
+      const dbPath = corruptDb()
+      const code = await runConfig({ kind: 'config-get', key: 'agent' }, io, deps({ local: () => localStore(io, dbPath) }))
+      expect(code).toBe(1)
+      expect(io.err_).toEqual(['limn: database at ' + dbPath + ' is corrupt; starting the Limn service will recover it (a backup of the corrupt file will be kept)'])
+      expect(fs.existsSync(dbPath)).toBe(true)
+      expect(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.includes('.corrupt-'))).toEqual([])
+    })
+
+    it('`config` (list, also read-only) rejects the same way', async () => {
+      const io = fakeIo()
+      const dbPath = corruptDb()
+      const code = await runConfig({ kind: 'config-list' }, io, deps({ local: () => localStore(io, dbPath) }))
+      expect(code).toBe(1)
+      expect(io.err_[0]).toMatch(/is corrupt; starting the Limn service will recover it/)
+      expect(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.includes('.corrupt-'))).toEqual([])
+    })
+
+    it('`config set` recovers the corrupt db (backup kept, note printed) and writes', async () => {
+      const io = fakeIo()
+      const dbPath = corruptDb()
+      const code = await runConfig({ kind: 'config-set', key: 'agent', value: 'codex' }, io, deps({ local: () => localStore(io, dbPath) }))
+      expect(code).toBe(0)
+      expect(io.err_).toHaveLength(1)
+      expect(io.err_[0]).toMatch(/^note: database was corrupt; a backup was kept at .*\.corrupt-\d+$/)
+      expect(io.out_).toEqual(['agent   codex\nmodel   auto\neffort  auto'])
+      expect(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.includes('.corrupt-'))).toHaveLength(1)
+      // the write landed on the (fresh, recovered) db
+      const reread = await localStore(io, dbPath).get()
+      expect(JSON.parse(reread.defaultAgent)).toEqual({ engine: 'codex' })
+    })
+  })
 })
 
 describe('remoteStore', () => {
@@ -180,11 +226,6 @@ describe('remoteStore', () => {
 })
 
 describe('localStore', () => {
-  function tmpDbPath(): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-cli-config-'))
-    return path.join(dir, 'limn.db')
-  }
-
   it('get on a fresh db is {}; set then get round-trips the normalised JSON', async () => {
     const io = fakeIo()
     const store = localStore(io, tmpDbPath())
@@ -245,16 +286,26 @@ describe('localStore', () => {
     spy.mockRestore()
   })
 
-  it('a read never rotates a corrupt db aside — rejects with a clear message instead', async () => {
+  it('get() defaults to recover: false — rejects with a message that does not promise a bogus remedy', async () => {
     const io = fakeIo()
     const dbPath = tmpDbPath()
     fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
     const store = localStore(io, dbPath)
-    await expect(store.get()).rejects.toThrow(/corrupt/)
+    await expect(store.get()).rejects.toThrow(/corrupt.*starting the Limn service will recover it/)
     expect(fs.existsSync(dbPath)).toBe(true)
     expect(fs.readFileSync(dbPath, 'utf8')).toBe('not a sqlite file — garbage bytes to trip the integrity check')
     expect(fs.readdirSync(path.dirname(dbPath)).filter((f) => f.includes('.corrupt-'))).toEqual([])
     expect(io.err_).toEqual([])
+  })
+
+  it('get({ recover: true }) recovers a corrupt db (moves it aside) and reports it', async () => {
+    const io = fakeIo()
+    const dbPath = tmpDbPath()
+    fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
+    const store = localStore(io, dbPath)
+    expect(await store.get({ recover: true })).toEqual({})
+    expect(io.err_).toHaveLength(1)
+    expect(io.err_[0]).toMatch(/^note: database was corrupt; a backup was kept at .*\.corrupt-\d+$/)
   })
 
   it('a write still recovers a corrupt db (moves it aside) and reports it', async () => {
@@ -263,7 +314,7 @@ describe('localStore', () => {
     fs.writeFileSync(dbPath, 'not a sqlite file — garbage bytes to trip the integrity check')
     const store = localStore(io, dbPath)
     await store.set('a', '1')
-    expect(await store.get()).toEqual({ a: '1' })
+    expect(await store.get({ recover: true })).toEqual({ a: '1' })
     expect(io.err_).toHaveLength(1)
     expect(io.err_[0]).toMatch(/^note: database was corrupt; a backup was kept at .*\.corrupt-\d+$/)
   })

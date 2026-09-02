@@ -15,7 +15,12 @@ export { applyConfigChange, formatConfig, type ConfigKey } from '../shared/agent
 /** Wherever a `defaultAgent` pref lives: the running service (over its RPC) or the
  *  sqlite file directly, when nothing is running to ask instead. */
 export interface PrefsStore {
-  get(): Promise<Record<string, string>>
+  /** `recover: true` allows a corrupt db to be moved aside and recreated — pass it
+   *  only when the caller is about to write anyway (`config set`'s implicit read of
+   *  the current agent), never for a read-only command (`config`/`config get`),
+   *  which must leave a corrupt file untouched. Ignored by `remoteStore` (the
+   *  running service owns recovery there). */
+  get(opts?: { recover?: boolean }): Promise<Record<string, string>>
   set(key: string, value: string): Promise<void>
 }
 
@@ -61,10 +66,12 @@ export function localStore(io: Io, dbPath: string = defaultDbPath()): PrefsStore
     return db
   }
   return {
-    get: async () => {
-      // recover: false — a read must never rotate the user's database aside; a
-      // corrupt file surfaces as a rejection instead (see openDb's `recover` option).
-      const db = await open({ recover: false })
+    get: async (opts) => {
+      // recover: false by default — a plain read must never rotate the user's
+      // database aside; a corrupt file surfaces as a rejection instead (see
+      // openDb's `recover` option). `runConfig` opts in to recovery for the
+      // implicit read at the start of a `config set`, which writes regardless.
+      const db = await open({ recover: opts?.recover ?? false })
       const out: Record<string, string> = {}
       for (const r of db.prepare('SELECT key, value FROM prefs').all() as { key: string; value: string }[]) {
         out[r.key] = r.value
@@ -102,7 +109,9 @@ export async function runConfig(cmd: ConfigCommand, io: Io, deps: ConfigDeps = d
   try {
     const health = await deps.probe(target.port, target.host)
     const store = health ? deps.remote(target) : deps.local(io)
-    const prefs = await store.get()
+    // `config set` writes regardless of what this read finds, so a corrupt local db
+    // may as well recover here; `config`/`config get` are read-only and must not.
+    const prefs = await store.get(cmd.kind === 'config-set' ? { recover: true } : undefined)
     const current = resolveDefaultAgent(prefs)
 
     if (cmd.kind === 'config-list') {

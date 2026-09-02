@@ -31,7 +31,7 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
     // error) must NOT rename the user's real database away and create an empty one
     // — that would be surprising data loss. Rethrow those instead.
     if (!isCorruptionError(err)) throw err
-    if (!recover) throw new Error(`database at ${file} is corrupt; run a command that writes to it to recover (a backup will be kept)`, { cause: err })
+    if (!recover) throw new Error(`database at ${file} is corrupt; starting the Limn service will recover it (a backup of the corrupt file will be kept)`, { cause: err })
     recoveredFrom = `${file}.corrupt-${Date.now()}`
     fs.renameSync(file, recoveredFrom)
     for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
