@@ -273,3 +273,160 @@ export function viewRows(
   }
   return view
 }
+
+// ── aligned rows: one cell per column, for every layout ─────────────────────────
+//
+// Unified is the one-cell case (`asAligned` wraps a LineRow byte-for-byte); Split
+// pairs a hunk's del-run with its add-run (`buildSplitRows`); Multi walks base line
+// numbers over two base-relative hunk sets (lib/rowsMulti.ts). Whatever the layout,
+// the body renders ONE flat keyed list of these, same key space as before.
+
+export type Layout = 'unified' | 'split' | 'multi'
+
+export interface Cell {
+  /** the line this cell shows; null for padding, or for a deleted slot (`deleted`) */
+  l: DiffLine | null
+  /** which line-number space `lineNo` addresses: base (`old`), the Multi
+   *  checkpoint (`mid`, never a comment anchor), or the tree now (`new`) */
+  side: 'old' | 'mid' | 'new'
+  lineNo: number | null
+  kind: '' | 'add' | 'del'
+  /** Multi: this column dropped the base line — an empty, red-tinted slot */
+  deleted?: boolean
+  marks?: CharRange[]
+  html?: string
+  /** Multi attribution against the checkpoint column: `since` = the now column
+   *  diverged after the checkpoint; `gone` = the checkpoint had it, now does not */
+  attribution?: 'since' | 'gone'
+}
+
+export interface AlignedRow {
+  type: 'aligned'
+  key: string
+  cells: Cell[]
+  /** where the row's single "+" anchors: the now line when it has one, else the
+   *  base line of a pure deletion. Null for a revealed context row (uncommentable). */
+  anchor: { side: 'old' | 'new'; lineNo: number } | null
+  hunkRange: string
+  fromHunk: boolean
+  /** the now cell's line in its run, for the discard span and the frame sliver;
+   *  null when the row has no now line */
+  now: { run: DiffLine[]; idx: number } | null
+}
+
+export type ViewRow = AlignedRow | GapRow
+
+const pad = (side: Cell['side']): Cell => ({ l: null, side, lineNo: null, kind: '' })
+const cellOf = (l: DiffLine, side: Cell['side'], lineNo: number | null, extra: Partial<Cell> = {}): Cell =>
+  ({ l, side, lineNo, kind: l.kind, ...extra })
+
+/** Today's unified row as a one-cell aligned row — same key, same anchor rule. */
+export function asAligned(r: LineRow): AlignedRow {
+  return {
+    type: 'aligned', key: r.key,
+    cells: [cellOf(r.l, r.side, r.lineNo, { marks: r.marks, html: r.html })],
+    anchor: r.fromHunk ? { side: r.side, lineNo: r.lineNo } : null,
+    hunkRange: r.hunkRange, fromHunk: r.fromHunk,
+    now: r.l.new != null ? { run: r.run, idx: r.runIdx } : null
+  }
+}
+
+/** Context lines (a revealed fold) as aligned rows for `layout`: the same line in
+ *  every cell, never commentable, editable through the now cell like any context. */
+export function contextRows(lines: DiffLine[], layout: Layout, lang: string | null, midOffset = 0): AlignedRow[] {
+  const html = runHighlight(lines, lang).new
+  const out: AlignedRow[] = []
+  let ni = -1
+  lines.forEach((l, i) => {
+    if (l.new == null) return
+    ni++
+    const h = html[ni]
+    const cells: Cell[] = layout === 'unified' ? [cellOf(l, 'new', l.new, { html: h })]
+      : layout === 'split' ? [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'new', l.new, { html: h })]
+      : [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'mid', l.new - midOffset, { html: h }), cellOf(l, 'new', l.new, { html: h })]
+    out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, now: { run: lines, idx: i } })
+  })
+  return out
+}
+
+/** One hunk as split rows: context on both sides; a del-run followed by an add-run
+ *  paired index-wise (the `pairHunkLines` rule) and padded on the shorter side. */
+function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
+  const run = h.lines
+  const html = runHighlight(run, lang)
+  const marks = runWordMarks(run)
+  const oldIdx: number[] = [], newIdx: number[] = []
+  let oi = -1, ni = -1
+  for (const l of run) { if (l.old != null) oi++; if (l.new != null) ni++; oldIdx.push(oi); newIdx.push(ni) }
+  const cellAt = (j: number, side: 'old' | 'new'): Cell => {
+    const l = run[j]
+    return cellOf(l, side, side === 'old' ? l.old : l.new, {
+      marks: marks.get(j), html: side === 'old' ? html.old[oldIdx[j]] : html.new[newIdx[j]]
+    })
+  }
+  const row = (j: number | null, k: number | null): AlignedRow | null => {
+    const nowL = k != null ? run[k] : null
+    const oldL = j != null ? run[j] : null
+    const key = nowL?.new != null ? `new:${nowL.new}` : oldL?.old != null ? `old:${oldL.old}` : null
+    if (key == null) return null
+    return {
+      type: 'aligned', key,
+      cells: [j != null ? cellAt(j, 'old') : pad('old'), k != null ? cellAt(k, 'new') : pad('new')],
+      anchor: nowL?.new != null ? { side: 'new', lineNo: nowL.new } : { side: 'old', lineNo: oldL!.old! },
+      hunkRange: h.range, fromHunk: true,
+      now: k != null ? { run, idx: k } : null
+    }
+  }
+  const out: AlignedRow[] = []
+  const push = (r: AlignedRow | null): void => { if (r) out.push(r) }
+  let j = 0
+  while (j < run.length) {
+    const l = run[j]
+    if (l.kind === '') { push(row(j, j)); j++; continue }
+    if (l.kind === 'add') { push(row(null, j)); j++; continue }
+    const delStart = j
+    while (j < run.length && run[j].kind === 'del') j++
+    const addStart = j
+    while (j < run.length && run[j].kind === 'add') j++
+    const dels = addStart - delStart, adds = j - addStart
+    for (let p = 0; p < Math.max(dels, adds); p++) {
+      push(row(p < dels ? delStart + p : null, p < adds ? addStart + p : null))
+    }
+  }
+  return out
+}
+
+/** The file as split rows: the same gap placement as `buildFileRows` (reused, so
+ *  the two never disagree about where the file jumps), each hunk's lines paired. */
+export function buildSplitRows(hunks: Hunk[], gaps: Gap[], lang: string | null = null, opts: { trailing?: boolean } = {}): ViewRow[] {
+  const uni = buildFileRows(hunks, gaps, null, opts)
+  const out: ViewRow[] = []
+  let hi = 0
+  for (const r of uni) {
+    if (r.type === 'gap') { out.push(r); continue }
+    // the first line row of each hunk: emit that hunk's split rows once
+    if (r.runIdx === 0) out.push(...splitHunkRows(hunks[hi++], lang))
+  }
+  return out
+}
+
+/** The rows as they render for any layout: each gap row's revealed edges spliced
+ *  in as context rows around it, and the gap row itself dropped once the run is
+ *  fully shown. `reveals` holds the materialised lines (`revealLines`, lib/expand.ts)
+ *  keyed by gap key. */
+export function viewAlignedRows(
+  rows: ViewRow[], reveals: Record<string, { top: DiffLine[]; bottom: DiffLine[] }>, layout: Layout, lang: string | null
+): ViewRow[] {
+  const view: ViewRow[] = []
+  for (const r of rows) {
+    if (r.type !== 'gap') { view.push(r); continue }
+    const rv = reveals[r.gap.key]
+    const mid = r.gap.midOffset ?? 0
+    if (rv?.top.length) view.push(...contextRows(rv.top, layout, lang, mid))
+    const size = r.gap.to != null ? r.gap.to - r.gap.from + 1 : null
+    const shownAll = rv != null && size != null && rv.top.length + rv.bottom.length >= size
+    if (!shownAll) view.push(r)
+    if (rv?.bottom.length) view.push(...contextRows(rv.bottom, layout, lang, mid))
+  }
+  return view
+}
