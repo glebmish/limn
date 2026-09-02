@@ -64,3 +64,47 @@ export function sameAgent(a: AgentRef, b: AgentRef): boolean {
   return a.engine === b.engine && (a.model ?? '') === (b.model ?? '') &&
     (a.reasoningEffort ?? '') === (b.reasoningEffort ?? '')
 }
+
+export type AgentRefCheck = { ok: true; agent: AgentRef } | { ok: false; error: string }
+
+/** Validate an arbitrary value as an AgentRef against the catalog, returning a
+ *  normalised ref (unknown extra properties dropped; `model`/`reasoningEffort`
+ *  omitted, not left `undefined`, when absent). Used to gate persisted prefs. */
+export function validateAgentRef(input: unknown): AgentRefCheck {
+  const raw = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  const engine = raw.engine
+  const catalog = AGENT_CATALOG.find((c) => c.engine === engine)
+  if (!catalog) {
+    const known = AGENT_CATALOG.map((c) => c.engine).join(', ')
+    return { ok: false, error: `unknown engine "${String(engine)}" (${known})` }
+  }
+
+  const model = raw.model
+  if (model === undefined) {
+    if (raw.reasoningEffort !== undefined) {
+      return { ok: false, error: 'reasoning effort needs a model (set a model first)' }
+    }
+    return { ok: true, agent: { engine: catalog.engine } }
+  }
+
+  const modelOpt = catalog.models.find((m) => m.id === model)
+  if (!modelOpt) {
+    const known = catalog.models.map((m) => m.id).join(', ')
+    return { ok: false, error: `unknown model "${String(model)}" for ${catalog.engine} (${known})` }
+  }
+
+  const reasoningEffort = raw.reasoningEffort
+  if (reasoningEffort === undefined) {
+    return { ok: true, agent: { engine: catalog.engine, model: modelOpt.id } }
+  }
+
+  const efforts = modelOpt.reasoningEfforts
+  if (!efforts || efforts.length === 0) {
+    return { ok: false, error: `model "${modelOpt.id}" has no reasoning-effort setting` }
+  }
+  if (!efforts.includes(reasoningEffort as ReasoningEffort)) {
+    return { ok: false, error: `unknown effort "${String(reasoningEffort)}" for ${modelOpt.id} (${efforts.join(', ')})` }
+  }
+
+  return { ok: true, agent: { engine: catalog.engine, model: modelOpt.id, reasoningEffort: reasoningEffort as ReasoningEffort } }
+}
