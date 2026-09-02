@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { EngineGlyph, I } from '../kit'
-import { ENGINE_PATH_PREF_KEYS } from '../../shared/prefs'
+import { ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../../shared/prefs'
+import type { AgentRef } from '../../shared/types'
 import { api } from '../lib/api'
+import { AgentPicker } from './AgentPicker'
+import { useStore } from '../store'
 
 type EngineStatus = { ok: boolean; hint: string }
 
@@ -57,6 +60,7 @@ function PathField({ engine, label, value, status, onChange }: {
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const [draftAgent, setDraftAgent] = useState<AgentRef>(() => useStore.getState().defaultAgent)
   const [claudePath, setClaudePath] = useState('')
   const [codexPath, setCodexPath] = useState('')
   const [claudeStatus, setClaudeStatus] = useState<EngineStatus | null>(null)
@@ -97,6 +101,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         if (!alive) return
         setClaudePath(prefs[ENGINE_PATH_PREF_KEYS.claude] ?? '')
         setCodexPath(prefs[ENGINE_PATH_PREF_KEYS.codex] ?? '')
+        setDraftAgent(resolveDefaultAgent(prefs))
         await refreshStatus()
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : String(err))
@@ -118,12 +123,23 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     setSaved(false)
     setError(null)
     try {
-      await Promise.all([
+      // allSettled, not all: a rejected `setDefaultAgent` (bad agent ref) must not
+      // hide that the path prefs wrote fine, and vice versa — every write gets a
+      // chance to land, and every failure gets surfaced.
+      const results = await Promise.allSettled([
         api().setPref(ENGINE_PATH_PREF_KEYS.claude, claudePath.trim()),
-        api().setPref(ENGINE_PATH_PREF_KEYS.codex, codexPath.trim())
+        api().setPref(ENGINE_PATH_PREF_KEYS.codex, codexPath.trim()),
+        useStore.getState().setDefaultAgent(draftAgent)
       ])
       await refreshStatus()
-      setSaved(true)
+      const errors = results
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)))
+      if (errors.length > 0) {
+        setError(errors.join('; '))
+      } else {
+        setSaved(true)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -156,7 +172,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="settings-head">
           <div>
             <div className="eyebrow">Settings</div>
-            <h2 id="settings-title">Agent Paths</h2>
+            <h2 id="settings-title">Agents</h2>
           </div>
           <button className="btn btn-sm btn-ghost settings-close" onClick={onClose} title="Close settings">
             <I.x style={{ width: 13, height: 13 }} />
@@ -164,6 +180,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="settings-body">
+          <div className="settings-field">
+            <label>Default review agent</label>
+            <AgentPicker value={draftAgent} onChange={(a) => { setDraftAgent(a); setSaved(false) }} align="left" />
+          </div>
           <PathField engine="claude" label="Claude executable" value={claudePath} status={claudeStatus} onChange={(v) => { setClaudePath(v); setSaved(false) }} />
           <PathField engine="codex" label="Codex executable" value={codexPath} status={codexStatus} onChange={(v) => { setCodexPath(v); setSaved(false) }} />
           {error && <div className="limn-error settings-error">{error}</div>}
