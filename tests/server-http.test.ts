@@ -165,6 +165,13 @@ describe('startServer', () => {
     expect(res.status).toBe(413)
   })
 
+  it('answers 404, not 500, for a session id that does not exist', async () => {
+    const s = await boot()
+    const res = await rpc(s, 'loadSession', [999999])
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'session 999999 not found' })
+  })
+
   // Pins the SSE shutdown path: without ending the /events responses, close()
   // waits on the live stream and the first SIGINT never stops the server.
   // (closeAllConnections() in close() is belt-and-braces for browser sockets that

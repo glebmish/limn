@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
-import { registerIpc, shutdownIpc } from './ipc.js'
+import { NotFoundError, registerIpc, shutdownIpc } from './ipc.js'
 import { openDb } from './db/db.js'
 import { issueCliOpen, type CliOpenArgs } from './cliOpen.js'
 import { CANONICAL_HOST, hostForUrl, isJsonContentType, isLoopbackName, isProtectedPath, sameSiteOk } from './guard.js'
@@ -232,7 +232,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           const value = await fn(...(Array.isArray(args) ? args : []))
           res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ value: value ?? null }))
         } catch (err) {
-          const status = err instanceof BodyTooLarge ? 413 : 500
+          const status = err instanceof BodyTooLarge ? 413 : err instanceof NotFoundError ? 404 : 500
           res.writeHead(status, { 'Content-Type': 'application/json' })
             .end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
         }

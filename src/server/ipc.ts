@@ -386,9 +386,13 @@ function ignoreLocally(repo: string, pattern: string): void {
 /** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
  *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
  *  call a dao helper that opens its own transaction (e.g. setArtifacts). */
+/** Thrown for a lookup that found nothing where the caller named a specific id/path;
+ *  the RPC carrier maps it to HTTP 404 (same `{ error }` body as every other thrown error). */
+export class NotFoundError extends Error {}
+
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   const s = dao.getSession(db, id)
-  if (!s) throw new Error(`session ${id} not found`)
+  if (!s) throw new NotFoundError(`session ${id} not found`)
   return s
 }
 
