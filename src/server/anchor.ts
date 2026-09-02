@@ -483,6 +483,11 @@ export async function reanchorComments(
     // all non-positional anchors are stable — untouched: section, summary, file,
     // question, plan-step, title, acceptance, deviation, hunk, and selection
     // (content-addressed via its own quote)
+    // A legacy (pre-stamp) anchor with an empty quote carries no evidence to
+    // re-anchor from — an empty quote exact-matches every blank rendered line, so
+    // stage 3 would decline it and mark it outdated on every load even when nothing
+    // changed. Mirrors the same skip in reanchorFocusTargets: left exactly as it is.
+    if (!c.anchor.stamp && normalizeWs(c.anchor.lineContent) === '') continue
     const v = await pass.reanchor(c.anchor)
     // `anchorEdited` is a per-load verdict, not accumulated state: this load's own
     // stage-1 'EDITED' is the ONLY thing that may set it, so it is cleared here

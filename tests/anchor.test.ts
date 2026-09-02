@@ -114,6 +114,19 @@ describe('reanchorComments', () => {
     expect(c.resolution?.verdict).toBe('addressed')
     expect(c.anchor).toMatchObject({ line: 3, hunkRange: '@@ -1,3 +1,4 @@' })
   })
+
+  it('leaves a legacy blank-line comment untouched on an unchanged file (mirrors the focus-target skip)', async () => {
+    const sk = mkSkeleton([{ old: 1, new: 1, kind: '', text: 'context' }])
+    // A pre-stamp comment anchored on a blank rendered line carries no evidence to
+    // re-anchor from — an empty quote exact-matches every blank line, so stage 3
+    // would decline it and mark it outdated on every load even though nothing
+    // changed. Mirrors the skip in reanchorFocusTargets (N7 in anchor-git.test.ts).
+    const c = mkComment({ anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 1, hunkRange: '@@', lineContent: '' } })
+    await reanchorComments(mkCtx(sk), [c], [])
+    expect(c.status).toBe('queued')
+    expect(c.notInDiff).toBeUndefined()
+    expect(c.anchor).toMatchObject({ line: 1, lineContent: '' })
+  })
 })
 
 describe('normalizeWs', () => {
