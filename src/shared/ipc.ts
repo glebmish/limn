@@ -1,6 +1,6 @@
 import type {
   AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
+  ExecutionMode, FileAt, FileCheckpoint, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
 } from './types.js'
 
 export interface LoadedReview {
@@ -145,6 +145,9 @@ export interface Api {
   // ── in-place edits ──
   /** Current working-tree content of one file in the compare branch's worktree. */
   readWorkingFile(repo: string, compare: RefSide, path: string): Promise<WorkingFile>
+  /** Lines of one file at a checkpoint — the diff body's folds, in any baseline and
+   *  in read-only reviews alike. */
+  readFileAt(repo: string, compare: RefSide, path: string, at: FileCheckpoint): Promise<FileAt>
   /** CAS-guarded in-place edit of the compare branch's working tree. Never takes the
    *  agent-op lock — concurrent writers are arbitrated by the line-anchored CAS. */
   applyEdit(repo: string, compare: RefSide, path: string, edit: FileEdit): Promise<ApplyEditResult>
@@ -232,7 +235,7 @@ export const API_CHANNELS: (keyof Api)[] = [
   'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
   'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
   'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'sendRebase', 'readWorkingFile', 'applyEdit', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
+  'sendBatch', 'sendRebase', 'readWorkingFile', 'readFileAt', 'applyEdit', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
   'dashboard',
   'refOptions', 'retargetSession', 'takeCliOpen'
 ]

@@ -1,5 +1,6 @@
 import { setGenerationKicker, takeCliOpen } from './cliOpen.js'
 import { applyEditToFile, readWorkingFile, withWriteQueue } from './fileEdits.js'
+import { readFileAt } from './fileAt.js'
 import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -10,7 +11,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileCheckpoint, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -1272,6 +1273,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
     return readWorkingFile(capability.workdir, path)
   })
+
+  // The folds' text source: any baseline, read-only reviews too. Never needs the
+  // write capability — a sha read is `git show`, a `now` read prefers the worktree
+  // only when the branch happens to be checked out (see src/server/fileAt.ts).
+  handle('readFileAt', async (repo: string, compare: RefSide, path: string, at: FileCheckpoint) =>
+    readFileAt(repo, compare, path, at))
 
   handle('applyEdit', async (repo: string, compare: RefSide, path: string, edit: FileEdit) => {
     const capability = await writeCapabilityFor(repo, compare)

@@ -84,6 +84,14 @@ export type WorkingFile =
   | { ok: true; lines: string[]; trailingNewline: boolean }
   | { ok: false; reason: 'binary' | 'too-large' | 'missing' }
 
+/** Where to read a file's text from for the diff body's folds: the tree as it is
+ *  now (worktree when the branch is checked out, else the compare tip), or any
+ *  commit the client already knows the sha of (base, a checkpoint). */
+export type FileCheckpoint = { kind: 'now' } | { kind: 'sha'; sha: string }
+export type FileAt =
+  | { ok: true; lines: string[] }
+  | { ok: false; reason: 'absent' | 'binary' | 'too-large' }
+
 export function driftHasChanges(drift: DriftSummary | null | undefined): drift is DriftSummary {
   return Boolean(drift && (drift.commits > 0 || drift.files > 0 || drift.dirty))
 }
