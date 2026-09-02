@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, willRunReadOnly, genSessionLost, pendingApprovals, useStore } from '../store'
 import type { OpState } from '../store'
+import type { OperationStatus } from '../../shared/ipc'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
@@ -43,6 +44,16 @@ export function composerMode(
   if (gateBlocked || threadId == null) return 'blocked'
   if (opForThread(ops, threadId).running) return 'queue'
   return chatSendBlocked(ops, threadId) ? 'blocked' : 'send'
+}
+
+/** Idle-queued-chip headline: says what actually happened to the turn the parked
+ *  follow-up was waiting behind, instead of one flat "didn't finish" for every case.
+ *  A `succeeded` outcome reaches here too (a flush that itself got gated), and a
+ *  thread with no outcome yet reads the same as a clean send-when-ready prompt. */
+export function queuedIdleHeadline(outcome: OperationStatus | null): string {
+  if (outcome === 'cancelled') return "Not sent — last turn was cancelled"
+  if (outcome === 'failed') return "Not sent — last turn failed"
+  return "Not sent — send when you're ready"
 }
 
 /** Pure slice arithmetic for the message window: mount only the last `shown` messages,
@@ -396,7 +407,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
               <div className="cq-head">
                 {mode === 'queue'
                   ? <><I.info style={{ width: 12, height: 12 }} /><span>Queued · sends when this turn ends</span></>
-                  : <><I.warn style={{ width: 12, height: 12 }} /><span>Not sent — last turn didn’t finish</span></>}
+                  : <><I.warn style={{ width: 12, height: 12 }} /><span>{queuedIdleHeadline(op.outcome)}</span></>}
                 <button className="btn btn-sm btn-ghost cq-x" aria-label="Discard queued follow-up"
                   onClick={() => store.dequeueTurn(active.id)}>
                   <I.x style={{ width: 10, height: 10 }} />

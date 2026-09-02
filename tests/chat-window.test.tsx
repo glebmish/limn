@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { composerMode, SubmittedCommentRefs, windowMessages } from '../src/renderer/components/ChatDrawer'
+import { composerMode, queuedIdleHeadline, SubmittedCommentRefs, windowMessages } from '../src/renderer/components/ChatDrawer'
 import type { OpState } from '../src/renderer/store'
 import type { Comment } from '../src/shared/types'
 
@@ -102,5 +102,26 @@ describe('composerMode — send / queue / blocked', () => {
     // exclusive lane taken by thread 2 + the single shared lane taken by thread 3:
     // this idle thread has nowhere to run — and nothing of its own to queue behind.
     expect(composerMode(ops(op(2), op(3, { exclusive: false })), 1, false)).toBe('blocked')
+  })
+})
+
+// The idle queued-chip headline (composerMode !== 'queue') says what actually happened
+// to the turn the parked follow-up was waiting behind, instead of a single flat
+// "didn't finish" no matter the outcome.
+describe('queuedIdleHeadline — idle queued-chip copy per outcome', () => {
+  it('names a cancelled turn', () => {
+    expect(queuedIdleHeadline('cancelled')).toBe('Not sent — last turn was cancelled')
+  })
+
+  it('names a failed turn', () => {
+    expect(queuedIdleHeadline('failed')).toBe('Not sent — last turn failed')
+  })
+
+  it('reads as a clean prompt for a succeeded turn (a flush that was itself gated)', () => {
+    expect(queuedIdleHeadline('succeeded')).toBe("Not sent — send when you're ready")
+  })
+
+  it('reads as a clean prompt when there is no outcome yet', () => {
+    expect(queuedIdleHeadline(null)).toBe("Not sent — send when you're ready")
   })
 })
