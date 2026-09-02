@@ -8,6 +8,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded } from './helpers/loaded'
+import { saveChordLabel } from '../src/renderer/lib/platform'
 
 // zustand v5's hooks read getInitialState() for the SSR snapshot — seed by mutating
 // the initial state object, exactly as diffview-characterization.test.tsx does.
@@ -91,6 +92,15 @@ describe('in-place edit affordances', () => {
     expect(out).toContain('⌘⏎ save · ⏎ new line · esc cancel')
     expect(out).not.toContain('⌫')
     expect(out).not.toContain('ff-emptied')
+  })
+
+  it('save hint names the chord for the current navigator.platform (#7)', () => {
+    seed({ writable: true, frame: { file: 'src/a.ts', start: 11, end: 11 } })
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    // Vitest's test environment reports `navigator.platform` as 'MacIntel' —
+    // saveChordLabel('MacIntel') is pinned to '⌘⏎' in tests/platform.test.ts.
+    expect(out).toContain(`title="Save (${saveChordLabel(navigator.platform)}) — writes the working tree"`)
+    expect(out).toContain('title="Save (⌘⏎) — writes the working tree"')
   })
 
   it('a frame for another file leaves this one untouched', () => {

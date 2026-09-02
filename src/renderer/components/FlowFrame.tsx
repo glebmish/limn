@@ -3,6 +3,7 @@ import type { FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
+import { saveChordLabel } from '../lib/platform'
 import type { FrameDraft, FrameYours } from '../lib/edits'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
@@ -254,7 +255,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         {deletesLines && (
           <button className="ff-btn ff-del" title={`Remove ${chip} from the file (⌫)`} aria-label={`Delete ${chip}`} onClick={() => void save(text, true)}>⌫</button>
         )}
-        <button className="ff-btn ff-ok" title="Save (⌘⏎) — writes the working tree" aria-label="Save edit" onClick={() => void save(text)}>✓</button>
+        <button className="ff-btn ff-ok" title={`Save (${saveChordLabel(typeof navigator !== 'undefined' ? navigator.platform : '')}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
       {yours != null && (
