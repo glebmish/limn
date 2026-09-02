@@ -138,7 +138,7 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 6. **Send N changes to agent** — it edits, commits on your branch, and reports
    per-comment resolutions. **Approve** records the reviewed SHA.
 
-Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since the review's baseline" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks.
+Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a titlebar fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since the review's baseline" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks. Read diffs unified, split (old beside now), or in a three-column **Multi** view — base, a checkpoint, and the tree now — that attributes each change to the review or to what moved after it; unchanged lines fold and open 20 at a time, in any baseline.
 
 ### The address bar
 

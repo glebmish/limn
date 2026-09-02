@@ -114,6 +114,40 @@ The left-edge drift rail stays **single** whatever you pick: one amber hatch mea
 "this moved since your latest checkpoint" — your approval if you made one, otherwise the
 commit the review was generated at. The marks key names which.
 
+## Diff layouts
+
+The header's **Unified | Split | Multi** switch sets how every file body lays out its
+columns. It is a global preference, remembered across runs; there is no per-file override.
+
+| Layout | Columns | Use it for |
+| --- | --- | --- |
+| **Unified** | one, deletions above additions | the default reading view |
+| **Split** | old beside now, changes paired row by row | reading a rewrite against what it replaced |
+| **Multi** | base · checkpoint · now | seeing what the review already covered and what moved after |
+
+In Multi the baseline picker chooses the **middle column** rather than what the diff is
+measured since: pick *Since approved* and the middle column is the file as you approved
+it. Both side columns are diffed against the base, so every row lines up on a base line.
+Two marks attribute the differences between them: an amber **since** rail on a now-line
+the checkpoint never had, and a grey **gone** rail on a checkpoint line the tree no
+longer has. A file with no checkpoint (the picker says *Full diff*) shows Split with a
+note in its header. The middle column takes no comments — comments anchor on the base
+or the tree, as they always have.
+
+In every layout the in-place editor opens in the now column only; in Split and Multi
+the other columns keep showing their lines beside it.
+
+## Unchanged lines
+
+The runs of unchanged lines between changes are folded, the way GitHub folds them.
+A short run (20 lines or fewer) opens whole with one click; a longer one offers two
+steps — ▲ shows 20 more lines above the change below it, ▼ shows 20 more below the
+change above it — until 20 or fewer remain. **Expand all** in a file's header opens every
+run; it reads **Collapse** once anything is open. Folds open in every baseline and in a
+read-only review: the text is read from the tree (or the compare tip), not from the
+editing capability. Walking the ↑/↓ keys or growing the editor across a fold opens it
+the same 20 lines at a time.
+
 ## The marks key
 
 The **?** next to the baseline control opens a compact key for everything the diff draws:
