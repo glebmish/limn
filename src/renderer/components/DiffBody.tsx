@@ -353,9 +353,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
           onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
         >
           {railTip && (
-            // the shared floating tooltip, not a native `title`: it appears on hover
-            // with no browser delay, and position:fixed escapes .gfile-diff's overflow
-            <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" />
+            // the shared floating tooltip, not a native `title` — but held back a
+            // beat: the strip is 9px wide and sits right beside the line's + button,
+            // so an instant bubble fires on every pass toward it
+            <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />
           )}
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>

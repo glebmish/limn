@@ -16,18 +16,20 @@ import type { Align, Side } from '../lib/floating'
  *  (content-visibility:auto ⇒ paint/layout containment) — which pinned every in-diff
  *  tooltip to the file body's origin and clipped it there. */
 export function Tooltip({
-  content, tipClassName, children, side = 'top', align = 'center', gap = 9,
+  content, tipClassName, children, side = 'top', align = 'center', gap = 9, delay = 0,
   ...rest
 }: {
   content: ReactNode
   tipClassName: string
+  /** ms the pointer must rest on the trigger before the bubble appears (default 0) */
+  delay?: number
   /** optional: a trigger can be a bare styled host (e.g. an invisible hit strip) */
   children?: ReactNode
   side?: Side
   align?: Align
   gap?: number
 } & Omit<HTMLAttributes<HTMLSpanElement>, 'content'>) {
-  const { show, hoverProps, anchorRef, floatingRef, style, side: placed } = useTooltip<HTMLSpanElement, HTMLSpanElement>({ side, align, gap })
+  const { show, hoverProps, anchorRef, floatingRef, style, side: placed } = useTooltip<HTMLSpanElement, HTMLSpanElement>({ side, align, gap, delay })
   return (
     <span {...rest} ref={anchorRef} {...hoverProps}>
       {children}
