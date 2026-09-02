@@ -200,6 +200,9 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
  *  a single SIGINT ends the process even with a review mounted (spec §4). */
 export function shutdownIpc(): void {
   stopWatch()
+  // nothing is running once the server is down — drain the live-op registry so a
+  // reused module (tests, an embedded restart) can't report phantom ops.
+  liveOps.clear()
 }
 
 /** Test seam: the watch generation. Every stopWatch (and so every startWatch and
@@ -584,289 +587,296 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // register before the lane is taken: a generation always holds the exclusive lane,
     // and its events must be recorded from the very first one.
     liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true })
-    const outcome = await operations.run(opId, repo, async () => {
-      const baseEff = effectiveRef(session.pair.base)
-      const compareEff = effectiveRef(session.pair.compare)
-      const workdir = await resolveWorkdir(repo, session.pair)
-      const skeleton = await getDiff(repo, baseEff, compareEff)
-      // Offer untracked files as optional section candidates so the agent can fold the
-      // relevant ones (a new test, a new module) into the narration. Capped so a tree
-      // full of scratch/build files can't flood the prompt — the overflow stays orphan
-      // and is auto-excluded, same as any unsectioned untracked file.
-      const untracked = (await untrackedDiffs(workdir)).slice(0, MAX_UNTRACKED_OFFERED)
-      const untrackedPaths = new Set(untracked.map((f) => f.path))
-      const genDiff = untracked.length ? { ...skeleton, files: [...skeleton.files, ...untracked] } : skeleton
-      const state = dao.loadReviewState(db, sessionId)
-      const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
-      // "Update review": fold the new drift commits into the existing narration
-      // instead of re-narrating from scratch. Only meaningful if a review exists.
-      // Also the full-update escape hatch a failed scoped attempt falls back to.
-      const priorAnnotations = update ? state.annotations : undefined
-      const prior = priorAnnotations
-        ? {
-            title: priorAnnotations.title,
-            summary: priorAnnotations.summary,
-            sections: priorAnnotations.sections.map((s) => s.name),
-            sinceSha: state.reviewedAtSha
-          }
-        : undefined
-      const engine = makeEngine(agent.engine)
-      const recorder = opRecorder(opId)
-      recorder.exclusive = true // generation always holds the exclusive lane
+    // from here on the op is registered: ALWAYS retire it, even if a post-outcome
+    // DB write throws — a stranded entry would show as a phantom running op in
+    // every tab's loadSession forever (end is idempotent).
+    try {
+      const outcome = await operations.run(opId, repo, async () => {
+        const baseEff = effectiveRef(session.pair.base)
+        const compareEff = effectiveRef(session.pair.compare)
+        const workdir = await resolveWorkdir(repo, session.pair)
+        const skeleton = await getDiff(repo, baseEff, compareEff)
+        // Offer untracked files as optional section candidates so the agent can fold the
+        // relevant ones (a new test, a new module) into the narration. Capped so a tree
+        // full of scratch/build files can't flood the prompt — the overflow stays orphan
+        // and is auto-excluded, same as any unsectioned untracked file.
+        const untracked = (await untrackedDiffs(workdir)).slice(0, MAX_UNTRACKED_OFFERED)
+        const untrackedPaths = new Set(untracked.map((f) => f.path))
+        const genDiff = untracked.length ? { ...skeleton, files: [...skeleton.files, ...untracked] } : skeleton
+        const state = dao.loadReviewState(db, sessionId)
+        const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+        // "Update review": fold the new drift commits into the existing narration
+        // instead of re-narrating from scratch. Only meaningful if a review exists.
+        // Also the full-update escape hatch a failed scoped attempt falls back to.
+        const priorAnnotations = update ? state.annotations : undefined
+        const prior = priorAnnotations
+          ? {
+              title: priorAnnotations.title,
+              summary: priorAnnotations.summary,
+              sections: priorAnnotations.sections.map((s) => s.name),
+              sinceSha: state.reviewedAtSha
+            }
+          : undefined
+        const engine = makeEngine(agent.engine)
+        const recorder = opRecorder(opId)
+        recorder.exclusive = true // generation always holds the exclusive lane
 
-      // ── Decide scoped vs full (spec §1). Scoped only when: this is an update, a
-      //    prior review + iteration exist, that iteration's endSha is still reachable
-      //    from head (rebase/amend → unreachable → full), the reachable drift is small
-      //    (scopedEligible), and we're not chain-capped. Anything else → today's full. ─
-      const latest = state.latestIteration
-      let scopedPlan:
-        | { sinceBase: string; since: FileDiff[]; sinceAddedPaths: ReadonlySet<string>; resume?: string }
-        | null = null
-      // These eligibility probes (isAncestor / trailingScopedCount / isDirty /
-      // diffSince[Working]) are NEW to the scoped path — today's full-only generation
-      // never runs them. A probe throw must degrade to today's full update (ladder
-      // step 1: "can't decide → full"), never fail the whole op: the scoped attempt
-      // can never leave the review worse than a plain full update. So ANY throw here
-      // → scopedPlan stays null → full path below (which does no such probes).
-      try {
-        if (priorAnnotations && latest) {
-          const sinceBase = latest.endSha // == state.reviewedAtSha after any generate
-          const reachable = await isAncestor(workdir, sinceBase, skeleton.headSha)
-          const chainCapped = dao.trailingScopedCount(db, sessionId, SCOPE_CHAIN_CAP) >= SCOPE_CHAIN_CAP
-          if (reachable && !chainCapped) {
-            const dirty = await isDirty(workdir)
-            const since = dirty
-              ? await diffSinceWorking(workdir, sinceBase)
-              : (await diffSince(workdir, sinceBase, compareEff)).files
-            // Empty since (update clicked with no drift) or drift too large → full.
-            if (since.length > 0 && scopedEligible(since, skeleton)) {
-              scopedPlan = {
-                sinceBase, since,
-                sinceAddedPaths: new Set(since.filter((f) => f.status === 'added').map((f) => f.path)),
-                // resume the prior iteration's engine session, but only within the same
-                // engine (model changes are fine); a cross-engine picker starts fresh.
-                resume: latest.engine === agent.engine ? latest.sessionId : undefined
+        // ── Decide scoped vs full (spec §1). Scoped only when: this is an update, a
+        //    prior review + iteration exist, that iteration's endSha is still reachable
+        //    from head (rebase/amend → unreachable → full), the reachable drift is small
+        //    (scopedEligible), and we're not chain-capped. Anything else → today's full. ─
+        const latest = state.latestIteration
+        let scopedPlan:
+          | { sinceBase: string; since: FileDiff[]; sinceAddedPaths: ReadonlySet<string>; resume?: string }
+          | null = null
+        // These eligibility probes (isAncestor / trailingScopedCount / isDirty /
+        // diffSince[Working]) are NEW to the scoped path — today's full-only generation
+        // never runs them. A probe throw must degrade to today's full update (ladder
+        // step 1: "can't decide → full"), never fail the whole op: the scoped attempt
+        // can never leave the review worse than a plain full update. So ANY throw here
+        // → scopedPlan stays null → full path below (which does no such probes).
+        try {
+          if (priorAnnotations && latest) {
+            const sinceBase = latest.endSha // == state.reviewedAtSha after any generate
+            const reachable = await isAncestor(workdir, sinceBase, skeleton.headSha)
+            const chainCapped = dao.trailingScopedCount(db, sessionId, SCOPE_CHAIN_CAP) >= SCOPE_CHAIN_CAP
+            if (reachable && !chainCapped) {
+              const dirty = await isDirty(workdir)
+              const since = dirty
+                ? await diffSinceWorking(workdir, sinceBase)
+                : (await diffSince(workdir, sinceBase, compareEff)).files
+              // Empty since (update clicked with no drift) or drift too large → full.
+              if (since.length > 0 && scopedEligible(since, skeleton)) {
+                scopedPlan = {
+                  sinceBase, since,
+                  sinceAddedPaths: new Set(since.filter((f) => f.status === 'added').map((f) => f.path)),
+                  // resume the prior iteration's engine session, but only within the same
+                  // engine (model changes are fine); a cross-engine picker starts fresh.
+                  resume: latest.engine === agent.engine ? latest.sessionId : undefined
+                }
               }
             }
           }
-        }
-      } catch (err) {
-        // couldn't decide (a git probe threw) — fall through to today's full update.
-        scopedPlan = null
-        emitOpEvent(opId, { type: 'status', text: `note: could not assess drift (${errorMessage(err).split('\n')[0]}) — running a full update` })
-      }
-
-      // a cancel during the pre-engine async setup above lands before run.cancel is
-      // registered, so it would otherwise be a no-op and the engine would launch
-      // anyway. Check here (no await before the first registerCancel, so the window is
-      // closed) and bail via the catch. Covers both the scoped and full launch.
-      operations.throwIfCancelled(opId)
-
-      const runFullPass = async (): Promise<GenResult> => {
-        const run = engine.generateReview({
-          repo: workdir, branch: compareEff, base: baseEff, diff: genDiff, artifacts,
-          model: agent.model, reasoningEffort: agent.reasoningEffort,
-          steer: steer?.trim() || undefined, prior
-        })
-        operations.registerCancel(opId, run.cancel)
-        const pump = pumpEvents(run.events, recorder.emit)
-        const { value, sessionId: engineSession } = await run.result
-        await pump
-        const { annotations, warnings } = mergeAnnotations(skeleton, value.annotations, untrackedPaths, new Set(artifacts.map((a) => a.path)))
-        return {
-          annotations, warnings, engineSession, scope: 'full',
-          agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
-          hotspots: value.hotspots
-        }
-      }
-
-      const runScopedTurn = async (resume?: string): Promise<{ value: ScopedReviewPatch; engineSession: string }> => {
-        const run = engine.generateScopedUpdate({
-          repo: workdir, branch: compareEff, base: baseEff,
-          since: scopedPlan!.since, prior: priorAnnotations!, sinceSha: scopedPlan!.sinceBase,
-          priorEngineSessionId: resume,
-          model: agent.model, reasoningEffort: agent.reasoningEffort,
-          steer: steer?.trim() || undefined
-        })
-        operations.registerCancel(opId, run.cancel)
-        const pump = pumpEvents(run.events, recorder.emit)
-        const { value, sessionId: engineSession } = await run.result
-        await pump
-        return { value, engineSession }
-      }
-
-      const runScopedPass = async (plan: NonNullable<typeof scopedPlan>): Promise<GenResult> => {
-        recorder.emit({ type: 'status', text: `note: scoped update — ${plan.since.length} file${plan.since.length === 1 ? '' : 's'} changed since ${plan.sinceBase.slice(0, 7)}` })
-        let patch: ScopedReviewPatch
-        let engineSession: string
-        try {
-          ({ value: patch, engineSession } = await runScopedTurn(plan.resume))
         } catch (err) {
-          // ladder step 2 (resume-fail) vs step 3 (bad output): the engine says the
-          // resume was genuinely dead with a typed EngineSessionLostError (thrown
-          // exactly when session resume/load rejects) — retry the same scoped turn
-          // fresh. Anything else (bad output, a ZodError after the repair turn, a
-          // cancel) propagates to ladder step 3 / the cancel path.
-          if (plan.resume && err instanceof EngineSessionLostError) {
-            recorder.emit({ type: 'status', text: 'note: could not resume prior session — retrying scoped update fresh' })
-            ;({ value: patch, engineSession } = await runScopedTurn(undefined))
-          } else {
-            throw err
+          // couldn't decide (a git probe threw) — fall through to today's full update.
+          scopedPlan = null
+          emitOpEvent(opId, { type: 'status', text: `note: could not assess drift (${errorMessage(err).split('\n')[0]}) — running a full update` })
+        }
+
+        // a cancel during the pre-engine async setup above lands before run.cancel is
+        // registered, so it would otherwise be a no-op and the engine would launch
+        // anyway. Check here (no await before the first registerCancel, so the window is
+        // closed) and bail via the catch. Covers both the scoped and full launch.
+        operations.throwIfCancelled(opId)
+
+        const runFullPass = async (): Promise<GenResult> => {
+          const run = engine.generateReview({
+            repo: workdir, branch: compareEff, base: baseEff, diff: genDiff, artifacts,
+            model: agent.model, reasoningEffort: agent.reasoningEffort,
+            steer: steer?.trim() || undefined, prior
+          })
+          operations.registerCancel(opId, run.cancel)
+          const pump = pumpEvents(run.events, recorder.emit)
+          const { value, sessionId: engineSession } = await run.result
+          await pump
+          const { annotations, warnings } = mergeAnnotations(skeleton, value.annotations, untrackedPaths, new Set(artifacts.map((a) => a.path)))
+          return {
+            annotations, warnings, engineSession, scope: 'full',
+            agentTurnText: annotations.summary || `Produced a ${annotations.sections.length}-section guided review.`,
+            hotspots: value.hotspots
           }
         }
-        const spliced = spliceScopedUpdate(priorAnnotations!, patch, skeleton, untrackedPaths, plan.sinceAddedPaths)
-        const priorIds = new Set(priorAnnotations!.sections.map((s) => s.id))
-        const added = patch.revisedSections.filter((s) => !priorIds.has(s.id)).length
-        const deleted = patch.deletedSectionIds.length
-        return {
-          annotations: spliced.annotations, warnings: spliced.warnings, engineSession, scope: 'scoped',
-          agentTurnText: `Updated ${spliced.revisedCount} of ${spliced.annotations.sections.length} sections (+${added} new, −${deleted}).`
+
+        const runScopedTurn = async (resume?: string): Promise<{ value: ScopedReviewPatch; engineSession: string }> => {
+          const run = engine.generateScopedUpdate({
+            repo: workdir, branch: compareEff, base: baseEff,
+            since: scopedPlan!.since, prior: priorAnnotations!, sinceSha: scopedPlan!.sinceBase,
+            priorEngineSessionId: resume,
+            model: agent.model, reasoningEffort: agent.reasoningEffort,
+            steer: steer?.trim() || undefined
+          })
+          operations.registerCancel(opId, run.cancel)
+          const pump = pumpEvents(run.events, recorder.emit)
+          const { value, sessionId: engineSession } = await run.result
+          await pump
+          return { value, engineSession }
         }
-      }
 
-      // ── Fallback ladder (spec §7): a scoped attempt (with its own resume→fresh retry)
-      //    then, on unusable output, ONE full pass + a status note. A full-pass failure
-      //    is handled by the outer catch, unchanged. Single opId / review thread / ONE
-      //    iteration row across the whole ladder — nothing is persisted until below. ──
-      let result: GenResult
-      if (scopedPlan) {
-        try {
-          result = await runScopedPass(scopedPlan)
-        } catch (err) {
-          if (isCancellation(err)) throw err
-          // a ZodError's issue dump is unreadable in a one-line status note — the raw
-          // error still reaches the log if the FULL pass below also fails (its
-          // friendly-copy gate in the outcome handler keys on ZodError.name).
-          const reason = err instanceof SpliceError ? err.message
-            : err instanceof Error && err.name === 'ZodError' ? 'the agent returned an unexpected patch format'
-              : errorMessage(err)
-          recorder.emit({ type: 'status', text: `note: scoped update failed (${reason}) — running a full update` })
-          result = await runFullPass()
-        }
-      } else {
-        result = await runFullPass()
-      }
-
-      const { annotations, warnings, engineSession, agentTurnText, scope, hotspots } = result
-      annotations.generatedBy = agent   // lock "Guided by" to the producing agent
-
-      // post-merge stamping seam: both the full pass (mergeAnnotations) and the
-      // scoped pass (spliceScopedUpdate, which calls mergeAnnotations internally)
-      // converge on `annotations` here, before it is persisted below — one call
-      // covers both. Mirrors add_comment's stamp-at-creation; never throws.
-      await stampAnnotationAnchors(workdir, session, annotations)
-
-      // this iteration's number is minted here (rather than down at addIteration)
-      // so hotspot comments below can carry the SAME `iteration`, before the row
-      // exists — nextIterationNumber is a pure MAX(n)+1 read, no side effect.
-      const iterationN = dao.nextIterationNumber(db, sessionId)
-
-      // A4: hotspots are a full-generation concept (GenResult.hotspots — undefined
-      // on a scoped pass, which has none in its wire schema), minted into anchored,
-      // resolved agent comments here. They ride ParsedReview as a SIBLING of
-      // annotations, so they can never reach persistence by accident.
-      // knownFiles mirrors mergeAnnotations' own file-in-diff gate (skeleton ∪
-      // untracked); stamping mirrors add_comment's stamp-at-creation.
-      if (hotspots) {
-        // a fresh full pass REPLACES the prior full pass's hotspot set: pristine
-        // (never-engaged) hotspot comments are deleted before minting, so N
-        // regenerations leave one set, not N. Engaged ones survive (see
-        // supersededHotspotIds). Scoped passes (hotspots undefined) never touch them.
-        for (const id of supersededHotspotIds(state.comments)) dao.deleteComment(db, sessionId, id)
-        const knownFiles = new Set([...skeleton.files.map((f) => f.path), ...untrackedPaths])
-        const minted = mintHotspotComments(hotspots, { knownFiles, iteration: iterationN })
-        for (const c of minted) {
-          const stamped = await stampAnchor(workdir, session, c.anchor)
-          dao.upsertComment(db, sessionId, { ...c, anchor: stamped })
-        }
-      }
-
-      for (const w of warnings) emitOpEvent(opId, { type: 'status', text: `note: ${w}` })
-      if (annotations.artifactPaths) {
-        // accept agent-reported paths only when they match a recognized format —
-        // the role comes from the convention, never a guess
-        const refs = [...state.artifacts]
-        for (const p of annotations.artifactPaths) {
-          const rel = normalizeArtifactPath(p)
-          if (!rel) continue
-          const hit = classify(rel)
-          if (hit && !refs.some((a) => a.path === rel)) {
-            try {
-              loadArtifact(workdir, rel, hit.role)
-              refs.push({ role: hit.role, path: rel })
-            } catch {
-              // unsafe, missing, unreadable, or symlink-escaping artifact path
+        const runScopedPass = async (plan: NonNullable<typeof scopedPlan>): Promise<GenResult> => {
+          recorder.emit({ type: 'status', text: `note: scoped update — ${plan.since.length} file${plan.since.length === 1 ? '' : 's'} changed since ${plan.sinceBase.slice(0, 7)}` })
+          let patch: ScopedReviewPatch
+          let engineSession: string
+          try {
+            ({ value: patch, engineSession } = await runScopedTurn(plan.resume))
+          } catch (err) {
+            // ladder step 2 (resume-fail) vs step 3 (bad output): the engine says the
+            // resume was genuinely dead with a typed EngineSessionLostError (thrown
+            // exactly when session resume/load rejects) — retry the same scoped turn
+            // fresh. Anything else (bad output, a ZodError after the repair turn, a
+            // cancel) propagates to ladder step 3 / the cancel path.
+            if (plan.resume && err instanceof EngineSessionLostError) {
+              recorder.emit({ type: 'status', text: 'note: could not resume prior session — retrying scoped update fresh' })
+              ;({ value: patch, engineSession } = await runScopedTurn(undefined))
+            } else {
+              throw err
             }
           }
+          const spliced = spliceScopedUpdate(priorAnnotations!, patch, skeleton, untrackedPaths, plan.sinceAddedPaths)
+          const priorIds = new Set(priorAnnotations!.sections.map((s) => s.id))
+          const added = patch.revisedSections.filter((s) => !priorIds.has(s.id)).length
+          const deleted = patch.deletedSectionIds.length
+          return {
+            annotations: spliced.annotations, warnings: spliced.warnings, engineSession, scope: 'scoped',
+            agentTurnText: `Updated ${spliced.revisedCount} of ${spliced.annotations.sections.length} sections (+${added} new, −${deleted}).`
+          }
         }
-        dao.setArtifacts(db, sessionId, refs)
-      }
-      // the meta + review-thread finalization are one atomic group: a crash mid-way
-      // must not leave annotations saved without the review thread bound to them.
-      inTx(db, () => {
-        dao.addIteration(db, sessionId, {
-          n: iterationN,
-          engine: agent.engine,
-          sessionId: engineSession,
-          endSha: skeleton.headSha,
-          at: new Date().toISOString(),
-          title: annotations.title,
-          summary: annotations.summary,
-          annotations,
-          scope
+
+        // ── Fallback ladder (spec §7): a scoped attempt (with its own resume→fresh retry)
+        //    then, on unusable output, ONE full pass + a status note. A full-pass failure
+        //    is handled by the outer catch, unchanged. Single opId / review thread / ONE
+        //    iteration row across the whole ladder — nothing is persisted until below. ──
+        let result: GenResult
+        if (scopedPlan) {
+          try {
+            result = await runScopedPass(scopedPlan)
+          } catch (err) {
+            if (isCancellation(err)) throw err
+            // a ZodError's issue dump is unreadable in a one-line status note — the raw
+            // error still reaches the log if the FULL pass below also fails (its
+            // friendly-copy gate in the outcome handler keys on ZodError.name).
+            const reason = err instanceof SpliceError ? err.message
+              : err instanceof Error && err.name === 'ZodError' ? 'the agent returned an unexpected patch format'
+                : errorMessage(err)
+            recorder.emit({ type: 'status', text: `note: scoped update failed (${reason}) — running a full update` })
+            result = await runFullPass()
+          }
+        } else {
+          result = await runFullPass()
+        }
+
+        const { annotations, warnings, engineSession, agentTurnText, scope, hotspots } = result
+        annotations.generatedBy = agent   // lock "Guided by" to the producing agent
+
+        // post-merge stamping seam: both the full pass (mergeAnnotations) and the
+        // scoped pass (spliceScopedUpdate, which calls mergeAnnotations internally)
+        // converge on `annotations` here, before it is persisted below — one call
+        // covers both. Mirrors add_comment's stamp-at-creation; never throws.
+        await stampAnnotationAnchors(workdir, session, annotations)
+
+        // this iteration's number is minted here (rather than down at addIteration)
+        // so hotspot comments below can carry the SAME `iteration`, before the row
+        // exists — nextIterationNumber is a pure MAX(n)+1 read, no side effect.
+        const iterationN = dao.nextIterationNumber(db, sessionId)
+
+        // A4: hotspots are a full-generation concept (GenResult.hotspots — undefined
+        // on a scoped pass, which has none in its wire schema), minted into anchored,
+        // resolved agent comments here. They ride ParsedReview as a SIBLING of
+        // annotations, so they can never reach persistence by accident.
+        // knownFiles mirrors mergeAnnotations' own file-in-diff gate (skeleton ∪
+        // untracked); stamping mirrors add_comment's stamp-at-creation.
+        if (hotspots) {
+          // a fresh full pass REPLACES the prior full pass's hotspot set: pristine
+          // (never-engaged) hotspot comments are deleted before minting, so N
+          // regenerations leave one set, not N. Engaged ones survive (see
+          // supersededHotspotIds). Scoped passes (hotspots undefined) never touch them.
+          for (const id of supersededHotspotIds(state.comments)) dao.deleteComment(db, sessionId, id)
+          const knownFiles = new Set([...skeleton.files.map((f) => f.path), ...untrackedPaths])
+          const minted = mintHotspotComments(hotspots, { knownFiles, iteration: iterationN })
+          for (const c of minted) {
+            const stamped = await stampAnchor(workdir, session, c.anchor)
+            dao.upsertComment(db, sessionId, { ...c, anchor: stamped })
+          }
+        }
+
+        for (const w of warnings) emitOpEvent(opId, { type: 'status', text: `note: ${w}` })
+        if (annotations.artifactPaths) {
+          // accept agent-reported paths only when they match a recognized format —
+          // the role comes from the convention, never a guess
+          const refs = [...state.artifacts]
+          for (const p of annotations.artifactPaths) {
+            const rel = normalizeArtifactPath(p)
+            if (!rel) continue
+            const hit = classify(rel)
+            if (hit && !refs.some((a) => a.path === rel)) {
+              try {
+                loadArtifact(workdir, rel, hit.role)
+                refs.push({ role: hit.role, path: rel })
+              } catch {
+                // unsafe, missing, unreadable, or symlink-escaping artifact path
+              }
+            }
+          }
+          dao.setArtifacts(db, sessionId, refs)
+        }
+        // the meta + review-thread finalization are one atomic group: a crash mid-way
+        // must not leave annotations saved without the review thread bound to them.
+        inTx(db, () => {
+          dao.addIteration(db, sessionId, {
+            n: iterationN,
+            engine: agent.engine,
+            sessionId: engineSession,
+            endSha: skeleton.headSha,
+            at: new Date().toISOString(),
+            title: annotations.title,
+            summary: annotations.summary,
+            annotations,
+            scope
+          })
+          dao.updateSessionMeta(db, sessionId, {
+            engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
+            annotations, reviewedAtSha: skeleton.headSha
+          })
+          // finalize the review thread created at op start: bind it to the engine
+          // session that produced the review and persist the agent's turn (the user
+          // turn was persisted by beginReview). The thread IS the review agent's
+          // history — generation first, later comment/decision turns after.
+          if (dao.getChatThread(db, reviewThreadId)) {
+            const at = new Date().toISOString()
+            const genTools = reduceToolCalls(recorder.events)
+            dao.setThreadEngineSession(db, reviewThreadId, engineSession)
+            dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
+            dao.addChatMessage(db, reviewThreadId, {
+              role: 'agent', at,
+              text: agentTurnText,
+              ...(genTools.length ? { tools: genTools } : {})
+            })
+          }
         })
-        dao.updateSessionMeta(db, sessionId, {
-          engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
-          annotations, reviewedAtSha: skeleton.headSha
-        })
-        // finalize the review thread created at op start: bind it to the engine
-        // session that produced the review and persist the agent's turn (the user
-        // turn was persisted by beginReview). The thread IS the review agent's
-        // history — generation first, later comment/decision turns after.
+        return { sections: annotations.sections.length, scope, agentTurnText }
+      })
+
+      if (outcome.status === 'succeeded') {
+        sendOpResult(opId, 'review', 'succeeded', undefined, true, undefined, true)
+        // scoped runs mirror the persisted turn ("Updated N of M sections…", spec §8/Q10);
+        // a full run keeps today's "N sections — <compare>" summary.
+        notifyIfUnfocused('Guided review ready', outcome.value.scope === 'scoped'
+          ? outcome.value.agentTurnText
+          : `${outcome.value.sections} sections — ${session.pair.compare.symbol}`)
+      } else {
+        const err = outcome.error
+        // off-schema/empty engine output surfaces as a raw ZodError from
+        // parseReviewOutput — keep the dump in the log, show the user plain English.
+        const msg = err instanceof Error && err.name === 'ZodError'
+          ? 'The agent returned an unexpected or empty review format — try regenerating.'
+          : errorMessage(err)
+        const cancelled = outcome.status === 'cancelled'
+        console.error('[generate] failed:', err)
+        // keep the review thread, noting the outcome, so a cancelled/failed run stays
+        // visible in chat history (the user turn is already persisted). reload:true so
+        // the drawer picks up the note.
         if (dao.getChatThread(db, reviewThreadId)) {
-          const at = new Date().toISOString()
-          const genTools = reduceToolCalls(recorder.events)
-          dao.setThreadEngineSession(db, reviewThreadId, engineSession)
-          dao.setThreadAgent(db, reviewThreadId, agent) // lock to the producing agent
           dao.addChatMessage(db, reviewThreadId, {
-            role: 'agent', at,
-            text: agentTurnText,
-            ...(genTools.length ? { tools: genTools } : {})
+            role: 'agent', at: new Date().toISOString(),
+            text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
           })
         }
-      })
-      return { sections: annotations.sections.length, scope, agentTurnText }
-    })
-
-    if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'review', 'succeeded', undefined, true, undefined, true)
-      // scoped runs mirror the persisted turn ("Updated N of M sections…", spec §8/Q10);
-      // a full run keeps today's "N sections — <compare>" summary.
-      notifyIfUnfocused('Guided review ready', outcome.value.scope === 'scoped'
-        ? outcome.value.agentTurnText
-        : `${outcome.value.sections} sections — ${session.pair.compare.symbol}`)
-    } else {
-      const err = outcome.error
-      // off-schema/empty engine output surfaces as a raw ZodError from
-      // parseReviewOutput — keep the dump in the log, show the user plain English.
-      const msg = err instanceof Error && err.name === 'ZodError'
-        ? 'The agent returned an unexpected or empty review format — try regenerating.'
-        : errorMessage(err)
-      const cancelled = outcome.status === 'cancelled'
-      console.error('[generate] failed:', err)
-      // keep the review thread, noting the outcome, so a cancelled/failed run stays
-      // visible in chat history (the user turn is already persisted). reload:true so
-      // the drawer picks up the note.
-      if (dao.getChatThread(db, reviewThreadId)) {
-        dao.addChatMessage(db, reviewThreadId, {
-          role: 'agent', at: new Date().toISOString(),
-          text: cancelled ? 'Generation cancelled.' : `Generation failed: ${msg}`
-        })
+        sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true, undefined, true)
+        if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
       }
-      sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true, undefined, true)
-      if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
+      operations.unmarkReviewThread(reviewThreadId)
+    } finally {
+      liveOps.end(opId)
     }
-    operations.unmarkReviewThread(reviewThreadId)
   })
 
   handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
@@ -978,26 +988,34 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     }
     // Per-thread guard: a thread can host at most one in-flight turn, whatever lane it
     // would take — a concurrent send (second client) fails fast (ThreadBusyError).
-    // The registered lane is main's current best guess; doTurn's `recorder.exclusive`
-    // corrects it (setLane) the moment the lane is actually chosen.
-    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: !operations.repoBusy(repo) })
-    const outcome = await withBusyThread(threadId, async () => {
-      // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
-      // shared lane forced read-only; otherwise take the exclusive lane at full tier.
-      // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
-      // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
-      const first = operations.repoBusy(repo)
-        ? await operations.runShared(opId, repo, () => doTurn(true))
-        : await operations.run(opId, repo, () => doTurn(false))
-      if (first.status === 'failed' && first.error instanceof RepoBusyError && first.error.lane === 'exclusive') {
-        return operations.runShared(opId, repo, () => doTurn(true))
+    // `finally` retires the op whatever happens after the outcome (a post-outcome DB
+    // write can throw); `end` is idempotent and a no-op for a never-registered op.
+    try {
+      const outcome = await withBusyThread(threadId, async () => {
+        // registered only once the per-thread guard is OURS — a ThreadBusy rejection
+        // must never publish a second live op on this thread. The lane here is main's
+        // current best guess; doTurn's `recorder.exclusive` corrects it (setLane) the
+        // moment the lane is actually chosen.
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: !operations.repoBusy(repo) })
+        // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
+        // shared lane forced read-only; otherwise take the exclusive lane at full tier.
+        // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
+        // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
+        const first = operations.repoBusy(repo)
+          ? await operations.runShared(opId, repo, () => doTurn(true))
+          : await operations.run(opId, repo, () => doTurn(false))
+        if (first.status === 'failed' && first.error instanceof RepoBusyError && first.error.lane === 'exclusive') {
+          return operations.runShared(opId, repo, () => doTurn(true))
+        }
+        return first
+      })
+      if (outcome.status === 'succeeded') {
+        sendOpResult(opId, 'chat', 'succeeded', undefined, undefined, undefined, recorder.exclusive)
+      } else {
+        reportTurnFailure({ db, threadId, opId, outcome, label: 'Turn', exclusive: recorder.exclusive })
       }
-      return first
-    })
-    if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'chat', 'succeeded', undefined, undefined, undefined, recorder.exclusive)
-    } else {
-      reportTurnFailure({ db, threadId, opId, outcome, label: 'Turn', exclusive: recorder.exclusive })
+    } finally {
+      liveOps.end(opId)
     }
   })
 
@@ -1048,79 +1066,89 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a batch turn is write-capable → always the exclusive lane
     // Per-thread guard, as in sendChat: one in-flight turn per thread, fail fast.
-    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
-    const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
-      // Write guards are computed from the same capability object the renderer
-      // consumes. A refine turn (answering an intent question) stays read-only.
-      const capability = await writeCapabilityFor(repo, session.pair.compare)
-      const workdir = capability.workdir ?? repo
-      if (!refine && !capability.enabled) {
-        const reason = capability.reason === 'not-checked-out'
-          ? 'the compare branch is not checked out'
-          : 'the compare side is not a writable branch'
-        throw new Error(`Agent edits are unavailable because ${reason}`)
-      }
-      const writeEnabled = !refine
-      const state = dao.loadReviewState(db, sid)
-      const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
-      if (comments.length === 0 && !steer) throw new Error('Nothing to send')
-      for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
-      const userAt = new Date().toISOString()
-      dao.addChatMessage(db, threadId, {
-        role: 'user',
-        at: userAt,
-        text: batchTurnLabel(comments, state.annotations?.questions ?? [], refine, steer),
-        ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
-      })
+    // `finally` retires the op whatever happens after the outcome (the rollback reads
+    // and writes below can throw); `end` is idempotent / a no-op if never registered.
+    try {
+      const outcome = await withBusyThread(threadId, () => {
+        // registered only once the guard is ours — a ThreadBusy rejection must never
+        // publish a second live op on this thread.
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
+        return operations.run(opId, repo, async () => {
+          // Write guards are computed from the same capability object the renderer
+          // consumes. A refine turn (answering an intent question) stays read-only.
+          const capability = await writeCapabilityFor(repo, session.pair.compare)
+          const workdir = capability.workdir ?? repo
+          if (!refine && !capability.enabled) {
+            const reason = capability.reason === 'not-checked-out'
+              ? 'the compare branch is not checked out'
+              : 'the compare side is not a writable branch'
+            throw new Error(`Agent edits are unavailable because ${reason}`)
+          }
+          const writeEnabled = !refine
+          const state = dao.loadReviewState(db, sid)
+          const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
+          if (comments.length === 0 && !steer) throw new Error('Nothing to send')
+          for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
+          const userAt = new Date().toISOString()
+          dao.addChatMessage(db, threadId, {
+            role: 'user',
+            at: userAt,
+            text: batchTurnLabel(comments, state.annotations?.questions ?? [], refine, steer),
+            ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
+          })
 
-      const engine = makeEngine(thread.agent.engine)
-      const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        engineSessionId: thread.engineSessionId, emit: recorder.emit
-      })
-      // cancel during setup → bail before the (write-enabled) engine launches, so a
-      // stopped batch can't still edit/commit the worktree.
-      operations.throwIfCancelled(opId)
-      // a pruned session rejects this run with the typed EngineSessionLostError.
-      const run = engine.chat({
-        repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-        message: refine
-          ? buildAnswerPrompt(comments, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary })
-          : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
-        tools, writeEnabled, opId, executionMode: thread.executionMode,
-        // re-read per permission request (mid-turn mode changes), as in sendChat.
-        currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
-      })
-      operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(run.events, recorder.emit)
-      const { value, sessionId: engineSession } = await run.result
-      await pump
+          const engine = makeEngine(thread.agent.engine)
+          const tools = createToolHost({
+            db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
+            engineSessionId: thread.engineSessionId, emit: recorder.emit
+          })
+          // cancel during setup → bail before the (write-enabled) engine launches, so a
+          // stopped batch can't still edit/commit the worktree.
+          operations.throwIfCancelled(opId)
+          // a pruned session rejects this run with the typed EngineSessionLostError.
+          const run = engine.chat({
+            repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+            message: refine
+              ? buildAnswerPrompt(comments, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary })
+              : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
+            tools, writeEnabled, opId, executionMode: thread.executionMode,
+            // re-read per permission request (mid-turn mode changes), as in sendChat.
+            currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
+          })
+          operations.registerCancel(opId, run.cancel)
+          const pump = pumpEvents(run.events, recorder.emit)
+          const { value, sessionId: engineSession } = await run.result
+          await pump
 
-      // statuses now reflect the agent's resolve/commit tool calls; anything left
-      // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
-      const after = dao.loadReviewState(db, sid)
-      for (const c of after.comments) {
-        if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
+          // statuses now reflect the agent's resolve/commit tool calls; anything left
+          // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
+          const after = dao.loadReviewState(db, sid)
+          for (const c of after.comments) {
+            if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
+          }
+          const at = new Date().toISOString()
+          const actions = tools.collected()
+          const toolCalls = reduceToolCalls(recorder.events)
+          const segments = reduceSegments(recorder.events)
+          dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
+          if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
+          const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
+          return resolved
+        })
+      })
+      if (outcome.status === 'succeeded') {
+        sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
+        notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
+      } else {
+        // roll back "sent" so comments aren't stuck
+        const st = dao.loadReviewState(db, sid)
+        for (const c of st.comments) {
+          if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
+        }
+        reportTurnFailure({ db, threadId, opId, outcome, label: 'Batch', exclusive: true, notify: true })
       }
-      const at = new Date().toISOString()
-      const actions = tools.collected()
-      const toolCalls = reduceToolCalls(recorder.events)
-      const segments = reduceSegments(recorder.events)
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
-      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-      const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
-      return resolved
-    }))
-    if (outcome.status === 'succeeded') {
-      sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
-      notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
-    } else {
-      // roll back "sent" so comments aren't stuck
-      const st = dao.loadReviewState(db, sid)
-      for (const c of st.comments) {
-        if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
-      }
-      reportTurnFailure({ db, threadId, opId, outcome, label: 'Batch', exclusive: true, notify: true })
+    } finally {
+      liveOps.end(opId)
     }
   })
 
@@ -1139,59 +1167,69 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a rebase turn is write-capable → always the exclusive lane
     // Per-thread guard, as in sendChat/sendBatch: one in-flight turn per thread, fail fast.
-    liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
-    const outcome = await withBusyThread(threadId, () => operations.run(opId, repo, async () => {
-      // Same precheck as sendBatch: the agent can only rebase where it can write — the
-      // compare branch checked out somewhere with a clean tree (spec §6 / branch-dirty gate).
-      const capability = await writeCapabilityFor(repo, session.pair.compare)
-      const workdir = capability.workdir ?? repo
-      if (!capability.enabled) {
-        const reason = capability.reason === 'not-checked-out'
-          ? 'the compare branch is not checked out'
-          : 'the compare side is not a writable branch'
-        throw new Error(`Agent edits are unavailable because ${reason}`)
+    // `finally` retires the op whatever happens after the outcome (reportTurnFailure
+    // writes an agent note); `end` is idempotent / a no-op if never registered.
+    try {
+      const outcome = await withBusyThread(threadId, () => {
+        // registered only once the guard is ours — a ThreadBusy rejection must never
+        // publish a second live op on this thread.
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
+        return operations.run(opId, repo, async () => {
+          // Same precheck as sendBatch: the agent can only rebase where it can write — the
+          // compare branch checked out somewhere with a clean tree (spec §6 / branch-dirty gate).
+          const capability = await writeCapabilityFor(repo, session.pair.compare)
+          const workdir = capability.workdir ?? repo
+          if (!capability.enabled) {
+            const reason = capability.reason === 'not-checked-out'
+              ? 'the compare branch is not checked out'
+              : 'the compare side is not a writable branch'
+            throw new Error(`Agent edits are unavailable because ${reason}`)
+          }
+          const state = dao.loadReviewState(db, sid)
+          dao.addChatMessage(db, threadId, {
+            role: 'user', at: new Date().toISOString(),
+            text: rebaseTurnLabel(state.base, state.branch, conflictFiles)
+          })
+
+          const engine = makeEngine(thread.agent.engine)
+          const tools = createToolHost({
+            db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
+            engineSessionId: thread.engineSessionId, emit: recorder.emit
+          })
+          // cancel during setup → bail before the (write-enabled) engine launches, so a
+          // stopped rebase can't still rewrite the branch.
+          operations.throwIfCancelled(opId)
+          // a pruned session rejects this run with the typed EngineSessionLostError.
+          const run = engine.chat({
+            repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+            message: buildRebasePrompt(state.base, state.branch, conflictFiles),
+            tools, writeEnabled: true, opId, executionMode: thread.executionMode,
+            // re-read per permission request (mid-turn mode changes), as in sendChat.
+            currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
+          })
+          operations.registerCancel(opId, run.cancel)
+          const pump = pumpEvents(run.events, recorder.emit)
+          const { value, sessionId: engineSession } = await run.result
+          await pump
+
+          const at = new Date().toISOString()
+          const actions = tools.collected()
+          const toolCalls = reduceToolCalls(recorder.events)
+          const segments = reduceSegments(recorder.events)
+          dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
+          if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
+        })
+      })
+      if (outcome.status === 'succeeded') {
+        // reload:true — the rebase rewrote the branch under the review; folding it in
+        // surfaces the rewrite as ordinary since-approved drift (spec §6, C2/Seq B).
+        sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
+        notifyIfUnfocused('Agent rebase finished', `Rebased onto the base branch — ${agentLabel(thread.agent)}`)
+      } else {
+        reportTurnFailure({ db, threadId, opId, outcome, label: 'Rebase', exclusive: true, notify: true })
       }
-      const state = dao.loadReviewState(db, sid)
-      dao.addChatMessage(db, threadId, {
-        role: 'user', at: new Date().toISOString(),
-        text: rebaseTurnLabel(state.base, state.branch, conflictFiles)
-      })
-
-      const engine = makeEngine(thread.agent.engine)
-      const tools = createToolHost({
-        db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        engineSessionId: thread.engineSessionId, emit: recorder.emit
-      })
-      // cancel during setup → bail before the (write-enabled) engine launches, so a
-      // stopped rebase can't still rewrite the branch.
-      operations.throwIfCancelled(opId)
-      // a pruned session rejects this run with the typed EngineSessionLostError.
-      const run = engine.chat({
-        repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-        message: buildRebasePrompt(state.base, state.branch, conflictFiles),
-        tools, writeEnabled: true, opId, executionMode: thread.executionMode,
-        // re-read per permission request (mid-turn mode changes), as in sendChat.
-        currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
-      })
-      operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(run.events, recorder.emit)
-      const { value, sessionId: engineSession } = await run.result
-      await pump
-
-      const at = new Date().toISOString()
-      const actions = tools.collected()
-      const toolCalls = reduceToolCalls(recorder.events)
-      const segments = reduceSegments(recorder.events)
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
-      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-    }))
-    if (outcome.status === 'succeeded') {
-      // reload:true — the rebase rewrote the branch under the review; folding it in
-      // surfaces the rewrite as ordinary since-approved drift (spec §6, C2/Seq B).
-      sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
-      notifyIfUnfocused('Agent rebase finished', `Rebased onto the base branch — ${agentLabel(thread.agent)}`)
-    } else {
-      reportTurnFailure({ db, threadId, opId, outcome, label: 'Rebase', exclusive: true, notify: true })
+    } finally {
+      liveOps.end(opId)
     }
   })
 

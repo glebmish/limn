@@ -66,6 +66,12 @@ export class LiveOpRegistry {
     return this.ops.has(opId)
   }
 
+  /** Drop every entry — the process is going down (shutdownIpc). Without this a
+   *  registry that outlives its server would keep reporting ops nothing is running. */
+  clear(): void {
+    this.ops.clear()
+  }
+
   /** Snapshots of every op running against `sessionId`. Each carries the trailing
    *  {@link SNAPSHOT_TRAILING_EVENTS} events plus — ahead of that window, in stream
    *  order — any EARLIER `approval_request` still parked, so a tab that joins during

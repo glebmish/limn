@@ -49,16 +49,28 @@ export class FakeEngine implements ReviewEngine {
 
   generateReview(req: ReviewRequest): EngineRun<ParsedReview> {
     const q = new EventQueue()
+    // set while a `[hold]` steer has this pass parked, so `cancel` can release it —
+    // otherwise closing the queue would leave the generation awaiting forever.
+    let releaseHold: (() => void) | null = null
     const result = (async () => {
       q.push({ type: 'status', text: 'Exploring the repository…' })
       q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'run' } })
       q.push({ type: 'tool', call: { id: 'r1', verb: 'bash', name: 'git', arg: `git log ${req.base}..${req.branch}`, state: 'ok', meta: '12 commits' } })
-      if (req.steer?.includes('[hold]')) {
-        // the generation twin of the `[hold]` chat turn: park mid-pass (exclusive lane
-        // held, op still live) until releaseFakeHolds() fires, so a test can observe a
-        // generation that is genuinely in flight.
+      // the generation twins of the chat turn's `[hold]` / `[hold:<ms>]` steers: park
+      // mid-pass (exclusive lane held, op still live) so a test — or a demo — can
+      // observe a generation genuinely in flight. `[hold]` waits for
+      // releaseFakeHolds(); `[hold:<ms>]` ends by itself, which is the only variant
+      // safe in a SERVED demo where releaseFakeHolds() is unreachable. Either way
+      // `cancel` releases the park, so Stop always ends the op.
+      const timedGenHold = /\[hold:(\d{1,6})\]/.exec(req.steer ?? '')
+      if (timedGenHold || req.steer?.includes('[hold]')) {
         q.push({ type: 'status', text: 'holding…' })
-        await new Promise<void>((resolve) => { fakeHoldResolvers.push(resolve) })
+        await new Promise<void>((resolve) => {
+          releaseHold = resolve
+          if (timedGenHold) setTimeout(resolve, Number(timedGenHold[1]))
+          else fakeHoldResolvers.push(resolve)
+        })
+        releaseHold = null
       }
       const byDir = new Map<string, string[]>()
       for (const f of req.diff.files) {
@@ -97,7 +109,7 @@ export class FakeEngine implements ReviewEngine {
       q.close()
       return { value, sessionId: `fake-${Date.now()}` }
     })()
-    return { events: q.iterable(), result, cancel: () => q.close() }
+    return { events: q.iterable(), result, cancel: () => { releaseHold?.(); q.close() } }
   }
 
   /** Deterministic diff-scoped patch: for each since-diff file, revise the prior
