@@ -66,7 +66,7 @@ describe('multi layout', () => {
     const out = renderToStaticMarkup(<DiffView f={withMid} />)
     expect(out).toContain('layout-split')
     expect(out).toContain('no checkpoint for this file')
-    expect(out).toMatch(/dcols"><span>Old<\/span><span>Now<\/span>/)
+    expect(out).not.toContain('dcols')
   })
 
   it('a checkpoint that exists but did not touch the file still gives three columns', () => {

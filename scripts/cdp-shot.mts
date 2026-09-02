@@ -1,6 +1,8 @@
 /* Headless-Chrome screenshot/frames over CDP (Node 24 globals: fetch + WebSocket).
  *   npx tsx scripts/cdp-shot.mts --url http://127.0.0.1:5466/?dev=… --out /tmp/a.png [--delay 6000]
- *   npx tsx scripts/cdp-shot.mts --url … --frames /tmp/frames --every 350 --count 36 [--delay 2500] */
+ *   npx tsx scripts/cdp-shot.mts --url … --frames /tmp/frames --every 350 --count 36 [--delay 2500]
+ * `--eval "<js>"` runs in the page after the delay (a click, a state poke), then
+ * `--after <ms>` (default 1500) waits for it to settle before the capture. */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,6 +13,7 @@ const url = arg('url'); if (!url) throw new Error('--url required')
 const out = arg('out'); const frames = arg('frames')
 const delay = Number(arg('delay', '6000')); const width = Number(arg('width', '1320')); const height = Number(arg('height', '860'))
 const every = Number(arg('every', '400')); const count = Number(arg('count', '40'))
+const evalJs = arg('eval'); const after = Number(arg('after', '1500'))
 
 const CHROME = process.env.CHROME_BIN || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : 'google-chrome')
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-chrome-'))
@@ -58,6 +61,11 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false })
   await send('Page.navigate', { url })
   await new Promise((r) => setTimeout(r, delay))
+  if (evalJs) {
+    const res = await send('Runtime.evaluate', { expression: evalJs, awaitPromise: true, returnByValue: true }) as { exceptionDetails?: { text: string } }
+    if (res.exceptionDetails) throw new Error(`--eval failed: ${res.exceptionDetails.text}`)
+    await new Promise((r) => setTimeout(r, after))
+  }
   const shot = async (file: string): Promise<void> => {
     const { data } = await send('Page.captureScreenshot', { format: 'png' }) as { data: string }
     fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, Buffer.from(data, 'base64'))

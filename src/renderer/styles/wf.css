@@ -231,7 +231,7 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
    (staged / unstaged / drift / attribution) repeat per cell: they mark a line, and
    in these layouts the line is the cell. */
 .gfile-diff.layout-split,.gfile-diff.layout-multi{overflow-x:hidden}
-.dcols{position:sticky;top:0;z-index:4;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
+.dcols{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
   font-family:var(--sans);font-size:10.5px;font-weight:600;color:var(--muted-2);background:var(--panel-2);border-bottom:1px solid var(--line)}
 .dcols span{padding:3px 14px;border-left:1px solid var(--line)}
 .dcols span:first-child{border-left:none}
@@ -240,7 +240,7 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline.split .dcell:first-child{border-left:none}
 .dline.split .dcell .gut{width:40px}
 .dline.split .dcell .gut span{width:40px}
-.dline.split .dcell .code{white-space:pre-wrap;word-break:break-all}
+.dline.split .dcell .code{white-space:pre-wrap;overflow-wrap:anywhere}
 .dline.split .dcell.add{background:var(--add-bg)}
 .dline.split .dcell.add .sign{color:var(--accent)}
 .dline.split .dcell.add .code{color:var(--accent-ink)}
@@ -267,7 +267,7 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline.dmerged .dstack-line{display:flex;min-height:1.65em}
 .dline.dmerged .dstack-line .gut{flex:0 0 auto;width:40px;display:flex;text-align:right;color:var(--faint)}
 .dline.dmerged .dstack-line .gut span{width:40px;padding-right:5px}
-.dline.dmerged .dstack-line .code{white-space:pre-wrap;word-break:break-all;padding-right:12px}
+.dline.dmerged .dstack-line .code{white-space:pre-wrap;overflow-wrap:anywhere;padding-right:12px}
 .layout-note{font-size:11px;color:var(--muted)}
 
 /* agent inline summary above a hunk */

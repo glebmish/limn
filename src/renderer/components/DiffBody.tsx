@@ -563,9 +563,12 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     )
   }
 
-  const columnStrip = layout === 'unified' ? null : (
+  // only Multi names its columns: the middle one is whichever checkpoint the
+  // baseline picked, which nothing else on screen says. Split is the well-known
+  // old-beside-new view and needs no caption.
+  const columnStrip = layout !== 'multi' ? null : (
     <div className="dcols">
-      {(layout === 'multi' ? ['Base', checkpointLabel(mode), 'Now'] : ['Old', 'Now']).map((name) => <span key={name}>{name}</span>)}
+      {['Base', checkpointLabel(mode), 'Now'].map((name) => <span key={name}>{name}</span>)}
     </div>
   )
   const empty = !f.binary && hunks.length === 0 && (layout !== 'multi' || (midHunks ?? []).length === 0)

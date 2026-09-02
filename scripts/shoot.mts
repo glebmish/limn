@@ -30,8 +30,15 @@ fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
 // a long file with one small mid-file change — gives the diff real folds so the
 // in-place-edit demos (expander batches, fold-crossing growth/navigation) have
 // something to reveal. Added on main, merged into feature, then tweaked there.
-const longLines = (v25: string): string =>
-  Array.from({ length: 34 }, (_, i) => (i === 24 ? v25 : `export const v${i + 1} = ${i + 1}`)).join('\n') + '\n'
+// LIMN_SEED_CHECKPOINT=1: the diff-layout demo. long.ts is 60 lines so the run between
+// two changes exceeds a fold step; the approval sits one commit behind the tip, and
+// the review was generated a commit earlier still, so Multi has a middle column and
+// the drift rails have something to mark. LIMN_SEED_PREFS='{"diffLayout":"\"split\""}'
+// pre-seeds the prefs table (values are the JSON strings the store writes).
+const CHECKPOINT = process.env.LIMN_SEED_CHECKPOINT === '1'
+const LONG = CHECKPOINT ? 60 : 34
+const longLines = (v25: string, v58 = 'export const v58 = 58'): string =>
+  Array.from({ length: LONG }, (_, i) => (i === 24 ? v25 : i === 57 ? v58 : `export const v${i + 1} = ${i + 1}`)).join('\n') + '\n'
 // two files that share a basename in different sub-directories (src/main/ipc.ts and
 // src/renderer/ipc.ts), both modified on the branch. The rail's grouped/tree file
 // lists have to disambiguate them by directory — with a flat basename list they'd
@@ -52,6 +59,13 @@ fixtureWrite(fx.dir, 'src/main/ipc.ts', ipc('main', 2))
 fixtureWrite(fx.dir, 'src/renderer/ipc.ts', ipc('renderer', 2))
 fixtureGit(fx.dir, 'add', '-A')
 fixtureGit(fx.dir, 'commit', '-m', 'scale v25 by FACTOR; bump both ipc channels')
+const approvedAt = fixtureGit(fx.dir, 'rev-parse', 'HEAD')
+if (CHECKPOINT) {
+  // after the approval: the v25 line moves again and v58 changes for the first time
+  fixtureWrite(fx.dir, 'src/long.ts', longLines('export const v25 = 25 * FACTOR // scaled', 'export const v58 = 58 + OFFSET'))
+  fixtureGit(fx.dir, 'add', '-A')
+  fixtureGit(fx.dir, 'commit', '-m', 'annotate v25; offset v58')
+}
 const sk = await getDiff(fx.dir, 'main', 'feature')
 const run = new FakeEngine().generateReview({ repo: fx.dir, branch: 'feature', base: 'main', diff: sk, artifacts: [] })
 for await (const _ of run.events) { /* drain */ }
@@ -90,8 +104,14 @@ const session = createSession(db, fx.dir, pair, { engine: 'claude', model: 'opus
 updateSessionMeta(db, session.id, {
   engine: 'claude', model: 'opus',
   annotations,
-  reviewedAtSha: compare.sha, approvedSha: compare.sha
+  reviewedAtSha: CHECKPOINT ? fx.shas.firstFeature : compare.sha,
+  approvedSha: CHECKPOINT ? approvedAt : compare.sha
 })
+if (process.env.LIMN_SEED_PREFS) {
+  for (const [k, v] of Object.entries(JSON.parse(process.env.LIMN_SEED_PREFS) as Record<string, string>)) {
+    db.prepare('INSERT INTO prefs (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v)
+  }
+}
 addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now', title: annotations.title, summary: annotations.summary, annotations, scope: 'full' })
 setArtifacts(db, session.id, [{ role: 'spec', path: SPEC }, { role: 'plan', path: PLAN }])
 

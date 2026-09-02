@@ -38,11 +38,11 @@ afterEach(() => {
 })
 
 describe('split layout', () => {
-  it('renders two cells per row under an Old · Now strip, addressing each side', () => {
+  it('renders two cells per row, no column caption — old beside new is the known view', () => {
     seed('split')
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).toContain('layout-split')
-    expect(out).toMatch(/dcols"><span>Old<\/span><span>Now<\/span>/)
+    expect(out).not.toContain('dcols')
     expect(out).toContain('data-limn-line="src/a.ts:old:2"')
     expect(out).toContain('data-limn-line="src/a.ts:new:2"')
     expect((out.match(/class="dline split"/g) ?? []).length).toBe(4) // ctx, pair, padded add, ctx
