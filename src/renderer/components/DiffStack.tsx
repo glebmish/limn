@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { FileDiff } from '../../shared/types'
 import type { Sheet, Stack } from '../../shared/diffStack'
 import {
@@ -45,6 +45,17 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
   const [openFor, setOpenFor] = useState<Sheet | null>(null)
   const dcolsRef = useRef<HTMLDivElement>(null)
   useDismiss(openFor != null, () => setOpenFor(null), dcolsRef)
+  // four or more columns: the body scrolls sideways on its own (so the caption row can
+  // stay sticky), and the captions follow its scroll offset
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const body = bodyRef.current, caps = dcolsRef.current
+    if (!body || !caps) return
+    const sync = (): void => { caps.style.transform = body.scrollLeft ? `translateX(${-body.scrollLeft}px)` : '' }
+    sync()
+    body.addEventListener('scroll', sync, { passive: true })
+    return () => body.removeEventListener('scroll', sync)
+  })
   const change = (nextStack: Stack, spread = false): void => {
     setOpenFor(null)
     setPeel(true)
@@ -151,13 +162,13 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
       )}
       </div>
       <div className="stk-in">
-        <div className="dcols" ref={dcolsRef} style={{ '--cols': `repeat(${nCols}, minmax(0, 1fr))` } as React.CSSProperties}>
+        <div className="stk-caps"><div className="dcols" ref={dcolsRef} style={{ '--cols': `repeat(${nCols}, minmax(0, 1fr))`, '--n': nCols } as React.CSSProperties}>
           {layout === 'unified'
             ? <span className="now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
             : <>{cols.map(caption)}<span className="now"><span className="cl">{sheetCaption('current')}</span></span></>}
           <MarkersKey dirty={dirty} since={since} betweenSheets={out >= 2} />
-        </div>
-        {children}
+        </div></div>
+        <div className="stk-body" ref={bodyRef}>{children}</div>
       </div>
     </div>
   )
