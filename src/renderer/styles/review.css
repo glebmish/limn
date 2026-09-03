@@ -819,12 +819,16 @@
 .stk{position:relative;--cap:26px;--stk-top:calc(var(--limn-head-h,0px) + var(--gfile-head-h,37px) - 1px);padding-left:20px}
 .stk-strip{position:absolute;left:0;top:0;bottom:0;width:20px;z-index:6;display:flex;flex-direction:column;align-items:stretch}
 .stk-tab,.stk-pop,.stk-ok{width:20px;border:none;background:var(--panel-2);border-right:1px dashed var(--line-2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2);padding:0;user-select:none;transition:background .12s,color .12s,opacity .12s}
+.stk.has-pop{--pop-h:var(--cap)}
+.stk.has-ok{--ok-h:var(--cap)}
 .stk-pop{position:sticky;top:var(--stk-top);flex:0 0 var(--cap);height:var(--cap);border-bottom:1px solid var(--line);font:600 15px/1 var(--sans);opacity:.45;z-index:1}
+/* the ✓ clusters at the top of the strip, right under the − (option 2 of the two
+   spread controls under trial; option 1 is the labelled chip in the caption row) */
+.stk-ok{position:sticky;top:calc(var(--stk-top) + var(--pop-h,0px));flex:0 0 var(--cap);height:var(--cap);border-bottom:1px solid var(--line);z-index:1}
 .stk-tab{flex:1 1 auto;min-height:var(--cap);align-items:flex-start;opacity:.45}
-.stk-tab svg{position:sticky;top:calc(var(--stk-top) + var(--cap) + 8px);margin-top:8px;width:14px;height:12px;display:block}
+.stk-tab svg{position:sticky;top:calc(var(--stk-top) + var(--pop-h,0px) + var(--ok-h,0px) + 8px);margin-top:8px;width:14px;height:12px;display:block}
 .stk-tab svg rect{fill:var(--panel);stroke:currentColor;stroke-width:1.2}
 .stk-tab svg path{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round}
-.stk-ok{position:sticky;bottom:0;flex:0 0 var(--cap);height:var(--cap);margin-top:auto;border-top:1px dashed var(--line-2);z-index:1}
 .stk-ok svg{width:12px;height:12px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .stk-ok.live{color:var(--accent-ink);background:var(--accent-soft);border-right-style:solid;border-right-color:var(--accent-line)}
 .stk-ok.live:hover{background:var(--accent);color:#fff;border-right-color:var(--accent)}
@@ -860,11 +864,16 @@
 .fb-menu .fh-dd-item:disabled{opacity:.4;cursor:default}
 .dcols .sep{color:var(--muted-2);padding:0;border:0;display:inline;margin:0 2px}
 /* the key sits at the right end of the caption row — one per file, describing that
-   file; the last caption leaves it room */
-.dcols .fh-rails{position:absolute;right:5px;top:50%;transform:translateY(-50%);padding:2px;border-color:transparent;background:none}
+   file — ringed so it reads as a button; the last caption leaves it room */
+.dcols .fh-rails{position:absolute;right:5px;top:50%;transform:translateY(-50%);padding:2px;border:1px solid var(--line-2);background:var(--panel)}
 .dcols .fh-rails:hover,.dcols .fh-rails:focus-visible{border-color:var(--accent-line);background:var(--accent-soft)}
 .dcols .fh-rails .fh-pop{top:calc(100% + 7px);right:-2px}
 .stk .dcols>span:last-child{padding-right:28px}
+/* the labelled spread chip beside the key (option 1 under trial) */
+.stk-all{position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:4px;font:600 10.5px var(--sans);letter-spacing:0;color:var(--accent-ink);border:1px solid var(--accent-line);background:var(--panel);border-radius:6px;padding:1px 7px;cursor:pointer;white-space:nowrap}
+.stk-all:hover{background:var(--accent-soft)}
+.stk-all svg{width:11px;height:11px;display:block;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.stk:has(.stk-all) .dcols>span:last-child{padding-right:150px}
 /* (the caption row's sticky wrapper .stk-caps rises to z 12 while a picker or the
    key is open — see above; only the row is raised, never the whole .stk, which would
    put this file's rows over its own sticky header) */

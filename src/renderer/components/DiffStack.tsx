@@ -123,6 +123,7 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
   const nCols = layout === 'unified' ? 1 : cols.length + 1
   // the key describes THIS file: its own uncommitted lines, its own sheets
   const dirty = f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged'))
+  const spreadTitle = `Use for all ${fileCount} files — every other file shows ${describeStack(defaultStack)}`
   return (
     <div className={cls} data-cols={nCols} onAnimationEnd={() => setPeel(false)}>
       {/* the strip: − (level with the captions), the tab, ✓ — each sticks to the
@@ -137,6 +138,17 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
           onClick={(e) => { e.stopPropagation(); change(pop(stack), e.shiftKey) }}
         >−</button>
       )}
+      {differs && (
+        <button
+          type="button"
+          className="stk-ok live"
+          title={spreadTitle}
+          aria-label={`Use this file's sheets for all ${fileCount} files`}
+          onClick={(e) => { e.stopPropagation(); onSpread() }}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>
+        </button>
+      )}
       {/* always rendered so the strip keeps its colour; with every sheet out only
           the icon leaves */}
       <button
@@ -149,23 +161,22 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
       >
         {next && <svg viewBox="0 0 14 12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" rx="1.5" /><path d="M6 1v10" /><path d="M3.5 4.6v2.8M2.1 6h2.8" /></svg>}
       </button>
-      {differs && (
-        <button
-          type="button"
-          className="stk-ok live"
-          title={`Use for all ${fileCount} files — every other file shows ${describeStack(defaultStack)}`}
-          aria-label={`Use this file's sheets for all ${fileCount} files`}
-          onClick={(e) => { e.stopPropagation(); onSpread() }}
-        >
-          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>
-        </button>
-      )}
       </div>
       <div className="stk-in">
         <div className="stk-caps"><div className="dcols" ref={dcolsRef} style={{ '--cols': `repeat(${nCols}, minmax(0, 1fr))`, '--n': nCols } as React.CSSProperties}>
           {layout === 'unified'
             ? <span className="now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
             : <>{cols.map(caption)}<span className="now"><span className="cl">{sheetCaption('current')}</span></span></>}
+          {differs && (
+            <button
+              type="button"
+              className="stk-all"
+              title={spreadTitle}
+              onClick={(e) => { e.stopPropagation(); onSpread() }}
+            >
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>Use for all {fileCount} files
+            </button>
+          )}
           <MarkersKey dirty={dirty} since={since} betweenSheets={out >= 2} />
         </div></div>
         <div className="stk-body" ref={bodyRef}>{children}</div>
