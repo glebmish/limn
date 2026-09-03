@@ -32,13 +32,6 @@ export {
   synthesizeSections,
   effectiveSections,
   fileViewed,
-  diffHunksForMode,
-  multiHunksForMode,
-  checkpointLabel,
-  layoutLabel,
-  DIFF_LAYOUTS,
-  baselinesForFile,
-  modeForFile,
   viewMarkFor,
   sectionViewState,
   sectionDisclosureState,
@@ -56,7 +49,7 @@ export {
   activeChat,
   chatsWithDraft
 } from './derive'
-export type { Density, Guidance, SectionDisclosureState, DiffMode, DiffLayout, GenState, OpState } from './derive'
+export type { Density, Guidance, SectionDisclosureState, GenState, OpState } from './derive'
 // The OPS slice (generation / operation lifecycle) lives in ./ops; re-export its
 // public names so `from '../store'` keeps resolving newOpId + the startGenerate pair.
 export { newOpId, startGenerate, startGenerateNow } from './ops'

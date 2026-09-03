@@ -433,7 +433,7 @@ export function MergeSheet({ open, onClose }: { open: boolean; onClose(): void }
   const actions: MergeSheetActions = {
     onClose,
     onRecheck: () => void fetchPreflight(),
-    onReviewCommits: () => { useStore.getState().setGlobalDiffMode('approved'); onClose() },
+    onReviewCommits: () => { useStore.getState().setDefaultStack({ out: [], against: 'approved' }); onClose() },
     onRebaseWithAgent: () => { useStore.getState().sendRebase(pf.gates.find((g) => g.id === 'conflicts')?.files); onClose() },
     onExecute: (req) => {
       if (sessionId == null) return

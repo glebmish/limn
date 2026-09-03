@@ -46,7 +46,7 @@ function render(l: DiffLine): string {
   } as never)
   const patch = {
     loaded: makeLoaded({ files: [f], headSha: 'head' }),
-    diffMode: 'branch' as const, fileDiffMode: {}, viewedAt: {}, focusTarget: null
+    diffStack: { out: [], against: 'base' }, fileStack: {}, viewedAt: {}, focusTarget: null
   }
   Object.assign(initial(), patch)
   useStore.setState(patch)

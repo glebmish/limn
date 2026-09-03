@@ -1,3 +1,4 @@
+import { UNIFIED } from '../../shared/diffStack'
 import type { StateCreator } from 'zustand'
 import type { LoadedReview } from '../../shared/ipc'
 import type { AgentWriteCapability, Comment, CommentAnchor, DriftSummary } from '../../shared/types'
@@ -117,7 +118,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
         screen: 'review', sessionId: null, loaded, repo: repoPath,
         branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-        diffMode: 'branch',
+        diffStack: loaded.state.diffStack ?? UNIFIED, fileStack: {},
         activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: loadWarningStrip(loaded), pendingDrift: null, watchStopped: null
       })
       void loadRepoContext(repoPath)
@@ -197,7 +198,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
         repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: loaded.state.viewedAt,
         collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
-        diffMode: 'branch',
+        diffStack: loaded.state.diffStack ?? UNIFIED, fileStack: {},
         agent: loaded.state.agent ?? get().agent,
         activeChatId: pickActiveChat(loaded.state.chats, null),
         draftChat: null,

@@ -114,14 +114,14 @@ describe('openRepo hub-vs-transient choice', () => {
   })
 })
 
-describe('resumeExisting resets gen / collapsed / diffMode and picks the active chat', () => {
+describe('resumeExisting resets gen / collapsed / diffStack and picks the active chat', () => {
   beforeEach(() => {
     loadSession.mockClear()
     useStore.setState({
       ops: { 'op-x': { running: true, opId: 'op-x', kind: 'review', threadId: 9, log: [{ type: 'token' }], error: 'e', startedAt: 1, outcome: null, errorCode: null, answeredApprovals: new Set(['a']), exclusive: true } } as never,
       collapsed: new Set(['s1']) as never,
       expanded: new Set(['s2']) as never,
-      diffMode: 'viewed', activeChatId: 999,
+      diffStack: { out: [], against: 'viewed' }, fileStack: { 'a.ts': { out: ['base'], against: 'base' } }, activeChatId: 999,
     })
   })
 
@@ -137,7 +137,8 @@ describe('resumeExisting resets gen / collapsed / diffMode and picks the active 
     expect(Object.keys(s.ops)).toHaveLength(0) // the op map is cleared on session switch
     expect(s.collapsed.size).toBe(0)
     expect(s.expanded.size).toBe(0)
-    expect(s.diffMode).toBe('branch')
+    expect(s.diffStack).toEqual({ out: [], against: 'base' })
+    expect(s.fileStack).toEqual({})
     expect(s.screen).toBe('review')
     // pickActiveChat: current (999) absent → last empty user chat with no messages/session
     expect(s.activeChatId).toBe(4)

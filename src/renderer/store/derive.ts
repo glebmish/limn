@@ -1,5 +1,5 @@
 import type { LoadedReview, OpErrorCode, OperationStatus } from '../../shared/ipc'
-import type { ApprovalRequest, ChatThread, EngineEvent, FileDiff, Hunk, Section, ViewMark } from '../../shared/types'
+import type { ApprovalRequest, ChatThread, EngineEvent, FileDiff, Section, ViewMark } from '../../shared/types'
 import { fileEffectivelyExcluded } from '../../shared/types'
 import { orderFilesForReview } from '../lib/fileOrder'
 import { IDLE_GEN } from './ops'
@@ -79,40 +79,6 @@ export function fileViewed(f: FileDiff, viewedAt: Record<string, ViewMark>, head
   return mark.hash === (f.fileHash ?? '')
 }
 
-/** The hunks a file renders under the active diff-baseline mode. "Since approved" /
- *  "Since viewed" show the real per-baseline slice (or empty — a genuine "No changes
- *  since…" — when there is none). Untracked files are the exception: a wholly-new file
- *  has no prior version, so its since-diff IS its full diff. Showing the full diff there
- *  doesn't contradict the mode the way a tracked-file fallback would, and it avoids the
- *  misleading "No changes since you viewed" on a brand-new file that was never (or only
- *  just) viewed. */
-export function diffHunksForMode(f: FileDiff, mode: DiffMode): Hunk[] {
-  if (mode === 'review') return f.untracked ? f.hunks : (f.sinceReviewHunks ?? [])
-  if (mode === 'approved') return f.untracked ? f.hunks : (f.sinceHunks ?? [])
-  if (mode === 'viewed') return f.untracked ? f.hunks : (f.sinceViewedHunks ?? [])
-  return f.hunks
-}
-
-/** The baselines a single file can actually be read against. Always the full diff;
- *  "since" baselines only when the server attached that slice for THIS file — so a
- *  file that was never viewed (or a review that was never approved) never offers a
- *  baseline it cannot show. Order is the order the picker lists them in. */
-export function baselinesForFile(f: FileDiff): DiffMode[] {
-  // oldest checkpoint first: the whole branch, then the review, the approval, and
-  // finally the file's own view mark — the order they normally happened in
-  return [
-    'branch',
-    ...(f.sinceReviewHunks ? (['review'] as const) : []),
-    ...(f.sinceHunks ? (['approved'] as const) : []),
-    ...(f.sinceViewedHunks ? (['viewed'] as const) : [])
-  ]
-}
-
-/** The baseline a file is rendered at: its own override, else the global default. */
-export function modeForFile(s: { diffMode: DiffMode; fileDiffMode: Record<string, DiffMode> }, path: string): DiffMode {
-  return s.fileDiffMode[path] ?? s.diffMode
-}
-
 /** The viewed snapshot to stamp for `path`: the compare head + the file's current
  *  content hash (from the rendered diff — merged while dirty, else the spine). */
 export function viewMarkFor(loaded: LoadedReview | null, path: string): ViewMark {
@@ -156,33 +122,6 @@ export function sectionDisclosureState(files: FileDiff[], viewedAt: Record<strin
   const amber = files.some((f) => Boolean(viewedAt[f.path]) && !fileViewed(f, viewedAt, headSha))
   const open = Boolean(opts.forceOpen || opts.focused || opts.expanded.has(opts.id) || (!done && !opts.collapsed.has(opts.id)))
   return { viewState, done, amber, open }
-}
-
-export type DiffMode = 'branch' | 'review' | 'approved' | 'viewed'
-
-/** How a file body lays its columns out: one column (Unified), old beside now
- *  (Split), or base · checkpoint · now with both side columns diffed against base
- *  (Multi — deliberately not "three-way", which is git's ours/base/theirs merge
- *  vocabulary and would promise conflict resolution). A global, persisted pref. */
-export type DiffLayout = 'unified' | 'split' | 'multi'
-export const DIFF_LAYOUTS: DiffLayout[] = ['unified', 'split', 'multi']
-export function layoutLabel(l: DiffLayout): string {
-  return l === 'unified' ? 'Unified' : l === 'split' ? 'Split' : 'Multi'
-}
-
-/** The Multi layout's middle column: base → the file's checkpoint. Undefined when the
- *  file has no such checkpoint (or the mode is the full diff), which the body renders
- *  as Split. `[]` is a real answer: the checkpoint exists and the file was untouched. */
-export function multiHunksForMode(f: FileDiff, mode: DiffMode): Hunk[] | undefined {
-  if (mode === 'review') return f.baseToReviewHunks
-  if (mode === 'approved') return f.baseToApprovedHunks
-  if (mode === 'viewed') return f.baseToViewedHunks
-  return undefined
-}
-
-/** The middle column's name in the column strip. */
-export function checkpointLabel(mode: DiffMode): string {
-  return mode === 'review' ? 'At review' : mode === 'approved' ? 'Approved' : mode === 'viewed' ? 'Viewed' : 'Base'
 }
 
 export function renderedFiles(loaded: LoadedReview | null): FileDiff[] {

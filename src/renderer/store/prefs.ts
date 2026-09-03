@@ -6,7 +6,6 @@ import { api } from '../lib/api'
 import type { AppStore } from './index'
 import type { PanelKind } from '../lib/panelWidths'
 import { PANELS, PREF_KEYS, parseStoredWidth } from '../lib/panelWidths'
-import { DIFF_LAYOUTS, type DiffLayout } from './derive'
 
 /** The review rail's left-hand nav layout: guided sections (with the plan-mapped
  *  narration) or a flat directory tree. */
@@ -35,9 +34,6 @@ export interface PrefsSlice {
   sidebarWidth: number
   /** the chat drawer's PREFERRED width in px — see `sidebarWidth` */
   chatWidth: number
-  /** how every file body lays out its columns (Unified | Split | Multi) — global,
-   *  persisted; there is deliberately no per-file override */
-  diffLayout: DiffLayout
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
@@ -49,7 +45,6 @@ export interface PrefsSlice {
    *  left unchanged) when the server rejects the value. */
   setDefaultAgent(a: AgentRef): Promise<void>
   setSidebarView(v: SidebarView): void
-  setDiffLayout(l: DiffLayout): void
   /** Update a panel's preferred width in memory. Pass `{ persist: true }` to also
    *  write the pref — which is what every caller does, since a pointer drag paints
    *  the CSS var imperatively and only reaches the store once, at gesture end. The
@@ -64,7 +59,6 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   sidebarView: 'sections',
   sidebarWidth: PANELS.sidebar.default,
   chatWidth: PANELS.chat.default,
-  diffLayout: 'unified',
 
   async loadPrefs() {
     try {
@@ -73,7 +67,6 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
         try { return prefs[k] != null ? (JSON.parse(prefs[k]) as T) : fallback } catch { return fallback }
       }
       const sidebarView = parse<string>('sidebarView', 'sections')
-      const layout = parse<string>('diffLayout', 'unified')
       const seededAgent = resolveDefaultAgent(prefs)
       set((s) => ({
         defaultAgent: seededAgent,
@@ -83,7 +76,6 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
         agent: s.agentSeeded ? s.agent : seededAgent,
         agentSeeded: true,
         sidebarView: sidebarView === 'tree' ? 'tree' : 'sections',
-        diffLayout: DIFF_LAYOUTS.includes(layout as DiffLayout) ? (layout as DiffLayout) : 'unified',
         sidebarWidth: parseStoredWidth('sidebar', prefs.sidebarWidth),
         chatWidth: parseStoredWidth('chat', prefs.chatWidth)
       }))
@@ -115,11 +107,6 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   setSidebarView(v) {
     void api().setPref('sidebarView', JSON.stringify(v))
     set({ sidebarView: v })
-  },
-
-  setDiffLayout(l) {
-    void api().setPref('diffLayout', JSON.stringify(l))
-    set({ diffLayout: l })
   },
 
   setPanelWidth(kind, width, opts) {

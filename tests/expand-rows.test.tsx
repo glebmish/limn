@@ -30,20 +30,20 @@ const file: FileDiff = {
   ]
 }
 
-function seed(writable: boolean, f: FileDiff = file, diffMode: 'branch' | 'approved' | 'viewed' = 'branch') {
+function seed(writable: boolean, f: FileDiff = file, against: 'base' | 'approved' | 'viewed' = 'base') {
   const loaded = makeLoaded({ files: [f] })
   ;(loaded as { writeCapability?: unknown }).writeCapability = {
     enabled: writable, reason: writable ? 'available' : 'not-checked-out', branch: 'feat', workdir: writable ? '/wt' : null
   }
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
-  ;(init as { diffMode: string }).diffMode = diffMode
+  ;(init as { diffStack: unknown }).diffStack = { out: [], against }
 }
 
 afterEach(() => {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = null
-  ;(init as { diffMode: string }).diffMode = 'branch'
+  ;(init as { diffStack: unknown }).diffStack = { out: [], against: 'base' }
 })
 
 describe('expand-context rows', () => {

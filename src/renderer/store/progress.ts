@@ -3,7 +3,8 @@ import type { FileDiff, ViewMark } from '../../shared/types'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { useStore } from './index'
-import type { DiffMode } from './derive'
+import { UNIFIED, type Stack } from '../../shared/diffStack'
+import { sameStack } from '../lib/stack'
 import { collapseCompletedSections, fileIsExcluded, viewMarkFor } from './derive'
 
 // ── promoted persist helpers ─────────────────────────────────
@@ -18,6 +19,15 @@ const persistUi = async (): Promise<void> => {
   if (id == null) return
   const { viewedAt } = useStore.getState()
   void api().saveUiState(id, { viewedAt })
+}
+
+/** The review's default stack, remembered with the session (design board 13: "the
+ *  default is whichever file's stack you chose to spread"). The first spread on a
+ *  transient review mints the session, exactly like the first viewed mark. */
+const persistStack = async (): Promise<void> => {
+  const id = await useStore.getState().materialize()
+  if (id == null) return
+  void api().saveUiState(id, { diffStack: useStore.getState().diffStack })
 }
 
 const persistExcluded = async (): Promise<void> => {
@@ -46,12 +56,13 @@ export interface ProgressSlice {
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
-  /** global diff baseline (Full diff / Since approved / Since viewed) — the default
-   *  every file falls back to */
-  diffMode: DiffMode
-  /** per-file baseline overrides (path → mode). Set from a file's own header picker;
-   *  cleared wholesale by the global switch, which means "all files". */
-  fileDiffMode: Record<string, DiffMode>
+  /** the review's default diff stack — which sheets are out beside current and what
+   *  Unified is measured against. Every file without an override shows this. Loaded
+   *  from `state.diffStack`; written by a spread. */
+  diffStack: Stack
+  /** per-file stacks (path → stack), from the file's own strip and captions. In
+   *  memory only; cleared wholesale by a spread. */
+  fileStack: Record<string, Stack>
 
   toggleViewed(file: string, currentlyViewed: boolean): void
   /** Flip an untracked file's exclude override (the per-row exclude / add-back button).
@@ -67,10 +78,14 @@ export interface ProgressSlice {
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
-  /** Set the global diff baseline for every file, dropping per-file overrides. */
-  setGlobalDiffMode(mode: DiffMode): void
-  /** Read one file against its own baseline, leaving every other file alone. */
-  setFileDiffMode(path: string, mode: DiffMode): void
+  /** One file's own stack. An override equal to the default is dropped rather than
+   *  stored, so the ✓ (which shows while a file differs) goes away by itself. */
+  setFileStack(path: string, stack: Stack): void
+  /** ✓ — make every file show this file's stack: it becomes the review's default
+   *  (persisted) and every override is dropped. */
+  spreadStack(path: string): void
+  /** Set the default outright (⇧ + key, dev hooks, "Review commits"). */
+  setDefaultStack(stack: Stack): void
 }
 
 export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> = (set, get) => ({
@@ -81,8 +96,8 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
   curFile: null,
   focusTarget: null,
   docPath: null,
-  diffMode: 'branch',
-  fileDiffMode: {},
+  diffStack: UNIFIED,
+  fileStack: {},
 
   toggleViewed(file, currentlyViewed) {
     const viewedAt = { ...get().viewedAt }
@@ -165,12 +180,22 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
   closeDoc() {
     set({ docPath: null })
   },
-  setGlobalDiffMode(mode) {
-    // the global control reads as "all files" — leaving overrides in place would make
-    // it silently skip the very files the reader had singled out
-    set({ diffMode: mode, fileDiffMode: {} })
+  setFileStack(path, stack) {
+    set((s) => {
+      const fileStack = { ...s.fileStack }
+      if (sameStack(stack, s.diffStack)) delete fileStack[path]
+      else fileStack[path] = stack
+      return { fileStack }
+    })
   },
-  setFileDiffMode(path, mode) {
-    set((s) => ({ fileDiffMode: { ...s.fileDiffMode, [path]: mode } }))
+  spreadStack(path) {
+    const s = get()
+    get().setDefaultStack(s.fileStack[path] ?? s.diffStack)
+  },
+  setDefaultStack(stack) {
+    // the default reads as "all files" — leaving overrides in place would make it
+    // silently skip the very files the reader had singled out
+    set({ diffStack: stack, fileStack: {} })
+    void persistStack()
   }
 })

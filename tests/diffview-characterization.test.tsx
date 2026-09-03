@@ -7,21 +7,21 @@ import { useStore } from '../src/renderer/store'
 import { makeLoaded, makeFile } from './helpers/loaded'
 
 // zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
-// section-viewed-a11y.test.tsx). DiffView reads `loaded`, `viewedAt`, `diffMode` — seed
+// section-viewed-a11y.test.tsx). DiffView reads `loaded`, `viewedAt`, `diffStack` — seed
 // them by mutating the initial state object the render observes; reset() restores it.
 type State = ReturnType<typeof useStore.getState>
 const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
 
-function seed(loaded: LoadedReview, opts: { viewedAt?: Record<string, ViewMark>; diffMode?: 'branch' | 'approved' | 'viewed' } = {}): void {
+function seed(loaded: LoadedReview, opts: { viewedAt?: Record<string, ViewMark>; against?: 'base' | 'approved' | 'viewed' } = {}): void {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
-  ;(init as { diffMode: string }).diffMode = opts.diffMode ?? 'branch'
+  ;(init as { diffStack: unknown }).diffStack = { out: [], against: opts.against ?? 'base' }
   if (opts.viewedAt) Object.assign(init.viewedAt, opts.viewedAt)
 }
 function reset(): void {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = null
-  ;(init as { diffMode: string }).diffMode = 'branch'
+  ;(init as { diffStack: unknown }).diffStack = { out: [], against: 'base' }
   for (const k of Object.keys(init.viewedAt)) delete init.viewedAt[k]
 }
 afterEach(reset)
@@ -79,22 +79,22 @@ describe('DiffView file header', () => {
 
 describe('DiffView empty-state strings per diff mode', () => {
   it('branch mode with no hunks → "No textual changes."', () => {
-    seed(makeLoaded(), { diffMode: 'branch' })
+    seed(makeLoaded(), { against: 'base' })
     expect(render(makeFile({ path: 'a.ts', hunks: [] }))).toContain('No textual changes.')
   })
 
   it('approved mode on a tracked file with no since-diff → "No changes since you approved."', () => {
-    seed(makeLoaded(), { diffMode: 'approved' })
+    seed(makeLoaded(), { against: 'approved' })
     expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }] }))).toContain('No changes since you approved.')
   })
 
   it('viewed mode on a tracked file with no since-diff → "No changes since you viewed."', () => {
-    seed(makeLoaded(), { diffMode: 'viewed' })
+    seed(makeLoaded(), { against: 'viewed' })
     expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }] }))).toContain('No changes since you viewed.')
   })
 
   it('binary file → "Binary file — no diff to show."', () => {
-    seed(makeLoaded(), { diffMode: 'branch' })
+    seed(makeLoaded(), { against: 'base' })
     expect(render(makeFile({ path: 'img.png', binary: true }))).toContain('Binary file — no diff to show.')
   })
 })
