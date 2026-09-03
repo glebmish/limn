@@ -77,7 +77,7 @@ describe('split layout', () => {
     seed('unified')
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).not.toContain('dcell')
-    expect(out).toMatch(/class="dcols"[^>]*><span class="now">/)
+    expect(out).toMatch(/class="dcols"[^>]*><span class="col now">/)
     expect(out).toMatch(/class="cl">main<\/span>/)
     expect(out).toContain('class="sep">·</span><span class="cl">current</span>')
     expect(out).not.toContain('class="cx"')
