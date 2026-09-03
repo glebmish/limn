@@ -126,6 +126,15 @@ describe('the strip', () => {
     expect(caps).not.toContain('>Full diff<')
   })
 
+  it('carries the key at the end of its caption row, describing this file', () => {
+    let caps = captions(renderToStaticMarkup(<DiffView f={two} />))
+    expect(caps).toContain('aria-label="What the diff marks mean"')
+    expect(caps).not.toContain('Between sheets')
+    seed({ fileStack: { 'src/b.ts': st(['approved', 'base']) } })
+    caps = captions(renderToStaticMarkup(<DiffView f={two} />))
+    expect(caps).toContain('Between sheets')
+  })
+
   it('four and five columns carry their count for the width floor', () => {
     seed({ fileStack: { 'src/b.ts': st(['approved', 'base', 'review']) } })
     expect(renderToStaticMarkup(<DiffView f={two} />)).toContain('data-cols="4"')

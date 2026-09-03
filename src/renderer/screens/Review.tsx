@@ -3,10 +3,7 @@ import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDA
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
-import { MarkersKey } from '../components/MarkersKey'
 import { useStackKeys } from '../lib/useStackKeys'
-import { effectiveStack } from '../lib/stack'
-import { sinceBasis } from '../../shared/sinceBasis'
 import { ReviewTimeline } from '../components/ReviewTimeline'
 import { ReviewSidebar } from '../components/ReviewSidebar'
 import { ReviewSummary } from '../components/ReviewSummary'
@@ -104,7 +101,7 @@ const ShellHandle = memo(function ShellHandle(
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffStack, fileStack, sidebarWidth, chatWidth } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, sidebarWidth, chatWidth } = store
   // the review-generation op for THIS review (scoped to its threads); drives the gen
   // strip/CTA and the approve-disabled state. A concurrent read-only chat is a
   // separate op and does not gate the review surface.
@@ -162,12 +159,6 @@ export default function Review() {
   const excludedFiles = orderFilesForReview(renderedAll.filter(isExcluded))
   const displayFiles = renderedAll.filter((f) => !isExcluded(f))
   const flatDisplayFiles = orderFilesForReview(displayFiles)
-  // the key's "Between sheets" group applies while some file shows a checkpoint
-  // beside the base — that is when the attribution marks can be on screen
-  const sheetsOut = displayFiles.filter((f) => effectiveStack(fileStack[f.path] ?? diffStack, f).out.length >= 2).length
-  // what the drift rails and the "since" baselines are measured from here — an
-  // approval, or (when nobody approved) the sha the review was generated at
-  const sinceBasisKind = sinceBasis(state, loaded.skeleton.headSha)?.basis ?? null
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine
   // entry — surfaced in a trailing band so they aren't dropped.
   const sectionedPaths = new Set(sections.flatMap((s) => s.files))
@@ -353,9 +344,6 @@ export default function Review() {
                     {annotations && !merged && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
                     {annotations?.title ?? fallbackTitle}
                   </h1>
-                  <div className="diffmode-bar">
-                    <MarkersKey dirty={loaded.dirty} since={sinceBasisKind} sheetsOut={sheetsOut} />
-                  </div>
                   {verdictButton ?? approveButton}
                   <MergeButton loaded={loaded} />
                 </div>

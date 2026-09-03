@@ -5,6 +5,8 @@ import {
   close, columnsFor, describeStack, layoutFor, nextPull, pickerOptions, pop, pull, replace, setAgainst, sheetCaption, sheetsFor, sinceLabel
 } from '../lib/stack'
 import { useDismiss } from '../lib/useDismiss'
+import { MarkersKey } from './MarkersKey'
+import type { SinceBasis } from '../../shared/sinceBasis'
 
 /** The stack strip and the caption row around a file body (design board 13, W1):
  *  a thin tab down the diff's left edge pulls the next sheet, a − above it puts the
@@ -15,7 +17,7 @@ import { useDismiss } from '../lib/useDismiss'
  *
  *  Everything here is a pure function of the file's effective stack; the strip owns
  *  only which picker is open and the peel animation flag. */
-export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, onChange, onSpread, children }: {
+export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, since, onChange, onSpread, children }: {
   f: FileDiff
   /** the file's effective stack */
   stack: Stack
@@ -26,6 +28,8 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, on
   fileCount: number
   /** the commit each checkpoint resolves to, for the caption's hover */
   shas: Partial<Record<Sheet, string | undefined>>
+  /** what the drift rail is measured from, for the key; null when the review has none */
+  since: SinceBasis | null
   /** the file's stack changed; `spread` when ⇧ was held */
   onChange: (next: Stack, spread: boolean) => void
   onSpread: () => void
@@ -106,8 +110,13 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, on
   const cls = ['stk', `lay-${layout === 'unified' ? 'uni' : layout}`, next ? 'has-tab' : '', out ? 'has-pop' : '', differs ? 'has-ok' : '', peel ? 'peel' : '']
     .filter(Boolean).join(' ')
   const nCols = layout === 'unified' ? 1 : cols.length + 1
+  // the key describes THIS file: its own uncommitted lines, its own sheets
+  const dirty = f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged'))
   return (
     <div className={cls} data-cols={nCols} onAnimationEnd={() => setPeel(false)}>
+      {/* the strip: − (level with the captions), the tab, ✓ — each sticks to the
+          viewport while the file is on screen, so a long file never hides them */}
+      <div className="stk-strip">
       {out > 0 && last && (
         <button
           type="button"
@@ -139,11 +148,13 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, on
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>
         </button>
       )}
+      </div>
       <div className="stk-in">
         <div className="dcols" ref={dcolsRef} style={{ '--cols': `repeat(${nCols}, minmax(0, 1fr))` } as React.CSSProperties}>
           {layout === 'unified'
             ? <span className="now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
             : <>{cols.map(caption)}<span className="now"><span className="cl">{sheetCaption('current')}</span></span></>}
+          <MarkersKey dirty={dirty} since={since} betweenSheets={out >= 2} />
         </div>
         {children}
       </div>

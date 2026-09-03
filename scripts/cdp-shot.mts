@@ -64,6 +64,8 @@ try {
   if (evalJs) {
     const res = await send('Runtime.evaluate', { expression: evalJs, awaitPromise: true, returnByValue: true }) as { exceptionDetails?: { text: string } }
     if (res.exceptionDetails) throw new Error(`--eval failed: ${res.exceptionDetails.text}`)
+    const v = (res as { result?: { value?: unknown } }).result?.value
+    if (v !== undefined) console.error(`eval → ${JSON.stringify(v)}`)
     await new Promise((r) => setTimeout(r, after))
   }
   const shot = async (file: string): Promise<void> => {

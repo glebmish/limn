@@ -9,7 +9,7 @@ import { Composer, InlineThread } from './Threads'
 import { reviewStatusForFile } from '../lib/fileStatus'
 import { FileHeader, splitPath } from './FileHeader'
 import { DiffBody, type ComposerAt } from './DiffBody'
-import { approvedShaList } from '../../shared/sinceBasis'
+import { approvedShaList, sinceBasis } from '../../shared/sinceBasis'
 
 export function DiffView({ f }: {
   f: FileDiff
@@ -108,6 +108,7 @@ export function DiffView({ f }: {
               approved: loaded ? (approvedShaList(loaded.state).includes(loaded.skeleton.headSha) ? loaded.skeleton.headSha : loaded.state.approvedSha) : undefined,
               viewed: viewMark?.sha
             }}
+            since={loaded ? sinceBasis(loaded.state, loaded.skeleton.headSha)?.basis ?? null : null}
             onChange={(next, spread) => { setFileStack(f.path, next); if (spread) spreadStack(f.path) }}
             onSpread={() => spreadStack(f.path)}
           >

@@ -150,12 +150,12 @@ the same 20 lines at a time.
 
 ## The marks key
 
-The **?** in the header opens a compact key for everything the diff draws, and only what
-the review in front of you can show: the colours (added, removed, and the word-level
+The **?** at the right end of each file's caption row opens a compact key for everything
+that file's diff draws, and only that: the colours (added, removed, and the word-level
 highlight inside an edited line) always; the left-edge rails (staged / unstaged /
-changed-since) when the tree is dirty or the review has a checkpoint to drift from; the
-between-sheets marks (**since** / **gone**) while some file has a checkpoint sheet out
-beside the base. Each group says when it applies.
+changed-since) when the file has uncommitted lines or the review has a checkpoint to
+drift from; the between-sheets marks (**since** / **gone**) while a checkpoint sheet is
+out beside the base. Each group says when it applies.
 
 ## Resizing the sidebar and chat drawer
 

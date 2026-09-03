@@ -39,7 +39,7 @@ describe('MarkersKey legend', () => {
 
   it('says when the left-rail group applies — a dirty tree — and drops the old committed row', () => {
     const dirty = render({ dirty: true, since: null })
-    expect(dirty).toContain('this branch has uncommitted work')
+    expect(dirty).toContain('this file has uncommitted work')
     expect(dirty).not.toContain('rail-sw com')
     expect(render({ dirty: false, since: 'approved' })).not.toContain('key-when')
   })
@@ -70,14 +70,13 @@ describe('MarkersKey legend', () => {
     expect(rows).toHaveLength(swatches.length)
   })
 
-  it('explains the between-sheets marks only while some file has a checkpoint sheet out, and counts them', () => {
-    const one = renderToStaticMarkup(<MarkersKey dirty={false} since={null} sheetsOut={1} />)
-    expect(one).toContain('Between sheets')
-    expect(one).toContain('1 file has a checkpoint sheet out')
-    expect(one).toContain('rail-sw gone')
-    expect(one).toContain('current differs from the checkpoint beside it')
-    expect(one).toContain('the checkpoint had it, current does not')
-    expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} sheetsOut={2} />)).toContain('2 files have a checkpoint sheet out')
+  it('explains the between-sheets marks only while this file has a checkpoint sheet out beside the base', () => {
+    const on = renderToStaticMarkup(<MarkersKey dirty={false} since={null} betweenSheets />)
+    expect(on).toContain('Between sheets')
+    expect(on).toContain('a checkpoint sheet is out beside the base')
+    expect(on).toContain('rail-sw gone')
+    expect(on).toContain('current differs from the checkpoint beside it')
+    expect(on).toContain('the checkpoint had it, current does not')
     expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} />)).not.toContain('Between sheets')
   })
 

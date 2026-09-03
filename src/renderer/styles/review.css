@@ -812,31 +812,34 @@
 /* ══════════ the stack (design board 13, W1) ══════════
    A file's columns are a stack of sheets pulled from the diff's left edge. The strip
    (− · tab · ✓) sits OUTSIDE .dline, so crossing it lights no line and summons no +;
-   the rail's hit strip extends right into the gutter, never left into the tab. */
-.stk{position:relative;--cap:26px;padding-left:20px}
-.stk-tab,.stk-pop,.stk-ok{position:absolute;left:0;width:20px;z-index:4;border:none;background:var(--panel-2);border-right:1px dashed var(--line-2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2);padding:0;user-select:none;transition:background .12s,color .12s,opacity .12s}
-.stk-tab{top:0;bottom:0;opacity:.45}
-.stk.has-pop .stk-tab{top:var(--cap)}
-.stk.has-ok .stk-tab{bottom:var(--cap)}
-.stk-pop{top:0;height:var(--cap);border-bottom:1px solid var(--line);font:600 15px/1 var(--sans);opacity:.45}
-.stk-ok{bottom:0;height:var(--cap);border-top:1px dashed var(--line-2)}
+   the rail's hit strip extends right into the gutter, never left into the tab.
+   Real files are long, so nothing in the strip is centred on the file: the − and the
+   caption row stick under the sticky file header, the tab's icon sticks just below
+   them, and the ✓ sticks to the bottom of the viewport while the file is on screen. */
+.stk{position:relative;--cap:26px;--stk-top:calc(var(--limn-head-h,0px) + 40px);padding-left:20px}
+.stk-strip{position:absolute;left:0;top:0;bottom:0;width:20px;z-index:6;display:flex;flex-direction:column;align-items:stretch}
+.stk-tab,.stk-pop,.stk-ok{width:20px;border:none;background:var(--panel-2);border-right:1px dashed var(--line-2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2);padding:0;user-select:none;transition:background .12s,color .12s,opacity .12s}
+.stk-pop{position:sticky;top:var(--stk-top);flex:0 0 var(--cap);height:var(--cap);border-bottom:1px solid var(--line);font:600 15px/1 var(--sans);opacity:.45;z-index:1}
+.stk-tab{flex:1 1 auto;min-height:var(--cap);align-items:flex-start;opacity:.45}
+.stk-tab svg{position:sticky;top:calc(var(--stk-top) + var(--cap) + 8px);margin-top:8px;width:14px;height:12px;display:block}
+.stk-tab svg rect{fill:var(--panel);stroke:currentColor;stroke-width:1.2}
+.stk-tab svg path{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round}
+.stk-ok{position:sticky;bottom:0;flex:0 0 var(--cap);height:var(--cap);margin-top:auto;border-top:1px dashed var(--line-2);z-index:1}
 .stk-ok svg{width:12px;height:12px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .stk-ok.live{color:var(--accent-ink);background:var(--accent-soft);border-right-style:solid;border-right-color:var(--accent-line)}
 .stk-ok.live:hover{background:var(--accent);color:#fff;border-right-color:var(--accent)}
 .gfile:hover .stk-tab,.gfile:hover .stk-pop,.stk-tab:focus-visible,.stk-pop:focus-visible{opacity:1}
 .stk-tab:hover,.stk-pop:hover{background:var(--accent-soft);color:var(--accent-ink);border-right-style:solid;border-right-color:var(--accent-line)}
 .stk-tab:focus-visible,.stk-pop:focus-visible,.stk-ok:focus-visible{outline:2px solid var(--accent-line);outline-offset:-2px}
-.stk-tab svg{width:14px;height:12px;display:block}
-.stk-tab svg rect{fill:var(--panel);stroke:currentColor;stroke-width:1.2}
-.stk-tab svg path{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round}
-/* a fourth or fifth column gets a 180px floor and the captions + body scroll together */
+/* a fourth or fifth column gets a 180px floor and the captions + body scroll together
+   (that wrapper is a scroll container, so there the caption row cannot stick) */
 .stk-in{min-width:0}
 .stk[data-cols="4"] .stk-in,.stk[data-cols="5"] .stk-in{overflow-x:auto}
 .stk[data-cols="4"] .gfile-diff,.stk[data-cols="5"] .gfile-diff{overflow-x:visible}
 .stk[data-cols="4"] .dline.split,.stk[data-cols="5"] .dline.split{grid-auto-columns:minmax(180px,1fr);width:max-content;min-width:100%}
 .stk[data-cols="4"] .dcols,.stk[data-cols="5"] .dcols{--cols:repeat(var(--n),minmax(180px,1fr));width:max-content;min-width:100%}
 /* the caption row — a quiet strip in the gutter's type; the captions ARE the controls */
-.stk .dcols{display:grid;grid-template-columns:var(--cols,minmax(0,1fr));height:var(--cap);align-items:center;background:var(--panel-2);border-bottom:1px solid var(--line);font:600 10.5px var(--mono);letter-spacing:.02em;color:var(--muted);padding:0;margin:0}
+.stk .dcols{position:sticky;top:var(--stk-top);z-index:5;display:grid;grid-template-columns:var(--cols,minmax(0,1fr));height:var(--cap);align-items:center;background:var(--panel-2);border-bottom:1px solid var(--line);font:600 10.5px var(--mono);letter-spacing:.02em;color:var(--muted);padding:0;margin:0}
 .stk .dcols>span{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px 0 10px;height:100%;border-right:1px solid var(--line);border-left:none}
 .stk .dcols>span:last-child{border-right:none}
 .dcols .cl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0;margin:0;border:0;min-width:0}
@@ -852,9 +855,15 @@
 .cp:hover .cpv{stroke:var(--ink-2)}
 .fb-menu .fh-dd-item:disabled{opacity:.4;cursor:default}
 .dcols .sep{color:var(--muted-2);padding:0;border:0;display:inline;margin:0 2px}
-/* the caption row is the top of the body, so its open picker must paint over the
-   rows below and the next file's sticky header */
-.stk:has(.fb-dd.open){z-index:12}
+/* the key sits at the right end of the caption row — one per file, describing that
+   file; the last caption leaves it room */
+.dcols .fh-rails{position:absolute;right:5px;top:50%;transform:translateY(-50%);padding:2px;border-color:transparent;background:none}
+.dcols .fh-rails:hover,.dcols .fh-rails:focus-visible{border-color:var(--accent-line);background:var(--accent-soft)}
+.dcols .fh-rails .fh-pop{top:calc(100% + 7px);right:-2px}
+.stk .dcols>span:last-child{padding-right:28px}
+/* the caption row is the top of the body, so its open picker or key must paint over
+   the rows below and the next file's sticky header */
+.stk:has(.fb-dd.open),.stk:has(.fh-rails:hover),.stk:has(.fh-rails:focus-within){z-index:12}
 @keyframes peel{from{opacity:0;transform:translateX(-8px)}}
 .stk.peel .dcols,.stk.peel .gfile-diff{animation:peel .16s ease-out}
 /* the key's "when it applies" note beside a group heading */
