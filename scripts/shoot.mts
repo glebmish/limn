@@ -32,8 +32,10 @@ fixtureGit(fx.dir, 'commit', '-m', 'spec + plan for rate limiting')
 // something to reveal. Added on main, merged into feature, then tweaked there.
 // LIMN_SEED_CHECKPOINT=1: the diff-layout demo. long.ts is 60 lines so the run between
 // two changes exceeds a fold step; the approval sits one commit behind the tip, and
-// the review was generated a commit earlier still, so Multi has a middle column and
-// the drift rails have something to mark. LIMN_SEED_PREFS='{"diffLayout":"\"split\""}'
+// the review was generated a commit earlier still, so there are approval and agent-
+// review sheets to pull and the drift rails have something to mark. The stack itself
+// is review state (sessions.diff_stack), not a pref — pull sheets in the shot with
+// `cdp-shot.mts --eval` (click `.stk-tab`). LIMN_SEED_PREFS='{"sidebarView":"\"tree\""}'
 // pre-seeds the prefs table (values are the JSON strings the store writes).
 const CHECKPOINT = process.env.LIMN_SEED_CHECKPOINT === '1'
 const LONG = CHECKPOINT ? 60 : 34

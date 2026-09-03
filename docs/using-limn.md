@@ -86,55 +86,55 @@ queued comments requires a clean working tree on the checked-out compare branch;
 precondition is unmet, the agent run reports that edits are unavailable rather than
 silently answering read-only.
 
-## Diff baselines, per file
+## Sheets: what a diff shows beside current
 
-A review can be read against four baselines, oldest checkpoint first:
+A file's columns are a **stack of sheets**, pulled from the diff's left edge. The last
+column is always **current** — the working tree, or the compare tip when there is no
+worktree. The sheets a file can have, oldest first:
 
-| Baseline | Measured from | Answers |
+| Sheet | Resolves to | Answers |
 | --- | --- | --- |
-| **Full diff** | the base ref | what this branch changes |
-| **Since the review ran** | the commit the review was generated at | what the narration never saw |
-| **Since approved** | your latest approval | what landed after you signed off |
-| **Since viewed** | that file's own view mark | what moved since you last read it |
+| **base · main** | the base ref | what this branch changes |
+| **agent review** | the commit the review was generated at | what the narration never saw |
+| **approval** | your latest approval | what landed after you signed off |
+| **file view** | that file's own view mark | what moved since you last read it |
 
 They are tracked independently, so they can disagree: approve, then regenerate the
-review, and the review baseline is *newer* than the approval. Each is offered under its
-own name, so no option ever stands in for another.
+review, and the review checkpoint is *newer* than the approval. Each is offered under
+its own name. A file only offers the sheets it actually has.
 
-The header control sets the baseline for *every* file at once; each file's own header
-carries the same control for that file alone, and picking one there leaves the rest
-untouched. Using the header control again re-syncs everything.
+**Unified** — no sheet out — keeps one caption, *main · current*: what the diff is
+measured against, then what it shows. The first name is a picker (*Full diff*, *Since
+agent review*, *Since approval*, *Since file view*), so the baseline is always visible
+and changeable. The left-edge drift rail stays single: one amber hatch meaning "this
+moved since your latest checkpoint" — your approval if you made one, otherwise the
+commit the review was generated at.
 
-A file only offers the baselines it actually has — the per-file control is absent
-entirely on a file with nothing to switch to, so a large review grows one control per
-file you have worked through rather than one per file. Two baselines that resolve to the
-same commit are offered once, under the approval's name.
+**Pulling a sheet.** A thin tab runs down the diff's left edge, quiet until the file is
+hovered. Each click pulls one more sheet: first whatever the diff was measured against,
+then the base, then any other checkpoint. One sheet out is **Split** — that sheet beside
+current, changes paired row by row, its caption still a picker. From two sheets on the
+view is **Multi**: the base is fixed first, every other column is a checkpoint, and each
+column is diffed against the base so every row lines up on a base line. Two marks
+attribute the differences: an amber **since** rail on a current line the checkpoint
+beside it never had, and a grey **gone** rail on a checkpoint line current no longer
+has. Beyond three columns each gets a 180px floor and the body scrolls sideways. The
+checkpoint columns take no comments — comments anchor on the base or the tree, as they
+always have.
 
-The left-edge drift rail stays **single** whatever you pick: one amber hatch meaning
-"this moved since your latest checkpoint" — your approval if you made one, otherwise the
-commit the review was generated at. The marks key names which.
+**Putting one back.** Once a sheet is out a **−** sits above the tab, level with the
+captions; it puts the last-pulled sheet back. Hovering a column shows an **×** that
+closes just that sheet. Closing the last checkpoint folds it under: Unified is then
+measured against it.
 
-## Diff layouts
+**Every file, or this one.** Every file shows the review's default stack until you change
+its own. When a file differs from the rest, a **✓** appears at the foot of the strip;
+press it and every file follows — that stack becomes the review's default, remembered
+with the review. A file that matches the rest shows nothing. `[` pulls a sheet on the
+file nearest the top of the screen, `]` puts one back; hold ⇧ with either (or ⇧-click the
+tab or −) to apply the change to every file at once.
 
-The header's **Unified | Split | Multi** switch sets how every file body lays out its
-columns. It is a global preference, remembered across runs; there is no per-file override.
-
-| Layout | Columns | Use it for |
-| --- | --- | --- |
-| **Unified** | one, deletions above additions | the default reading view |
-| **Split** | old beside now, changes paired row by row | reading a rewrite against what it replaced |
-| **Multi** | base · checkpoint · now | seeing what the review already covered and what moved after |
-
-In Multi the baseline picker chooses the **middle column** rather than what the diff is
-measured since: pick *Since approved* and the middle column is the file as you approved
-it. Both side columns are diffed against the base, so every row lines up on a base line.
-Two marks attribute the differences between them: an amber **since** rail on a now-line
-the checkpoint never had, and a grey **gone** rail on a checkpoint line the tree no
-longer has. A file with no checkpoint (the picker says *Full diff*) shows Split with a
-note in its header. The middle column takes no comments — comments anchor on the base
-or the tree, as they always have.
-
-In every layout the in-place editor opens in the now column only; in Split and Multi
+In every layout the in-place editor opens in the current column only; in Split and Multi
 the other columns keep showing their lines beside it.
 
 ## Unchanged lines
@@ -150,11 +150,12 @@ the same 20 lines at a time.
 
 ## The marks key
 
-The **?** next to the baseline control opens a compact key for everything the diff draws:
-the left-edge rails (committed / staged / unstaged / changed-since) and the colours
-(added, removed, and the word-level highlight inside an edited line). It lists only what
-the review in front of you can show — the working-tree rails appear when the tree is
-dirty, the drift rail when the review has a baseline to drift from.
+The **?** in the header opens a compact key for everything the diff draws, and only what
+the review in front of you can show: the colours (added, removed, and the word-level
+highlight inside an edited line) always; the left-edge rails (staged / unstaged /
+changed-since) when the tree is dirty or the review has a checkpoint to drift from; the
+between-sheets marks (**since** / **gone**) while some file has a checkpoint sheet out
+beside the base. Each group says when it applies.
 
 ## Resizing the sidebar and chat drawer
 
