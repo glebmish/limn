@@ -107,7 +107,7 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
     return <span key={sheet}>{picker(sheet, false)}{closeButton(sheet)}</span>
   }
 
-  const cls = ['stk', `lay-${layout === 'unified' ? 'uni' : layout}`, next ? 'has-tab' : '', out ? 'has-pop' : '', differs ? 'has-ok' : '', peel ? 'peel' : '']
+  const cls = ['stk', `lay-${layout === 'unified' ? 'uni' : layout}`, out ? 'has-pop' : '', differs ? 'has-ok' : '', peel ? 'peel' : '']
     .filter(Boolean).join(' ')
   const nCols = layout === 'unified' ? 1 : cols.length + 1
   // the key describes THIS file: its own uncommitted lines, its own sheets
@@ -126,17 +126,18 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
           onClick={(e) => { e.stopPropagation(); change(pop(stack), e.shiftKey) }}
         >−</button>
       )}
-      {next && (
-        <button
-          type="button"
-          className="stk-tab"
-          title={`Sheets · ${out} of ${avail.length} out · click to pull the next`}
-          aria-label={`Pull the next sheet — ${out} of ${avail.length} out`}
-          onClick={(e) => { e.stopPropagation(); change(pull(stack, next), e.shiftKey) }}
-        >
-          <svg viewBox="0 0 14 12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" rx="1.5" /><path d="M6 1v10" /><path d="M3.5 4.6v2.8M2.1 6h2.8" /></svg>
-        </button>
-      )}
+      {/* always rendered so the strip keeps its colour; with every sheet out only
+          the icon leaves */}
+      <button
+        type="button"
+        className="stk-tab"
+        disabled={!next}
+        title={next ? `Sheets · ${out} of ${avail.length} out · click to pull the next` : `Sheets · every one of ${avail.length} out`}
+        aria-label={next ? `Pull the next sheet — ${out} of ${avail.length} out` : 'Every sheet is out'}
+        onClick={next ? (e) => { e.stopPropagation(); change(pull(stack, next), e.shiftKey) } : undefined}
+      >
+        {next && <svg viewBox="0 0 14 12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" rx="1.5" /><path d="M6 1v10" /><path d="M3.5 4.6v2.8M2.1 6h2.8" /></svg>}
+      </button>
       {differs && (
         <button
           type="button"

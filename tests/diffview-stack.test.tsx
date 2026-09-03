@@ -98,7 +98,8 @@ describe('the strip', () => {
     expect(html).toContain('title="Put base · main back"')
     seed({ fileStack: { 'src/b.ts': st(['approved', 'base', 'review', 'viewed']) } })
     html = renderToStaticMarkup(<DiffView f={two} />)
-    expect(html).not.toContain('stk-tab')
+    // the strip keeps its colour: the tab stays, only its icon leaves
+    expect(html).toMatch(/class="stk-tab" disabled=""[^>]*title="Sheets · every one of 4 out"[^>]*><\/button>/)
     expect(html).toContain('title="Put file view back"')
   })
 

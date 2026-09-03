@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { CmtPlus } from '../kit'
 import { fileViewed, fileIsExcluded, useStore } from '../store'
@@ -40,6 +40,19 @@ export function DiffView({ f }: {
   // the baseline: the body's own fold state resets there too (line numbers move).
   const [foldsOpen, setFoldsOpen] = useState(false)
   useEffect(() => setFoldsOpen(false), [stackKey])
+  // the strip's − and caption row stick right under the sticky file header, so they
+  // need its real height (a wrapped path or a pill changes it) — measured, not assumed
+  const cardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const card = cardRef.current
+    const head = card?.querySelector<HTMLElement>('.gfile-head')
+    if (!card || !head || typeof ResizeObserver === 'undefined') return
+    const apply = (): void => card.style.setProperty('--gfile-head-h', `${head.getBoundingClientRect().height}px`)
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(head)
+    return () => ro.disconnect()
+  }, [])
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
@@ -61,7 +74,7 @@ export function DiffView({ f }: {
     <div className="gfile-wrap">
       <span className="gfile-cmt-zone" />
       <CmtPlus extra="gfile-plus" onClick={() => setFileCommenting(true)} />
-      <div className={'gfile' + (showBody ? ' open' : ' collapsed') + (isViewed && !focused ? ' viewed' : '')}>
+      <div ref={cardRef} className={'gfile' + (showBody ? ' open' : ' collapsed') + (isViewed && !focused ? ' viewed' : '')}>
         <FileHeader
           f={f}
           excluded={excluded}

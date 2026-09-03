@@ -816,7 +816,7 @@
    Real files are long, so nothing in the strip is centred on the file: the − and the
    caption row stick under the sticky file header, the tab's icon sticks just below
    them, and the ✓ sticks to the bottom of the viewport while the file is on screen. */
-.stk{position:relative;--cap:26px;--stk-top:calc(var(--limn-head-h,0px) + 40px);padding-left:20px}
+.stk{position:relative;--cap:26px;--stk-top:calc(var(--limn-head-h,0px) + var(--gfile-head-h,37px) - 1px);padding-left:20px}
 .stk-strip{position:absolute;left:0;top:0;bottom:0;width:20px;z-index:6;display:flex;flex-direction:column;align-items:stretch}
 .stk-tab,.stk-pop,.stk-ok{width:20px;border:none;background:var(--panel-2);border-right:1px dashed var(--line-2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2);padding:0;user-select:none;transition:background .12s,color .12s,opacity .12s}
 .stk-pop{position:sticky;top:var(--stk-top);flex:0 0 var(--cap);height:var(--cap);border-bottom:1px solid var(--line);font:600 15px/1 var(--sans);opacity:.45;z-index:1}
@@ -828,8 +828,9 @@
 .stk-ok svg{width:12px;height:12px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .stk-ok.live{color:var(--accent-ink);background:var(--accent-soft);border-right-style:solid;border-right-color:var(--accent-line)}
 .stk-ok.live:hover{background:var(--accent);color:#fff;border-right-color:var(--accent)}
-.gfile:hover .stk-tab,.gfile:hover .stk-pop,.stk-tab:focus-visible,.stk-pop:focus-visible{opacity:1}
-.stk-tab:hover,.stk-pop:hover{background:var(--accent-soft);color:var(--accent-ink);border-right-style:solid;border-right-color:var(--accent-line)}
+.gfile:hover .stk-tab:not(:disabled),.gfile:hover .stk-pop,.stk-tab:focus-visible,.stk-pop:focus-visible{opacity:1}
+.stk-tab:not(:disabled):hover,.stk-pop:hover{background:var(--accent-soft);color:var(--accent-ink);border-right-style:solid;border-right-color:var(--accent-line)}
+.stk-tab:disabled{cursor:default}
 .stk-tab:focus-visible,.stk-pop:focus-visible,.stk-ok:focus-visible{outline:2px solid var(--accent-line);outline-offset:-2px}
 /* a fourth or fifth column gets a 180px floor and the captions + body scroll together
    (that wrapper is a scroll container, so there the caption row cannot stick) */
