@@ -848,12 +848,12 @@
 .stk[data-cols="4"] .dcols,.stk[data-cols="5"] .dcols{--cols:repeat(var(--n),minmax(180px,1fr));width:max-content;min-width:100%}
 /* the caption row — a quiet strip in the gutter's type; the captions ARE the controls */
 .stk .dcols{position:relative;display:grid;grid-template-columns:var(--cols,minmax(0,1fr));height:var(--cap);align-items:center;background:var(--panel-2);border-bottom:1px solid var(--line);font:600 10.5px var(--mono);letter-spacing:.02em;color:var(--muted);padding:0;margin:0}
-.stk .dcols>.col{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px 0 10px;height:100%;border-right:1px solid var(--line);border-left:none}
-.stk .dcols>.col.now{border-right:none}
+.stk .dcols>.stk-col{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px 0 10px;height:100%;border-right:1px solid var(--line);border-left:none}
+.stk .dcols>.stk-col.now{border-right:none}
 .dcols .cl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0;margin:0;border:0;min-width:0}
 .dcols .now>.cl{color:var(--ink-2)}
 .dcols .cx{margin-left:auto;border:none;background:none;color:var(--muted-2);font:600 13px/1 var(--sans);cursor:pointer;padding:0 4px;border-radius:4px;opacity:0;transition:opacity .12s}
-.dcols>.col:hover .cx,.dcols .cx:focus-visible{opacity:1}
+.dcols>.stk-col:hover .cx,.dcols .cx:focus-visible{opacity:1}
 .dcols .cx:hover{color:var(--ink-2);background:var(--panel)}
 .dcols .fb-dd{display:inline-flex;min-width:0;width:auto;max-width:none;position:relative;padding:0;border:0;margin:0}
 .dcols .fb-menu{right:auto;left:0}
@@ -868,12 +868,12 @@
 .dcols .fh-rails{position:absolute;right:5px;top:50%;transform:translateY(-50%);padding:2px;border:1px solid var(--line-2);background:var(--panel)}
 .dcols .fh-rails:hover,.dcols .fh-rails:focus-visible{border-color:var(--accent-line);background:var(--accent-soft)}
 .dcols .fh-rails .fh-pop{top:calc(100% + 7px);right:-2px}
-.stk .dcols>.col.now{padding-right:28px}
+.stk .dcols>.stk-col.now{padding-right:28px}
 /* the labelled spread chip beside the key (option 1 under trial) */
 .stk-all{position:absolute;right:30px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:4px;font:600 10.5px var(--sans);letter-spacing:0;color:var(--accent-ink);border:1px solid var(--accent-line);background:var(--panel);border-radius:6px;padding:1px 7px;cursor:pointer;white-space:nowrap}
 .stk-all:hover{background:var(--accent-soft)}
 .stk-all svg{width:11px;height:11px;display:block;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.stk:has(.stk-all) .dcols>.col.now{padding-right:160px}
+.stk:has(.stk-all) .dcols>.stk-col.now{padding-right:160px}
 /* (the caption row's sticky wrapper .stk-caps rises to z 12 while a picker or the
    key is open — see above; only the row is raised, never the whole .stk, which would
    put this file's rows over its own sticky header) */

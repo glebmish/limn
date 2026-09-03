@@ -114,8 +114,8 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
   )
   const caption = (sheet: Sheet): ReactNode => {
     // base is fixed first from two sheets on — a plain label, no picker, no ×
-    if (sheet === 'base' && out > 1) return <span key={sheet} className="col"><span className="cl">{sheetCaption('base')}</span></span>
-    return <span key={sheet} className="col">{picker(sheet, false)}{closeButton(sheet)}</span>
+    if (sheet === 'base' && out > 1) return <span key={sheet} className="stk-col"><span className="cl">{sheetCaption('base')}</span></span>
+    return <span key={sheet} className="stk-col">{picker(sheet, false)}{closeButton(sheet)}</span>
   }
 
   const cls = ['stk', `lay-${layout === 'unified' ? 'uni' : layout}`, out ? 'has-pop' : '', differs ? 'has-ok' : '', peel ? 'peel' : '']
@@ -165,8 +165,8 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
       <div className="stk-in">
         <div className="stk-caps"><div className="dcols" ref={dcolsRef} style={{ '--cols': `repeat(${nCols}, minmax(0, 1fr))`, '--n': nCols } as React.CSSProperties}>
           {layout === 'unified'
-            ? <span className="col now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
-            : <>{cols.map(caption)}<span className="col now"><span className="cl">{sheetCaption('current')}</span></span></>}
+            ? <span className="stk-col now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
+            : <>{cols.map(caption)}<span className="stk-col now"><span className="cl">{sheetCaption('current')}</span></span></>}
           {differs && (
             <button
               type="button"

@@ -121,7 +121,7 @@ describe('the strip', () => {
   it('base is fixed and plain from two sheets on; every checkpoint keeps its picker and ×', () => {
     seed({ fileStack: { 'src/b.ts': st(['approved', 'base', 'review']) } })
     const caps = captions(renderToStaticMarkup(<DiffView f={two} />))
-    expect(caps).toMatch(/^class="dcols"[^>]*><span class="col"><span class="cl">base · main<\/span><\/span>/)
+    expect(caps).toMatch(/^class="dcols"[^>]*><span class="stk-col"><span class="cl">base · main<\/span><\/span>/)
     expect((caps.match(/class="cx"/g) ?? []).length).toBe(2)
     // a checkpoint already out is offered but disabled in the other picker
     expect(caps).toMatch(/<button[^>]*role="option"[^>]*disabled=""[^>]*title="already out as its own sheet"[^>]*>(?:<[^>]*>|✓)*Since approval</)
