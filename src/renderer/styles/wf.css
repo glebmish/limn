@@ -268,7 +268,6 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .dline.dmerged .dstack-line .gut{flex:0 0 auto;width:40px;display:flex;text-align:right;color:var(--faint)}
 .dline.dmerged .dstack-line .gut span{width:40px;padding-right:5px}
 .dline.dmerged .dstack-line .code{white-space:pre-wrap;overflow-wrap:anywhere;padding-right:12px}
-.layout-note{font-size:11px;color:var(--muted)}
 
 /* agent inline summary above a hunk */
 .agent-note{display:flex;gap:9px;padding:10px 14px;background:var(--accent-soft);

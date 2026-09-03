@@ -83,14 +83,15 @@ describe('DiffView empty-state strings per diff mode', () => {
     expect(render(makeFile({ path: 'a.ts', hunks: [] }))).toContain('No textual changes.')
   })
 
-  it('approved mode on a tracked file with no since-diff → "No changes since you approved."', () => {
+  it('approved mode on a tracked file with no since-diff → "No changes since approval."', () => {
     seed(makeLoaded(), { against: 'approved' })
-    expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }] }))).toContain('No changes since you approved.')
+    // the file HAS the approval sheet (an empty slice); a file without it would show the full diff instead
+    expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }], sinceHunks: [] } as never))).toContain('No changes since approval.')
   })
 
-  it('viewed mode on a tracked file with no since-diff → "No changes since you viewed."', () => {
+  it('viewed mode on a tracked file with no since-diff → "No changes since file view."', () => {
     seed(makeLoaded(), { against: 'viewed' })
-    expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }] }))).toContain('No changes since you viewed.')
+    expect(render(makeFile({ path: 'a.ts', hunks: [{ range: '@@', header: '', lines: [] }], sinceViewedHunks: [] } as never))).toContain('No changes since file view.')
   })
 
   it('binary file → "Binary file — no diff to show."', () => {

@@ -4,8 +4,6 @@ import { useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import type { ReviewGlyphStatus } from '../lib/fileStatus'
 import { FileGlyph } from './FileGlyph'
-import { FileBaselinePicker } from './FileBaselinePicker'
-import type { DiffMode } from '../store'
 
 export function splitPath(path: string): { dir: string; name: string } {
   const i = path.lastIndexOf('/')
@@ -25,7 +23,7 @@ export function describeModeChange(m: { from: string; to: string }): string {
 
 /** Presentational file header (the `gfile-head` block). Every value it renders is
  *  computed by the DiffView shell and handed down; it owns no state. */
-export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, baselineMode, foldsOpen = false, layoutNote = null, onToggleOpen, onToggleViewed, onToggleExcluded, onPickBaseline, onToggleFolds }: {
+export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStatus, showBody, effectiveOpen, artifact, foldsOpen = false, onToggleOpen, onToggleViewed, onToggleExcluded, onToggleFolds }: {
   f: FileDiff
   excluded: boolean
   isViewed: boolean
@@ -34,16 +32,11 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
   showBody: boolean
   effectiveOpen: boolean
   artifact: Artifact | undefined
-  /** the baseline THIS file is rendered against (its override, else the global default) */
-  baselineMode: DiffMode
   onToggleOpen: () => void
   onToggleViewed: () => void
   onToggleExcluded: () => void
-  onPickBaseline: (mode: DiffMode) => void
   /** every collapsed run in the body is open (the header's Expand all / Collapse) */
   foldsOpen?: boolean
-  /** why the body is not in the layout the switch says — Multi with no checkpoint */
-  layoutNote?: string | null
   onToggleFolds?: () => void
 }) {
   const { dir, name } = splitPath(f.path)
@@ -79,10 +72,6 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
       </span>
       <Delta add={f.add} del={f.del} />
       <span className="grow"></span>
-      {layoutNote && (
-        <span className="pill layout-note" title="Multi needs a checkpoint to show as its middle column; this file has none, so it shows Split">{layoutNote}</span>
-      )}
-      <FileBaselinePicker f={f} mode={baselineMode} onPick={onPickBaseline} />
       {!f.binary && onToggleFolds && (
         <button
           className="file-folds"

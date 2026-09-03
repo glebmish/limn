@@ -201,13 +201,6 @@
 .diffmode-bar{display:inline-flex;align-items:center;gap:9px}
 .wf .page-head .diffmode-bar{margin-top:10px}
 /* ── diff-mode dropdown (design fh-dd/fh-seg/fh-chev/fh-dd-menu/fh-dd-item) ── */
-/* the layout switch: Unified | Split | Multi, a segmented control beside the baseline */
-.fh-layout{display:inline-flex;border:1px solid var(--line-2);border-radius:7px;overflow:hidden;background:var(--panel)}
-.fh-layout-btn{font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--muted-2);padding:4px 9px;border:none;background:none;cursor:pointer;border-left:1px solid var(--line-2)}
-.fh-layout-btn:first-child{border-left:none}
-.fh-layout-btn:hover{color:var(--ink-2)}
-.fh-layout-btn.on{color:var(--accent-ink);background:var(--accent-soft)}
-.fh-layout-btn:focus-visible{outline:2px solid var(--accent-line);outline-offset:-2px}
 .fh-dd{position:relative;display:inline-flex}
 .fh-seg{display:inline-flex;align-items:center;gap:6px;font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--ink-2);border:1px solid var(--line-2);background:var(--panel);border-radius:7px;padding:4px 9px;cursor:pointer}
 .fh-seg svg{width:13px;height:13px;color:var(--muted-2)}
@@ -223,12 +216,8 @@
 .fh-dd-check{width:12px;height:12px;flex:0 0 auto;color:var(--accent);font-size:11px;line-height:1;opacity:0}
 .fh-dd-item.sel{color:var(--accent-ink);font-weight:600}
 .fh-dd-item.sel .fh-dd-check{opacity:1}
-/* ── per-file diff baseline picker (the file header's own fh-dd) ── */
+/* ── the caption pickers' menu (design fb-dd/fb-menu; the trigger is .cp below) ── */
 .fb-dd{position:relative;display:inline-flex;flex:0 0 auto}
-.fb-seg{display:inline-flex;align-items:center;gap:4px;font-family:var(--sans);font-size:10.5px;font-weight:600;
-  color:var(--muted);border:1px solid transparent;background:none;border-radius:6px;padding:2px 6px;cursor:pointer}
-.gfile-head:hover .fb-seg,.fb-dd.open .fb-seg{border-color:var(--line-2);background:var(--panel)}
-.fb-seg:hover,.fb-dd.open .fb-seg{color:var(--ink-2);border-color:var(--line-3)}
 .fb-menu{position:absolute;top:calc(100% + 5px);right:0;z-index:30;display:flex;flex-direction:column;min-width:172px;
   background:var(--panel);border:1px solid var(--line-2);border-radius:9px;padding:5px;text-align:left;
   box-shadow:0 14px 36px -14px rgba(40,38,32,.4);opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .12s,transform .12s}
@@ -565,7 +554,6 @@
 /* per-file Expand all / Collapse for the body's folds; quiet until the header is hovered */
 .file-folds{font-family:var(--sans);font-size:10.5px;font-weight:600;color:var(--muted-2);border:1px solid transparent;background:none;border-radius:6px;padding:2px 7px;cursor:pointer;white-space:nowrap}
 .gfile-head:hover .file-folds,.file-folds:focus-visible{border-color:var(--line-2);background:var(--panel);color:var(--ink-2)}
-.pill.layout-note{font-family:var(--sans);font-weight:500;color:var(--muted);border:1px dashed var(--line-3);background:none}
 .rail-sw.gone{background:var(--muted-2)}
 .file-viewed{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
   color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
@@ -820,3 +808,54 @@
 .msh-cta:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
 .msh-cta:disabled{background:var(--panel-2);border-color:var(--line-2);color:var(--muted-2);cursor:not-allowed}
 .msh-local{font-size:11px;color:var(--muted);line-height:1.4}
+
+/* ══════════ the stack (design board 13, W1) ══════════
+   A file's columns are a stack of sheets pulled from the diff's left edge. The strip
+   (− · tab · ✓) sits OUTSIDE .dline, so crossing it lights no line and summons no +;
+   the rail's hit strip extends right into the gutter, never left into the tab. */
+.stk{position:relative;--cap:26px;padding-left:20px}
+.stk-tab,.stk-pop,.stk-ok{position:absolute;left:0;width:20px;z-index:4;border:none;background:var(--panel-2);border-right:1px dashed var(--line-2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--muted-2);padding:0;user-select:none;transition:background .12s,color .12s,opacity .12s}
+.stk-tab{top:0;bottom:0;opacity:.45}
+.stk.has-pop .stk-tab{top:var(--cap)}
+.stk.has-ok .stk-tab{bottom:var(--cap)}
+.stk-pop{top:0;height:var(--cap);border-bottom:1px solid var(--line);font:600 15px/1 var(--sans);opacity:.45}
+.stk-ok{bottom:0;height:var(--cap);border-top:1px dashed var(--line-2)}
+.stk-ok svg{width:12px;height:12px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stk-ok.live{color:var(--accent-ink);background:var(--accent-soft);border-right-style:solid;border-right-color:var(--accent-line)}
+.stk-ok.live:hover{background:var(--accent);color:#fff;border-right-color:var(--accent)}
+.gfile:hover .stk-tab,.gfile:hover .stk-pop,.stk-tab:focus-visible,.stk-pop:focus-visible{opacity:1}
+.stk-tab:hover,.stk-pop:hover{background:var(--accent-soft);color:var(--accent-ink);border-right-style:solid;border-right-color:var(--accent-line)}
+.stk-tab:focus-visible,.stk-pop:focus-visible,.stk-ok:focus-visible{outline:2px solid var(--accent-line);outline-offset:-2px}
+.stk-tab svg{width:14px;height:12px;display:block}
+.stk-tab svg rect{fill:var(--panel);stroke:currentColor;stroke-width:1.2}
+.stk-tab svg path{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round}
+/* a fourth or fifth column gets a 180px floor and the captions + body scroll together */
+.stk-in{min-width:0}
+.stk[data-cols="4"] .stk-in,.stk[data-cols="5"] .stk-in{overflow-x:auto}
+.stk[data-cols="4"] .gfile-diff,.stk[data-cols="5"] .gfile-diff{overflow-x:visible}
+.stk[data-cols="4"] .dline.split,.stk[data-cols="5"] .dline.split{grid-auto-columns:minmax(180px,1fr);width:max-content;min-width:100%}
+.stk[data-cols="4"] .dcols,.stk[data-cols="5"] .dcols{--cols:repeat(var(--n),minmax(180px,1fr));width:max-content;min-width:100%}
+/* the caption row — a quiet strip in the gutter's type; the captions ARE the controls */
+.stk .dcols{display:grid;grid-template-columns:var(--cols,minmax(0,1fr));height:var(--cap);align-items:center;background:var(--panel-2);border-bottom:1px solid var(--line);font:600 10.5px var(--mono);letter-spacing:.02em;color:var(--muted);padding:0;margin:0}
+.stk .dcols>span{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px 0 10px;height:100%;border-right:1px solid var(--line);border-left:none}
+.stk .dcols>span:last-child{border-right:none}
+.dcols .cl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0;margin:0;border:0;min-width:0}
+.dcols .now>.cl{color:var(--ink-2)}
+.dcols .cx{margin-left:auto;border:none;background:none;color:var(--muted-2);font:600 13px/1 var(--sans);cursor:pointer;padding:0 4px;border-radius:4px;opacity:0;transition:opacity .12s}
+.dcols>span:hover .cx,.dcols .cx:focus-visible{opacity:1}
+.dcols .cx:hover{color:var(--ink-2);background:var(--panel)}
+.dcols .fb-dd{display:inline-flex;min-width:0;width:auto;max-width:none;position:relative;padding:0;border:0;margin:0}
+.dcols .fb-menu{right:auto;left:0}
+.cp{font:inherit;color:inherit;border:none;background:none;padding:0 2px;margin:0;border-radius:4px;display:inline-flex;align-items:center;gap:3px;cursor:pointer;min-width:0;width:auto}
+.cp:hover{color:var(--ink-2);background:var(--panel)}
+.cp .cpv{width:10px;height:10px;flex:0 0 auto;display:block;fill:none;stroke:var(--muted-2);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.cp:hover .cpv{stroke:var(--ink-2)}
+.fb-menu .fh-dd-item:disabled{opacity:.4;cursor:default}
+.dcols .sep{color:var(--muted-2);padding:0;border:0;display:inline;margin:0 2px}
+/* the caption row is the top of the body, so its open picker must paint over the
+   rows below and the next file's sticky header */
+.stk:has(.fb-dd.open){z-index:12}
+@keyframes peel{from{opacity:0;transform:translateX(-8px)}}
+.stk.peel .dcols,.stk.peel .gfile-diff{animation:peel .16s ease-out}
+/* the key's "when it applies" note beside a group heading */
+.fh-pop .key-when{font:500 10px var(--sans);color:var(--muted);letter-spacing:0;text-transform:none;margin-left:6px}

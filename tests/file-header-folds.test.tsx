@@ -16,17 +16,15 @@ const render = (over: Partial<Parameters<typeof FileHeader>[0]> = {}): string =>
       showBody
       effectiveOpen
       artifact={undefined}
-      baselineMode="branch"
       onToggleOpen={() => {}}
       onToggleViewed={() => {}}
       onToggleExcluded={() => {}}
-      onPickBaseline={() => {}}
       onToggleFolds={() => {}}
       {...over}
     />
   )
 
-describe('file header folds and layout note', () => {
+describe('file header folds', () => {
   it('offers Expand all, and Collapse once the folds are open', () => {
     expect(render()).toMatch(/aria-label="Expand all folds"[^>]*>Expand all</)
     expect(render({ foldsOpen: true })).toMatch(/aria-label="Collapse folds"[^>]*>Collapse</)
@@ -37,8 +35,8 @@ describe('file header folds and layout note', () => {
     expect(render({ onToggleFolds: undefined })).not.toContain('file-folds')
   })
 
-  it('shows the Multi fallback note only when told', () => {
-    expect(render({ layoutNote: 'no checkpoint for this file' })).toContain('class="pill layout-note"')
+  it('carries no baseline picker of its own any more — the captions are the control', () => {
+    expect(render()).not.toContain('fb-dd')
     expect(render()).not.toContain('layout-note')
   })
 })

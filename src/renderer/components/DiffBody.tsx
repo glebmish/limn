@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { Comment, DiffLine, FileDiff } from '../../shared/types'
 import { I } from '../kit'
-import { checkpointLabel, diffHunksForMode, multiHunksForMode, useStore, type DiffMode } from '../store'
+import { useStore } from '../store'
+import type { Sheet, Stack } from '../../shared/diffStack'
+import { columnsFor, layoutFor, midHunksFor, sheetCaption, sliceFor } from '../lib/stack'
 import { sinceBasis } from '../../shared/sinceBasis'
 import { attributionExplanation, railExplanation } from '../lib/railExplanation'
 import { Tooltip } from './Tooltip'
@@ -117,32 +119,33 @@ function originCls(l: DiffLine | null, driftRails: boolean): string {
  *  comes from `readFileAt`, not the write capability. ONE reveal primitive
  *  (`reveal(gap, edge)`) serves the fold buttons, the post-save ↑/↓ walk and the
  *  FlowFrame growth gesture alike. */
-export function DiffBody({ f, mode, showBody, fileComments, composerAt, setComposerAt, revealAllFlag = false, onLayoutFallback }: {
+export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComposerAt, revealAllFlag = false }: {
   f: FileDiff
-  mode: DiffMode
+  /** the file's EFFECTIVE stack (design board 13): no sheet out → Unified measured
+   *  since `against`; one → Split; two or more → Multi with one column per sheet */
+  stack: Stack
   showBody: boolean
   fileComments: Comment[]
   composerAt: ComposerAt | null
   setComposerAt: (v: ComposerAt | null) => void
   /** the file header's Expand all / Collapse: true reveals every run, false folds them */
   revealAllFlag?: boolean
-  /** told whether Multi had to fall back to Split for this file (no checkpoint) */
-  onLayoutFallback?: (fellBack: boolean) => void
 }) {
-  // ── layout: the global pref, with Multi needing a checkpoint column to show. A
-  // file without one renders Split (and the header says so) rather than pretending.
-  const layoutPref = useStore((s) => s.diffLayout)
-  const midHunks = layoutPref === 'multi' ? multiHunksForMode(f, mode) : undefined
-  const fellBack = layoutPref === 'multi' && midHunks == null
-  const layout: Layout = layoutPref === 'multi' ? (midHunks ? 'multi' : 'split') : layoutPref
-  useEffect(() => { onLayoutFallback?.(fellBack) }, [fellBack, onLayoutFallback])
-  // show exactly the selected baseline — if a tracked file has no diff at that baseline
-  // it renders the empty state below, rather than silently falling back to the full diff
-  // (which made the shown content contradict the selected "Since …" mode). Untracked
-  // files are wholly new, so their since-diff equals the full diff (see diffHunksForMode).
-  // In Multi the baseline picks the MIDDLE column instead: the now column is always the
-  // full base→now diff, so both side columns are measured from the same base.
-  const hunks = layout === 'multi' ? f.hunks : diffHunksForMode(f, mode)
+  // ── layout follows the sheet count; the columns are the sheets in display order
+  const layout: Layout = layoutFor(stack)
+  const cols = columnsFor(stack)
+  const stackKey = JSON.stringify(stack)
+  // what the diff is measured since: Unified's own baseline, the one sheet beside
+  // current, or — in Multi — the nearest checkpoint, which current is attributed against
+  const since: Sheet = layout === 'unified' ? stack.against : layout === 'split' ? stack.out[0] : cols[cols.length - 1]
+  // show exactly the selected slice — if a tracked file has no diff since that sheet it
+  // renders the empty state below, rather than silently falling back to the full diff
+  // (which made the shown content contradict the caption). Untracked files are wholly
+  // new, so their since-diff equals the full diff (see sliceFor). In Multi every side
+  // column is measured from the base: current is the full diff, each checkpoint column
+  // its own base→checkpoint slice.
+  const mids = useMemo(() => (layout === 'multi' ? cols.slice(1).map((s) => midHunksFor(f, s)) : []), [layout, f, stackKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hunks = layout === 'multi' ? f.hunks : sliceFor(f, since)
   const lang = langForPath(f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   // resolved comments are included: the re-anchor pipeline now maintains their
@@ -220,15 +223,15 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // ── collapsed runs: the unchanged file lines around/between the changes. Revealed
   // rows are plain working-tree rows — same pencil, same frame. Component state,
   // reset when the file re-renders after a save (line numbers may have shifted).
-  // Reset on the MODE and LAYOUT too, not just the file: both are independent store
-  // state, so `f` keeps its identity across a "Since approved" switch or a Split
-  // toggle — while the gap keys (`g<from>`) do not change with it. A fold opened in
-  // one mode would otherwise still be "open" over rows that start elsewhere.
+  // Reset on the STACK too, not just the file: it is independent store state, so `f`
+  // keeps its identity across a pull or a caption pick — while the gap keys
+  // (`g<from>`) do not change with it. A fold opened under one stack would otherwise
+  // still be "open" over rows that start elsewhere.
   const [reveals, setReveals] = useState<Record<string, GapReveal>>({})
   const [fileLines, setFileLines] = useState<string[] | null>(null)
   const [readFailed, setReadFailed] = useState(false)
   const linesPromise = useRef<Promise<string[] | null> | null>(null)
-  useEffect(() => { setReveals({}); setFileLines(null); setReadFailed(false); linesPromise.current = null }, [f, mode, layout])
+  useEffect(() => { setReveals({}); setFileLines(null); setReadFailed(false); linesPromise.current = null }, [f, stackKey])
   // The runs themselves are pure arithmetic over the hunks and are ALWAYS modelled:
   // they are the only thing marking a discontinuity now that the `@@` head is gone,
   // and a `.dline` has no top border, so leaving them out makes two distant hunks
@@ -236,8 +239,8 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // unchanged in every column, so it is measured once, in now coordinates, with the
   // offsets back to the other two (lib/rowsMulti.ts).
   const gaps = useMemo(
-    () => (f.binary ? [] : layout === 'multi' ? multiGaps(midHunks ?? [], hunks) : hunkGaps(hunks)),
-    [f.binary, layout, midHunks, hunks]
+    () => (f.binary ? [] : layout === 'multi' ? multiGaps(mids, hunks) : hunkGaps(hunks)),
+    [f.binary, layout, mids, hunks]
   )
   /** the file's row model: changed rows and collapsed runs, in file order. `lang` in
    *  the deps: it's a pure function of `f.path`, so it never actually changes without
@@ -248,10 +251,10 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     // an added file's hunks ARE the whole file, so there is no run trailing off below
     // its last line to offer (lib/rows.ts spots the wholly-deleted case itself)
     const trailing = f.status !== 'added'
-    if (layout === 'multi') return buildMultiRows(midHunks ?? [], hunks, lang, { trailing })
+    if (layout === 'multi') return buildMultiRows(mids, hunks, lang, { trailing })
     if (layout === 'split') return buildSplitRows(hunks, gaps, lang, { trailing })
     return buildFileRows(hunks, gaps, lang, { trailing }).map((r) => (r.type === 'line' ? asAligned(r) : r))
-  }, [f.binary, f.status, layout, midHunks, hunks, gaps, lang])
+  }, [f.binary, f.status, layout, mids, hunks, gaps, lang])
 
   /** The file's text as it is now — fetched once per file/mode, shared by every
    *  reveal. `readFileAt` needs no write capability, so a read-only review and every
@@ -392,7 +395,7 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
   // mark?" where the mark is beats walking up to the header's key. In Multi the
   // attribution mark replaces the drift rail on the side columns.
   const railTipFor = (c: Cell): string | null =>
-    c.attribution ? attributionExplanation(c.attribution, mode)
+    c.attribution ? attributionExplanation(c.attribution, since)
     : c.l ? railExplanation(c.l, driftBasis) : null
   const driftRails = layout !== 'multi'
 
@@ -563,29 +566,17 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
     )
   }
 
-  // only Multi names its columns: the middle one is whichever checkpoint the
-  // baseline picked, which nothing else on screen says. Split is the well-known
-  // old-beside-new view and needs no caption.
-  const columnStrip = layout !== 'multi' ? null : (
-    <div className="dcols">
-      {['Base', checkpointLabel(mode), 'Now'].map((name) => <span key={name}>{name}</span>)}
-    </div>
-  )
-  const empty = !f.binary && hunks.length === 0 && (layout !== 'multi' || (midHunks ?? []).length === 0)
+  // the captions live in the strip above (DiffStack) — the body is rows only
+  const empty = !f.binary && hunks.length === 0 && (layout !== 'multi' || mids.every((m) => m.length === 0))
 
   return (
     <>
       {showBody && (
-        <div className={'gfile-diff layout-' + layout}>
+        <div className={'gfile-diff layout-' + layout} data-cols={layout === 'unified' ? undefined : cols.length + 1}>
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
-          {fellBack && !f.binary && (
-            <div className="nodiff layout-note">no checkpoint for this file — showing Split</div>
-          )}
           {empty && (
-            layout === 'multi' ? <div className="nodiff">No changes at either checkpoint.</div>
-            : mode === 'review' ? <div className="nodiff">No changes since the review ran.</div>
-            : mode === 'approved' ? <div className="nodiff">No changes since you approved.</div>
-            : mode === 'viewed' ? <div className="nodiff">No changes since you viewed.</div>
+            layout === 'multi' ? <div className="nodiff">No changes at any checkpoint.</div>
+            : since !== 'base' ? <div className="nodiff">No changes since {sheetCaption(since)}.</div>
             : f.modeChange ? (
               // mode-only change: surface the bit transition explicitly rather than an
               // empty "no content" line (design 07, state 15)
@@ -593,7 +584,6 @@ export function DiffBody({ f, mode, showBody, fileComments, composerAt, setCompo
             )
             : <div className="nodiff">No textual changes.</div>
           )}
-          {!empty && columnStrip}
           {/* ONE flat array for the whole file — see the component doc comment */}
           {view.map((r, i) => (r.type === 'gap' ? gapNode(r) : layout === 'unified' ? unifiedNode(r, i) : columnsNode(r, i)))}
           {notShown.length > 0 && (

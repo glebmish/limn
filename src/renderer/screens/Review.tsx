@@ -3,7 +3,9 @@ import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDA
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
-import { HeaderDiffControls } from '../components/HeaderDiffControls'
+import { MarkersKey } from '../components/MarkersKey'
+import { useStackKeys } from '../lib/useStackKeys'
+import { effectiveStack } from '../lib/stack'
 import { sinceBasis } from '../../shared/sinceBasis'
 import { ReviewTimeline } from '../components/ReviewTimeline'
 import { ReviewSidebar } from '../components/ReviewSidebar'
@@ -102,7 +104,7 @@ const ShellHandle = memo(function ShellHandle(
 
 export default function Review() {
   const store = useStore()
-  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffMode, setGlobalDiffMode, diffLayout, setDiffLayout, sidebarWidth, chatWidth } = store
+  const { loaded, branch, base, viewedAt, cur, curFile, docPath, openDoc, closeDoc, diffStack, fileStack, sidebarWidth, chatWidth } = store
   // the review-generation op for THIS review (scoped to its threads); drives the gen
   // strip/CTA and the approve-disabled state. A concurrent read-only chat is a
   // separate op and does not gate the review surface.
@@ -141,6 +143,8 @@ export default function Review() {
 
   // dev/screenshot one-shots (flow/scroll/focus/batch/fake-gen/fake-drift/open-doc)
   useDevReviewHooks({ loaded, gen, scrollRef, setPendingDrift: store.setPendingDrift, openDoc })
+  // [ / ] pull and put back sheets on the file nearest the top; ⇧ spreads
+  useStackKeys(curFile, renderedFiles)
 
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
@@ -158,12 +162,9 @@ export default function Review() {
   const excludedFiles = orderFilesForReview(renderedAll.filter(isExcluded))
   const displayFiles = renderedAll.filter((f) => !isExcluded(f))
   const flatDisplayFiles = orderFilesForReview(displayFiles)
-  // global diff-baseline switch: the active mode + which baselines exist to switch to
-  // across the changed files.
-  const globalMode = diffMode
-  const anySinceReview = displayFiles.some((f) => f.sinceReviewHunks)
-  const anySinceApproved = displayFiles.some((f) => f.sinceHunks)
-  const anySinceViewed = displayFiles.some((f) => f.sinceViewedHunks)
+  // the key's "Between sheets" group applies while some file shows a checkpoint
+  // beside the base — that is when the attribution marks can be on screen
+  const sheetsOut = displayFiles.filter((f) => effectiveStack(fileStack[f.path] ?? diffStack, f).out.length >= 2).length
   // what the drift rails and the "since" baselines are measured from here — an
   // approval, or (when nobody approved) the sha the review was generated at
   const sinceBasisKind = sinceBasis(state, loaded.skeleton.headSha)?.basis ?? null
@@ -352,17 +353,9 @@ export default function Review() {
                     {annotations && !merged && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}
                     {annotations?.title ?? fallbackTitle}
                   </h1>
-                  <HeaderDiffControls
-                    globalMode={globalMode}
-                    anySinceReview={anySinceReview}
-                    anySinceApproved={anySinceApproved}
-                    anySinceViewed={anySinceViewed}
-                    dirty={loaded.dirty}
-                    sinceBasis={sinceBasisKind}
-                    setGlobalDiffMode={setGlobalDiffMode}
-                    layout={diffLayout}
-                    setLayout={setDiffLayout}
-                  />
+                  <div className="diffmode-bar">
+                    <MarkersKey dirty={loaded.dirty} since={sinceBasisKind} sheetsOut={sheetsOut} />
+                  </div>
                   {verdictButton ?? approveButton}
                   <MergeButton loaded={loaded} />
                 </div>

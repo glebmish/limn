@@ -13,12 +13,12 @@ const line = (over: Partial<DiffLine> = {}): DiffLine => ({ old: null, new: 1, k
 
 describe('what a rail says when you point at it', () => {
   it('names the baseline the drift rail measures from', () => {
-    expect(railExplanation(line({ since: true }), 'approved')).toBe('Changed since you approved this')
+    expect(railExplanation(line({ since: true }), 'approved')).toBe('Changed since your approval')
     expect(railExplanation(line({ since: true }), 'generated')).toBe('Changed since the review ran')
   })
 
   it('names the per-file viewed rail for the file, not the review', () => {
-    expect(railExplanation(line({ sinceViewed: true }), 'approved')).toBe('Changed since you viewed this file')
+    expect(railExplanation(line({ sinceViewed: true }), 'approved')).toBe('Changed since your file view')
   })
 
   it('explains the working-tree rails', () => {
@@ -28,7 +28,7 @@ describe('what a rail says when you point at it', () => {
 
   it('prefers the checkpoint rail over the view mark when a line carries both', () => {
     expect(railExplanation(line({ since: true, sinceViewed: true }), 'approved'))
-      .toBe('Changed since you approved this')
+      .toBe('Changed since your approval')
   })
 
   it('says nothing for a line with no rail', () => {
@@ -46,7 +46,7 @@ function render(l: DiffLine): string {
   } as never)
   const patch = {
     loaded: makeLoaded({ files: [f], headSha: 'head' }),
-    diffStack: { out: [], against: 'base' }, fileStack: {}, viewedAt: {}, focusTarget: null
+    diffStack: { out: [], against: 'base' as const }, fileStack: {}, viewedAt: {}, focusTarget: null
   }
   Object.assign(initial(), patch)
   useStore.setState(patch)

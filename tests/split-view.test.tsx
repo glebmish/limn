@@ -6,6 +6,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded } from './helpers/loaded'
+import { UNIFIED, type Stack } from '../src/shared/diffStack'
 
 type State = ReturnType<typeof useStore.getState>
 const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
@@ -19,30 +20,35 @@ export const file: FileDiff = {
     { old: 3, new: 4, kind: '', text: 'end' }
   ] }]
 }
-export function seed(layout: 'unified' | 'split' | 'multi', over: Partial<State> = {}, writable = false) {
+const STACKS: Record<'unified' | 'split', Stack> = { unified: UNIFIED, split: { out: ['base'], against: 'base' } }
+export function seed(layout: 'unified' | 'split', over: Partial<State> = {}, writable = false) {
   const init = initial()
   const loaded = makeLoaded({ files: [file] })
   ;(loaded as { writeCapability?: unknown }).writeCapability = {
     enabled: writable, reason: writable ? 'available' : 'not-checked-out', branch: 'feat', workdir: writable ? '/wt' : null
   }
   ;(init as { loaded: LoadedReview | null }).loaded = loaded
-  ;(init as { diffLayout: string }).diffLayout = layout
+  ;(init as { diffStack: Stack }).diffStack = STACKS[layout]
+  ;(init as { fileStack: Record<string, Stack> }).fileStack = {}
   Object.assign(init, over)
 }
 afterEach(() => {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = null
-  ;(init as { diffLayout: string }).diffLayout = 'unified'
-  ;(init as { diffMode: string }).diffMode = 'branch'
+  ;(init as { diffStack: Stack }).diffStack = UNIFIED
   ;(init as { editFrame: unknown }).editFrame = null
 })
 
 describe('split layout', () => {
-  it('renders two cells per row, no column caption — old beside new is the known view', () => {
+  it('renders two cells per row under a caption row — the sheet is a picker, current is plain', () => {
     seed('split')
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).toContain('layout-split')
-    expect(out).not.toContain('dcols')
+    expect(out).toContain('data-cols="2"')
+    const caps = out.slice(out.indexOf('class="dcols"'), out.indexOf('class="gfile-diff'))
+    expect(caps).toMatch(/class="cp"[^>]*>(<span class="cl">)?base · main</)
+    expect(caps).toContain('Full diff')
+    expect(caps).toContain('current')
     expect(out).toContain('data-limn-line="src/a.ts:old:2"')
     expect(out).toContain('data-limn-line="src/a.ts:new:2"')
     expect((out.match(/class="dline split"/g) ?? []).length).toBe(4) // ctx, pair, padded add, ctx
@@ -67,11 +73,14 @@ describe('split layout', () => {
     expect(out).toContain('class="dcell del unstaged"') // the deletion is an unstaged edit too
   })
 
-  it('unified markup is untouched', () => {
+  it('unified markup is untouched below its one caption — `main · current`', () => {
     seed('unified')
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).not.toContain('dcell')
-    expect(out).not.toContain('dcols')
+    expect(out).toMatch(/class="dcols"[^>]*><span class="now">/)
+    expect(out).toMatch(/class="cl">main<\/span>/)
+    expect(out).toContain('class="sep">·</span><span class="cl">current</span>')
+    expect(out).not.toContain('class="cx"')
     expect(out).toContain('class="dline add unstaged"')
   })
 

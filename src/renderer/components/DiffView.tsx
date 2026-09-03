@@ -1,18 +1,27 @@
 import { useEffect, useState } from 'react'
 import type { FileDiff } from '../../shared/types'
 import { CmtPlus } from '../kit'
-import { fileViewed, fileIsExcluded, modeForFile, useStore } from '../store'
+import { fileViewed, fileIsExcluded, useStore } from '../store'
+import { renderedFiles } from '../store/derive'
+import { effectiveStack, sameStack } from '../lib/stack'
+import { DiffStack } from './DiffStack'
 import { Composer, InlineThread } from './Threads'
 import { reviewStatusForFile } from '../lib/fileStatus'
 import { FileHeader, splitPath } from './FileHeader'
 import { DiffBody, type ComposerAt } from './DiffBody'
+import { approvedShaList } from '../../shared/sinceBasis'
 
 export function DiffView({ f }: {
   f: FileDiff
 }) {
-  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, setFileDiffMode } = useStore()
-  // this file's own baseline: its override, else the global default
-  const mode = modeForFile(useStore.getState(), f.path)
+  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, diffStack, fileStack, setFileStack, spreadStack } = useStore()
+  // this file's stack: its override, else the review's default — narrowed to the
+  // sheets the file has. The ✓ shows while the override differs from the default.
+  const override = fileStack[f.path]
+  const requested = override ?? diffStack
+  const stack = effectiveStack(requested, f)
+  const differs = override != null && !sameStack(override, diffStack)
+  const stackKey = JSON.stringify(stack)
   const excluded = fileIsExcluded(loaded, f)
   const comments = loaded?.state.comments ?? []
   const { name } = splitPath(f.path)
@@ -30,10 +39,7 @@ export function DiffView({ f }: {
   // the header's Expand all / Collapse — every fold in the body at once. Reset with
   // the baseline: the body's own fold state resets there too (line numbers move).
   const [foldsOpen, setFoldsOpen] = useState(false)
-  useEffect(() => setFoldsOpen(false), [mode])
-  // Multi asked for, no checkpoint column for this file → the body shows Split and
-  // the header says so (DiffBody reports it; the note itself is presentational)
-  const [layoutFellBack, setLayoutFellBack] = useState(false)
+  useEffect(() => setFoldsOpen(false), [stackKey])
 
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
@@ -65,11 +71,8 @@ export function DiffView({ f }: {
           showBody={showBody}
           effectiveOpen={effectiveOpen}
           artifact={artifact}
-          baselineMode={mode}
           foldsOpen={foldsOpen}
-          layoutNote={layoutFellBack ? 'no checkpoint for this file' : null}
           onToggleFolds={() => setFoldsOpen((o) => !o)}
-          onPickBaseline={(m) => setFileDiffMode(f.path, m)}
           onToggleOpen={() => setManualOpen(!effectiveOpen)}
           onToggleViewed={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }}
           onToggleExcluded={() => toggleExcluded(f)}
@@ -93,16 +96,32 @@ export function DiffView({ f }: {
           </div>
         )}
 
-        <DiffBody
-          f={f}
-          mode={mode}
-          showBody={showBody}
-          fileComments={fileComments}
-          composerAt={composerAt}
-          setComposerAt={setComposerAt}
-          revealAllFlag={foldsOpen}
-          onLayoutFallback={setLayoutFellBack}
-        />
+        {showBody && (
+          <DiffStack
+            f={f}
+            stack={stack}
+            differs={differs}
+            defaultStack={diffStack}
+            fileCount={renderedFiles(loaded).length}
+            shas={{
+              review: loaded?.state.reviewedAtSha,
+              approved: loaded ? (approvedShaList(loaded.state).includes(loaded.skeleton.headSha) ? loaded.skeleton.headSha : loaded.state.approvedSha) : undefined,
+              viewed: viewMark?.sha
+            }}
+            onChange={(next, spread) => { setFileStack(f.path, next); if (spread) spreadStack(f.path) }}
+            onSpread={() => spreadStack(f.path)}
+          >
+            <DiffBody
+              f={f}
+              stack={stack}
+              showBody={showBody}
+              fileComments={fileComments}
+              composerAt={composerAt}
+              setComposerAt={setComposerAt}
+              revealAllFlag={foldsOpen}
+            />
+          </DiffStack>
+        )}
       </div>
     </div>
   )

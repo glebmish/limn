@@ -13,12 +13,10 @@ const render = (props: { dirty: boolean; since: 'approved' | 'generated' | null 
 describe('MarkersKey legend', () => {
   it('lists the working-tree rails only when the tree is dirty', () => {
     const dirty = render({ dirty: true, since: 'approved' })
-    expect(dirty).toContain('rail-sw com')
     expect(dirty).toContain('rail-sw staged')
     expect(dirty).toContain('rail-sw unstaged')
 
     const clean = render({ dirty: false, since: 'approved' })
-    expect(clean).not.toContain('rail-sw com')
     expect(clean).not.toContain('rail-sw staged')
     expect(clean).not.toContain('rail-sw unstaged')
   })
@@ -34,9 +32,16 @@ describe('MarkersKey legend', () => {
   it('never calls a generation baseline an approval', () => {
     const generated = render({ dirty: false, since: 'generated' })
     expect(generated).toContain('since the review ran')
-    expect(generated).not.toContain('approved')
+    expect(generated).not.toContain('approval')
 
-    expect(render({ dirty: false, since: 'approved' })).toContain('since you approved')
+    expect(render({ dirty: false, since: 'approved' })).toContain('since your approval')
+  })
+
+  it('says when the left-rail group applies — a dirty tree — and drops the old committed row', () => {
+    const dirty = render({ dirty: true, since: null })
+    expect(dirty).toContain('this branch has uncommitted work')
+    expect(dirty).not.toContain('rail-sw com')
+    expect(render({ dirty: false, since: 'approved' })).not.toContain('key-when')
   })
 
   it('explains the colours too — the added/removed tint and the word-level highlight', () => {
@@ -65,10 +70,19 @@ describe('MarkersKey legend', () => {
     expect(rows).toHaveLength(swatches.length)
   })
 
-  it('explains the Multi attribution marks only while Multi is on', () => {
-    const on = renderToStaticMarkup(<MarkersKey dirty={false} since={null} multi />)
-    expect(on).toContain('rail-sw gone')
-    expect(on).toContain('now does not')
-    expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} />)).not.toContain('rail-sw gone')
+  it('explains the between-sheets marks only while some file has a checkpoint sheet out, and counts them', () => {
+    const one = renderToStaticMarkup(<MarkersKey dirty={false} since={null} sheetsOut={1} />)
+    expect(one).toContain('Between sheets')
+    expect(one).toContain('1 file has a checkpoint sheet out')
+    expect(one).toContain('rail-sw gone')
+    expect(one).toContain('current differs from the checkpoint beside it')
+    expect(one).toContain('the checkpoint had it, current does not')
+    expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} sheetsOut={2} />)).toContain('2 files have a checkpoint sheet out')
+    expect(renderToStaticMarkup(<MarkersKey dirty={false} since={null} />)).not.toContain('Between sheets')
+  })
+
+  it('lists the colours first', () => {
+    const html = render({ dirty: true, since: 'approved' })
+    expect(html.indexOf('Colour')).toBeLessThan(html.indexOf('Left rail'))
   })
 })
