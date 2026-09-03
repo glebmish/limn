@@ -862,8 +862,9 @@
 .dcols .fh-rails .fh-pop{top:calc(100% + 7px);right:-2px}
 .stk .dcols>span:last-child{padding-right:28px}
 /* the caption row is the top of the body, so its open picker or key must paint over
-   the rows below and the next file's sticky header */
-.stk:has(.fb-dd.open),.stk:has(.fh-rails:hover),.stk:has(.fh-rails:focus-within){z-index:12}
+   the rows below and the next file's sticky header (z 7). Only the row is raised —
+   raising the whole .stk would put this file's rows over its own sticky header. */
+.stk .dcols:has(.fb-dd.open),.stk .dcols:has(.fh-rails:hover),.stk .dcols:has(.fh-rails:focus-within){z-index:12}
 @keyframes peel{from{opacity:0;transform:translateX(-8px)}}
 .stk.peel .dcols,.stk.peel .gfile-diff{animation:peel .16s ease-out}
 /* the key's "when it applies" note beside a group heading */
