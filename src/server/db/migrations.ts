@@ -144,5 +144,13 @@ export const MIGRATIONS: Migration[] = [
         );
       `)
     }
+  },
+  {
+    // the review's default diff stack (design board 13): which sheets are out beside
+    // current and what Unified is measured against — JSON, parsed by parseStack
+    version: 2,
+    up(db) {
+      db.exec('ALTER TABLE sessions ADD COLUMN diff_stack TEXT')
+    }
   }
 ]

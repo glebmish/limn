@@ -1,3 +1,4 @@
+import type { Stack } from './diffStack.js'
 import type {
   AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
   ExecutionMode, FileAt, FileCheckpoint, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
@@ -76,6 +77,8 @@ export interface UiStatePatch {
   reviewedSections?: string[]
   fileExcluded?: Record<string, boolean>
   engine?: EngineId
+  /** the review's default diff stack (design board 13) */
+  diffStack?: Stack
 }
 
 export interface Api {

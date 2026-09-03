@@ -1,3 +1,4 @@
+import type { Stack } from './diffStack.js'
 // ── git ground truth ──────────────────────────────────────────
 /** Per-line provenance in a base→working-tree diff. `committed` lines landed in a
  *  commit in range; `staged`/`unstaged` lines are uncommitted, split by whether the
@@ -397,6 +398,9 @@ export interface ReviewState {
    *  untracked file in a narrated review is excluded). Tracked files are never here.
    *  See `fileEffectivelyExcluded`. */
   fileExcluded?: Record<string, boolean>;
+  /** the review's default diff stack — which sheets are out beside current, and what
+   *  Unified is measured against (design board 13). Absent = Unified, full diff. */
+  diffStack?: Stack;
   /** whole-branch approval baseline */
   approvedSha?: string; reviewedAtSha?: string;
   /** every committed state explicitly approved in this session */

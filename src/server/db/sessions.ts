@@ -5,6 +5,7 @@ import type {
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
+import { normalizeStack, parseStack, type Stack } from '../../shared/diffStack.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode, LEGACY_EXECUTION_MODE } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
@@ -140,6 +141,7 @@ interface SessionDbRow {
   annotations_json: string | null; approved_sha: string | null; reviewed_at_sha: string | null
   archived_at: string | null
   merged_at: string | null; merge_json: string | null
+  diff_stack: string | null
   created_at: string; updated_at: string
   repo_path: string
 }
@@ -747,6 +749,8 @@ export interface UiStatePatch {
   reviewedSections?: string[]
   fileExcluded?: Record<string, boolean>
   engine?: EngineId
+  /** the review's default diff stack (design board 13) */
+  diffStack?: Stack
 }
 
 /** Replace-semantics for the renderer's saveUiState patch (matches the old
@@ -774,6 +778,9 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
     }
     if (patch.engine !== undefined) {
       db.prepare('UPDATE sessions SET engine = ? WHERE id = ?').run(patch.engine, sessionId)
+    }
+    if (patch.diffStack !== undefined) {
+      db.prepare('UPDATE sessions SET diff_stack = ? WHERE id = ?').run(JSON.stringify(normalizeStack(patch.diffStack)), sessionId)
     }
     db.exec('COMMIT')
   } catch (err) {
@@ -847,6 +854,8 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
     artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts,
+    // a malformed stored stack reads as Unified — parseStack never throws
+    ...(row.diff_stack ? { diffStack: parseStack(row.diff_stack) } : {}),
     ...(merged ? { merged } : {}),
     ...(loadWarnings.length ? { loadWarnings } : {})
   }
