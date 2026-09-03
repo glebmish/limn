@@ -4,12 +4,16 @@ import { fnLabel, type Cell, type GapRow, type ViewRow } from './rows'
 import { disp, highlightLine } from './highlight'
 import { wordDiffRanges } from './worddiff'
 
-/** The Multi layout's row builder: Base · Checkpoint · Now, both side columns
- *  diffed against base (two base-relative hunk sets, both straight from git), rows
- *  aligned on base line numbers, and each divergence between the two side columns
- *  attributed — `since` on a now line the checkpoint never had, `gone` on a
- *  checkpoint line the tree no longer has. No cross-column diff is computed here:
- *  attribution is a text match at the same base position, nothing more. */
+/** The Multi layout's row builder: base · checkpoints · current, every side column
+ *  diffed against base (base-relative hunk sets, all straight from git), rows aligned
+ *  on base line numbers, and each divergence between a checkpoint and current
+ *  attributed — `since` on a current line the nearest checkpoint never had, `gone`
+ *  on a checkpoint line the tree no longer has. No cross-column diff is computed
+ *  here: attribution is a text match at the same base position, nothing more.
+ *
+ *  `mids` are the checkpoint columns in display order (design board 13: up to
+ *  three — agent review, approval, file view); the last one is the "nearest"
+ *  checkpoint current is attributed against. */
 
 interface Ins { l: DiffLine; hunk: Hunk; idx: number }
 
@@ -63,20 +67,21 @@ function offsetAt(ix: SideIndex, base: number): number {
   return d
 }
 
-function coveredBases(im: SideIndex, inow: SideIndex): number[] {
-  return [...new Set([...im.covered, ...inow.covered])].sort((a, b) => a - b)
+function coveredBases(sides: SideIndex[]): number[] {
+  return [...new Set(sides.flatMap((s) => [...s.covered]))].sort((a, b) => a - b)
 }
 
-/** Collapsed runs in NOW coordinates with offsets back to base (`oldOffset`) and to
- *  the checkpoint (`midOffset`), between the segments either side touched. A run is
- *  unchanged in every column, so one text fetch (the tree now) fills it. */
-export function multiGaps(mid: Hunk[], now: Hunk[]): Gap[] {
-  const im = indexSide(mid), inow = indexSide(now)
-  const bases = coveredBases(im, inow)
+/** Collapsed runs in CURRENT coordinates with offsets back to base (`oldOffset`) and
+ *  to each checkpoint (`midOffsets`, one per mid), between the segments any side
+ *  touched. A run is unchanged in every column, so one text fetch (the tree now)
+ *  fills it. */
+export function multiGaps(mids: Hunk[][], now: Hunk[]): Gap[] {
+  const ims = mids.map(indexSide), inow = indexSide(now)
+  const bases = coveredBases([...ims, inow])
   const gapFor = (baseFrom: number, baseTo: number | null): Gap => {
-    const dNow = offsetAt(inow, baseFrom - 1), dMid = offsetAt(im, baseFrom - 1)
+    const dNow = offsetAt(inow, baseFrom - 1)
     const from = baseFrom + dNow
-    return { key: `g${from}`, from, to: baseTo == null ? null : baseTo + dNow, oldOffset: dNow, midOffset: dNow - dMid }
+    return { key: `g${from}`, from, to: baseTo == null ? null : baseTo + dNow, oldOffset: dNow, midOffsets: ims.map((im) => dNow - offsetAt(im, baseFrom - 1)) }
   }
   const gaps: Gap[] = []
   let cursor = 1
@@ -95,16 +100,16 @@ export function multiGaps(mid: Hunk[], now: Hunk[]): Gap[] {
 const pad = (side: Cell['side']): Cell => ({ l: null, side, lineNo: null, kind: '' })
 const html = (l: DiffLine, lang: string | null): string => highlightLine(disp(l.text), lang)
 
-/** Which checkpoint insertions a now insertion at the same base position repeats,
+/** Which insertions on one side the other side repeats at the same base position,
  *  matched by text as a multiset (two identical inserts need two matches). */
-function matchInserts(mi: Ins[], ni: Ins[]): { nowMatched: boolean[]; midMatched: boolean[] } {
-  const midMatched = mi.map(() => false)
-  const nowMatched = ni.map((n) => {
-    const k = mi.findIndex((m, i) => !midMatched[i] && m.l.text === n.l.text)
-    if (k >= 0) midMatched[k] = true
+function matchInserts(a: Ins[], b: Ins[]): { aMatched: boolean[]; bMatched: boolean[] } {
+  const bMatched = b.map(() => false)
+  const aMatched = a.map((x) => {
+    const k = b.findIndex((y, i) => !bMatched[i] && y.l.text === x.l.text)
+    if (k >= 0) bMatched[k] = true
     return k >= 0
   })
-  return { nowMatched, midMatched }
+  return { aMatched, bMatched }
 }
 
 function gapRow(gap: Gap, where: GapRow['where'], header: string): GapRow {
@@ -115,35 +120,44 @@ function gapRow(gap: Gap, where: GapRow['where'], header: string): GapRow {
  *  padded), then the base line with its state in each column — with a gap row
  *  between covered segments. `opts.trailing` as in `buildFileRows`: false for a
  *  wholly-new file, which has nothing below its last row. */
-export function buildMultiRows(mid: Hunk[], now: Hunk[], lang: string | null, opts: { trailing?: boolean } = {}): ViewRow[] {
-  const im = indexSide(mid), inow = indexSide(now)
-  const gaps = multiGaps(mid, now)
+export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null, opts: { trailing?: boolean } = {}): ViewRow[] {
+  const ims = mids.map(indexSide), inow = indexSide(now)
+  const near = ims.length - 1
+  const gaps = multiGaps(mids, now)
   const gapByBase = new Map(gaps.map((g) => [g.from - g.oldOffset, g]))
-  const bases = coveredBases(im, inow)
+  const bases = coveredBases([...ims, inow])
   const out: ViewRow[] = []
 
   const insertRows = (base: number): void => {
-    const mi = im.insBefore.get(base) ?? [], ni = inow.insBefore.get(base) ?? []
-    if (!mi.length && !ni.length) return
-    const { nowMatched, midMatched } = matchInserts(mi, ni)
-    for (let p = 0; p < Math.max(mi.length, ni.length); p++) {
-      const m = mi[p], n = ni[p]
-      const midCell: Cell = m
-        ? { l: m.l, side: 'mid', lineNo: m.l.new, kind: 'add', html: html(m.l, lang), attribution: midMatched[p] ? undefined : 'gone' }
-        : pad('mid')
+    const mi = ims.map((im) => im.insBefore.get(base) ?? []), ni = inow.insBefore.get(base) ?? []
+    const depth = Math.max(ni.length, ...mi.map((m) => m.length))
+    if (depth === 0) return
+    // current against the nearest checkpoint; every checkpoint against current
+    const nowMatched = near >= 0 ? matchInserts(ni, mi[near]).aMatched : ni.map(() => false)
+    const midMatched = mi.map((m) => matchInserts(m, ni).aMatched)
+    for (let p = 0; p < depth; p++) {
+      const n = ni[p]
+      const midCells: Cell[] = mi.map((m, k) => {
+        const x = m[p]
+        return x
+          ? { l: x.l, side: 'mid', lineNo: x.l.new, kind: 'add', html: html(x.l, lang), attribution: midMatched[k][p] ? undefined : 'gone' }
+          : pad('mid')
+      })
       const nowCell: Cell = n
         ? { l: n.l, side: 'new', lineNo: n.l.new, kind: 'add', html: html(n.l, lang), attribution: nowMatched[p] ? undefined : 'since' }
         : pad('new')
-      // the two columns' own words, where they sit side by side and differ
+      // the nearest checkpoint's and current's own words, where they sit side by side and differ
+      const m = near >= 0 ? mi[near][p] : undefined
       if (m && n && !nowMatched[p]) {
         const r = wordDiffRanges(disp(m.l.text), disp(n.l.text))
-        if (r.old.length) midCell.marks = r.old
+        if (r.old.length) midCells[near].marks = r.old
         if (r.new.length) nowCell.marks = r.new
       }
+      const firstMid = mi.findIndex((x) => x[p] != null)
       out.push({
         type: 'aligned',
-        key: n ? `new:${n.l.new}` : `mid:${m.l.new}`,
-        cells: [pad('old'), midCell, nowCell],
+        key: n ? `new:${n.l.new}` : `mid${firstMid}:${mi[firstMid][p].l.new}`,
+        cells: [pad('old'), ...midCells, nowCell],
         anchor: n ? { side: 'new', lineNo: n.l.new! } : null,
         hunkRange: n ? n.hunk.range : '',
         fromHunk: n != null,
@@ -156,28 +170,30 @@ export function buildMultiRows(mid: Hunk[], now: Hunk[], lang: string | null, op
     const b = bases[i]
     if (i === 0 || b !== bases[i - 1] + 1) {
       const g = gapByBase.get(i === 0 ? 1 : bases[i - 1] + 1)
-      if (g && g.to != null) out.push(gapRow(g, i === 0 ? 'above' : '', (inow.hunkOf.get(b) ?? im.hunkOf.get(b))?.header ?? ''))
+      if (g && g.to != null) out.push(gapRow(g, i === 0 ? 'above' : '', (inow.hunkOf.get(b) ?? ims.find((im) => im.hunkOf.has(b))?.hunkOf.get(b))?.header ?? ''))
     }
     insertRows(b)
-    const at = inow.lineAt.get(b) ?? im.lineAt.get(b)
+    const at = inow.lineAt.get(b) ?? ims.map((im) => im.lineAt.get(b)).find((x) => x != null)
     if (!at) continue // only the EOF insertion anchor lives here — no base line of its own
     const text = at.l.text
-    const midDel = im.del.has(b), nowDel = inow.del.has(b)
-    const midNo = midDel ? null : im.kept.get(b) ?? b + offsetAt(im, b)
+    const nowDel = inow.del.has(b)
+    const nearDel = near >= 0 && ims[near].del.has(b)
     const nowNo = nowDel ? null : inow.kept.get(b) ?? b + offsetAt(inow, b)
     const nowAt = inow.lineAt.get(b)
-    const midAt = im.lineAt.get(b)
     const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, lang) }
-    const midCell: Cell = midDel
-      ? { l: null, side: 'mid', lineNo: null, kind: '', deleted: true, attribution: nowDel ? undefined : 'gone' }
-      : (() => { const l = midAt?.l ?? { old: b, new: midNo, kind: '' as const, text }; return { l, side: 'mid' as const, lineNo: midNo, kind: '' as const, html: html(l, lang) } })()
+    const midCells: Cell[] = ims.map((im) => {
+      if (im.del.has(b)) return { l: null, side: 'mid', lineNo: null, kind: '', deleted: true, attribution: nowDel ? undefined : 'gone' }
+      const no = im.kept.get(b) ?? b + offsetAt(im, b)
+      const l = im.lineAt.get(b)?.l ?? { old: b, new: no, kind: '' as const, text }
+      return { l, side: 'mid', lineNo: no, kind: '', html: html(l, lang) }
+    })
     const nowCell: Cell = nowDel
-      ? { l: null, side: 'new', lineNo: null, kind: '', deleted: true, attribution: midDel ? undefined : 'since' }
+      ? { l: null, side: 'new', lineNo: null, kind: '', deleted: true, attribution: nearDel ? undefined : 'since' }
       : (() => { const l = nowAt?.l ?? { old: b, new: nowNo, kind: '' as const, text }; return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, lang) } })()
     out.push({
       type: 'aligned', key: `old:${b}`,
-      cells: [baseCell, midCell, nowCell],
-      // commentable only where git's now-diff has the line: that is the anchor
+      cells: [baseCell, ...midCells, nowCell],
+      // commentable only where git's current-diff has the line: that is the anchor
       // payload (hunkRange) the re-anchor pipeline expects
       anchor: nowAt ? (nowDel ? { side: 'old', lineNo: b } : { side: 'new', lineNo: nowNo! }) : null,
       hunkRange: nowAt?.hunk.range ?? '',

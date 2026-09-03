@@ -21,7 +21,7 @@ const now: Hunk[] = [{ range: '@@ -1,6 +1,6 @@', header: '', lines: [
 
 describe('buildMultiRows', () => {
   it('aligns on base lines with one cell per column', () => {
-    const rows = aligned(buildMultiRows(mid, now, null))
+    const rows = aligned(buildMultiRows([mid], now, null))
     expect(rows.map((r) => r.key)).toEqual(['old:1', 'old:2', 'old:3', 'new:3', 'old:4', 'new:5', 'old:5', 'old:6'])
     expect(rows[0].cells.map((c) => c.lineNo)).toEqual([1, 1, 1])
     expect(rows[0].cells.map((c) => c.side)).toEqual(['old', 'mid', 'new'])
@@ -29,7 +29,7 @@ describe('buildMultiRows', () => {
   })
 
   it('a replacement covered by the checkpoint is plain; a divergent insertion is `since`, the checkpoint\'s own is `gone`', () => {
-    const rows = aligned(buildMultiRows(mid, now, null))
+    const rows = aligned(buildMultiRows([mid], now, null))
     const x = rows.find((r) => r.key === 'new:3')!
     expect(x.cells[0]).toMatchObject({ l: null, side: 'old', lineNo: null })
     expect(x.cells[1]).toMatchObject({ l: { text: 'X' }, side: 'mid', lineNo: 3, kind: 'add' })
@@ -45,7 +45,7 @@ describe('buildMultiRows', () => {
   })
 
   it('a base line deleted in one column is an empty deleted slot there', () => {
-    const rows = aligned(buildMultiRows(mid, now, null))
+    const rows = aligned(buildMultiRows([mid], now, null))
     const six = rows.find((r) => r.key === 'old:6')!
     expect(six.cells[0]).toMatchObject({ side: 'old', lineNo: 6, kind: 'del' })
     expect(six.cells[1]).toMatchObject({ side: 'mid', lineNo: 7, kind: '', l: { text: 'l6' } })
@@ -61,7 +61,7 @@ describe('buildMultiRows', () => {
   })
 
   it('anchors a kept line on its now number and carries its run for discard', () => {
-    const rows = aligned(buildMultiRows(mid, now, null))
+    const rows = aligned(buildMultiRows([mid], now, null))
     const four = rows.find((r) => r.key === 'old:4')!
     expect(four.anchor).toEqual({ side: 'new', lineNo: 4 })
     expect(four.run).toEqual({ lines: now[0].lines, idx: 4 })
@@ -77,7 +77,7 @@ describe('buildMultiRows', () => {
     const nowB: Hunk[] = [{ range: '@@ -4,2 +4,3 @@', header: '', lines: [
       { old: 4, new: 4, kind: '', text: 'a' }, { old: null, new: 5, kind: 'add', text: 'N' }, { old: 5, new: 6, kind: '', text: 'b' }
     ] }]
-    const rows = aligned(buildMultiRows(midB, nowB, null))
+    const rows = aligned(buildMultiRows([midB], nowB, null))
     const r = rows.find((x) => x.key === 'old:20')!
     expect(r.cells[1]).toMatchObject({ deleted: true, attribution: 'gone' })
     expect(r.cells[2]).toMatchObject({ lineNo: 21, kind: '', l: { text: 'r', new: 21 } })
@@ -94,17 +94,17 @@ describe('buildMultiRows', () => {
     const nowB: Hunk[] = [{ range: '@@ -30,2 +30,3 @@', header: 'fn g()', lines: [
       { old: 30, new: 30, kind: '', text: 'p' }, { old: null, new: 31, kind: 'add', text: 'N' }, { old: 31, new: 32, kind: '', text: 'q' }
     ] }]
-    expect(multiGaps(midB, nowB)).toEqual([
-      { key: 'g1', from: 1, to: 9, oldOffset: 0, midOffset: 0 },
-      { key: 'g13', from: 13, to: 29, oldOffset: 0, midOffset: -1 },
-      { key: 'g33', from: 33, to: null, oldOffset: 1, midOffset: 0 }
+    expect(multiGaps([midB], nowB)).toEqual([
+      { key: 'g1', from: 1, to: 9, oldOffset: 0, midOffsets: [0] },
+      { key: 'g13', from: 13, to: 29, oldOffset: 0, midOffsets: [-1] },
+      { key: 'g33', from: 33, to: null, oldOffset: 1, midOffsets: [0] }
     ])
-    const rows = buildMultiRows(midB, nowB, null)
+    const rows = buildMultiRows([midB], nowB, null)
     expect(rows.filter((r) => r.type === 'gap').map((r) => r.key)).toEqual(['gap:g1', 'gap:g13', 'gap:g33'])
     expect(rows.filter((r) => r.type === 'gap').map((r) => (r as { fn: string }).fn)).toEqual(['', 'g', ''])
     const seg2 = rows.find((r) => r.type === 'aligned' && r.key === 'old:30') as AlignedRow
     expect(seg2.cells.map((c) => c.lineNo)).toEqual([30, 31, 30]) // mid kept the line, one insertion above it
-    expect(buildMultiRows(midB, nowB, null, { trailing: false }).filter((r) => r.type === 'gap').map((r) => r.key)).toEqual(['gap:g1', 'gap:g13'])
+    expect(buildMultiRows([midB], nowB, null, { trailing: false }).filter((r) => r.type === 'gap').map((r) => r.key)).toEqual(['gap:g1', 'gap:g13'])
   })
 
   it('insertions at end of file land after the last base line', () => {
@@ -112,9 +112,76 @@ describe('buildMultiRows', () => {
     const nowE: Hunk[] = [{ range: '@@ -3,1 +3,2 @@', header: '', lines: [
       { old: 3, new: 3, kind: '', text: 'last' }, { old: null, new: 4, kind: 'add', text: 'tail' }
     ] }]
-    const rows = aligned(buildMultiRows(midE, nowE, null))
+    const rows = aligned(buildMultiRows([midE], nowE, null))
     expect(rows.map((r) => r.key)).toEqual(['old:3', 'new:4'])
     expect(rows[1].cells[2]).toMatchObject({ attribution: 'since', lineNo: 4 })
     expect(rows[1].cells[1]).toMatchObject({ l: null })
+  })
+})
+
+describe('buildMultiRows with several checkpoint columns', () => {
+  // base: l1 l2 l3. agent review inserted A after l2; approval inserted B after l2 and
+  // deleted l3; current inserted B after l2 and kept l3.
+  const review: Hunk[] = [{ range: '@@ -1,3 +1,4 @@', header: '', lines: [
+    { old: 1, new: 1, kind: '', text: 'l1' }, { old: 2, new: 2, kind: '', text: 'l2' },
+    { old: null, new: 3, kind: 'add', text: 'const a = 1' }, { old: 3, new: 4, kind: '', text: 'l3' }
+  ] }]
+  const approval: Hunk[] = [{ range: '@@ -1,3 +1,3 @@', header: '', lines: [
+    { old: 1, new: 1, kind: '', text: 'l1' }, { old: 2, new: 2, kind: '', text: 'l2' },
+    { old: null, new: 3, kind: 'add', text: 'const a = 2' }, { old: 3, new: null, kind: 'del', text: 'l3' }
+  ] }]
+  const current: Hunk[] = [{ range: '@@ -1,3 +1,4 @@', header: '', lines: [
+    { old: 1, new: 1, kind: '', text: 'l1' }, { old: 2, new: 2, kind: '', text: 'l2' },
+    { old: null, new: 3, kind: 'add', text: 'const a = 2' }, { old: 3, new: 4, kind: '', text: 'l3' }
+  ] }]
+
+  it('lays one cell per column, base · review · approval · current', () => {
+    const rows = aligned(buildMultiRows([review, approval], current, null))
+    expect(rows.map((r) => r.key)).toEqual(['old:1', 'old:2', 'new:3', 'old:3'])
+    expect(rows[0].cells.map((c) => c.side)).toEqual(['old', 'mid', 'mid', 'new'])
+    expect(rows[3].cells.map((c) => c.lineNo)).toEqual([3, 4, null, 4])
+  })
+
+  it('attributes current against the NEAREST checkpoint only, and each checkpoint against current', () => {
+    const rows = aligned(buildMultiRows([review, approval], current, null))
+    const ins = rows.find((r) => r.key === 'new:3')!
+    expect(ins.cells[1]).toMatchObject({ l: { text: 'const a = 1' }, attribution: 'gone' })   // the review's own insert
+    expect(ins.cells[2]).toMatchObject({ l: { text: 'const a = 2' } })
+    expect(ins.cells[2].attribution).toBeUndefined()                                 // the approval already had B
+    expect(ins.cells[3].attribution).toBeUndefined()                                 // current matches the approval
+    // swap the order and current is now measured against the review: B is `since`
+    const swapped = aligned(buildMultiRows([approval, review], current, null)).find((r) => r.key === 'new:3')!
+    expect(swapped.cells[3]).toMatchObject({ attribution: 'since' })
+    expect(swapped.cells[3].marks).toEqual([{ start: 10, len: 1 }])
+    expect(swapped.cells[2].marks).toEqual([{ start: 10, len: 1 }])
+  })
+
+  it('a base line one checkpoint deleted is a deleted slot in that column only', () => {
+    const rows = aligned(buildMultiRows([review, approval], current, null))
+    const three = rows.find((r) => r.key === 'old:3')!
+    expect(three.cells[1]).toMatchObject({ side: 'mid', lineNo: 4, l: { text: 'l3' } })
+    expect(three.cells[2]).toMatchObject({ deleted: true, attribution: 'gone' })
+    expect(three.cells[3]).toMatchObject({ lineNo: 4, kind: '' })
+    expect(three.cells[3].attribution).toBeUndefined()
+  })
+
+  it('keys a checkpoint-only insertion by its column so two checkpoints never collide', () => {
+    const rows = aligned(buildMultiRows([review, approval], [], null))
+    expect(rows.map((r) => r.key)).toEqual(['old:1', 'old:2', 'mid0:3', 'old:3'])
+  })
+
+  it('measures gaps with one offset per checkpoint column', () => {
+    const r2: Hunk[] = [{ range: '@@ -10,2 +10,3 @@', header: '', lines: [
+      { old: 10, new: 10, kind: '', text: 'a' }, { old: null, new: 11, kind: 'add', text: 'R' }, { old: 11, new: 12, kind: '', text: 'b' }
+    ] }]
+    const a2: Hunk[] = [{ range: '@@ -10,2 +10,4 @@', header: '', lines: [
+      { old: 10, new: 10, kind: '', text: 'a' }, { old: null, new: 11, kind: 'add', text: 'P' }, { old: null, new: 12, kind: 'add', text: 'Q' }, { old: 11, new: 13, kind: '', text: 'b' }
+    ] }]
+    const n2: Hunk[] = [{ range: '@@ -30,2 +30,3 @@', header: '', lines: [
+      { old: 30, new: 30, kind: '', text: 'p' }, { old: null, new: 31, kind: 'add', text: 'N' }, { old: 31, new: 32, kind: '', text: 'q' }
+    ] }]
+    expect(multiGaps([r2, a2], n2).map((g) => [g.from, g.to, g.oldOffset, g.midOffsets])).toEqual([
+      [1, 9, 0, [0, 0]], [12, 29, 0, [-1, -2]], [33, null, 1, [0, -1]]
+    ])
   })
 })

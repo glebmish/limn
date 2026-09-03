@@ -335,7 +335,7 @@ export function asAligned(r: LineRow): AlignedRow {
 
 /** Context lines (a revealed fold) as aligned rows for `layout`: the same line in
  *  every cell, never commentable, editable through the now cell like any context. */
-export function contextRows(lines: DiffLine[], layout: Layout, lang: string | null, midOffset = 0): AlignedRow[] {
+export function contextRows(lines: DiffLine[], layout: Layout, lang: string | null, midOffsets: number[] = []): AlignedRow[] {
   const html = runHighlight(lines, lang).new
   const out: AlignedRow[] = []
   let ni = -1
@@ -345,7 +345,7 @@ export function contextRows(lines: DiffLine[], layout: Layout, lang: string | nu
     const h = html[ni]
     const cells: Cell[] = layout === 'unified' ? [cellOf(l, 'new', l.new, { html: h })]
       : layout === 'split' ? [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'new', l.new, { html: h })]
-      : [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'mid', l.new - midOffset, { html: h }), cellOf(l, 'new', l.new, { html: h })]
+      : [cellOf(l, 'old', l.old, { html: h }), ...midOffsets.map((off) => cellOf(l, 'mid', l.new! - off, { html: h })), cellOf(l, 'new', l.new, { html: h })]
     out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, run: null })
   })
   return out
@@ -423,7 +423,7 @@ export function viewAlignedRows(
   for (const r of rows) {
     if (r.type !== 'gap') { view.push(r); continue }
     const rv = reveals[r.gap.key]
-    const mid = r.gap.midOffset ?? 0
+    const mid = r.gap.midOffsets ?? []
     if (rv?.top.length) view.push(...contextRows(rv.top, layout, lang, mid))
     const size = r.gap.to != null ? r.gap.to - r.gap.from + 1 : null
     const shownAll = rv != null && size != null && rv.top.length + rv.bottom.length >= size

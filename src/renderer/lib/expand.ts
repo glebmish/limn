@@ -8,9 +8,10 @@ export interface Gap {
   from: number
   to: number | null
   oldOffset: number
-  /** Multi only: the checkpoint column's number for a line in this run is
-   *  `new - midOffset` (the run is unchanged in every column, so one offset does). */
-  midOffset?: number
+  /** Multi only: each checkpoint column's number for a line in this run is
+   *  `new - midOffsets[k]` (the run is unchanged in every column, so one offset per
+   *  column does), in the columns' display order. */
+  midOffsets?: number[]
 }
 
 function bounds(h: Hunk): { newStart: number; newEnd: number; oldStart: number; oldEnd: number } {

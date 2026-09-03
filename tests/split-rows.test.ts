@@ -67,7 +67,7 @@ describe('buildSplitRows', () => {
     const nine = Array.from({ length: 9 }, (_, i) => ({ old: i + 1, new: i + 1, kind: '' as const, text: 'l' }))
     const full = viewAlignedRows(rows, { g1: { top: nine, bottom: [] } }, 'split', null)
     expect(full.filter((r) => r.type === 'gap').map((r) => r.key)).toEqual(['gap:g15'])
-    expect(contextRows([{ old: 5, new: 5, kind: '', text: 'c' }], 'multi', null, 1)[0].cells.map((c) => [c.side, c.lineNo]))
+    expect(contextRows([{ old: 5, new: 5, kind: '', text: 'c' }], 'multi', null, [1])[0].cells.map((c) => [c.side, c.lineNo]))
       .toEqual([['old', 5], ['mid', 4], ['new', 5]])
   })
 })
