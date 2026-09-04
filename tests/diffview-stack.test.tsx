@@ -66,6 +66,16 @@ describe('a file is read against its own stack', () => {
     expect(useStore.getState().diffStack).toEqual(UNIFIED)
   })
 
+  it('offers a ↺ beside the ✓ that names the default it would go back to; neither shows on a file that matches', () => {
+    let html = renderToStaticMarkup(<DiffView f={f} />)
+    expect(html).not.toContain('stk-reset')
+    seed({ fileStack: { 'src/a.ts': st([], 'viewed') } })
+    html = renderToStaticMarkup(<DiffView f={f} />)
+    expect(html).toMatch(/class="stk-reset live" title="Back to the review&#x27;s default — Unified · main · current"/)
+    // the ✓ comes first, the ↺ right under it
+    expect(html.indexOf('stk-ok')).toBeLessThan(html.indexOf('stk-reset'))
+  })
+
   it("Unified's caption picker offers everything the file has, naming the checkpoint's commit", () => {
     const html = captions(renderToStaticMarkup(<DiffView f={f} />))
     expect(html).toContain('aria-label="Diff baseline for src/a.ts"')

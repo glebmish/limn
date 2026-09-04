@@ -128,9 +128,10 @@ closes just that sheet. Closing the last checkpoint folds it under: Unified is t
 measured against it.
 
 **Every file, or this one.** Every file shows the review's default stack until you change
-its own. When a file differs from the rest, a **✓** appears at the foot of the strip;
-press it and every file follows — that stack becomes the review's default, remembered
-with the review. A file that matches the rest shows nothing. `[` pulls a sheet on the
+its own. When a file differs from the rest, a **✓** and a **↺** jump out of the card's
+left edge beside the strip. The ✓ makes every file follow — that stack becomes the
+review's default, remembered with the review. The ↺ goes the other way: it puts just
+this file back on the default. A file that matches the rest shows neither. `[` pulls a sheet on the
 file nearest the top of the screen, `]` puts one back; hold ⇧ with either (or ⇧-click the
 tab or −) to apply the change to every file at once.
 

@@ -10,8 +10,9 @@ import type { SinceBasis } from '../../shared/sinceBasis'
 
 /** The stack strip and the caption row around a file body (design board 13, W1):
  *  a thin tab down the diff's left edge pulls the next sheet, a − above it puts the
- *  last one back, a ✓ at its foot spreads this file's stack to every file (shown
- *  only while the file differs from the rest), and the captions ARE the controls —
+ *  last one back, a ✓ beside it spreads this file's stack to every file and a ↺
+ *  under the ✓ puts this file back on the review's default (both shown only while
+ *  the file differs from the rest), and the captions ARE the controls —
  *  each checkpoint name a picker, an × on hover. Unified keeps one caption,
  *  `<against> · current`, so the baseline is always visible and changeable.
  *
@@ -124,6 +125,7 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
   // the key describes THIS file: its own uncommitted lines, its own sheets
   const dirty = f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged'))
   const spreadTitle = `Use for all ${fileCount} files — every other file shows ${describeStack(defaultStack)}`
+  const resetTitle = `Back to the review's default — ${describeStack(defaultStack)}`
   return (
     <div className={cls} data-cols={nCols} onAnimationEnd={() => setPeel(false)}>
       {/* the strip: − (level with the captions), the tab, ✓ — each sticks to the
@@ -147,6 +149,17 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
           onClick={(e) => { e.stopPropagation(); onSpread() }}
         >
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>
+        </button>
+      )}
+      {differs && (
+        <button
+          type="button"
+          className="stk-reset live"
+          title={resetTitle}
+          aria-label="Put this file back on the review's default sheets"
+          onClick={(e) => { e.stopPropagation(); change(defaultStack) }}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.6 5.2A3.6 3.6 0 1 1 3.3 8.4" /><path d="M2.2 2.4v3h3" /></svg>
         </button>
       )}
       {/* always rendered so the strip keeps its colour; with every sheet out only
