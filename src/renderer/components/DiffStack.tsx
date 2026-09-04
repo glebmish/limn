@@ -180,16 +180,6 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
           {layout === 'unified'
             ? <span className="stk-col now">{picker(stack.against, true)}<span className="sep">·</span><span className="cl">{sheetCaption('current')}</span></span>
             : <>{cols.map(caption)}<span className="stk-col now"><span className="cl">{sheetCaption('current')}</span></span></>}
-          {differs && (
-            <button
-              type="button"
-              className="stk-all"
-              title={spreadTitle}
-              onClick={(e) => { e.stopPropagation(); onSpread() }}
-            >
-              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5L9.5 3.5" /></svg>Use for all {fileCount} files
-            </button>
-          )}
           <MarkersKey dirty={dirty} since={since} betweenSheets={out >= 2} />
         </div></div>
         <div className="stk-body" ref={bodyRef}>{children}</div>

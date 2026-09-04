@@ -62,7 +62,6 @@ describe('a file is read against its own stack', () => {
     expect(html).not.toContain('whole branch line')
     expect(captions(html)).toMatch(/class="cl">file view<\/span>/)
     expect(html).toMatch(/class="stk-ok live" title="Use for all 2 files — every other file shows Unified · main · current"/)
-    expect(html).toMatch(/class="stk-all" title="Use for all 2 files[^"]*"[^>]*>(?:<[^>]*>)*Use for all 2 files</)
     expect(useStore.getState().diffStack).toEqual(UNIFIED)
   })
 
