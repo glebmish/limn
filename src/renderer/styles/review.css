@@ -830,6 +830,9 @@
   transform:translateX(calc(-100% - 1px));border:1px solid var(--accent-line);border-right:none;border-radius:6px 0 0 6px;
   background:var(--accent-soft);color:var(--accent-ink);box-shadow:-3px 2px 8px -2px rgba(40,38,32,.22)}
 .stk-ok{top:calc(var(--stk-top) + var(--pop-h,0px) + 5px)}
+/* a file whose body is a line or two is shorter than the two tabs — give the card a
+   floor while they show so the ↺ never hangs into the next file */
+.stk.has-ok{min-height:78px}
 /* the ↺'s slot is also zero net height, but its natural position is 26px lower than
    the ✓'s — the same gap its sticky offset keeps — so the two never overlap before
    the strip sticks */
