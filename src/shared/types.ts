@@ -202,7 +202,13 @@ export type CommentAnchor =
   // content-addressed: carries the selected text + surrounding context so it needs
   // no positional re-anchoring (reanchorComments leaves it untouched).
   | { kind: 'selection'; scope: SelectionScope; quote: string; prefix: string; suffix: string }
-export interface CommentReply { author: 'user' | 'agent'; text: string; at: string; agentRef?: AgentRef; threadId?: number }
+export interface CommentReply {
+  author: 'user' | 'agent'; text: string; at: string; agentRef?: AgentRef; threadId?: number;
+  /** Set when this reply is an earlier resolution of the thread, folded into the
+   *  thread when the reviewer replied and re-queued it (a thread can be resolved,
+   *  answered, and resolved again — every verdict stays readable in order). */
+  verdict?: 'addressed' | 'reworked' | 'skipped'
+}
 export interface Comment {
   id: string; anchor: CommentAnchor; author: 'user' | 'agent'; text: string;
   /** agent-authored comments/replies carry which agent + which chat thread, for

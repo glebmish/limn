@@ -1,4 +1,5 @@
 import { UNIFIED } from '../../shared/diffStack'
+import { withUserReply } from '../../shared/commentReply'
 import type { StateCreator } from 'zustand'
 import type { LoadedReview } from '../../shared/ipc'
 import type { AgentWriteCapability, Comment, CommentAnchor, DriftSummary } from '../../shared/types'
@@ -76,6 +77,8 @@ export interface ReviewSlice {
    *  status flip: it does NOT send/dispatch anything to an agent (spec Decision
    *  19) — the reviewer still clicks "Send now" separately once queued. */
   requeueComment(comment: Comment): Promise<void>
+  /** Continue a thread: append the reviewer's reply and re-queue it for the agent. */
+  replyToComment(comment: Comment, text: string): Promise<void>
 }
 
 export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (set, get) => ({
@@ -295,6 +298,13 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     const sessionId = await get().materialize()
     if (sessionId == null) return
     const state = await api().upsertComment(sessionId, { ...comment, status: 'queued' })
+    setComments(state.comments)
+  },
+
+  async replyToComment(comment, text) {
+    const sessionId = await get().materialize()
+    if (sessionId == null) return
+    const state = await api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString()))
     setComments(state.comments)
   }
 })

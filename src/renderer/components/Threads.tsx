@@ -32,8 +32,15 @@ function RequeueButton({ c }: { c: Comment }) {
   )
 }
 
+/** A thread's verdict chip text: the icon and the word, for a live resolution or one
+ *  folded into the replies. */
+function verdictLabel(verdict: 'addressed' | 'reworked' | 'skipped'): string {
+  return `${VERDICT_ICON[verdict]} ${verdict}`
+}
+
 export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) {
   const [editing, setEditing] = useState(false)
+  const [replying, setReplying] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [draft, setDraft] = useState(c.text)
   const isAgent = c.author === 'agent'
@@ -131,6 +138,18 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         ) : (
           <div className="bb">{c.text}</div>
         )}
+        {/* the thread, in order: replies (a folded earlier resolution among them, with
+            its verdict), then the live resolution last — it is the latest turn, since a
+            reviewer reply always re-queues the comment and folds it away */}
+        {c.replies.map((r, i) => (
+          <div key={i} className="dreply">
+            <div className="bh">
+              {r.author === 'agent' ? <AgentId agentRef={r.agentRef} threadId={r.threadId} /> : <><Ava>me</Ava><b>You</b></>}
+              <span className="dim">{r.verdict ? verdictLabel(r.verdict) : 'replied'}</span>
+            </div>
+            <div className="bb">{r.text}</div>
+          </div>
+        ))}
         {c.resolution?.note && c.status === 'resolved' && (
           // The resolve note IS the reply for the common case (spec B4 channel dedup) —
           // render it as a reply-styled thread entry, not just verdict metadata, so it
@@ -143,24 +162,27 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             <div className="bb">{c.resolution.note}</div>
           </div>
         )}
-        {c.replies.map((r, i) => (
-          <div key={i} className="dreply">
-            <div className="bh">
-              {r.author === 'agent' ? <AgentId agentRef={r.agentRef} threadId={r.threadId} /> : <><Ava>me</Ava><b>You</b></>}
-              <span className="dim">replied</span>
-            </div>
-            <div className="bb">{r.text}</div>
-          </div>
-        ))}
-        {!merged && !editing && !isAgent && c.status !== 'sent' && (
+        {replying && (
+          <Composer
+            placeholder="Reply — the thread goes back to the agent with your next batch…"
+            kicker="reply"
+            submitLabel="Reply"
+            hint="re-queues this thread for the agent"
+            onCancel={() => setReplying(false)}
+            onSubmit={(text) => { void useStore.getState().replyToComment(c, text); setReplying(false) }}
+          />
+        )}
+        {!merged && !editing && !replying && !isAgent && c.status !== 'sent' && (
           <div className="bf">
             {c.status !== 'resolved' && !confirmDel && <button onClick={() => setEditing(true)}>Edit</button>}
+            {c.status === 'resolved' && <ReplyButton onClick={() => setReplying(true)} />}
             {c.status === 'resolved' && <RequeueButton c={c} />}
             {deleteControl}
           </div>
         )}
-        {!merged && !editing && isAgent && (
+        {!merged && !editing && !replying && isAgent && (
           <div className="bf">
+            {c.status === 'resolved' && <ReplyButton onClick={() => setReplying(true)} />}
             {c.status === 'resolved' && <RequeueButton c={c} />}
             {deleteControl}
           </div>
@@ -170,21 +192,37 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   )
 }
 
+/** A resolved thread — reviewer-authored or an agent hotspot — can be continued: the
+ *  reply goes on the end of the thread and re-queues it (`replyToComment`), so the
+ *  agent's next batch reads the whole exchange, not the original text alone (which is
+ *  all Re-queue resends). */
+function ReplyButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="reply" onClick={onClick} title="Continue this thread — your reply re-queues it for the agent">
+      <I.bubble style={{ width: 11, height: 11 }} />Reply
+    </button>
+  )
+}
+
 /** Inline composer. Defaults describe a *queued* comment (folded into the next
  *  batch). `sendNow` flips the labels for the decision flow, where submitting sends
  *  to the agent immediately and resolves the question. */
-export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
+export function Composer({ placeholder, onSubmit, onCancel, sendNow = false, kicker, submitLabel: submitOverride, hint: hintOverride }: {
   placeholder: string
   onSubmit: (text: string) => void
   onCancel: () => void
   sendNow?: boolean
+  /** the header's role word ('new comment' / 'your decision' by default) */
+  kicker?: string
+  submitLabel?: string
+  hint?: string
 }) {
   const [text, setText] = useState('')
   // send-now composers name the agent they go straight to (no queue)
   const agent = useStore((s) => s.loaded?.state.agent)
-  const submitLabel = sendNow ? 'Send now' : 'Add comment'
+  const submitLabel = submitOverride ?? (sendNow ? 'Send now' : 'Add comment')
   // send-now needs no hint — the "→ agent" destination chip already says it all
-  const hint = sendNow ? '' : 'queues for the agent — nothing is sent yet'
+  const hint = hintOverride ?? (sendNow ? '' : 'queues for the agent — nothing is sent yet')
   return (
     <div className="dthread">
       <div className="box">
@@ -196,7 +234,7 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false }: {
               <span className="limn-dest" title="answering goes straight to this agent"><EngineGlyph engine={agent.engine} style={{ width: 11, height: 11 }} />{agentLabel(agent)}</span>
             </>
           )}
-          <span className="dim" style={sendNow ? { marginLeft: 'auto' } : undefined}>{sendNow ? 'your decision' : 'new comment'}</span>
+          <span className="dim" style={sendNow ? { marginLeft: 'auto' } : undefined}>{kicker ?? (sendNow ? 'your decision' : 'new comment')}</span>
         </div>
         <div style={{ padding: '10px 12px' }}>
           <textarea

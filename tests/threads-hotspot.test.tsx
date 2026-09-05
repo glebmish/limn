@@ -79,3 +79,47 @@ describe('InlineThread — resolution note renders as a reply (B4 channel dedup)
     expect(afterReply).toContain('Fixed the null check in a follow-up commit.')
   })
 })
+
+// A thread can be continued (GitHub-style): a resolved comment — the reviewer's or an
+// agent hotspot — offers Reply beside Re-queue. Re-queue resends the original text;
+// Reply adds a turn and re-queues the whole thread.
+describe('InlineThread — resolved threads can be continued', () => {
+  it('shows Reply for a resolved reviewer comment', () => {
+    const out = html(hotspotComment({ author: 'user', severity: undefined, resolution: { verdict: 'addressed', note: 'Done.' } }))
+    expect(out).toContain('>Reply<')
+    expect(out).toContain('Re-queue')
+  })
+
+  it('shows Reply for a resolved agent hotspot', () => {
+    expect(html(hotspotComment())).toContain('>Reply<')
+  })
+
+  it('does not show Reply for a queued comment (Edit is the control there)', () => {
+    const out = html(hotspotComment({ author: 'user', severity: undefined, status: 'queued' }))
+    expect(out).not.toContain('>Reply<')
+    expect(out).toContain('Edit')
+  })
+
+  it('renders a folded earlier resolution with its verdict, in thread order before the reply', () => {
+    const out = html(hotspotComment({
+      author: 'user', severity: undefined, status: 'queued', resolution: undefined,
+      replies: [
+        { author: 'agent', text: 'Replaced the prefix with a union.', at: 't1', verdict: 'addressed' },
+        { author: 'user', text: 'not quite', at: 't2' }
+      ]
+    }))
+    expect(out.indexOf('✓ addressed')).toBeGreaterThan(-1)
+    expect(out.indexOf('Replaced the prefix with a union.')).toBeLessThan(out.indexOf('not quite'))
+    expect(out).toContain('>replied<')
+  })
+
+  it('renders the live resolution after the replies — it is the latest turn', () => {
+    const out = html(hotspotComment({
+      author: 'user', severity: undefined,
+      replies: [{ author: 'user', text: 'first follow-up', at: 't1' }],
+      resolution: { verdict: 'reworked', note: 'Reworked the summary.' }
+    }))
+    // lastIndexOf: the header's verdict chip carries the note in a title attr, before the body
+    expect(out.indexOf('first follow-up')).toBeLessThan(out.lastIndexOf('Reworked the summary.'))
+  })
+})

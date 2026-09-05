@@ -423,6 +423,8 @@
 .dthread .bf .dim{font-size:11px;color:var(--muted);align-self:center}
 /* resolved-comment re-queue control (spec Decision 19) — an ordinary ghost
    footer button, styled like "send-now" so it reads as an action, not a verdict */
+.dthread .bf .reply{display:inline-flex;align-items:center;gap:4px;color:var(--accent-ink);font-weight:600}
+.dthread .bf .reply:hover{color:var(--accent)}
 .dthread .bf .requeue{display:inline-flex;align-items:center;gap:4px;color:var(--accent-ink);font-weight:600}
 .dthread .bf .requeue:hover{color:var(--accent)}
 
