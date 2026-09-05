@@ -50,7 +50,7 @@ describe('ReviewSummary — merged band (spec §7)', () => {
       <ReviewSummary
         annotations={undefined} titleComments={[]} titleCommenting={false}
         setTitleCommenting={() => {}} summaryComments={[]} sinceTagged={false}
-        lastIteration={undefined} baseline={undefined} guidedBy={{ engine: 'claude' }}
+        lastIteration={undefined} approvedBaseline={undefined} guidedBy={{ engine: 'claude' }}
         merged={merged} mergedBranch={branch}
       />
     )

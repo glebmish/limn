@@ -175,7 +175,10 @@ export default function Review() {
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
   const approvedHashes = state.approvedHashes ?? approvedShas
-  const baseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha ?? state.reviewedAtSha
+  // the approval the review is measured against — absent when nothing was ever
+  // approved (the generated-at sha still drives the rail's drift marks; it is not
+  // an approval and the summary must not call it one)
+  const approvedBaseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha
   const lastIteration = state.latestIteration
   const commitApproved = approvalFresh(approvedShas, skeleton.headSha)
   const approved = approvalFresh(approvedHashes, loaded.branchHash)
@@ -360,7 +363,7 @@ export default function Review() {
                 summaryComments={summaryComments}
                 sinceTagged={sinceTagged}
                 lastIteration={lastIteration}
-                baseline={baseline}
+                approvedBaseline={approvedBaseline}
                 guidedBy={guidedBy}
                 merged={merged}
                 mergedBranch={branch}

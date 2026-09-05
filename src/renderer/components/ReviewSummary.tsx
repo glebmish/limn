@@ -18,7 +18,7 @@ export function ReviewSummary({
   summaryComments,
   sinceTagged,
   lastIteration,
-  baseline,
+  approvedBaseline,
   guidedBy,
   merged,
   mergedBranch
@@ -30,7 +30,9 @@ export function ReviewSummary({
   summaryComments: Comment[]
   sinceTagged: boolean
   lastIteration: Iteration | undefined
-  baseline: string | undefined
+  /** the sha the reader approved (the head, or the recorded approval); undefined
+   *  when the review was never approved — then there is no "since you approved" */
+  approvedBaseline: string | undefined
   guidedBy: AgentRef
   /** terminal merge record (spec §7) — renders the read-only banner above everything */
   merged?: MergeRecord
@@ -55,12 +57,12 @@ export function ReviewSummary({
 
       {annotations && (
         <>
-          {sinceTagged && lastIteration?.summary ? (
+          {sinceTagged && approvedBaseline && lastIteration?.summary ? (
             <div className="rr-summary rr-summary-cmt" data-limn-summary>
               {!merged && <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />}
               <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
               <Commentable scope={{ region: 'summary' }} className="rr-tx">
-                <span className="rr-lead">Since you approved{baseline ? <> at <span className="mono">{shortSha(baseline)}</span></> : ''}: </span>
+                <span className="rr-lead">Since you approved at <span className="mono">{shortSha(approvedBaseline)}</span>: </span>
                 {lastIteration.summary}
               </Commentable>
             </div>
