@@ -9,6 +9,7 @@ import { Commentable, SelectionThreads } from './Commentable'
 import { DiffView } from './DiffView'
 import { layoutDiagram } from '../lib/diagramLayout'
 import { focusAnchor } from '../lib/focus'
+import { holdPlace } from '../lib/focusScroll'
 
 /** A single diagram node: `DiagramNodeBox` wrapped in a focus button when the
  *  node carries an anchor (clicking it scrolls/highlights the anchored spot);
@@ -163,7 +164,12 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               // Screen readers announce indeterminate as "mixed"; no aria-checked needed.
               ref={(el) => { if (el) el.indeterminate = viewState === 'some' }}
               aria-label={`Mark all files in “${s.name}” viewed`}
-              onChange={() => setSectionViewed(s.id, files.map((f) => f.path), viewState !== 'all')}
+              onChange={(e) => {
+                // the fold removes everything under this header; keep the header put
+                const restore = holdPlace(e.currentTarget.closest<HTMLElement>('.gsec'))
+                setSectionViewed(s.id, files.map((f) => f.path), viewState !== 'all')
+                restore()
+              }}
             />
             <span className={'fv-box' + (viewState === 'some' ? ' some' : '')}>
               {viewState === 'all' ? <I.check style={{ width: 10, height: 10 }} />

@@ -4,6 +4,7 @@ import { CmtPlus } from '../kit'
 import { fileViewed, fileIsExcluded, useStore } from '../store'
 import { renderedFiles } from '../store/derive'
 import { effectiveStack, sameStack } from '../lib/stack'
+import { holdPlace } from '../lib/focusScroll'
 import { DiffStack } from './DiffStack'
 import { Composer, InlineThread } from './Threads'
 import { reviewStatusForFile } from '../lib/fileStatus'
@@ -54,6 +55,17 @@ export function DiffView({ f }: {
     return () => ro.disconnect()
   }, [])
 
+  // folding this file (tick, or a click on its stuck header) must not move the page
+  // under the reader: hold the header where it is — or, when the fold takes the whole
+  // section with it (last file ticked), the section block. Both are resolved BEFORE
+  // the change: a detached card no longer knows its section.
+  const holdFold = (): (() => void) => {
+    const card = cardRef.current
+    const restore = holdPlace(card?.querySelector<HTMLElement>('.gfile-head'))
+    const section = card?.closest<HTMLElement>('.gsec') ?? null
+    return () => restore(section)
+  }
+
   const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
   const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
   const viewMark = viewedAt[f.path]
@@ -86,8 +98,8 @@ export function DiffView({ f }: {
           artifact={artifact}
           foldsOpen={foldsOpen}
           onToggleFolds={() => setFoldsOpen((o) => !o)}
-          onToggleOpen={() => setManualOpen(!effectiveOpen)}
-          onToggleViewed={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }}
+          onToggleOpen={() => { const restore = holdFold(); setManualOpen(!effectiveOpen); restore() }}
+          onToggleViewed={() => { const restore = holdFold(); toggleViewed(f.path, isViewed); setManualOpen(null); restore() }}
           onToggleExcluded={() => toggleExcluded(f)}
         />
 

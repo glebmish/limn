@@ -158,8 +158,50 @@ function offsetTop(main: HTMLElement, el: HTMLElement): number {
   return el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop
 }
 
-function clampTop(main: HTMLElement, top: number): number {
+function clampTop(main: PlaceScroller, top: number): number {
   return Math.max(0, Math.min(top, Math.max(0, main.scrollHeight - main.clientHeight)))
+}
+
+// ── holding the reader's place across a fold ──────────────────
+// A fold moves the page under the reader. Ticking a file viewed collapses its body;
+// ticking the LAST file of a section collapses the whole section — and the scroll
+// offset, a bare number of pixels, does not know. With a few thousand px of diff gone
+// above the fold line, whatever sat below slides up under the pinned header: the tick
+// on `sessions.ts` landed the reader half-way through `ipc.ts`, the next section's
+// second file. Native scroll anchoring cannot help: the browser anchors on the first
+// visible element, which is a diff row — exactly what the fold removes — and a
+// removed anchor node suppresses the adjustment.
+
+export type PlaceAnchor = Pick<Element, 'isConnected' | 'getBoundingClientRect'>
+export type PlaceScroller = Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>
+
+/** Record where `anchor` sits on screen now — for a sticky file header that is its
+ *  STUCK rect, which is where the eye is — and return the restore step. Call it after
+ *  the state change: it waits one frame (React has committed by then, the frame has
+ *  not painted), re-measures, and shifts `main` so the anchor is back at that spot.
+ *  When the anchor itself unmounted (a section fold takes its files with it) the
+ *  `fallback` — the section block — takes its place: the folded section's header
+ *  lands where the file header was, with the next section right under it. */
+export function holdPlaceIn(main: PlaceScroller, anchor: PlaceAnchor): (fallback?: PlaceAnchor | null) => void {
+  const top = anchor.getBoundingClientRect().top
+  return (fallback) => {
+    requestAnimationFrame(() => {
+      const el = anchor.isConnected ? anchor : fallback?.isConnected ? fallback : null
+      if (!el) return
+      const shift = el.getBoundingClientRect().top - top
+      if (Math.abs(shift) <= SETTLE_TOL) return
+      main.scrollTop = clampTop(main, main.scrollTop + shift)
+    })
+  }
+}
+
+/** `holdPlaceIn` against the review's scroll container. A jump still in flight is
+ *  dropped first — it would drag the view back to its own goal. */
+export function holdPlace(anchor: HTMLElement | null | undefined): (fallback?: PlaceAnchor | null) => void {
+  const main = anchor?.closest<HTMLElement>('.gmain')
+  if (!anchor || !main) return () => {}
+  cancelFocusJump()
+  return holdPlaceIn(main, anchor)
 }
 
 /** Where the FOCUS chip goes for a line, or null when the line isn't in the diff

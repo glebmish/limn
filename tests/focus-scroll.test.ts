@@ -176,3 +176,98 @@ describe('jumpGoal', () => {
     expect(g.place).toBe('centre')
   })
 })
+
+import { afterEach, beforeEach, vi } from 'vitest'
+import { holdPlaceIn, type PlaceAnchor } from '../src/renderer/lib/focusScroll'
+
+/** an element with a screen `top` that the test moves between measure and restore */
+function box(top: number, connected = true): PlaceAnchor & { top: number; isConnected: boolean } {
+  const b = {
+    top,
+    isConnected: connected,
+    getBoundingClientRect: () => ({ top: b.top }) as DOMRect
+  }
+  return b
+}
+
+// Ticking a file viewed folds its body; ticking the last file of a section folds the
+// section. The scroll offset does not know, so the page below slides up under the
+// pinned header (the tick on sessions.ts landed half-way through ipc.ts). The reader's
+// place is held: the anchor is measured before the fold and put back after it.
+describe('holdPlaceIn', () => {
+  let frame: (() => void) | null
+  beforeEach(() => {
+    frame = null
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { frame = () => cb(0); return 1 }) as typeof globalThis.requestAnimationFrame
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  const main = (scrollTop: number): { scrollTop: number; scrollHeight: number; clientHeight: number } =>
+    ({ scrollTop, scrollHeight: 20000, clientHeight: 800 })
+
+  it('shifts the container so the anchor is back where it was measured', () => {
+    const m = main(5000)
+    const head = box(120)            // the stuck file header, under the pinned page head
+    const restore = holdPlaceIn(m, head)
+    head.top = -2880                 // the body above folded away; the card is now far above
+    restore()
+    frame?.()
+    expect(m.scrollTop).toBe(2000)
+  })
+
+  it('waits for the frame — the change has to commit before it is measured', () => {
+    const m = main(5000)
+    const head = box(120)
+    const restore = holdPlaceIn(m, head)
+    head.top = -2880
+    restore()
+    expect(m.scrollTop).toBe(5000)
+  })
+
+  it('falls back to the section block when the file unmounted with its section', () => {
+    const m = main(5000)
+    const head = box(120)
+    const restore = holdPlaceIn(m, head)
+    head.isConnected = false
+    const section = box(-3000)       // the folded section's row, now above the viewport
+    restore(section)
+    frame?.()
+    expect(m.scrollTop).toBe(5000 - 3120)
+  })
+
+  it('leaves the container alone when nothing moved (unticking opens the body BELOW the header)', () => {
+    const m = main(5000)
+    const head = box(120)
+    const restore = holdPlaceIn(m, head)
+    restore()
+    frame?.()
+    expect(m.scrollTop).toBe(5000)
+  })
+
+  it('does nothing when neither the anchor nor a fallback is left to measure', () => {
+    const m = main(5000)
+    const head = box(120)
+    const restore = holdPlaceIn(m, head)
+    head.isConnected = false
+    restore(null)
+    frame?.()
+    expect(m.scrollTop).toBe(5000)
+  })
+
+  it('clamps to the scrollable range', () => {
+    const m = main(500)
+    const head = box(120)
+    const restore = holdPlaceIn(m, head)
+    head.top = 900                   // content ABOVE grew (a section re-opened over it)
+    restore()
+    frame?.()
+    expect(m.scrollTop).toBe(1280)
+    const m2 = main(300)
+    const h2 = box(120)
+    const r2 = holdPlaceIn(m2, h2)
+    h2.top = -1000
+    r2()
+    frame?.()
+    expect(m2.scrollTop).toBe(0)
+  })
+})
