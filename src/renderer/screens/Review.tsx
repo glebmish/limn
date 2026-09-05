@@ -144,7 +144,7 @@ export default function Review() {
   useStackKeys(curFile, renderedFiles)
 
   if (!loaded) return null
-  const { skeleton, state, artifacts, commits, sinceTagged } = loaded
+  const { skeleton, state, artifacts, commits } = loaded
   // a parked approval is answerable from the drawer — badge the Chat button
   // unconditionally so it's discoverable even when the drawer is already open.
   const hasPendingApproval = pendingApprovals(gen).length > 0
@@ -175,10 +175,6 @@ export default function Review() {
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
   const approvedHashes = state.approvedHashes ?? approvedShas
-  // the approval the review is measured against — absent when nothing was ever
-  // approved (the generated-at sha still drives the rail's drift marks; it is not
-  // an approval and the summary must not call it one)
-  const approvedBaseline = approvedShas.includes(skeleton.headSha) ? skeleton.headSha : state.approvedSha
   const lastIteration = state.latestIteration
   const commitApproved = approvalFresh(approvedShas, skeleton.headSha)
   const approved = approvalFresh(approvedHashes, loaded.branchHash)
@@ -361,9 +357,6 @@ export default function Review() {
                 titleCommenting={titleCommenting}
                 setTitleCommenting={setTitleCommenting}
                 summaryComments={summaryComments}
-                sinceTagged={sinceTagged}
-                lastIteration={lastIteration}
-                approvedBaseline={approvedBaseline}
                 guidedBy={guidedBy}
                 merged={merged}
                 mergedBranch={branch}

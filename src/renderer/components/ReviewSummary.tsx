@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import type { AgentRef, Comment, Iteration, MergeRecord, ReviewAnnotations } from '../../shared/types'
+import type { AgentRef, Comment, MergeRecord, ReviewAnnotations } from '../../shared/types'
 import { CmtPlus, EngineGlyph, I, shortSha, strategyLabel } from '../kit'
 import { useStore } from '../store'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 
 /** The review-title comment threads and — when annotated — the `rr-summary` band
- *  (the "since you approved" iteration summary or the original generated summary),
+ *  (the generated summary; drift is the header pill's and the rail's job, and an
+ *  update replaces the summary wholesale, so there is no "since" variant to show),
  *  its comment threads, and the selection threads. Rendered directly under GenPanel;
  *  markup is verbatim. `titleCommenting` is shared with the page-head H1, so it's a
  *  prop; `summaryCommenting` lives entirely here, so it's local state. */
@@ -16,9 +17,6 @@ export function ReviewSummary({
   titleCommenting,
   setTitleCommenting,
   summaryComments,
-  sinceTagged,
-  lastIteration,
-  approvedBaseline,
   guidedBy,
   merged,
   mergedBranch
@@ -28,11 +26,6 @@ export function ReviewSummary({
   titleCommenting: boolean
   setTitleCommenting: (v: boolean) => void
   summaryComments: Comment[]
-  sinceTagged: boolean
-  lastIteration: Iteration | undefined
-  /** the sha the reader approved (the head, or the recorded approval); undefined
-   *  when the review was never approved — then there is no "since you approved" */
-  approvedBaseline: string | undefined
   guidedBy: AgentRef
   /** terminal merge record (spec §7) — renders the read-only banner above everything */
   merged?: MergeRecord
@@ -57,23 +50,12 @@ export function ReviewSummary({
 
       {annotations && (
         <>
-          {sinceTagged && approvedBaseline && lastIteration?.summary ? (
-            <div className="rr-summary rr-summary-cmt" data-limn-summary>
-              {!merged && <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />}
-              <span className="rr-ic"><EngineGlyph engine={lastIteration?.engine} style={{ width: 14, height: 14 }} /></span>
-              <Commentable scope={{ region: 'summary' }} className="rr-tx">
-                <span className="rr-lead">Since you approved at <span className="mono">{shortSha(approvedBaseline)}</span>: </span>
-                {lastIteration.summary}
-              </Commentable>
-            </div>
-          ) : (
-            <div className="rr-summary rr-summary-cmt" data-limn-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
-              {!merged && <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />}
-              <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
-              <Commentable scope={{ region: 'summary' }} className="rr-tx">{annotations.summary}</Commentable>
-              <span className="grow"></span>
-            </div>
-          )}
+          <div className="rr-summary rr-summary-cmt" data-limn-summary style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}>
+            {!merged && <CmtPlus extra="summary-plus" onClick={() => setSummaryCommenting(true)} />}
+            <span className="rr-ic" style={{ background: 'var(--accent)' }}><EngineGlyph engine={guidedBy.engine} style={{ width: 14, height: 14 }} /></span>
+            <Commentable scope={{ region: 'summary' }} className="rr-tx">{annotations.summary}</Commentable>
+            <span className="grow"></span>
+          </div>
           {(summaryComments.length > 0 || summaryCommenting) && (
             <div className="rr-summary-threads">
               {summaryComments.map((c) => <InlineThread key={c.id} c={c} locLabel="on the summary" />)}

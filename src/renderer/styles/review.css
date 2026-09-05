@@ -549,7 +549,6 @@
 .rr-merged .rrm-tx{font-size:12.5px;color:var(--ink-2);line-height:1.5}
 .rr-merged .rrm-tx strong{color:var(--accent-ink)}
 .rr-merged .rrm-tx .rrm-warn{color:var(--amber)}
-.rr-summary .rr-lead{font-weight:700;color:var(--amber)}
 /* keep ≥30px left clearance so the gutter "+" (offset −26..−28px) clears
    .gmain{overflow-x:hidden} in compact density too */
 .wf.dz-compact .rr-summary{margin:10px 30px 2px}

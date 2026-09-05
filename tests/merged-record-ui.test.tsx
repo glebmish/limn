@@ -49,8 +49,8 @@ describe('ReviewSummary — merged band (spec §7)', () => {
     renderToStaticMarkup(
       <ReviewSummary
         annotations={undefined} titleComments={[]} titleCommenting={false}
-        setTitleCommenting={() => {}} summaryComments={[]} sinceTagged={false}
-        lastIteration={undefined} approvedBaseline={undefined} guidedBy={{ engine: 'claude' }}
+        setTitleCommenting={() => {}} summaryComments={[]}
+        guidedBy={{ engine: 'claude' }}
         merged={merged} mergedBranch={branch}
       />
     )
