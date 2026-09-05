@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_FOCUS_LINES, SETTLE_MAX_FRAMES, SETTLE_MISSING_FRAMES, SETTLE_STABLE_FRAMES, SETTLE_TOL,
-  focusSelectors, settleStart, settleStep, type SettleAction, type SettleState
+  JUMP_GAP, focusSelectors, jumpGoal, settleStart, settleStep, type SettleAction, type SettleState
 } from '../src/renderer/lib/focusScroll'
 import type { FocusTarget } from '../src/shared/types'
 
@@ -122,5 +122,57 @@ describe('settleStep', () => {
     // eat into the frames the jump gets to converge in
     const { actions } = drive([...Array<number | null>(30).fill(null), -900, 0, 0, 0])
     expect(actions.slice(30)).toEqual(['scroll', 'wait', 'wait', 'land'])
+  })
+})
+
+// The pinned page header (`.page-head`, sticky at the top of `.gmain`) is part of
+// every landing: a goal that ignores it puts the target behind the header. On a
+// narrow viewport the wrapped title makes the header ~3× taller, which is how a
+// sidebar click on a viewed file showed the NEXT section's title at the top.
+describe('jumpGoal', () => {
+  const view = { viewH: 900, pinned: 280 }
+
+  it('lands a block target (file / section / summary) just below the pinned header', () => {
+    for (const kind of ['file', 'section', 'summary'] as const) {
+      expect(jumpGoal({ kind, top: 5000, headTop: null, ...view })).toEqual({ goal: 5000 - 280 - JUMP_GAP, place: null })
+    }
+  })
+
+  it('a taller header moves the landing by exactly its extra height', () => {
+    const desktop = jumpGoal({ kind: 'file', top: 5000, headTop: null, viewH: 900, pinned: 90 }).goal
+    const tablet = jumpGoal({ kind: 'file', top: 5000, headTop: null, viewH: 900, pinned: 280 }).goal
+    expect(desktop - tablet).toBe(190)
+  })
+
+  it('keeps the file header in view for a line near it: header under the pinned head, line below', () => {
+    const g = jumpGoal({ kind: 'diff', top: 5200, headTop: 5000, ...view })
+    expect(g.place).toBe('head')
+    expect(g.goal).toBe(5000 - 280 - JUMP_GAP)
+  })
+
+  it('centres a line too far below its header to show both — in the band BELOW the pinned head', () => {
+    const g = jumpGoal({ kind: 'diff', top: 9000, headTop: 5000, ...view })
+    expect(g.place).toBe('centre')
+    // the line sits at the middle of the visible band (viewH − pinned), offset by the header
+    expect(g.goal).toBe(9000 - 280 - (900 - 280) / 2)
+  })
+
+  it('the head-vs-centre decision shrinks with the band, not the viewport', () => {
+    // same line offset: fits beside the header on a desktop header, not under a tall one
+    const desktop = jumpGoal({ kind: 'diff', top: 5600, headTop: 5000, viewH: 900, pinned: 90 })
+    const tablet = jumpGoal({ kind: 'diff', top: 5600, headTop: 5000, viewH: 900, pinned: 400 })
+    expect(desktop.place).toBe('head')
+    expect(tablet.place).toBe('centre')
+  })
+
+  it('a placement chosen on the first frame is kept, so the loop cannot flip between two goals', () => {
+    const g = jumpGoal({ kind: 'diff', top: 9000, headTop: 5000, ...view, place: 'head' })
+    expect(g.place).toBe('head')
+    expect(g.goal).toBe(5000 - 280 - JUMP_GAP)
+  })
+
+  it('centres when the file header could not be measured', () => {
+    const g = jumpGoal({ kind: 'diff', top: 5200, headTop: null, ...view })
+    expect(g.place).toBe('centre')
   })
 })

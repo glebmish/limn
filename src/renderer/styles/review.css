@@ -107,7 +107,10 @@
 /* no scroll-behavior:smooth — it makes section jumps and doc open/close animate
    (it even applies to direct scrollTop assignments in Chromium). All jumps —
    section, file and focusAnchor — scroll instantly so the target lands in one frame. */
-.gmain{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper)}
+/* scroll-padding: anything the browser scrolls into view on its own (keyboard line
+   selection's scrollIntoView, focus()) clears the pinned page header + a sticky file
+   header instead of landing behind them. The jump pipeline does its own math. */
+.gmain{flex:1 1 auto;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper);scroll-padding-top:calc(var(--limn-head-h,0px) + 60px)}
 .gmain::-webkit-scrollbar{width:10px}
 .gmain::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:5px;border:3px solid var(--paper)}
 

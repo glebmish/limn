@@ -97,9 +97,47 @@ export function settleStep(s: SettleState, delta: number | null): { state: Settl
 // ── the jump ──────────────────────────────────────────────────
 
 const FLASH_MS = 1500
-// px of the file header we try to keep in view above a line jump
+/** px of breathing room between the pinned page header and a landed target */
+export const JUMP_GAP = 12
+/** px of the file header (plus a little) kept in view above a line jump */
 const HEADER_GAP = 64
 const BADGE_W = 52
+
+/** Height of the review's pinned page header (`.page-head`, sticky at the top of
+ *  `.gmain`). Everything that lands a scroll target has to clear it, or the target
+ *  sits behind it — on a narrow viewport the wrapped title makes it ~3× taller than
+ *  on a desktop, which is what turned "slightly under" into "not on screen at all".
+ *  `useReviewScroll` publishes the live height as `--limn-head-h` on `.gmain` (the
+ *  sticky file headers stick below it by the same var); read that, and fall back to
+ *  measuring the element when the var is not set yet. */
+export function pinnedTop(main: HTMLElement): number {
+  const v = parseFloat(main.style.getPropertyValue('--limn-head-h'))
+  if (Number.isFinite(v)) return v
+  return main.querySelector<HTMLElement>('.page-head')?.offsetHeight ?? 0
+}
+
+/** The scrollTop that lands a jump. Pure: every input is a content offset within the
+ *  scroll container (already corrected for sticky rects), so this can be tested
+ *  without a layout engine. `pinned` is the pinned page header's height.
+ *  - a block target (file / section / summary) sits `JUMP_GAP` below the pinned head;
+ *  - a diff line keeps its file header in view when both fit (`'head'`: the file
+ *    header just under the pinned head, the line below it), otherwise centres the
+ *    line in the band below the pinned head so it is never the very top row with no
+ *    context — and never behind the header either way. */
+export function jumpGoal(a: {
+  kind: FocusTarget['kind']
+  top: number
+  headTop: number | null
+  viewH: number
+  pinned: number
+  place?: 'head' | 'centre' | null
+}): { goal: number; place: 'head' | 'centre' | null } {
+  if (a.kind !== 'diff') return { goal: a.top - a.pinned - JUMP_GAP, place: null }
+  const band = a.viewH - a.pinned
+  const place = a.place ?? (a.headTop !== null && a.top - a.headTop <= band - HEADER_GAP - 40 ? 'head' : 'centre')
+  if (place === 'head' && a.headTop !== null) return { goal: a.headTop - a.pinned - JUMP_GAP, place }
+  return { goal: a.top - a.pinned - band / 2, place }
+}
 
 /** Sticky elements report their *stuck* rect, so a jump that measured one would
  *  chase its own scroll (`.gfile-head` is sticky under the pinned page header).
@@ -162,7 +200,7 @@ export function cancelFocusJump(): void {
 /** Scroll `.gmain` to a target and flash it once the layout has settled there.
  *  Jumps are instant (NOT smooth): smooth animates the whole container, reads as
  *  slow, and the flash would have to wait for it. */
-export function startFocusJump(target: FocusTarget): void {
+export function startFocusJump(target: FocusTarget, opts: { quiet?: boolean } = {}): void {
   cancelFocusJump()
   const selectors = focusSelectors(target)
   const lead = selectors[0]
@@ -215,6 +253,9 @@ export function startFocusJump(target: FocusTarget): void {
   }
 
   const land = (main: HTMLElement, el: HTMLElement): void => {
+    // a navigation jump (sidebar click) lands without the flash + FOCUS chip: the
+    // reader asked to go there, nothing needs pointing out
+    if (opts.quiet) { finish(); return }
     for (const sel of selectors) {
       const node = main.querySelector<HTMLElement>(sel)
       if (!node) continue
@@ -258,25 +299,18 @@ export function startFocusJump(target: FocusTarget): void {
       const headBox = head ? stableEl(head) : null
       const headTop = headBox && hasBox(headBox) ? offsetTop(main, headBox) : null
       const elBox = stableEl(el)
+      const pinned = pinnedTop(main)
       if (hasBox(elBox)) {
         const top = offsetTop(main, elBox)
-        if (target.kind === 'diff') {
-          // Prefer to keep the file header in view (header near the top, line below
-          // it); if the line sits too far below its header to show both, centre the
-          // line instead so it's never pinned to the very top with no context.
-          const viewH = main.clientHeight
-          if (place === null) place = headTop !== null && top - headTop <= viewH - HEADER_GAP - 40 ? 'head' : 'centre'
-          goal = place === 'head' && headTop !== null ? headTop - HEADER_GAP : top - viewH / 2
-        } else {
-          goal = top - HEADER_GAP
-        }
-        goal = clampTop(main, goal)
+        const g = jumpGoal({ kind: target.kind, top, headTop, viewH: main.clientHeight, pinned, place })
+        place = g.place
+        goal = clampTop(main, g.goal)
         delta = goal - main.scrollTop
       } else if (headTop !== null) {
         // The row is mounted but its file body is still a skipped subtree. Approach
         // by the file header (always laid out — it sits outside `.gfile-diff`); that
         // brings the body on screen, it lays out, and the next frame measures for real.
-        goal = clampTop(main, headTop - HEADER_GAP)
+        goal = clampTop(main, headTop - pinned - JUMP_GAP)
       }
     }
     const step = settleStep(state, delta)

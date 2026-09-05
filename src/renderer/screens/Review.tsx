@@ -136,7 +136,7 @@ export default function Review() {
   const {
     scrollRef, headRef, secRefs, peek, setPeek,
     jumpTo, jumpToFile, jumpToRawFile, closeDocBack, toggleDoc
-  } = useReviewScroll({ loaded, docPath, sections, filesFor, openDoc, closeDoc, openSection: store.openSection })
+  } = useReviewScroll({ loaded, docPath, sections, filesFor, openDoc, closeDoc })
 
   // dev/screenshot one-shots (flow/scroll/focus/batch/fake-gen/fake-drift/open-doc)
   useDevReviewHooks({ loaded, gen, scrollRef, setPendingDrift: store.setPendingDrift, openDoc })

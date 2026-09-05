@@ -47,7 +47,7 @@ export function commentJumpTarget(c: CommentJump): FocusTarget | null {
  *  a transient `focusTarget`, without touching `viewedAt`/`reviewedSections`), then
  *  hands off to `startFocusJump`, which resolves the `data-limn-*` node, scrolls
  *  until the layout around it stops moving, and flashes it. Reused by focus chips. */
-export function focusAnchor(target: FocusTarget): void {
+export function focusAnchor(target: FocusTarget, opts: { quiet?: boolean } = {}): void {
   const anchor = jumpTarget(target)
   const st = useStore.getState()
   // A jump from an open spec/plan must return to the changes view first, or the
@@ -75,5 +75,5 @@ export function focusAnchor(target: FocusTarget): void {
         : null
     )
   }
-  startFocusJump(anchor)
+  startFocusJump(anchor, opts)
 }
