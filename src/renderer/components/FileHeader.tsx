@@ -84,7 +84,12 @@ export function FileHeader({ f, excluded, isViewed, changedSinceViewed, fileStat
       )}
       {/* excluded files carry no review state, so they show no Viewed checkbox */}
       {!excluded && (
-        <label className={'file-viewed' + (changedSinceViewed ? ' amber' : '')} onClick={(e) => e.stopPropagation()}>
+        <label
+          className={'file-viewed' + (changedSinceViewed ? ' amber' : '')}
+          onClick={(e) => e.stopPropagation()}
+          // its own title, or the header's "Collapse this file" shows over the tick
+          title={isViewed ? 'Mark unviewed — opens the file again' : changedSinceViewed ? 'Changed since you viewed it — mark viewed again' : 'Mark viewed — folds the file away'}
+        >
           {/* viewed drives the default collapse, so clear any manual override and
               let it follow the new viewed state (tick → collapse, untick → open).
               The amber `~` middle ground reads as not-yet-viewed to the checkbox,
