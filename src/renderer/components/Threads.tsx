@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 import type { AgentRef, Comment } from '../../shared/types'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
@@ -65,6 +65,52 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
     <button onClick={() => setConfirmDel(true)}>Delete</button>
   )
 
+  // The thread's status chips (queued · Send now / with agent… / outdated / the
+  // verdict) sit on the LATEST turn, not always on the card header: a reply lands at
+  // the bottom of the thread, and a "queued for agent" chip at the top of the card
+  // said nothing about it. `author` is the turn's author — the queued/sent chips
+  // describe a reviewer turn, so a reviewer reply on an agent hotspot gets them too.
+  const statusChips = (author: 'user' | 'agent'): ReactElement => (
+    <>
+      {author === 'user' && c.status === 'queued' && (
+        <>
+          <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />{merged ? 'never sent' : 'queued for agent'}</span>
+          {!merged && (
+            <button className="send-now" onClick={() => sendComments([c.id])}>
+              <I.send style={{ width: 11, height: 11 }} />Send now
+            </button>
+          )}
+        </>
+      )}
+      {author === 'user' && (c.status === 'sent' || c.status === 'resolved') && (() => {
+        const chipAgent = c.agentRef ?? reviewAgent
+        return (
+          <button className="limn-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
+            <EngineGlyph engine={chipAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
+            {chipAgent ? agentLabel(chipAgent) : 'agent'}
+            {c.status === 'sent' && <span className="dim" style={{ fontWeight: 400 }}> · with agent…</span>}
+            <I.chevR style={{ width: 10, height: 10 }} />
+          </button>
+        )
+      })()}
+      {author === 'user' && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
+      {c.status === 'resolved' && c.resolution && (
+        <span
+          className="agentq"
+          style={{ color: c.resolution.verdict === 'skipped' ? 'var(--red)' : c.resolution.verdict === 'reworked' ? 'var(--amber)' : undefined }}
+          title={c.resolution.note}
+        >
+          {VERDICT_ICON[c.resolution.verdict]} {c.resolution.verdict}
+          {c.resolution.commit && <span className="mono" style={{ marginLeft: 4 }}>{c.resolution.commit}</span>}
+        </span>
+      )}
+    </>
+  )
+  const showResolution = c.status === 'resolved' && Boolean(c.resolution?.note)
+  // where the chips go: the resolution entry (rendered last), else the last reply,
+  // else the card header
+  const lastTurn: 'resolution' | 'reply' | 'head' = showResolution ? 'resolution' : c.replies.length ? 'reply' : 'head'
+
   return (
     <div className="dthread">
       <div className={'box' + (isAgent ? ' agent' : '')}>
@@ -78,28 +124,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             </span>
           )}
           <span className="dim">{locLabel}</span>
-          {!isAgent && c.status === 'queued' && (
-            <>
-              <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />{merged ? 'never sent' : 'queued for agent'}</span>
-              {!merged && (
-                <button className="send-now" onClick={() => sendComments([c.id])}>
-                  <I.send style={{ width: 11, height: 11 }} />Send now
-                </button>
-              )}
-            </>
-          )}
-          {!isAgent && (c.status === 'sent' || c.status === 'resolved') && (() => {
-            const chipAgent = c.agentRef ?? reviewAgent
-            return (
-              <button className="limn-agentid" title="Open the agent's chat" onClick={() => openChat(c.threadId ?? reviewChat?.id)}>
-                <EngineGlyph engine={chipAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />
-                {chipAgent ? agentLabel(chipAgent) : 'agent'}
-                {c.status === 'sent' && <span className="dim" style={{ fontWeight: 400 }}> · with agent…</span>}
-                <I.chevR style={{ width: 10, height: 10 }} />
-              </button>
-            )
-          })()}
-          {!isAgent && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
+          {lastTurn === 'head' && statusChips(c.author)}
           {c.anchorEdited && c.status !== 'outdated' && (
             // The commented line itself was rewritten since the comment was made (the
             // re-anchor pipeline's stage-1 'EDITED'). The marker claims only that — where
@@ -107,16 +132,6 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             // or left behind and bucketed), so the copy must not promise either.
             <span className="agentq" style={{ color: 'var(--amber)' }} title="The line this comment was written against was rewritten after the comment was made — the text it quoted is no longer in the file.">
               line edited since comment
-            </span>
-          )}
-          {c.status === 'resolved' && c.resolution && (
-            <span
-              className="agentq"
-              style={{ color: c.resolution.verdict === 'skipped' ? 'var(--red)' : c.resolution.verdict === 'reworked' ? 'var(--amber)' : undefined }}
-              title={c.resolution.note}
-            >
-              {VERDICT_ICON[c.resolution.verdict]} {c.resolution.verdict}
-              {c.resolution.commit && <span className="mono" style={{ marginLeft: 4 }}>{c.resolution.commit}</span>}
             </span>
           )}
         </div>
@@ -146,11 +161,12 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             <div className="bh">
               {r.author === 'agent' ? <AgentId agentRef={r.agentRef} threadId={r.threadId} /> : <><Ava>me</Ava><b>You</b></>}
               <span className="dim">{r.verdict ? verdictLabel(r.verdict) : 'replied'}</span>
+              {lastTurn === 'reply' && i === c.replies.length - 1 && statusChips(r.author)}
             </div>
             <div className="bb">{r.text}</div>
           </div>
         ))}
-        {c.resolution?.note && c.status === 'resolved' && (
+        {showResolution && c.resolution && (
           // The resolve note IS the reply for the common case (spec B4 channel dedup) —
           // render it as a reply-styled thread entry, not just verdict metadata, so it
           // reads as the answer.
@@ -158,6 +174,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             <div className="bh">
               <AgentId agentRef={c.resolution.agentRef} threadId={c.threadId} />
               <span className="dim">resolution</span>
+              {statusChips('agent')}
             </div>
             <div className="bb">{c.resolution.note}</div>
           </div>

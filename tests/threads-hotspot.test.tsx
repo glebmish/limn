@@ -123,3 +123,49 @@ describe('InlineThread — resolved threads can be continued', () => {
     expect(out.indexOf('first follow-up')).toBeLessThan(out.lastIndexOf('Reworked the summary.'))
   })
 })
+
+// The status chips follow the LATEST turn. A reply lands at the bottom of the thread;
+// a "queued for agent" chip up in the card header said nothing about whether that
+// reply had gone anywhere.
+describe('InlineThread — status chips sit on the latest turn', () => {
+  const replied = (over: Partial<Comment> = {}): Comment => hotspotComment({
+    author: 'user', severity: undefined, resolution: undefined, status: 'queued', text: 'using text and prefix for logic smells',
+    replies: [
+      { author: 'agent', text: 'Replaced the prefix with a union.', at: 't1', verdict: 'addressed' },
+      { author: 'user', text: 'not quite', at: 't2' }
+    ],
+    ...over
+  })
+
+  // (a turn's chips sit in its header row, which precedes its text — so "on the last
+  // reply" means after every earlier turn's text and absent from the card header)
+  it('a queued reply carries "queued for agent" + Send now on the reply, not the card header', () => {
+    const out = html(replied())
+    const prior = out.indexOf('Replaced the prefix with a union.')
+    expect(out.indexOf('queued for agent')).toBeGreaterThan(prior)
+    expect(out.indexOf('Send now')).toBeGreaterThan(prior)
+    expect(out.slice(0, out.indexOf('using text and prefix'))).not.toContain('queued for agent')
+  })
+
+  it('a sent reply shows "with agent…" on the reply', () => {
+    const out = html(replied({ status: 'sent' }))
+    expect(out.indexOf('with agent…')).toBeGreaterThan(out.indexOf('Replaced the prefix with a union.'))
+  })
+
+  it('a reviewer reply on an agent hotspot gets the queued chip too (the turn is the reviewer\'s)', () => {
+    const out = html(hotspotComment({ status: 'queued', replies: [{ author: 'user', text: 'agree, fix it', at: 't1' }] }))
+    expect(out.indexOf('queued for agent')).toBeGreaterThan(out.indexOf('This branch is unreachable'))
+  })
+
+  it('the verdict chip sits on the resolution entry when there is one', () => {
+    const out = html(hotspotComment({ author: 'user', severity: undefined, resolution: { verdict: 'addressed', note: 'Done.' } }))
+    const entry = out.indexOf('>resolution<')
+    expect(entry).toBeGreaterThan(-1)
+    expect(out.indexOf('✓ addressed')).toBeGreaterThan(entry)
+  })
+
+  it('a thread with no replies keeps its chips in the card header (unchanged)', () => {
+    const out = html(hotspotComment({ author: 'user', severity: undefined, status: 'queued', resolution: undefined }))
+    expect(out.indexOf('queued for agent')).toBeLessThan(out.indexOf('This branch is unreachable'))
+  })
+})
