@@ -437,7 +437,11 @@ export function runAppServerTurn(opts: AppServerTurnOptions): EngineRun<string> 
           if (method === 'mcpServer/elicitation/request') {
             const kind = (params as { _meta?: { codex_approval_kind?: string } } | null)?._meta?.codex_approval_kind
             // limn hosts only read-only/metadata review tools, so tool-call
-            // elicitations default to ACCEPT. Robust to _meta shape/version drift:
+            // elicitations default to ACCEPT. This blanket accept is kept safe by
+            // the registration-time guard in codexMcp.registerCodexTurn
+            // (assertAutoAcceptCoverage): a tool not on AUTO_ACCEPT_TOOL_NAMES
+            // throws before any turn runs, so nothing unvetted reaches here.
+            // Robust to _meta shape/version drift:
             // accept unless `kind` is explicitly a non-tool-call kind (don't require
             // an exact 'mcp_tool_call' match, which intermittently declined valid
             // calls → "<tool> failed").

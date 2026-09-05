@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { ENGINE_PATH_PREF_KEYS } from '../../shared/prefs.js'
 
 /* Engine CLI resolution: the user's system-installed `claude` / `codex` from
@@ -110,4 +112,72 @@ export function claudeBinaryPath(): string | undefined {
 
 export function codexBinaryPath(): string | undefined {
   return binaryPath('codex')
+}
+
+export interface EngineVersionInfo { version?: string; warning?: string }
+
+/* Codex app-server protocol floor. Older CLIs may authenticate successfully but
+   fail later when Limn opens the app-server connection, so surface this as an
+   auth/settings hint instead of waiting for an opaque turn failure. */
+const CODEX_APP_SERVER_MIN_VERSION = '0.135.0'
+
+const execFileAsync = promisify(execFile)
+
+/* Injectable spawn seam: returns raw `<bin> --version` stdout, or throws.
+   Kept internal so tests can stub the output and count spawns. */
+type VersionSpawn = (binaryPath: string) => Promise<string>
+
+const defaultVersionSpawn: VersionSpawn = async (bin) => {
+  const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 3000 })
+  return stdout
+}
+
+let versionSpawn: VersionSpawn = defaultVersionSpawn
+const versionCache = new Map<string, EngineVersionInfo>()
+
+/** Test-only: replace the version spawn (pass undefined to restore) and reset the cache. */
+export function setVersionSpawnForTests(spawn: VersionSpawn | undefined): void {
+  versionSpawn = spawn ?? defaultVersionSpawn
+  versionCache.clear()
+}
+
+/** Numeric triple compare (no semver dep): >0 if a>b, <0 if a<b, 0 if equal. */
+function compareTriple(a: string, b: string): number {
+  const pa = a.split('.')
+  const pb = b.split('.')
+  for (let i = 0; i < 3; i++) {
+    const diff = Number(pa[i] ?? 0) - Number(pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+/** Best-effort `<bin> --version` probe: 3 s timeout, first semver in stdout.
+ *  Warns below the known-good floor; NEVER blocks or throws. Cached per resolved
+ *  path for the process lifetime (the picker re-opens often; binaries don't churn).
+ *  EVERY failure mode (unresolved, spawn error, timeout, unparseable) yields `{}`. */
+export async function probeEngineVersion(engine: EngineBinary): Promise<EngineVersionInfo> {
+  const resolved = binaryPath(engine)
+  if (!resolved) return {}
+
+  const cached = versionCache.get(resolved)
+  if (cached) return cached
+
+  let info: EngineVersionInfo = {}
+  try {
+    const version = (await versionSpawn(resolved)).match(/\d+\.\d+\.\d+/)?.[0]
+    if (version) {
+      info = engine === 'codex' && compareTriple(version, CODEX_APP_SERVER_MIN_VERSION) < 0
+        ? {
+            version,
+            warning: `codex ${version} detected — Limn's Codex app-server integration is tested against ≥${CODEX_APP_SERVER_MIN_VERSION}; consider upgrading`
+          }
+        : { version }
+    }
+  } catch {
+    // spawn error / timeout / non-zero exit — stay silent, never warn or block
+    info = {}
+  }
+  versionCache.set(resolved, info)
+  return info
 }

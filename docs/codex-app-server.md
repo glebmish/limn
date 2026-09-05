@@ -171,6 +171,13 @@ tools only mutate review metadata (comments, viewed flags), so an `mcp_tool_call
 elicitation is auto-**accepted**; any other elicitation kind is declined. Without
 this the server cancels the turn's tool calls with "user cancelled MCP tool call."
 
+This blanket accept is kept honest by a registration-time guard: `registerCodexTurn`
+(`codexMcp.ts`) calls `assertAutoAcceptCoverage(LIMN_TOOLS)`, which throws if any
+tool is not on the hand-maintained `AUTO_ACCEPT_TOOL_NAMES` allowlist (`tools.ts`).
+Since the only MCP server wired into a turn is Limn's own, every elicitation
+necessarily concerns a listed tool — a future write-capable tool trips the guard
+before any turn runs rather than silently riding the auto-accept.
+
 ### Unsupported surfaces
 
 Every other server→client request — `item/tool/requestUserInput`,

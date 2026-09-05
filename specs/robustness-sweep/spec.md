@@ -1,6 +1,8 @@
 # Robustness & data-safety sweep
 
-## Status: Draft — awaiting answers to open questions
+## Status: Ready to implement — all open questions resolved (2026-07-02)
+
+All 9 open questions resolved: Q1 yes (5000 ms PRAGMA); Q2 reuse the error strip; Q3 keep corrupt rows; Q4 probe-forever; **Q5 no auto-retry — surface `ENGINE_SESSION_LOST` and suggest a new chat (Design §7 rewritten)**; Q6 registration-time throw; **Q7 no Claude floor, Codex-only (`0.135.0`)**; Q8 specced tag vocabulary; Q9 don't lint-forbid `node:sqlite` in `tests/**`.
 
 A set of small, independently shippable fixes from the architecture audit. Each item below stands alone: they touch disjoint code, can be implemented and merged in any order, and none changes the SQLite schema (no migration required anywhere in this spec).
 
@@ -202,30 +204,29 @@ Update the three call sites to drop the now-invalid `title`/`summary` patch fiel
 
 **Files:** `src/main/ipc.ts`, `src/shared/ipc.ts`, `src/renderer/App.tsx`, `src/renderer/store.ts`, the Review titlebar component; both web (`src/renderer/web-api.ts:72`) and desktop (`src/preload/index.ts:22-25`) subscriptions carry the message untouched — no transport changes.
 
-### 7. Resume-failure fallback: retry once as a seeded fresh session
+### 7. Resume-failure → clear, actionable error (no auto-retry)
 
-**Current:** a thread with an `engineSessionId` always resumes (`claude.ts:213`, `codexAppServer.ts:460` → `thread/resume` at `:341-346`). If the CLI pruned that session, the turn fails and *every subsequent turn on that thread fails the same way* — the thread is bricked (`docs/agent-layer.md:199`). The seeded-fresh path already exists and is used for threads that never had a session: `buildSeededChatPrompt` (`prompts.ts:98`) for chat, the `context` parameter of `buildBatchPrompt`/`buildAnswerPrompt` (`prompts.ts:115,140`) for batch — both fed from `ipc.ts:552-554` / `:672-673`.
+**Current:** a thread with an `engineSessionId` always resumes (`claude.ts:213`, `codexAppServer.ts:460` → `thread/resume` at `:341-346`). If the CLI pruned that session, the turn fails and *every subsequent turn on that thread fails the same way* — the thread is bricked (`docs/agent-layer.md:199`). Worse, the failure surfaces as a generic opaque turn error, so the reviewer has no idea the fix is simply "start a new chat."
 
-**Change:** retry once, seeded, inside `sendChat` (`ipc.ts:519`) and `sendBatch` (`:628`).
+**Decision (resolved — no automatic recovery):** do **not** silently re-run the turn. Auto-retrying (even seeded) would reset the agent's conversation memory behind the reviewer's back and, for write-enabled batch, would rely on an events-based gate to avoid double-writes. The reviewer should stay in control: detect the bricked-session shape, fail with a **clear, distinct, actionable error at every layer**, and tell them to start a new chat. No seeded-fresh path, no agent-note injection, no thread rebind.
 
-*Detection (decision):* engine error strings for a pruned session are not stable across CLI versions (Claude surfaces `Claude run failed: <subtype>`; Codex fails at `thread/resume` with a version-dependent message). Instead of pattern-matching, gate on the **observable shape of a resume failure**: it aborts before the model does any work. Retry iff:
+**Change:** in `sendChat` (`ipc.ts:519`) and `sendBatch` (`:628`), classify the failure and surface a specific error instead of the generic one.
+
+*Detection:* engine error strings for a pruned session are not stable across CLI versions (Claude surfaces `Claude run failed: <subtype>`; Codex fails at `thread/resume` with a version-dependent message). Instead of pattern-matching, classify on the **observable shape of a resume failure** — it aborts before the model does any work. Treat the failure as a *lost-session* failure iff:
 
 - `thread.engineSessionId` was set (we attempted a resume), AND
 - the failed attempt produced **no `text` and no `tool` events** in `recorder.events` (status/error events don't count), AND
 - the outcome is `failed`, not `cancelled`.
 
-This is engine-agnostic, can't double-run a turn that already did work (critical for write-enabled batch: a run that edited files necessarily emitted tool events), and degrades safely — a genuine pre-model failure (binary missing) just fails twice with the same error.
+This is engine-agnostic. A genuine pre-model failure with a session id present (e.g. binary missing) also matches this shape — that is acceptable: the message names both the likely cause and the remedy, and still includes the underlying engine error so a non-session cause remains diagnosable.
 
-*Mechanics:* restructure each handler's body into `attempt(engineSessionId?: string)` — everything from tool-host creation through `engine.chat(...)` to the awaited result and message persistence. Hoist the user-turn persist (`ipc.ts:558` / `:653-658`) **out of** the attempt so a retry can't duplicate it. On a gated failure:
+*Mechanics:*
 
-1. Emit `send('op:event', { opId, event: { type: 'status', text: 'Previous agent session was unavailable — restarting with fresh context.' } })`.
-2. Persist an agent note into the thread: `dao.addChatMessage(db, threadId, { role: 'agent', text: '(The previous agent session was no longer available — the agent rejoined with fresh context; earlier conversation memory was reset.)', at: … })`.
-3. Re-run `attempt(undefined)`. With no `engineSessionId`, the existing wiring automatically selects the seeded prompt (`buildSeededChatPrompt` / `context` seed) — no new prompt code.
-4. The existing `if (engineSession) dao.setThreadEngineSession(...)` (`ipc.ts:576,692`) persists the fresh id; the thread is un-bricked for all future turns.
+1. When the gate matches, throw/emit a distinct error carrying: a stable code (e.g. `code: 'ENGINE_SESSION_LOST'`), a human message — *"This conversation's agent session is no longer available. Start a new chat to continue; the previous messages remain visible here."* — and the raw engine error appended for diagnosis. The user-turn persist stays where it is; nothing about the thread is mutated, so the visible history is intact.
+2. **Propagate at every layer:** main-process op failure → the existing `op:event`/op-error channel carries the code + message → the renderer's op-error handling renders it as a distinct, non-generic error state on the thread, with the "Start a new chat" suggestion (reuse the existing new-thread affordance; copy-level change, no new IPC).
+3. The `generate` handler needs nothing: review generation never resumes (`generateReview` has no session id).
 
-The `generate` handler needs nothing: review generation never resumes (`generateReview` has no session id).
-
-**Files:** `src/main/ipc.ts`; update `docs/agent-layer.md:199` (the invariant becomes "…falls back once to a seeded fresh session and rebinds the thread").
+**Files:** `src/main/ipc.ts` (classification + error), `src/shared/ipc.ts` (error code/shape if one is added to the op-error payload), `src/renderer/store.ts` + the chat/thread error surface (distinct message + new-chat suggestion); update `docs/agent-layer.md:199` (the invariant becomes "…surfaces a distinct `ENGINE_SESSION_LOST` error telling the reviewer to start a new chat; the thread is never auto-rebound").
 
 ### 8. Allowlist guard on tool auto-accept (Codex elicitations + Claude canUseTool)
 
@@ -299,9 +300,13 @@ export async function probeEngineVersion(engine: EngineBinary): Promise<EngineVe
 Implementation: `execFile(binaryPath(engine), ['--version'], { timeout: 3000 })`; parse `/\d+\.\d+\.\d+/`; compare with a 10-line numeric triple compare (no semver dependency) against:
 
 ```ts
-const KNOWN_GOOD_MIN: Record<EngineBinary, string> = {
+// RESOLVED (open question 7): no clean SDK→CLI version mapping
+// (@anthropic-ai/claude-agent-sdk is 0.3.173, not the `claude` CLI semver).
+// Ship a Codex floor only; the `claude` probe reports its version in the hint
+// with NO warning threshold. Omit `claude` from this map and treat a missing
+// entry as "report version, never warn".
+const KNOWN_GOOD_MIN: Partial<Record<EngineBinary, string>> = {
   codex: '0.135.0',   // app-server protocol verified against 0.135 (codexAppServer.ts:433)
-  claude: '<TBD — see open question 7>'
 }
 ```
 
@@ -321,7 +326,7 @@ All tests are `vitest run` (`npm test`); DB tests reuse the temp-file pattern fr
 | 4 | The table-driven identity test described in Design §4 (every `CASES` entry through both columns + the two `findSession` consequence cases). |
 | 5 | `tests/db-sessions.test.ts`: `updateSessionMeta(db, id, { annotations })` alone updates `title`/`summary` columns to `annotations.title/summary` (assert via raw `SELECT`); `listRepoSessions` reflects the new title. Compile-time enforcement needs no test (removed fields don't typecheck), but keep one test that `edit_review`'s DAO effect (`tools.test.ts`) still mirrors the columns. |
 | 6 | Watcher unit tests are awkward (module-level singleton + timers) — test the pieces: extract the failure-counter/interval-retune decision into a small pure helper and unit-test the 3-strike + probe/restore transitions with fake results; type-level, assert `RepoChangedMsg` with and without `watchStopped` compiles at the App.tsx handler. Manual verification (per repo skill): open a review, delete the branch → pill appears ≤ ~12 s; re-create the branch → pill clears ≤ ~10 s. |
-| 7 | `tests/ipc-*` style with the fake engine (`src/main/engines/fake.ts`): (a) thread with `engineSessionId`, first attempt fails with zero text/tool events → second attempt runs with `engineSessionId === undefined` and a `context` seed, thread gets the new engine session id and the reset-note agent message; (b) failure *after* a tool event → no retry, single failure note; (c) cancelled → no retry; (d) user message persisted exactly once across a retried turn. |
+| 7 | `tests/ipc-*` style with the fake engine (`src/main/engines/fake.ts`): (a) thread with `engineSessionId`, attempt fails with zero text/tool events → the op fails with the `ENGINE_SESSION_LOST` code/message, the thread is **not** rebound (engineSessionId unchanged) and **no** fresh turn runs; (b) failure *after* a tool event → classified as a generic failure, **not** `ENGINE_SESSION_LOST`; (c) cancelled → generic, not `ENGINE_SESSION_LOST`; (d) no `engineSessionId` on the thread → generic, not `ENGINE_SESSION_LOST`; (e) the user message is persisted exactly once (unchanged by the failure). |
 | 8 | `tests/tools.test.ts`: two-way set equality between `LIMN_TOOLS` names and `AUTO_ACCEPT_TOOL_NAMES`. `tests/codex-app-server.test.ts` or new: `registerCodexTurn` throws the explanatory error when handed a host after temporarily appending a fake tool to `LIMN_TOOLS` (or restructure the assertion into a pure `assertAutoAcceptCoverage(tools)` and test that directly). Claude side: `makeCanUseTool` allows `mcp__limn__focus` without a decision; routes `mcp__limn__write_file` (fabricated) to the approval path. |
 | 9 | `tests/prompts.test.ts`: batch/answer/review prompts wrap comment text, replies, steer, and answers in the tags; the data-not-instructions line present exactly when reviewer text is; a comment containing ``` and `</reviewer_comment>`-like text still produces one well-formed block per comment (assert tag count). Chat prompts unchanged (regression assert). |
 | 10 | `tests/binaries.test.ts`: version parse over representative `--version` outputs (`codex-cli 0.135.0`, `1.2.3 (Claude Code)`, garbage, empty); floor comparison (below → warning, at/above → none); spawn failure → `{}`; cache hit (second call doesn't respawn — inject a spy). |
@@ -331,7 +336,7 @@ All tests are `vitest run` (`npm test`); DB tests reuse the temp-file pattern fr
 - **No schema migration anywhere.** Items 2, 6 add optional fields to shared types (`ReviewState.loadWarnings`, `RepoChangedMsg.watchStopped`) — additive; old renderer bundles simply ignore them (relevant for the web-serve stale-tab case).
 - Item 1 changes cross-process behavior only when a second process actually contends; single-process behavior is identical.
 - Item 5 is an **internal breaking change** to `SessionMetaPatch` (fields removed) — main-process-only type, all three call sites updated in the same commit; no data backfill needed because every existing row was written in lockstep.
-- Item 7 changes failure-path behavior for threads whose CLI session was pruned: previously permanent failure, now one automatic seeded retry. Existing bricked threads self-heal on their next turn.
+- Item 7 changes failure-path behavior for threads whose CLI session was pruned: previously an opaque permanent failure, now a distinct `ENGINE_SESSION_LOST` error telling the reviewer to start a new chat. No auto-recovery; the thread and its visible history are untouched.
 - Item 8's `registerCodexTurn` assertion is a startup-of-turn throw; ship it in the same commit as the allowlist so it can never fire in a released build with the current tool set.
 - Item 10 requires no ACP-migration coordination: it's additive to `authStatus` and deletes cleanly if/when ACP replaces the CLI layer.
 - Docs to touch in the same PR(s): `docs/storage-layer.md` (items 1, 2, 3, 5), `docs/agent-layer.md` (items 7, 8), `docs/codex-app-server.md` (item 8).
@@ -342,8 +347,8 @@ All tests are `vitest run` (`npm test`); DB tests reuse the temp-file pattern fr
 2. **(Item 2)** Is the existing `error` strip acceptable for load warnings, or does this deserve a distinct non-error notice surface? — **Recommend the error strip:** it's the established channel for boot notices (`store.ts:574`), dismissible, and adding a new notice surface for a should-never-happen path isn't worth the UI.
 3. **(Item 2)** Should corrupt `comments.json` rows be deleted after being reported, so warnings don't repeat forever? — **Recommend no (keep the row):** never destroy data on a read path; the blob may be recoverable by hand, and the repeated warning is honest. Revisit only if it annoys in practice.
 4. **(Item 6)** Probe-forever at 10 s, or give up after N probes? — **Recommend probe forever:** one failed git subprocess per 10 s per open review is negligible, and the self-heal (rebase finished, volume remounted) is the whole value. `stopWatch()` still ends it on navigation.
-5. **(Item 7)** Should write-enabled batch turns also get the seeded retry? — **Recommend yes, with the no-text/no-tool-events gate as specced:** a resume failure aborts before the model acts, so the gate provably excludes any run that touched the repo. If reviewers prefer maximum caution, restrict the retry to read-only turns (chat + refine) for v1 and extend later — the gate mechanism is identical.
+5. **(Item 7)** Should write-enabled batch turns also get the seeded retry? — **RESOLVED: no retries at all (any turn).** Auto-retry was rejected — it resets agent memory behind the reviewer's back. Instead, detect the lost-session shape and surface a distinct `ENGINE_SESSION_LOST` error at every layer suggesting "start a new chat." See rewritten Design §7.
 6. **(Item 8)** For a future *non*-allowlisted Limn tool, should the Codex elicitation route to the reviewer-approval ladder instead of the registration-time throw? — **Recommend the throw for now:** routing Codex elicitations to `awaitDecision` needs a request-id/params mapping we can't verify offline (the elicitation params' tool-name field is undocumented); the throw guarantees the unsafe state is unreachable, and the Claude side already demonstrates the approval-routing pattern to copy when a write tool actually lands.
-7. **(Item 10)** What is the Claude CLI known-good floor? — **Recommend:** at implementation time, read the CLI version the pinned `@anthropic-ai/claude-agent-sdk` ships/expects (check its `package.json`/changelog in `node_modules`) and use that major.minor as the floor; if it isn't determinable in 15 minutes, ship the probe with a Codex floor only (`claude` probe reports version in the hint with no warning threshold).
+7. **(Item 10)** What is the Claude CLI known-good floor? — **RESOLVED: no Claude floor.** The pinned `@anthropic-ai/claude-agent-sdk` is `0.3.173`, which does not map cleanly to a `claude` CLI semver. Ship the probe with a **Codex floor only** (`0.135.0`); the `claude` probe reports its detected version in the hint with no warning threshold. Codified in Item 10's `KNOWN_GOOD_MIN`.
 8. **(Item 9)** Tag vocabulary bikeshed — `<reviewer_comment>`/`<reviewer_steer>`/`<reviewer_answer>`/`<comment_reply>` as specced? — **Recommend yes:** self-describing beats generic `<user_input>`, and the per-kind tags let the one-line instruction reference them collectively as `<reviewer_…>`.
 9. **(Item 3)** Also forbid `node:sqlite` value imports in `tests/**`? — **Recommend no:** `tests/db.test.ts:58` legitimately constructs a raw connection to inspect a file after a failed migration; tests validating the entrypoint need to go around it.

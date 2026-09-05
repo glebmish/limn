@@ -47,6 +47,7 @@ function open(file: string): DatabaseSync {
   const db = new DatabaseSync(file)
   try {
     db.exec('PRAGMA journal_mode = WAL')
+    db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA foreign_keys = ON')
     const check = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string }
     if (check.integrity_check !== 'ok') throw new Error(`integrity: ${check.integrity_check}`)

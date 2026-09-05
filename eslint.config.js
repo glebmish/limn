@@ -33,5 +33,23 @@ export default tseslint.config(
   {
     files: ['tests/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } }
+  },
+  {
+    // openDb() (src/main/db/db.ts) is the sole `node:sqlite` entrypoint: it sets
+    // WAL, busy_timeout, the integrity check, and runs migrations. Forbid value
+    // imports of node:sqlite everywhere else in src/ so no future code can bypass
+    // it with a raw `new DatabaseSync()`. Type-only imports (`import type`) stay
+    // allowed — many DAO files import the `DatabaseSync` type.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/main/db/db.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', {
+        paths: [{
+          name: 'node:sqlite',
+          message: 'Open the database through openDb() (src/main/db/db.ts) — it sets WAL, busy_timeout, integrity check, and runs migrations. Type-only imports are fine.',
+          allowTypeImports: true
+        }]
+      }]
+    }
   }
 )

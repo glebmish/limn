@@ -287,6 +287,8 @@ export interface ReviewState {
   artifactApprovals: Record<string, string>;
   latestIteration?: Iteration;
   iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
+  /** Non-fatal load degradations: blobs that failed to parse and were skipped. */
+  loadWarnings?: string[];
 }
 export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
 

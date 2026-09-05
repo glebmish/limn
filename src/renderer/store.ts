@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CliOpenMsg, DashboardData, LoadedReview, OperationStatus } from '../shared/ipc'
+import type { CliOpenMsg, DashboardData, LoadedReview, OpErrorCode, OperationStatus } from '../shared/ipc'
 import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, Hunk, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { fileEffectivelyExcluded } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
@@ -29,6 +29,13 @@ export function newOpId(): string {
  *  land. `blocked` → branch checked out nowhere (submissions disabled, offer
  *  checkout). `dirtyWarn` → branch active but its worktree is dirty (allowed, warn).
  *  Non-branch compares are inherently review-only and never blocked. */
+/** Non-fatal load degradations (blobs that failed to parse, salvaged in the DAO)
+ *  surface in the same dismissible error strip as boot notices. null → no strip. */
+export function loadWarningStrip(loaded: LoadedReview): string | null {
+  const w = loaded.state.loadWarnings
+  return w && w.length ? `Some saved review data could not be loaded: ${w.join('; ')}` : null
+}
+
 export function checkoutGate(loaded: LoadedReview | null): { blocked: boolean; dirtyWarn: boolean; writeEnabled: boolean; branch: string | null } {
   const capability = loaded?.writeCapability
   if (!loaded || !capability) return { blocked: false, dirtyWarn: false, writeEnabled: false, branch: null }
@@ -182,6 +189,15 @@ export interface GenState {
   startedAt: number | null
   /** Typed terminal result; null while idle/running. */
   outcome: OperationStatus | null
+  /** Stable classification of a failed op (e.g. a lost engine session), so the chat
+   *  surface can render a distinct, actionable state instead of the generic error. */
+  errorCode: OpErrorCode | null
+}
+
+/** Whether a finished op failed because the thread's engine session was pruned — the
+ *  chat surface shows a distinct "start a new chat" prompt for this. */
+export function genSessionLost(gen: GenState): boolean {
+  return gen.errorCode === 'ENGINE_SESSION_LOST'
 }
 
 /** Whether a finished operation has the typed cancelled outcome. */
@@ -190,7 +206,7 @@ export function genCancelled(gen: GenState): boolean {
 }
 
 /** A neutral gen state — the effective op for a review that owns no in-flight op. */
-const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null }
+const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null }
 
 /** `gen` is global to the renderer, but an op belongs to the review whose thread it
  *  streams into. Scope it to the loaded review so an op started on a *different*
@@ -291,6 +307,11 @@ interface AppStore {
    *  loaded — drives the titlebar fetch pill. Set by the watcher via onRepoChanged;
    *  cleared on reload (the click folds it in). null = up to date with the load. */
   pendingDrift: DriftSummary | null
+  /** set by the watcher (onRepoChanged) when the branch poller can no longer read
+   *  the repo/branch — drives the muted "Live updates paused" titlebar pill; the
+   *  string is the git error reason (tooltip). null = the watch is live. Cleared by a
+   *  self-healing probe (a normal onRepoChanged) or any reload/navigation. */
+  watchStopped: { reason: string } | null
   /** path of the artifact whose rendered doc view is open (overlay), or null.
    *  Lifted out of Review so the diff's spec/plan badge can open it too. */
   docPath: string | null
@@ -360,13 +381,15 @@ interface AppStore {
   setFocusTarget(t: { file?: string; sectionId?: string } | null): void
   /** stash (or clear) the drift the watcher reported for the loaded review. */
   setPendingDrift(d: DriftSummary | null, capability?: AgentWriteCapability): void
+  /** mark the branch watcher stopped (carrying its reason) or live (null). */
+  setWatchStopped(v: { reason: string } | null): void
   openDoc(path: string): void
   closeDoc(): void
   /** Set the global diff baseline applied to every file. */
   setGlobalDiffMode(mode: DiffMode): void
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number): void
   pushOpEvent(ev: EngineEvent): void
-  finishOp(status: OperationStatus, error?: string): void
+  finishOp(status: OperationStatus, error?: string, errorCode?: OpErrorCode): void
   setComments(comments: Comment[]): void
   // chat
   switchChat(id: number): void
@@ -519,10 +542,11 @@ export const useStore = create<AppStore>((set, get) => {
     curFile: null,
     focusTarget: null,
     pendingDrift: null,
+    watchStopped: null,
     docPath: null,
     diffMode: 'branch',
 
-    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null },
 
     async boot() {
       try {
@@ -621,7 +645,7 @@ export const useStore = create<AppStore>((set, get) => {
       const repo = repoPath ?? get().repo
       if (!repo) { get().backToDashboard(); return }
       // remember the review we came from so the hub can offer a jump-back
-      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null })
+      set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null, watchStopped: null })
       await loadRepoContext(repo)
     },
 
@@ -702,7 +726,7 @@ export const useStore = create<AppStore>((set, get) => {
           branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
           diffMode: 'branch',
-          activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: null, pendingDrift: null
+          activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: loadWarningStrip(loaded), pendingDrift: null, watchStopped: null
         })
         void loadRepoContext(repoPath)
       } catch (err) {
@@ -732,7 +756,7 @@ export const useStore = create<AppStore>((set, get) => {
           if (keepExcluded && Object.keys(keepExcluded).length > 0) {
             real.state.fileExcluded = { ...real.state.fileExcluded, ...keepExcluded }
           }
-          set({ sessionId, loaded: real, transientFresh: false })
+          set({ sessionId, loaded: real, transientFresh: false, error: loadWarningStrip(real) })
           void loadRepoContext(repo)
           return sessionId
         } catch (err) {
@@ -770,10 +794,10 @@ export const useStore = create<AppStore>((set, get) => {
       try {
         const loaded = await window.api.loadSession(sessionId)
         set({
-          sessionId, loaded, error: null, screen: 'review',
+          sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
           // reset the (global) gen state so a previous session's running/errored op
           // doesn't bleed its strip or error banner onto the one being opened.
-          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null },
+          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null },
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
@@ -781,7 +805,8 @@ export const useStore = create<AppStore>((set, get) => {
           agent: loaded.state.agent ?? get().agent,
           activeChatId: pickActiveChat(loaded.state.chats, null),
           draftChat: null,
-          pendingDrift: null
+          pendingDrift: null,
+          watchStopped: null
         })
         void loadRepoContext(loaded.state.repo)
       } catch (err) {
@@ -792,7 +817,7 @@ export const useStore = create<AppStore>((set, get) => {
     backToDashboard() {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
-        repoState: null, repoSessions: [], pendingDrift: null
+        repoState: null, repoSessions: [], pendingDrift: null, watchStopped: null
       })
       void get().loadDashboard()
     },
@@ -841,9 +866,11 @@ export const useStore = create<AppStore>((set, get) => {
         : null
       set({
         loaded,
+        error: loadWarningStrip(loaded),
         viewedAt: loaded.state.viewedAt,
         activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
-        pendingDrift: null // the reload folded any drift in; the watcher re-baselines
+        pendingDrift: null, // the reload folded any drift in; the watcher re-baselines
+        watchStopped: null
       })
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     },
@@ -938,9 +965,12 @@ export const useStore = create<AppStore>((set, get) => {
         ...(loaded && capability ? { loaded: { ...loaded, writeCapability: capability } } : {})
       })
     },
+    setWatchStopped(v) {
+      set({ watchStopped: v })
+    },
 
     startOp(kind, opId, threadId) {
-      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null } })
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null } })
     },
 
     pushOpEvent(ev) {
@@ -949,9 +979,9 @@ export const useStore = create<AppStore>((set, get) => {
       set({ gen: { ...gen, log: [...gen.log.slice(-200), ev] } })
     },
 
-    finishOp(status, error) {
+    finishOp(status, error, errorCode) {
       const gen = get().gen
-      set({ gen: { ...gen, running: false, outcome: status, error: status === 'failed' ? error ?? 'unknown error' : null } })
+      set({ gen: { ...gen, running: false, outcome: status, error: status === 'failed' ? error ?? 'unknown error' : null, errorCode: status === 'failed' ? errorCode ?? null : null } })
     },
 
     setComments(comments) {
@@ -1054,7 +1084,7 @@ export const useStore = create<AppStore>((set, get) => {
       void window.api.cancel(gen.opId)
       // Record the typed cancel outcome up front and leave the running strip
       // immediately; the main-process terminal result will confirm it later.
-      set({ gen: { ...gen, running: false, outcome: 'cancelled', error: null } })
+      set({ gen: { ...gen, running: false, outcome: 'cancelled', error: null, errorCode: null } })
     },
 
     sendChat(text, anchor) {

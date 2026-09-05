@@ -4,7 +4,7 @@ import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type Revi
 import { parseReviewOutput, reviewJsonSchema } from './schema.js'
 import { buildChatPrompt, buildReviewPrompt, buildSeededChatPrompt } from './prompts.js'
 import { claudeBinaryPath } from './binaries.js'
-import { LIMN_TOOLS, limnAllowedToolNames, type AgentToolHost } from './tools.js'
+import { AUTO_ACCEPT_TOOL_NAMES, LIMN_TOOLS, limnAllowedToolNames, type AgentToolHost } from './tools.js'
 import { deriveVerb, clampOut } from '../../shared/toolcalls.js'
 import { executionPolicy, DEFAULT_EXECUTION_MODE } from '../../shared/executionMode.js'
 import { awaitDecision } from './approvals.js'
@@ -37,7 +37,11 @@ export function makeCanUseTool(opId: string, emit: (e: EngineEvent) => void): Ca
     // 'allow' MUST echo the tool input back as updatedInput — without it the SDK
     // forwards `undefined` to the tool, which then fails its own input schema with
     // a ZodError (observed on Bash after a reviewer approves a command).
-    if (toolName.startsWith('mcp__limn__') || READ_SAFE.includes(toolName)) {
+    // Auto-allow only allowlisted limn tools (metadata-only) + read-safe tools. A
+    // non-member mcp__limn__ tool (e.g. a future write tool) falls through to the
+    // reviewer-approval path below — the right default for anything write-capable.
+    const limnName = toolName.startsWith('mcp__limn__') ? toolName.slice('mcp__limn__'.length) : null
+    if ((limnName !== null && AUTO_ACCEPT_TOOL_NAMES.has(limnName)) || READ_SAFE.includes(toolName)) {
       return { behavior: 'allow', updatedInput: input }
     }
     const request = toApprovalRequest('claude', toolName, input, `limn-approval-${++approvalSeq}`)

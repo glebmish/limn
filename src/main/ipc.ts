@@ -6,10 +6,10 @@ import os from 'node:os'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Transport } from './transport.js'
 import type {
-  Api, DashboardData, OpEventMsg, OpResultMsg, OperationStatus, RefOptions,
+  Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, ApprovalDecision, Comment, CommentAnchor, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, RefPair, RefSide, RepoIndexEntry, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, driftSummary, getDiff, hashObjects, headSha,
@@ -26,10 +26,11 @@ import { resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt } from './engines/prompts.js'
 import { agentLabel } from '../shared/agents.js'
 import { mergeAnnotations } from './engines/validate.js'
-import { engineBinaryStatus, setEngineBinaryPrefs } from './engines/binaries.js'
+import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator } from './operations.js'
 import { ENGINE_PATH_PREF_KEYS } from '../shared/prefs.js'
+import { decideWatch, initialWatchDecision } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
 
@@ -49,6 +50,9 @@ let transport: Transport
 let watcher: {
   timer: NodeJS.Timeout; repo: string; branch: string; workdir: string | null
   loadedSha: string; loadSig: string; lastSig: string
+  // transient-tolerance + self-heal decision state (see watch-decision.ts) plus the
+  // last-known head/capability used to fill a `watchStopped` broadcast.
+  failures: number; stopped: boolean; lastHead: string; lastCapability: AgentWriteCapability
 } | null = null
 
 /** Change detector + current head. For dirty worktrees this hashes actual diff
@@ -73,24 +77,68 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
   stopWatch()
   const workdir = await branchCheckedOutAt(repo, branch)
   const loadSig = await watchState(repo, branch, workdir).then((s) => s.sig).catch(() => `${loadedSha}\n`)
-  const w = { repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig, timer: setInterval(() => void poll(), 500) }
+  // seed last-known: the load-time head, and the write capability computed once here
+  // (so a `watchStopped` broadcast can carry non-empty fields even if the very first
+  // real poll is the one that fails).
+  const seedCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: loadedSha })
+    .catch((): AgentWriteCapability => ({ enabled: false, reason: 'not-branch', branch, workdir: null }))
+  const w = {
+    repo, branch, workdir, loadedSha, loadSig, lastSig: loadSig,
+    ...initialWatchDecision, lastHead: loadedSha, lastCapability: seedCapability,
+    timer: setInterval(() => void poll(), 500)
+  }
   watcher = w
   async function poll(): Promise<void> {
     if (operations.repoBusy(repo)) return // our own agent op — reload arrives via op:result
+    let result: Parameters<typeof decideWatch>[1]
+    // on success: the fresh head/sig plus, when we mean to broadcast, the computed
+    // drift/capability payload. A success while stopped is a recovery — broadcast even
+    // if nothing moved so the paused pill clears.
+    let payload:
+      | { head: string; sig: string; broadcast: boolean; drift: DriftSummary | null; writeCapability: AgentWriteCapability }
+      | null = null
     try {
       const { head, sig } = await watchState(repo, branch, w.workdir)
-      if (sig === w.lastSig) return
-      w.lastSig = sig
-      // drift is measured against the LOAD-time state: null when the tree returns
-      // to it; dirty-only changes still broadcast so worktree indicators stay live.
-      const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
-      const drift = driftHasChanges(d) ? d : null
-      const writeCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: head })
-      send('repo:changed', { repo, branch, headSha: head, drift, writeCapability })
-    } catch {
-      // branch deleted / repo gone — stop quietly
+      const broadcast = sig !== w.lastSig || w.stopped
+      if (broadcast) {
+        // drift is measured against the LOAD-time state: null when the tree returns
+        // to it; dirty-only changes still broadcast so worktree indicators stay live.
+        const d = sig === w.loadSig ? null : await driftSummary(repo, branch, w.loadedSha, w.workdir)
+        const drift = driftHasChanges(d) ? d : null
+        const writeCapability = await writeCapabilityFor(repo, { kind: 'branch', symbol: branch, anchorSha: head })
+        payload = { head, sig, broadcast, drift, writeCapability }
+      } else {
+        payload = { head, sig, broadcast, drift: null, writeCapability: w.lastCapability }
+      }
+      result = { ok: true }
+    } catch (err) {
+      // don't stop on a single transient (index.lock racing a rebase, a volume
+      // remount); the decision helper only calls the watch down after 3 consecutive
+      // failures. All git reads above share this counter.
+      result = { ok: false, reason: errorMessage(err).split('\n')[0].trim() || 'unknown error' }
+    }
+    const decision = decideWatch({ failures: w.failures, stopped: w.stopped }, result)
+    w.failures = decision.next.failures
+    w.stopped = decision.next.stopped
+    if (decision.retuneTo !== null) {
+      // enter the 10 s probe on stop, or restore the 500 ms cadence on recovery
       clearInterval(w.timer)
-      if (watcher === w) watcher = null
+      w.timer = setInterval(() => void poll(), decision.retuneTo)
+    }
+    if (decision.emit === 'stopped') {
+      // watch is down — surface it (fields are last-known) so the titlebar can pause
+      send('repo:changed', {
+        repo, branch, headSha: w.lastHead, drift: null,
+        writeCapability: w.lastCapability, watchStopped: { reason: decision.reason ?? 'unknown error' }
+      })
+      return
+    }
+    if (!payload) return // a tolerated (pre-threshold) failure — nothing to broadcast yet
+    w.lastHead = payload.head
+    w.lastSig = payload.sig
+    if (payload.broadcast) {
+      w.lastCapability = payload.writeCapability
+      send('repo:changed', { repo, branch, headSha: payload.head, drift: payload.drift, writeCapability: payload.writeCapability })
     }
   }
 }
@@ -103,8 +151,30 @@ function send(channel: 'op:event' | 'op:result' | 'repo:changed', msg: OpEventMs
   transport.broadcast(channel, msg)
 }
 
-function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean): void {
-  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}) })
+function sendOpResult(opId: string, kind: 'review' | 'chat', status: OperationStatus, error?: string, reload?: boolean, errorCode?: OpErrorCode): void {
+  send('op:result', { opId, kind, status, ...(error ? { error } : {}), ...(reload ? { reload: true } : {}), ...(errorCode ? { errorCode } : {}) })
+}
+
+/** Human message for a chat/batch turn that failed because the CLI pruned the thread's
+ *  engine session. No auto-retry: the thread is left untouched so its visible history
+ *  stays intact and the reviewer can start a new chat. The raw engine error is appended. */
+const ENGINE_SESSION_LOST_MESSAGE =
+  "This conversation's agent session is no longer available. Start a new chat to continue; the previous messages remain visible here."
+
+/** Classify a failed turn as a lost engine session by its *observable shape* — a resume
+ *  that lost its session aborts before the model does any work. Never matches engine
+ *  error strings (unstable across CLI versions). True iff the engine turn was actually
+ *  invoked (`engineInvoked` — so a pre-model app throw like a dirty-tree precondition or
+ *  RepoBusyError stays generic), a resume was attempted (`engineSessionId` was set), the
+ *  turn produced no text/tool events (status/error events don't count), and it failed
+ *  rather than being cancelled. The resume happens inside the engine turn (claude
+ *  `resume:` in the SDK query; codex `thread/resume`), so a genuine pruned-session
+ *  failure occurs with `engineInvoked` already true. */
+function isLostEngineSession(engineInvoked: boolean, hadEngineSession: boolean, events: EngineEvent[], status: OperationStatus): boolean {
+  return status === 'failed'
+    && engineInvoked
+    && hadEngineSession
+    && !events.some((e) => e.type === 'text' || e.type === 'tool')
 }
 
 function errorMessage(error: unknown): string {
@@ -438,8 +508,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         })
         dao.updateSessionMeta(db, sessionId, {
           engine: agent.engine, model: agent.model ?? null, reasoningEffort: agent.reasoningEffort ?? null,
-          annotations, title: annotations.title, summary: annotations.summary,
-          reviewedAtSha: skeleton.headSha
+          annotations, reviewedAtSha: skeleton.headSha
         })
         // finalize the review thread created at op start: bind it to the engine
         // session that produced the review and persist the agent's turn (the user
@@ -522,13 +591,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
+    // hoisted so the failure classifier below can read the turn's event shape (a lost
+    // engine session aborts before any text/tool event — see isLostEngineSession).
+    const recorder = opRecorder(opId)
+    // flips true the instant the engine turn is invoked; the classifier requires it so a
+    // pre-model app throw (bad workdir, RepoBusyError) can't masquerade as a lost session.
+    let engineInvoked = false
     const outcome = await operations.run(opId, repo, async () => {
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
-      const recorder = opRecorder(opId)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         emit: recorder.emit
@@ -538,7 +612,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       operations.throwIfCancelled(opId)
       // resume the thread's engine session if it has one; otherwise seed a fresh
       // session with review context (a chat agent that didn't write the review
-      // has nothing to resume).
+      // has nothing to resume). The resume happens inside this call, so a genuine
+      // pruned-session failure surfaces with engineInvoked already true.
+      engineInvoked = true
       const run = engine.chat({
         repo: workdir,
         engineSessionId: thread.engineSessionId,
@@ -580,11 +656,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     } else {
       const cancelled = outcome.status === 'cancelled'
       const msg = errorMessage(outcome.error)
-      // the user turn is already persisted; on a genuine failure record an agent note
-      // so the thread shows what happened (a user cancel stays quiet), and reload so the
-      // user message (and any note) surface in the drawer.
-      if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
-      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
+      if (isLostEngineSession(engineInvoked, Boolean(thread.engineSessionId), recorder.events, outcome.status)) {
+        // the CLI pruned this thread's engine session: surface a distinct, actionable
+        // error and leave the thread untouched — no agent note, no rebind — so the
+        // visible history stays intact and the reviewer can start a fresh chat.
+        sendOpResult(opId, 'chat', outcome.status, `${ENGINE_SESSION_LOST_MESSAGE}\n\n${msg}`, true, 'ENGINE_SESSION_LOST')
+      } else {
+        // the user turn is already persisted; on a genuine failure record an agent note
+        // so the thread shows what happened (a user cancel stays quiet), and reload so the
+        // user message (and any note) surface in the drawer.
+        if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Turn failed: ${msg}`, at: new Date().toISOString() })
+        sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
+      }
     }
   })
 
@@ -631,6 +714,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
+    // hoisted so the failure classifier below can read the turn's event shape (a lost
+    // engine session aborts before any text/tool event — see isLostEngineSession).
+    const recorder = opRecorder(opId)
+    // flips true the instant the engine turn is invoked; the classifier requires it so a
+    // pre-model app throw (dirty tree, "Nothing to send", RepoBusyError) stays generic.
+    let engineInvoked = false
     const outcome = await operations.run(opId, repo, async () => {
       // Write guards are computed from the same capability object the renderer
       // consumes. A refine turn (answering an intent question) stays read-only.
@@ -658,7 +747,6 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       })
 
       const engine = makeEngine(thread.agent.engine)
-      const recorder = opRecorder(opId)
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         engineSessionId: thread.engineSessionId, emit: recorder.emit
@@ -666,6 +754,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // cancel during setup → bail before the (write-enabled) engine launches, so a
       // stopped batch can't still edit/commit the worktree.
       operations.throwIfCancelled(opId)
+      // the resume happens inside this call, so a genuine pruned-session failure
+      // surfaces with engineInvoked already true.
+      engineInvoked = true
       const run = engine.chat({
         repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
         message: refine
@@ -704,11 +795,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       }
       const cancelled = outcome.status === 'cancelled'
       const msg = errorMessage(outcome.error)
-      // on a genuine failure record an agent note so the thread shows what happened (a
-      // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
-      if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
-      sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
-      if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
+      if (isLostEngineSession(engineInvoked, Boolean(thread.engineSessionId), recorder.events, outcome.status)) {
+        // the CLI pruned this thread's engine session: surface a distinct, actionable
+        // error and leave the thread untouched — no agent note, no rebind (the comment
+        // rollback above only restores pre-turn state) — so the reviewer can start fresh.
+        sendOpResult(opId, 'chat', outcome.status, `${ENGINE_SESSION_LOST_MESSAGE}\n\n${msg}`, true, 'ENGINE_SESSION_LOST')
+      } else {
+        // on a genuine failure record an agent note so the thread shows what happened (a
+        // user cancel stays quiet), and reload so it surfaces — mirrors the sendChat path.
+        if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `Batch failed: ${msg}`, at: new Date().toISOString() })
+        sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true)
+        if (!cancelled) notifyIfUnfocused('Agent batch run failed', msg.slice(0, 120))
+      }
     }
   })
 
@@ -740,16 +838,23 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('authStatus', async (engine: EngineId) => {
     const home = os.homedir()
+    // Best-effort version probe; appended only when the binary is ok. Never blocks.
+    const withVersionWarning = async (bin: EngineId, hint: string): Promise<string> => {
+      const { warning } = await probeEngineVersion(bin)
+      return warning ? `${hint} · ${warning}` : hint
+    }
     if (engine === 'claude') {
       const bin = engineBinaryStatus('claude')
       if (!bin.ok) return { ok: false, hint: bin.configured ? `Claude path is invalid: ${bin.hint}` : 'Install Claude Code (`claude` not found on PATH)' }
       const ok = Boolean(process.env.ANTHROPIC_API_KEY) || fs.existsSync(path.join(home, '.claude'))
-      return { ok, hint: ok ? `${bin.configured ? 'Configured Claude path' : 'Claude Code from PATH'} · login or API key found` : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY' }
+      const hint = ok ? `${bin.configured ? 'Configured Claude path' : 'Claude Code from PATH'} · login or API key found` : 'Run `claude` once to log in, or set ANTHROPIC_API_KEY'
+      return { ok, hint: await withVersionWarning('claude', hint) }
     }
     const bin = engineBinaryStatus('codex')
     if (!bin.ok) return { ok: false, hint: bin.configured ? `Codex path is invalid: ${bin.hint}` : 'Install Codex CLI (`codex` not found on PATH)' }
     const ok = Boolean(process.env.OPENAI_API_KEY) || fs.existsSync(path.join(home, '.codex', 'auth.json'))
-    return { ok, hint: ok ? `${bin.configured ? 'Configured Codex path' : 'Codex from PATH'} · login or API key found` : 'Run `codex login`, or set OPENAI_API_KEY' }
+    const hint = ok ? `${bin.configured ? 'Configured Codex path' : 'Codex from PATH'} · login or API key found` : 'Run `codex login`, or set OPENAI_API_KEY'
+    return { ok, hint: await withVersionWarning('codex', hint) }
   })
 
   handle('getPrefs', async () => {

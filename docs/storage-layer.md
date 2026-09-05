@@ -11,7 +11,7 @@ All review state — sessions, comments, chat, iterations, approvals, prefs — 
 - **Engine:** Node's built-in `node:sqlite` (`DatabaseSync`). No third-party driver. All access is **synchronous**.
 - **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/main/index.ts` and threaded explicitly into `registerIpc(db, …)`.
 - **No singleton:** the `db` handle is passed as the first argument to nearly every DAO function. There is no module-level global — this is deliberate, so tests open throwaway temp DBs.
-- **Concurrency model:** single writer. One connection, on the main process, in WAL mode. There is no `SQLITE_BUSY` retry logic and the design assumes nothing else writes the file.
+- **Concurrency model:** WAL mode with a 5 s `busy_timeout`. The desktop app and the headless web server can each open the same file; readers never block, and a writer colliding with another writer waits up to 5 s for the lock before throwing rather than failing instantly. There is no application-level `SQLITE_BUSY` retry loop beyond that wait.
 
 ### Files
 
@@ -27,9 +27,10 @@ All review state — sessions, comments, chat, iterations, approvals, prefs — 
 
 1. `new DatabaseSync(file)`
 2. `PRAGMA journal_mode = WAL`
-3. `PRAGMA foreign_keys = ON`
-4. `PRAGMA integrity_check` → throws if not `ok`
-5. `migrate(db)`
+3. `PRAGMA busy_timeout = 5000`
+4. `PRAGMA foreign_keys = ON`
+5. `PRAGMA integrity_check` → throws if not `ok`
+6. `migrate(db)`
 
 Three failure modes are handled **differently**, and the distinctions are load-bearing:
 
@@ -39,7 +40,7 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 > ⚠️ The discriminator is `isCorruptionError(err)` (a message match), **not** "which function threw." If you ever change that classifier, be conservative: a false positive routes recoverable errors down the data-losing corruption path. When unsure, rethrow rather than recover.
 
-> ⚠️ `PRAGMA foreign_keys = ON` is **per-connection**. Every `ON DELETE CASCADE` in the schema depends on it. Any code that opens its own `DatabaseSync` without going through `openDb` silently loses FK enforcement.
+> ⚠️ Always open the database through `openDb` — it is **lint-enforced as the sole entrypoint** (`no-restricted-imports` on `node:sqlite`, everywhere in `src/` except `db/db.ts`; type-only imports stay allowed). A raw `new DatabaseSync()` would skip WAL, `busy_timeout`, the integrity check, and migrations. (FK enforcement specifically would *not* be lost — `node:sqlite` defaults `enableForeignKeyConstraints: true`, so `PRAGMA foreign_keys` is already `ON` on a bare connection; the explicit pragma is belt-and-suspenders.)
 
 ## Schema
 
@@ -79,7 +80,7 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 
 JSON-blob columns: `sessions.annotations_json` (the full `ReviewAnnotations`), `comments.json` (the full `Comment`), `chat_messages.anchor_json` (a `CommentAnchor`).
 
-> Several columns are **denormalized for cheap list queries**: `sessions.title`/`summary` mirror fields inside `annotations_json`; `comments.status` mirrors a field inside `comments.json`. Keep them in sync when you write.
+> Several columns are **denormalized for cheap list queries**: `sessions.title`/`summary` mirror fields inside `annotations_json`; `comments.status` mirrors a field inside `comments.json`. These mirrors are single-write-path enforced, not kept in sync by hand: `sessions.title`/`summary` are derived from `annotations` inside `updateSessionMeta` (the `SessionMetaPatch` type has no `title`/`summary` fields, so they cannot be written independently), and `comments.status` is written from the `Comment` object by `upsertComment`.
 
 The only explicit index is the session-pair index below. Child tables are covered by their composite primary keys; there is no standalone index on `sessions.repo_id` (volume is small).
 
@@ -137,4 +138,4 @@ Every function takes `db` first. Highlights and contracts:
 ### Transaction model — sharp edges
 
 - Transactions are raw `db.exec('BEGIN'|'COMMIT'|'ROLLBACK')`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
-- **Unguarded JSON parsing:** `comments.json` / `annotations_json` / chat `anchor_json` are `JSON.parse`d with no guard in `loadReviewState` — a malformed blob there fails the whole session load.
+- **Guarded JSON parsing — salvages and reports:** every persisted blob (`comments.json`, `sessions.annotations_json`, chat `anchor_json`/`actions_json`/`tools_json`/`segments_json`/`comment_refs_json`, `iterations.annotations_json`) is parsed through `safeJson` in `loadReviewState` and its helpers. A malformed blob is salvaged per its kind (skip the comment/iteration row, drop the chat field, render annotations as not-yet-generated) rather than failing the whole session load; the degradations are summarized into `ReviewState.loadWarnings` and shown in the renderer's dismissible error strip. Stored data is never mutated or deleted on the read path.

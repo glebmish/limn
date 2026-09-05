@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolHostCtx } from '../src/main/engines/tools'
+import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolDef, type ToolHostCtx } from '../src/main/engines/tools'
 import { FakeEngine } from '../src/main/engines/fake'
 import { openDb } from '../src/main/db/db'
 import { createSession, createChatThread, upsertComment, loadReviewState, updateSessionMeta } from '../src/main/db/sessions'
@@ -42,6 +42,25 @@ describe('LIMN_TOOLS catalog', () => {
 
   it('exposes all limn tools (no limn write tool to withhold)', () => {
     expect(limnAllowedToolNames().sort()).toEqual(ALL_TOOLS.map(mcp).sort())
+  })
+})
+
+describe('AUTO_ACCEPT_TOOL_NAMES — auto-accept allowlist', () => {
+  it('covers exactly the current LIMN_TOOLS (two-way set equality)', () => {
+    // Every current tool is metadata-only, so all are cleared for auto-accept.
+    // A new tool that isn't consciously listed here fails this test — a red test,
+    // not a production throw. And no stale allowlist entry may linger either.
+    expect([...AUTO_ACCEPT_TOOL_NAMES].sort()).toEqual(LIMN_TOOLS.map((t) => t.name).sort())
+  })
+
+  it('assertAutoAcceptCoverage passes for the current tool set', () => {
+    expect(() => assertAutoAcceptCoverage(LIMN_TOOLS)).not.toThrow()
+  })
+
+  it('assertAutoAcceptCoverage throws the explanatory error for an unlisted tool', () => {
+    const fake: ToolDef = { name: 'write_file', description: 'x', input: {} }
+    expect(() => assertAutoAcceptCoverage([...LIMN_TOOLS, fake]))
+      .toThrow(/limn tools not cleared for auto-accept: write_file/)
   })
 })
 
@@ -278,7 +297,7 @@ describe('review edit tools (real temp DB)', () => {
     const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-rev-')), 'db')).db
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
-    updateSessionMeta(db, s.id, { annotations, title: annotations.title, summary: annotations.summary })
+    updateSessionMeta(db, s.id, { annotations })
     const ctx: ToolHostCtx = {
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: '/repo',
       agent: { engine: 'claude' }, emit: () => {}

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { LIMN_TOOLS, type AgentToolHost } from './tools.js'
+import { assertAutoAcceptCoverage, LIMN_TOOLS, type AgentToolHost } from './tools.js'
 
 // Codex hosts Limn tools through external MCP servers. The `codex app-server`
 // subprocess opens the connection, so we run a localhost streamable-HTTP MCP
@@ -47,6 +47,10 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse): Promi
 /** Register this turn's tool host and return the URL Codex should be pointed at,
  *  plus a `release` to tear the turn's MCP server down when the turn ends. */
 export async function registerCodexTurn(host: AgentToolHost): Promise<{ url: string; release: () => Promise<void> }> {
+  // Codex elicitations auto-ACCEPT every registered tool (codexAppServer.ts), so
+  // gate registration: no tool may reach that blanket accept unless it's cleared
+  // for auto-accept. A new write-capable tool trips this before a turn ever runs.
+  assertAutoAcceptCoverage(LIMN_TOOLS)
   const port = await ensureServer()
   const token = randomUUID()
   const server = new McpServer({ name: 'limn', version: '0.1.0' })

@@ -46,7 +46,7 @@ function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null }
 }
 
 /** Titlebar fetch pill (design: 04-drift-close). The branch moved past the loaded
@@ -86,6 +86,18 @@ function DriftFetchPill({ drift, loadedSha, onPull, open }: { drift: DriftSummar
         <span className="cmf-delta">+{drift.add} <span className="cmf-del">−{drift.del}</span></span>
       </span>
     </button>
+  )
+}
+
+/** Muted titlebar pill (spec §6): the branch watcher can no longer read the
+ *  repo/branch, so live updates are paused. No action button — a self-healing probe
+ *  or a reload clears it. Tooltip carries the git error reason. */
+export function WatchPausedPill({ reason }: { reason: string }) {
+  const label = 'Live updates paused — branch unavailable'
+  return (
+    <span className="cm-watch-paused" title={reason} aria-label={`${label}: ${reason}`}>
+      {label}
+    </span>
   )
 }
 
@@ -617,6 +629,9 @@ export default function Review() {
           })}
           {store.pendingDrift && (
             <DriftFetchPill drift={store.pendingDrift} loadedSha={skeleton.headSha} onPull={() => void store.reload()} open={Boolean(dev.fakeDriftOpen)} />
+          )}
+          {store.watchStopped && (
+            <WatchPausedPill reason={store.watchStopped.reason} />
           )}
         </span>
         <WorkspacePicker branch={branch} />

@@ -189,6 +189,18 @@ describe('claude canUseTool policy', () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
+  it('routes a non-allowlisted mcp__limn__ tool to the approval path', async () => {
+    const emit = vi.fn()
+    const can = makeCanUseTool('opC-write', emit)
+    // A fabricated write-capable limn tool is NOT on AUTO_ACCEPT_TOOL_NAMES, so it
+    // must fall through to awaitDecision rather than auto-allow on the prefix alone.
+    const p = can('mcp__limn__write_file', { path: 'a.ts' }, {} as never)
+    const ev = emit.mock.calls[0][0] as { type: string; request: { id: string } }
+    expect(ev.type).toBe('approval_request')
+    resolveDecision('opC-write', ev.request.id, 'allow')
+    expect(await p).toEqual({ behavior: 'allow', updatedInput: { path: 'a.ts' } })
+  })
+
   it('prompts for Bash and routes a deny', async () => {
     const emit = vi.fn()
     const can = makeCanUseTool('opC2', emit)

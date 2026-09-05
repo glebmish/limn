@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { codexBinaryPath, engineBinaryStatus, setEngineBinaryPrefs } from '../src/main/engines/binaries'
+import { codexBinaryPath, engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs, setVersionSpawnForTests } from '../src/main/engines/binaries'
 import { ENGINE_PATH_PREF_KEYS } from '../src/shared/prefs'
 
 const originalPath = process.env.PATH
@@ -17,6 +17,7 @@ function executable(dir: string, name: string): string {
 afterEach(() => {
   process.env.PATH = originalPath
   setEngineBinaryPrefs({})
+  setVersionSpawnForTests(undefined)
 })
 
 describe('engine binary preferences', () => {
@@ -67,5 +68,86 @@ describe('engine binary preferences', () => {
       ok: false,
       path: missing
     })
+  })
+})
+
+describe('probeEngineVersion', () => {
+  function onPath(name: string): void {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-ver-'))
+    executable(dir, name)
+    process.env.PATH = dir
+  }
+
+  it('parses the first semver from --version output', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => 'codex-cli 0.200.0\n')
+    expect(await probeEngineVersion('codex')).toEqual({ version: '0.200.0' })
+  })
+
+  it('parses a semver embedded in claude output', async () => {
+    onPath('claude')
+    setVersionSpawnForTests(async () => '1.2.3 (Claude Code)\n')
+    expect(await probeEngineVersion('claude')).toEqual({ version: '1.2.3' })
+  })
+
+  it('returns {} for garbage output', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => 'no version here')
+    expect(await probeEngineVersion('codex')).toEqual({})
+  })
+
+  it('returns {} for empty output', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => '')
+    expect(await probeEngineVersion('codex')).toEqual({})
+  })
+
+  it('warns when codex is below the known-good floor', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => 'codex-cli 0.98.0')
+    const info = await probeEngineVersion('codex')
+    expect(info.version).toBe('0.98.0')
+    expect(info.warning).toBeDefined()
+    expect(info.warning).toContain('0.98.0')
+    expect(info.warning).toContain('0.135.0')
+  })
+
+  it('does not warn when codex is exactly at the floor', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => 'codex-cli 0.135.0')
+    expect(await probeEngineVersion('codex')).toEqual({ version: '0.135.0' })
+  })
+
+  it('does not warn when codex is above the floor', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => 'codex-cli 1.0.0')
+    expect(await probeEngineVersion('codex')).toEqual({ version: '1.0.0' })
+  })
+
+  it('never warns for claude even on an old version, but still reports it', async () => {
+    onPath('claude')
+    setVersionSpawnForTests(async () => '0.0.1 (Claude Code)')
+    expect(await probeEngineVersion('claude')).toEqual({ version: '0.0.1' })
+  })
+
+  it('returns {} when the spawn fails', async () => {
+    onPath('codex')
+    setVersionSpawnForTests(async () => { throw new Error('spawn ENOENT') })
+    expect(await probeEngineVersion('codex')).toEqual({})
+  })
+
+  it('returns {} when the binary cannot be resolved', async () => {
+    process.env.PATH = ''
+    setEngineBinaryPrefs({})
+    expect(await probeEngineVersion('codex')).toEqual({})
+  })
+
+  it('caches per resolved path and does not respawn', async () => {
+    onPath('codex')
+    let calls = 0
+    setVersionSpawnForTests(async () => { calls++; return 'codex-cli 1.0.0' })
+    await probeEngineVersion('codex')
+    await probeEngineVersion('codex')
+    expect(calls).toBe(1)
   })
 })

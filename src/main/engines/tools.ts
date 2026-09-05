@@ -290,10 +290,10 @@ const TOOL_IMPLS: ToolImpl[] = [
       if (!ann) throw new Error('No review to edit yet — generate one first')
       if (field === 'title') {
         ann.title = value
-        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann, title: value })
+        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
       } else if (field === 'summary') {
         ann.summary = value
-        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann, summary: value })
+        updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
       } else {
         const sec = ann.sections.find((s) => s.id === sectionId)
         if (!sec) throw new Error(`No section with id ${sectionId}`)
@@ -317,6 +317,25 @@ export const LIMN_TOOLS: ToolDef[] = TOOL_IMPLS.map(({ name, description, input 
  *  go through the engine's own shell/edit tools, gated by the execution mode. */
 export function limnAllowedToolNames(): string[] {
   return TOOL_IMPLS.map((t) => `mcp__limn__${t.name}`)
+}
+
+/** Tools safe to auto-accept without a reviewer approval: they mutate review
+ *  metadata (comments, annotations, view marks) or renderer focus — NEVER
+ *  repo files, git state, or anything outside the Limn DB. Adding a tool to
+ *  LIMN_TOOLS without listing it here (or consciously excluding it) fails
+ *  loudly at turn setup (assertAutoAcceptCoverage) and in tests. Hand-maintained
+ *  on purpose — do NOT derive it from LIMN_TOOLS, so a new tool can't ride in. */
+export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'focus', 'tour', 'suggest_mark_viewed', 'list_comments', 'add_comment',
+  'reply_to_comment', 'resolve_comment', 'get_review', 'edit_review'
+])
+
+/** Fail loudly if any tool isn't cleared for the engines' blanket auto-accept
+ *  (Codex elicitations auto-ACCEPT every registered tool; Claude auto-allows
+ *  allowlist members). Called at turn registration; unit-tested directly. */
+export function assertAutoAcceptCoverage(tools: ToolDef[]): void {
+  const unlisted = tools.filter((t) => !AUTO_ACCEPT_TOOL_NAMES.has(t.name))
+  if (unlisted.length) throw new Error(`limn tools not cleared for auto-accept: ${unlisted.map((t) => t.name).join(', ')} — Codex elicitations auto-accept every registered tool (codexAppServer.ts); add them to AUTO_ACCEPT_TOOL_NAMES only if they cannot write files/git, otherwise wire them through the approval ladder first.`)
 }
 
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {

@@ -62,7 +62,7 @@ const { db } = openDb(dbFile)
 const session = createSession(db, fx.dir, pair, { engine: 'claude', model: 'opus' })
 updateSessionMeta(db, session.id, {
   engine: 'claude', model: 'opus',
-  annotations, title: annotations.title, summary: annotations.summary,
+  annotations,
   reviewedAtSha: compare.sha, approvedSha: compare.sha
 })
 addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: compare.sha, at: 'now', title: annotations.title, summary: annotations.summary, annotations })
@@ -224,11 +224,11 @@ const s2 = createSession(db, fx.dir, {
   base: { kind: 'commit', symbol: 'HEAD~1', anchorSha: fx.shas.firstFeature },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: compare.sha }
 }, { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'high' })
-updateSessionMeta(db, s2.id, { title: 'Incremental pass since last commit' })
+updateSessionMeta(db, s2.id, { annotations: { title: 'Incremental pass since last commit', summary: '', sections: [], questions: [] } })
 const s3 = createSession(db, fx.dir, {
   base: { kind: 'branch', symbol: 'main', anchorSha: base.sha },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: compare.sha }
 }, { engine: 'claude', model: 'sonnet' })
-updateSessionMeta(db, s3.id, { title: 'First look' })
+updateSessionMeta(db, s3.id, { annotations: { title: 'First look', summary: '', sections: [], questions: [] } })
 
 console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id, reviewChat: reviewChat.id, userChat: userChat.id }))

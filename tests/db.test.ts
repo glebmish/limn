@@ -34,6 +34,34 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('sets busy_timeout to 5000 so a concurrent writer waits instead of failing instantly', () => {
+    const { db } = openDb(tmpFile())
+    const row = db.prepare('PRAGMA busy_timeout').get() as { timeout: number }
+    expect(row.timeout).toBe(5000)
+    db.close()
+  })
+
+  it('a writer colliding with an open write transaction waits its busy_timeout, then succeeds once the lock clears', () => {
+    const file = tmpFile()
+    const a = openDb(file).db
+    const b = openDb(file).db
+    // Shrink B's wait so the test is fast; proves the stall is governed by busy_timeout.
+    b.exec('PRAGMA busy_timeout = 100')
+
+    a.exec('BEGIN IMMEDIATE') // A takes the write lock
+    a.prepare(`INSERT INTO prefs (key, value) VALUES ('a', '1')`).run()
+
+    const started = Date.now()
+    expect(() => b.prepare(`INSERT INTO prefs (key, value) VALUES ('b', '2')`).run()).toThrow()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90) // it waited ~100 ms, not 0
+
+    a.exec('COMMIT') // release the lock
+    b.prepare(`INSERT INTO prefs (key, value) VALUES ('b', '2')`).run() // now succeeds
+    expect((b.prepare(`SELECT value FROM prefs WHERE key = 'b'`).get() as { value: string }).value).toBe('2')
+
+    a.close(); b.close()
+  })
+
   it('corrupt file is backed up, fresh db created, backup path reported', () => {
     const file = tmpFile()
     fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')

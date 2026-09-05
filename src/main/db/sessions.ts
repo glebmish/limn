@@ -1,12 +1,40 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, EngineId, ExecutionMode, Iteration, ReasoningEffort,
-  RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark
+  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,
+  MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
+  ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode } from '../../shared/executionMode.js'
 
 function now(): string { return new Date().toISOString() }
+
+type LoadWarningKind = 'annotations' | 'chat' | 'comment' | 'iteration'
+type LoadWarningSink = { kind: LoadWarningKind; into: LoadWarningKind[] }
+
+/** Parse a persisted JSON blob; on failure record a warning and return undefined
+ *  (the caller drops the field or skips the row — never the whole session). */
+function safeJson<T>(raw: string | null, loadWarning?: LoadWarningSink): T | undefined {
+  if (raw === null) return undefined
+  try { return JSON.parse(raw) as T } catch {
+    if (loadWarning) loadWarning.into.push(loadWarning.kind)
+    return undefined
+  }
+}
+
+/** Fold the raw per-blob failure warnings collected during a load into human-readable
+ *  summaries for the renderer's error strip. Returns [] when nothing degraded. */
+function summarizeLoadWarnings(warnings: LoadWarningKind[]): string[] {
+  const out: string[] = []
+  const comments = warnings.filter((w) => w === 'comment').length
+  if (comments) out.push(`${comments} comment(s) could not be loaded`)
+  if (warnings.includes('annotations')) out.push('review annotations could not be loaded — regenerate to restore')
+  const chat = warnings.filter((w) => w === 'chat').length
+  if (chat) out.push(`${chat} chat message field(s) could not be loaded`)
+  const iterations = warnings.filter((w) => w === 'iteration').length
+  if (iterations) out.push(`${iterations} past review iteration(s) could not be loaded`)
+  return out
+}
 
 /** Build an AgentRef from the denormalized engine/model/effort columns. */
 function rowToAgent(engine: EngineId | null, model: string | null, effort: string | null): AgentRef | undefined {
@@ -226,8 +254,6 @@ export interface SessionMetaPatch {
   engine?: EngineId
   model?: string | null
   reasoningEffort?: ReasoningEffort | null
-  title?: string
-  summary?: string
   annotations?: ReviewAnnotations
   approvedSha?: string | null
   reviewedAtSha?: string | null
@@ -239,9 +265,13 @@ export function updateSessionMeta(db: DatabaseSync, id: number, patch: SessionMe
   if (patch.engine !== undefined) { cols.push('engine = ?'); vals.push(patch.engine) }
   if (patch.model !== undefined) { cols.push('model = ?'); vals.push(patch.model) }
   if (patch.reasoningEffort !== undefined) { cols.push('reasoning_effort = ?'); vals.push(patch.reasoningEffort) }
-  if (patch.title !== undefined) { cols.push('title = ?'); vals.push(patch.title) }
-  if (patch.summary !== undefined) { cols.push('summary = ?'); vals.push(patch.summary) }
-  if (patch.annotations !== undefined) { cols.push('annotations_json = ?'); vals.push(JSON.stringify(patch.annotations)) }
+  // title/summary are denormalized mirrors of annotations_json — derived here so
+  // they can never be written independently of the blob (the sole write path).
+  if (patch.annotations !== undefined) {
+    cols.push('annotations_json = ?'); vals.push(JSON.stringify(patch.annotations))
+    cols.push('title = ?'); vals.push(patch.annotations.title)
+    cols.push('summary = ?'); vals.push(patch.annotations.summary)
+  }
   if (patch.approvedSha !== undefined) { cols.push('approved_sha = ?'); vals.push(patch.approvedSha) }
   if (patch.reviewedAtSha !== undefined) { cols.push('reviewed_at_sha = ?'); vals.push(patch.reviewedAtSha) }
   if (cols.length === 0) return
@@ -278,17 +308,29 @@ type ChatThreadRow = {
 
 const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode'
 
-function rowToThread(db: DatabaseSync, row: ChatThreadRow): ChatThread {
+function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarningKind[]): ChatThread {
   const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
     .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null; tools_json: string | null; segments_json: string | null; comment_refs_json: string | null }[])
-    .map((r) => ({
-      role: r.role, text: r.text, at: r.at,
-      ...(r.anchor_json ? { anchor: JSON.parse(r.anchor_json) } : {}),
-      ...(r.actions_json ? { actions: JSON.parse(r.actions_json) } : {}),
-      ...(r.tools_json ? { tools: JSON.parse(r.tools_json) } : {}),
-      ...(r.segments_json ? { segments: JSON.parse(r.segments_json) } : {}),
-      ...(r.comment_refs_json ? { commentRefs: JSON.parse(r.comment_refs_json) } : {})
-    }))
+    .map((r) => {
+      // Chat payload is split: role/text/time are durable columns, while these JSON
+      // blobs are optional enrichments. If one enrichment blob is corrupt, keep the
+      // readable message and drop only that field so one bad decoration does not hide
+      // the conversation or the rest of the session.
+      const chatWarning = warnings ? { kind: 'chat' as const, into: warnings } : undefined
+      const anchor = safeJson<CommentAnchor>(r.anchor_json, chatWarning)
+      const actions = safeJson<AgentAction[]>(r.actions_json, chatWarning)
+      const tools = safeJson<ToolCall[]>(r.tools_json, chatWarning)
+      const segments = safeJson<MessageSegment[]>(r.segments_json, chatWarning)
+      const commentRefs = safeJson<string[]>(r.comment_refs_json, chatWarning)
+      return {
+        role: r.role, text: r.text, at: r.at,
+        ...(anchor !== undefined ? { anchor } : {}),
+        ...(actions !== undefined ? { actions } : {}),
+        ...(tools !== undefined ? { tools } : {}),
+        ...(segments !== undefined ? { segments } : {}),
+        ...(commentRefs !== undefined ? { commentRefs } : {})
+      }
+    })
   return {
     id: row.id,
     kind: row.kind,
@@ -323,9 +365,9 @@ export function chatThreadSessionId(db: DatabaseSync, threadId: number): number 
   return row ? row.session_id : null
 }
 
-export function listChatThreads(db: DatabaseSync, sessionId: number): ChatThread[] {
+export function listChatThreads(db: DatabaseSync, sessionId: number, warnings?: LoadWarningKind[]): ChatThread[] {
   const rows = db.prepare(`SELECT ${THREAD_COLS} FROM chat_threads WHERE session_id = ? ORDER BY id`).all(sessionId) as ChatThreadRow[]
-  return rows.map((r) => rowToThread(db, r))
+  return rows.map((r) => rowToThread(db, r, warnings))
 }
 
 export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessage): void {
@@ -348,7 +390,10 @@ export function setActionResolution(
     .all(threadId) as { id: number; actions_json: string | null }[]
   for (const row of rows) {
     if (!row.actions_json) continue
-    const actions = JSON.parse(row.actions_json) as AgentAction[]
+    // best-effort mutation: a malformed row can't carry the target action, so skip it
+    // (no warning channel here) rather than letting one bad blob throw the whole call.
+    const actions = safeJson<AgentAction[]>(row.actions_json)
+    if (!actions) continue
     const target = actions.find((a) => a.kind === 'suggest_viewed' && a.id === actionId)
     if (!target) continue
     if (target.kind === 'suggest_viewed') target.resolution = resolution
@@ -438,7 +483,15 @@ export function nextIterationNumber(db: DatabaseSync, sessionId: number): number
 
 type IterationRow = { n: number; engine: EngineId; engine_session_id: string; end_sha: string; summary: string | null; at: string; title: string; annotations_json: string }
 
-function rowToIteration(r: IterationRow): Iteration {
+/** An iteration whose annotations blob is malformed is skipped (returns undefined):
+ *  iterations are history, and `latestIteration` / the iterations list degrade to the
+ *  last good row. */
+function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteration | undefined {
+  const annotations = safeJson<ReviewAnnotations>(
+    r.annotations_json,
+    warnings ? { kind: 'iteration', into: warnings } : undefined
+  )
+  if (!annotations) return undefined
   return {
     n: r.n,
     engine: r.engine,
@@ -447,7 +500,7 @@ function rowToIteration(r: IterationRow): Iteration {
     at: r.at,
     ...(r.summary ? { summary: r.summary } : {}),
     title: r.title,
-    annotations: JSON.parse(r.annotations_json) as ReviewAnnotations
+    annotations
   }
 }
 
@@ -455,7 +508,7 @@ export function latestIteration(db: DatabaseSync, sessionId: number): Iteration 
   const row = db.prepare(
     'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1'
   ).get(sessionId) as IterationRow | undefined
-  return row ? rowToIteration(row) : null
+  return row ? rowToIteration(row) ?? null : null
 }
 
 export function reviewCopyCandidates(
@@ -503,7 +556,8 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
   ).get(sourceSessionId, sourceIteration) as IterationRow | undefined
   if (!itRow) throw new Error('source review has no generated content to copy')
   const it = rowToIteration(itRow)
-  const annotations = it.annotations!
+  if (!it) throw new Error('source review content is corrupt and cannot be copied')
+  const annotations = it.annotations
   const agent = annotations.generatedBy ?? source.agent ?? { engine: it.engine }
 
   db.exec('BEGIN')
@@ -513,8 +567,6 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
       model: agent.model ?? null,
       reasoningEffort: agent.reasoningEffort ?? null,
       annotations,
-      title: annotations.title,
-      summary: annotations.summary,
       reviewedAtSha: targetEndSha
     })
     addIteration(db, targetSessionId, {
@@ -655,15 +707,26 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
   if (!row) throw new Error(`session ${sessionId} not found`)
   const meta = rowToMeta(row)
 
-  const comments = (db.prepare('SELECT json FROM comments WHERE session_id = ? ORDER BY created_at, id').all(sessionId) as
-    { json: string }[]).map((r) => JSON.parse(r.json) as Comment)
+  // One malformed persisted blob must never make the whole session unloadable: every
+  // JSON.parse below is guarded, salvages per its kind, and records a warning surfaced
+  // to the renderer via loadWarnings. Stored data is never mutated or deleted.
+  const warnings: LoadWarningKind[] = []
 
-  const chats = listChatThreads(db, sessionId)
+  const comments = (db.prepare('SELECT id, json FROM comments WHERE session_id = ? ORDER BY created_at, id').all(sessionId) as
+    { id: string; json: string }[])
+    .map((r) => safeJson<Comment>(r.json, { kind: 'comment', into: warnings }))
+    .filter((c): c is Comment => c !== undefined)
+
+  const chats = listChatThreads(db, sessionId, warnings)
 
   const iterations = (db.prepare(
     'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json FROM iterations WHERE session_id = ? ORDER BY n'
-  ).all(sessionId) as IterationRow[]).map(rowToIteration)
-  const latest = latestIteration(db, sessionId)
+  ).all(sessionId) as IterationRow[])
+    .map((r) => rowToIteration(r, warnings))
+    .filter((it): it is Iteration => it !== undefined)
+  // derive latest from the salvaged list (ordered by n) so a corrupt newest row
+  // degrades to the last loadable iteration rather than nulling latestIteration.
+  const latest = iterations[iterations.length - 1]
 
   const viewedAt: Record<string, ViewMark> = {}
   for (const r of db.prepare('SELECT file, sha, hash FROM viewed_files WHERE session_id = ?').all(sessionId) as { file: string; sha: string; hash: string }[]) {
@@ -686,6 +749,8 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     artifactApprovals[r.path] = r.sha
   }
   const approvals = sessionApprovals(db, sessionId, row.approved_sha)
+  const annotations = safeJson<ReviewAnnotations>(row.annotations_json, { kind: 'annotations', into: warnings })
+  const loadWarnings = summarizeLoadWarnings(warnings)
 
   return {
     repo: meta.repo,
@@ -693,12 +758,13 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     base: effectiveRef(meta.pair.base),
     engine: meta.engine,
     agent: meta.agent,
-    annotations: row.annotations_json ? (JSON.parse(row.annotations_json) as ReviewAnnotations) : undefined,
+    annotations,
     comments, chats, viewedAt, reviewedSections, fileExcluded,
     approvedSha: row.approved_sha ?? undefined,
     approvedShas: approvals.shas,
     approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
-    artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts
+    artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts,
+    ...(loadWarnings.length ? { loadWarnings } : {})
   }
 }

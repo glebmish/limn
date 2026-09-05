@@ -27,7 +27,7 @@ const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-seed-')), '
 const { db } = openDb(dbFile)
 const session = createSession(db, fx.dir, pair, { engine: 'claude' })
 updateSessionMeta(db, session.id, {
-  engine: 'claude', annotations, title: annotations.title, summary: annotations.summary,
+  engine: 'claude', annotations,
   reviewedAtSha: fx.shas.head, approvedSha: fx.shas.head // approved at current head — no drift yet
 })
 addIteration(db, session.id, { n: 1, engine: 'claude', sessionId: engineSession, endSha: fx.shas.head, at: 'now', title: annotations.title, summary: annotations.summary, annotations })

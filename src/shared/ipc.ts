@@ -128,12 +128,18 @@ export interface Api {
 
 export interface OpEventMsg { opId: string; event: EngineEvent }
 export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
+/** Stable, engine-agnostic classification of an op failure. Set when the failure has
+ *  a distinct, actionable remedy the renderer surfaces specially (vs. a generic error). */
+export type OpErrorCode = 'ENGINE_SESSION_LOST'
 export interface OpResultMsg {
   opId: string
   kind: 'review' | 'chat'
   status: OperationStatus
   error?: string
   reload?: boolean
+  /** Present when `error` is a classified failure (see OpErrorCode) so the renderer
+   *  can render a distinct state instead of the generic error strip. */
+  errorCode?: OpErrorCode
 }
 
 export interface RepoChangedMsg {
@@ -142,6 +148,8 @@ export interface RepoChangedMsg {
   headSha: string
   drift: DriftSummary | null
   writeCapability: AgentWriteCapability
+  /** the branch poller can no longer read the repo/branch; fields above are last-known */
+  watchStopped?: { reason: string }
 }
 
 export interface RendererApi extends Api {

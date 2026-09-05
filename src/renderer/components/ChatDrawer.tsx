@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, genSessionLost, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
@@ -49,6 +49,16 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // stream the running op into whichever thread it targets — review generation and
   // chat turns both flow through this one path (routed by threadId, not kind).
   const streaming = gen.running && gen.threadId != null && gen.threadId === active?.id
+  // a lost-engine-session failure on this thread: the CLI pruned the session, so the
+  // turn can't be retried in place. Surface a distinct banner pointing at a new chat
+  // (the thread's visible history is intact — nothing was mutated on the failure path).
+  const sessionLost = !gen.running && gen.threadId != null && gen.threadId === active?.id && genSessionLost(gen)
+  // gen.error is "<human message>\n\n<raw engine error>". Show the human line as the
+  // headline and keep the raw engine error visible as a muted detail — over-classified
+  // causes (e.g. a dirty tree) must stay diagnosable (spec §7).
+  const [sessionLostMsg, sessionLostDetail] = sessionLost
+    ? (() => { const [head, ...rest] = (gen.error ?? '').split('\n\n'); return [head, rest.join('\n\n')] as const })()
+    : ['', '']
   // ordered segments (text↔tool interleave) + the folded tool calls they reference;
   // rendered inline so live + persisted messages keep the agent's true call order.
   const liveSegments = streaming ? reduceSegments(gen.log) : []
@@ -241,6 +251,20 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 value={steer}
                 onChange={(e) => setSteer(e.target.value)}
               />
+            </div>
+          )}
+
+          {sessionLost && (
+            <div className="chat-gate block" role="alert">
+              <I.warn style={{ width: 12, height: 12, color: 'var(--amber)' }} />
+              <span>
+                {sessionLostMsg}
+                {sessionLostDetail && <small style={{ display: 'block', opacity: 0.6, marginTop: 2 }}>{sessionLostDetail}</small>}
+              </span>
+              <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => void store.newChat()}>
+                <I.plus style={{ width: 12, height: 12 }} />
+                Start a new chat
+              </button>
             </div>
           )}
 

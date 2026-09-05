@@ -14,19 +14,24 @@ export default function App() {
       if (useStore.getState().gen.opId !== opId) return
       useStore.getState().pushOpEvent(event)
     })
-    const offResult = window.api.onOpResult(({ opId, status, error, reload }) => {
+    const offResult = window.api.onOpResult(({ opId, status, error, reload, errorCode }) => {
       const st = useStore.getState()
       if (st.gen.opId !== opId) return
-      st.finishOp(status, error)
+      st.finishOp(status, error, errorCode)
       if (status === 'succeeded' || reload) void st.reload()
     })
-    const offChanged = window.api.onRepoChanged(({ repo, branch, drift, writeCapability }) => {
+    const offChanged = window.api.onRepoChanged((msg) => {
+      const { repo, branch, drift, writeCapability, watchStopped } = msg
       const st = useStore.getState()
       if (st.screen !== 'review' || st.gen.running) return
       // the branch moved while reading — notify via the titlebar fetch pill instead
       // of yanking the surface out from under the reviewer. They click to fold it in.
       if (st.repo === repo && st.branch === branch) {
-        st.setPendingDrift(drift, writeCapability)
+        // a stopped watch reports last-known fields, not real drift — reflect the
+        // paused state and leave the drift pill as-is; a recovery (no watchStopped)
+        // clears the pause and folds the live drift back in.
+        st.setWatchStopped(watchStopped ?? null)
+        if (!watchStopped) st.setPendingDrift(drift, writeCapability)
         void st.refreshRepoContext()
       }
     })

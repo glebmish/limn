@@ -72,6 +72,20 @@ export class FakeEngine implements ReviewEngine {
     const refineText = 'Recorded your decision, updated the guided review narration, and resolved the open question.'
     const text = refine ? refineText : batch ? batchText : chatText
     const result = (async () => {
+      // test/demo affordances for the lost-session classifier (item 7): force a
+      // controlled failure whose event shape matches each classification branch.
+      // These run before any text/tool event so the "zero work" gate can trigger.
+      if (turn.message.includes('[fail-immediately]')) {
+        q.push({ type: 'status', text: 'Resuming the previous session…' }) // status doesn't count as work
+        throw new Error('engine resume failed: session not found (fake)')
+      }
+      if (turn.message.includes('[fail-after-tool]')) {
+        q.push({ type: 'tool', call: { id: 't1', verb: 'grep', name: 'Grep', arg: 'x', state: 'ok', meta: '1 hit' } })
+        throw new Error('engine crashed mid-turn (fake)')
+      }
+      if (turn.message.includes('[cancel]')) {
+        throw new DOMException('cancelled', 'AbortError')
+      }
       q.push({ type: 'status', text: batch ? 'Applying your comments…' : 'Reading src/a.ts…' })
       // structured tool-call lifecycle for the activity log (wf-D): a settled grep,
       // an expandable read with a diff, and an errored grep.

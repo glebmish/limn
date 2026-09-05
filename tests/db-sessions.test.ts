@@ -133,6 +133,19 @@ describe('sessions DAO', () => {
     expect(st.approvedSha).toBe('b'.repeat(40))
   })
 
+  it('updateSessionMeta with annotations alone mirrors title/summary onto the denormalized columns', () => {
+    const s = createSession(db, '/repo', pair)
+    updateSessionMeta(db, s.id, {
+      annotations: { title: 'Derived title', summary: 'Derived summary', sections: [], questions: [] }
+    })
+    // the columns are written from annotations, not passed independently
+    const row = db.prepare('SELECT title, summary FROM sessions WHERE id = ?').get(s.id) as { title: string; summary: string }
+    expect(row.title).toBe('Derived title')
+    expect(row.summary).toBe('Derived summary')
+    // and the list query (which reads the denormalized title column) reflects it
+    expect(listRepoSessions(db, '/repo').find((r) => r.id === s.id)?.title).toBe('Derived title')
+  })
+
   it('can clear session and artifact approvals', () => {
     const s = createSession(db, '/repo', pair)
     approveSessionSha(db, s.id, 'b'.repeat(40))
@@ -215,7 +228,7 @@ describe('sessions DAO', () => {
     const target = createSession(db, '/repo', { ...pair, compare: { ...pair.compare, symbol: 'other', anchorSha: 'd'.repeat(40) } }, { engine: 'codex' })
     const annotations = { title: 'Copied title', summary: 'Copied summary', sections: [], questions: [] }
     addIteration(db, source.id, { n: 1, engine: 'claude', sessionId: 'es-old', endSha: 'b'.repeat(40), at: 'T1', title: annotations.title, summary: annotations.summary, annotations })
-    updateSessionMeta(db, source.id, { annotations, title: annotations.title, summary: annotations.summary, reviewedAtSha: 'b'.repeat(40) })
+    updateSessionMeta(db, source.id, { annotations, reviewedAtSha: 'b'.repeat(40) })
     const reviewThread = createChatThread(db, source.id, { kind: 'review', agent: { engine: 'claude' }, engineSessionId: 'es-old' })
     addChatMessage(db, reviewThread.id, { role: 'agent', text: 'review text', at: 'T1' })
 
@@ -446,7 +459,7 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
   it('latestSessionForBranch returns the most recently touched live match', () => {
     const old = createSession(db, '/repo', pair)
     const recent = createSession(db, '/repo', pair)
-    updateSessionMeta(db, recent.id, { title: 'newer' })
+    updateSessionMeta(db, recent.id, { annotations: { title: 'newer', summary: '', sections: [], questions: [] } })
     expect(latestSessionForBranch(db, '/repo', 'feature')?.id).toBe(recent.id)
     expect(latestSessionForBranch(db, '/repo', 'nope')).toBeNull()
     archiveSession(db, recent.id)
@@ -480,5 +493,90 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
     const live = listRepoSessions(db, '/repo')
     expect(live).toHaveLength(1)
     expect(live[0].archived).toBe(false)
+  })
+})
+
+describe('guarded blob parsing (item 2): one malformed blob never bricks a session', () => {
+  it('no corruption → loadWarnings is undefined', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    upsertComment(db, s.id, mkComment('c1'))
+    updateSessionMeta(db, s.id, { annotations: ann('T') })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    addChatMessage(db, t.id, { role: 'user', text: 'hi', at: 'T1' })
+    addIteration(db, s.id, iter(1, 'claude', 'es-1', 'd'.repeat(40), 'T2'))
+    const st = loadReviewState(db, s.id)
+    expect(st.loadWarnings).toBeUndefined()
+    expect(st.comments).toHaveLength(1)
+    expect(st.annotations?.title).toBe('T')
+  })
+
+  it('corrupt comments.json → row skipped, other comments load, warning names comments', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    upsertComment(db, s.id, mkComment('c1'))
+    upsertComment(db, s.id, mkComment('c2'))
+    db.prepare('UPDATE comments SET json = ? WHERE session_id = ? AND id = ?').run('{oops', s.id, 'c1')
+
+    const st = loadReviewState(db, s.id)
+    expect(st.comments.map((c) => c.id)).toEqual(['c2'])                  // corrupt row absent
+    expect(st.loadWarnings).toEqual(expect.arrayContaining(['1 comment(s) could not be loaded']))
+  })
+
+  it('corrupt sessions.annotations_json → annotations undefined (not-yet-generated), warning names it', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    updateSessionMeta(db, s.id, { annotations: ann('T') })
+    db.prepare('UPDATE sessions SET annotations_json = ? WHERE id = ?').run('{oops', s.id)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.annotations).toBeUndefined()
+    expect(st.loadWarnings).toEqual(
+      expect.arrayContaining(['review annotations could not be loaded — regenerate to restore'])
+    )
+  })
+
+  it('corrupt chat blob → that field dropped, message text kept, warning names chat', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const tools: ToolCall[] = [{ id: 'a', verb: 'grep', name: 'Grep', state: 'ok', out: 'x' }]
+    addChatMessage(db, t.id, { role: 'agent', text: 'keep me', at: 'T1', tools })
+    db.prepare('UPDATE chat_messages SET tools_json = ? WHERE thread_id = ?').run('{oops', t.id)
+
+    const st = loadReviewState(db, s.id)
+    const msg = st.chats[0].messages[0]
+    expect(msg.text).toBe('keep me')                                     // text preserved
+    expect(msg.tools).toBeUndefined()                                    // corrupt field dropped
+    expect(st.loadWarnings).toEqual(
+      expect.arrayContaining(['1 chat message field(s) could not be loaded'])
+    )
+  })
+
+  it('corrupt iterations.annotations_json → row skipped, latestIteration degrades, warning names it', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    addIteration(db, s.id, iter(1, 'claude', 'es-1', 'a'.repeat(40), 'T1'))
+    addIteration(db, s.id, iter(2, 'claude', 'es-2', 'b'.repeat(40), 'T2'))
+    db.prepare('UPDATE iterations SET annotations_json = ? WHERE session_id = ? AND n = ?').run('{oops', s.id, 2)
+
+    const st = loadReviewState(db, s.id)
+    expect(st.iterations.map((i) => i.n)).toEqual([1])                   // corrupt iteration skipped
+    expect(st.latestIteration?.n).toBe(1)                               // degrades to the last good one
+    expect(st.loadWarnings).toEqual(
+      expect.arrayContaining(['1 past review iteration(s) could not be loaded'])
+    )
+  })
+
+  it('setActionResolution with one corrupt actions_json row still resolves a later matching row', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    const early: AgentAction[] = [{ kind: 'suggest_viewed', id: 'sv-early', files: ['src/a.ts'], note: 'a' }]
+    const later: AgentAction[] = [{ kind: 'suggest_viewed', id: 'sv-1', files: ['src/b.ts'], note: 'b' }]
+    addChatMessage(db, t.id, { role: 'agent', text: 'first', at: 'T1', actions: early })
+    addChatMessage(db, t.id, { role: 'agent', text: 'second', at: 'T2', actions: later })
+    // corrupt the earlier row's actions_json — setActionResolution must skip it, not throw
+    db.prepare('UPDATE chat_messages SET actions_json = ? WHERE thread_id = ? AND text = ?').run('{oops', t.id, 'first')
+
+    setActionResolution(db, t.id, 'sv-1', 'dismissed')
+
+    const later2 = getChatThread(db, t.id)!.messages.find((m) => m.text === 'second')!.actions!
+      .find((a) => a.kind === 'suggest_viewed')!
+    expect(later2.kind === 'suggest_viewed' && later2.resolution).toBe('dismissed')
   })
 })
