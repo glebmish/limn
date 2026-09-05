@@ -30,6 +30,28 @@ describe('section disclosure auto-collapse', () => {
     expect(useStore.getState().expanded.has('s1')).toBe(false)
   })
 
+  // A sidebar click on a file leaves it the focus target until the NEXT jump, and a
+  // focused file force-shows its body (and force-opens its section). So the tick on
+  // the very file you navigated to did nothing visible: no fold, no accent, and the
+  // section it completed stayed open. The tick releases the hold.
+  it('toggleViewed releases the focus hold on the file it ticks', () => {
+    useStore.setState({
+      loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' })], sections: [section('s1', ['a.ts'])] }),
+      focusTarget: { file: 'a.ts', sectionId: 's1' },
+    })
+    useStore.getState().toggleViewed('a.ts', false)
+    expect(useStore.getState().focusTarget).toBeNull()
+  })
+
+  it('toggleViewed leaves a focus hold on a DIFFERENT file alone', () => {
+    useStore.setState({
+      loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' }), makeFile({ path: 'b.ts', fileHash: 'h' })] }),
+      focusTarget: { file: 'b.ts' },
+    })
+    useStore.getState().toggleViewed('a.ts', false)
+    expect(useStore.getState().focusTarget).toEqual({ file: 'b.ts' })
+  })
+
   it('setSectionViewed drops the force-open override when marking the section viewed', () => {
     useStore.setState({
       loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' })], sections: [section('s1', ['a.ts'])] }),

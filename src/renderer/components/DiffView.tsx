@@ -15,7 +15,7 @@ import { approvedShaList, sinceBasis } from '../../shared/sinceBasis'
 export function DiffView({ f }: {
   f: FileDiff
 }) {
-  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, diffStack, fileStack, setFileStack, spreadStack } = useStore()
+  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, setFocusTarget, diffStack, fileStack, setFileStack, spreadStack } = useStore()
   // this file's stack: its override, else the review's default — narrowed to the
   // sheets the file has. The ✓ shows while the override differs from the default.
   const override = fileStack[f.path]
@@ -98,7 +98,9 @@ export function DiffView({ f }: {
           artifact={artifact}
           foldsOpen={foldsOpen}
           onToggleFolds={() => setFoldsOpen((o) => !o)}
-          onToggleOpen={() => { const restore = holdFold(); setManualOpen(!effectiveOpen); restore() }}
+          // a header click on the focused file collapses it too: the focus hold
+          // (which force-shows the body) ends, and the toggle goes off what is SHOWN
+          onToggleOpen={() => { const restore = holdFold(); if (focused) setFocusTarget(null); setManualOpen(!showBody); restore() }}
           onToggleViewed={() => { const restore = holdFold(); toggleViewed(f.path, isViewed); setManualOpen(null); restore() }}
           onToggleExcluded={() => toggleExcluded(f)}
         />

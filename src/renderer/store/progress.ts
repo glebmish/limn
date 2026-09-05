@@ -107,7 +107,11 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     if (currentlyViewed) delete viewedAt[file]
     else viewedAt[file] = viewMarkFor(get().loaded, file)
     const expanded = collapseCompletedSections(get().loaded, viewedAt, get().expanded)
-    set({ viewedAt, expanded })
+    // the tick ends the focus hold on this file: a focus target force-shows its
+    // file's body and force-opens its section, so the tick on the very file you
+    // jumped to would otherwise neither fold it nor let its section complete.
+    const focusTarget = get().focusTarget?.file === file ? null : get().focusTarget
+    set({ viewedAt, expanded, focusTarget })
     persistUi()
   },
 
