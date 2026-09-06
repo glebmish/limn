@@ -78,19 +78,6 @@ function ContrastStrip({ c }: { c: BehaviorContrast }) {
   )
 }
 
-/** `verify`: a copyable one-liner (e.g. a test/repro command) the reviewer can
- *  run to confirm the section's behavior — a chip, not prose, since it's meant
- *  to be copy-pasted rather than read. */
-function VerifyChip({ v }: { v: string }) {
-  return (
-    <button type="button" className="gsec-verify" title="Copy to clipboard" onClick={() => void navigator.clipboard.writeText(v)}>
-      <I.copy style={{ width: 11, height: 11 }} />
-      <span className="gv-label">Verify</span>
-      <code className="gv-cmd">{v}</code>
-    </button>
-  )
-}
-
 export function SectionView({ s, n, total, files, forceOpen, secRef }: {
   s: Section
   n: number
@@ -144,7 +131,6 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               </div>
             </Commentable>
           )}
-          {open && showCtx && s.verify && <VerifyChip v={s.verify} />}
           {!open && !done && (
             <div className="gsec-collapsed-sub" title={narrationText(s) || undefined}>
               {files.length} file{files.length === 1 ? '' : 's'}{narrationText(s) ? ` · ${narrationText(s)}` : ''}

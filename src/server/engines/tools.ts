@@ -82,11 +82,11 @@ const LIST_COMMENTS_INPUT = { status: z.enum(['queued', 'sent', 'resolved', 'out
 const GET_REVIEW_INPUT = {} satisfies z.ZodRawShape
 const GET_PROGRESS_INPUT = {} satisfies z.ZodRawShape
 const EDIT_REVIEW_INPUT = {
-  field: z.enum(['title', 'summary', 'section.block', 'section.contrast', 'section.verify']),
+  field: z.enum(['title', 'summary', 'section.block', 'section.contrast']),
   sectionId: z.string().optional(),
   blockIndex: z.number().int().optional(),
   op: z.enum(['replace', 'insert', 'delete']).optional(),
-  // title / summary / section.block / section.verify all read `value`; section.contrast
+  // title / summary / section.block all read `value`; section.contrast
   // reads `was`/`now` instead (deliberately not overloaded onto value). All optional at
   // the schema level (cheap omission, no repair turn) — per-field presence is validated
   // in the handler, where the error can name exactly what's missing.
@@ -295,7 +295,7 @@ const TOOL_IMPLS: ToolImpl[] = [
     name: 'get_review',
     description:
       'Get the current guided review (title, summary, and each section’s name/narration/' +
-      'contrast/verify) so you can reference or edit it. A section’s `narration` array is ' +
+      'contrast) so you can reference or edit it. A section’s `narration` array is ' +
       'indexed — array position is the `blockIndex` edit_review expects.',
     input: GET_REVIEW_INPUT,
     run: (ctx) => {
@@ -306,8 +306,7 @@ const TOOL_IMPLS: ToolImpl[] = [
         sections: ann.sections.map((s) => ({
           id: s.id, name: s.name,
           narration: s.narration.map((b) => b.text), // index === blockIndex
-          ...(s.contrast ? { contrast: s.contrast } : {}),
-          ...(s.verify ? { verify: s.verify } : {})
+          ...(s.contrast ? { contrast: s.contrast } : {})
         }))
       }
       return { result: JSON.stringify(slim) }
@@ -342,7 +341,7 @@ const TOOL_IMPLS: ToolImpl[] = [
     description:
       'Amend the guided review in place — the title, the summary, or (with sectionId) a ' +
       'section\'s narration block (insert/replace/delete at blockIndex — see get_review\'s ' +
-      'indexed narration array), its behavior contrast (was/now), or its verify step — e.g. ' +
+      'indexed narration array), or its behavior contrast (was/now) — e.g. ' +
       'to add detail a reviewer\'s question surfaced. Does not regenerate the whole review.',
     input: EDIT_REVIEW_INPUT,
     run: (ctx, raw) => {
@@ -379,13 +378,10 @@ const TOOL_IMPLS: ToolImpl[] = [
         } else {
           s.narration.splice(blockIndex, 1) // delete needs no value
         }
-      } else if (field === 'section.contrast') {
+      } else {
         const s = findSection()
         if (was === undefined || now === undefined) throw new Error('edit_review field section.contrast requires was and now')
         s.contrast = { was, now }
-      } else {
-        const s = findSection()
-        s.verify = requireValue()
       }
 
       updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })

@@ -134,3 +134,50 @@ describe('isCorruptionError', () => {
     }
   })
 })
+
+describe('migration 3: drop the per-section verify step', () => {
+  function seedAtVersion2(file: string): void {
+    const { db } = openDb(file)
+    db.prepare(`INSERT INTO repos (id, path) VALUES (1, '/r')`).run()
+    db.prepare(`INSERT INTO sessions (id, repo_id, base_kind, base_symbol, base_anchor_sha, compare_kind, compare_symbol, compare_anchor_sha, annotations_json, created_at, updated_at)
+      VALUES (1, 1, 'branch', 'main', 'a', 'branch', 'feat', 'b', ?, 't', 't')`)
+      .run(JSON.stringify({ title: 'T', summary: 'S', sections: [
+        { id: 's1', name: 'A', files: [], narration: [], verify: 'npm test', contrast: { was: 'x', now: 'y' } },
+        { id: 's2', name: 'B', files: [], narration: [] }
+      ] }))
+    db.prepare(`INSERT INTO sessions (id, repo_id, base_kind, base_symbol, base_anchor_sha, compare_kind, compare_symbol, compare_anchor_sha, annotations_json, created_at, updated_at)
+      VALUES (2, 1, 'branch', 'main', 'a', 'branch', 'feat', 'b', NULL, 't', 't')`).run()
+    db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, title, annotations_json, at)
+      VALUES (1, 1, 'claude', 'e', 'b', 'T', ?, 't')`)
+      .run(JSON.stringify({ title: 'T', summary: 'S', sections: [{ id: 's1', name: 'A', files: [], narration: [], verify: 'go test ./...' }] }))
+    // pretend migration 3 has not run yet
+    db.prepare(`UPDATE meta SET value = '2' WHERE key = 'schema_version'`).run()
+    db.close()
+  }
+
+  it('strips verify from every section in sessions and iterations, keeping everything else', () => {
+    const file = tmpFile()
+    seedAtVersion2(file)
+    const { db } = openDb(file)
+    const sess = JSON.parse((db.prepare('SELECT annotations_json FROM sessions WHERE id = 1').get() as { annotations_json: string }).annotations_json)
+    expect(sess.sections[0]).toEqual({ id: 's1', name: 'A', files: [], narration: [], contrast: { was: 'x', now: 'y' } })
+    expect(sess.sections[1]).toEqual({ id: 's2', name: 'B', files: [], narration: [] })
+    expect(sess.title).toBe('T')
+    const it1 = JSON.parse((db.prepare('SELECT annotations_json FROM iterations WHERE session_id = 1').get() as { annotations_json: string }).annotations_json)
+    expect(it1.sections[0]).toEqual({ id: 's1', name: 'A', files: [], narration: [] })
+    // a session with no review is left alone
+    expect((db.prepare('SELECT annotations_json FROM sessions WHERE id = 2').get() as { annotations_json: string | null }).annotations_json).toBeNull()
+    db.close()
+  })
+
+  it('leaves a malformed annotations blob untouched rather than failing the migration', () => {
+    const file = tmpFile()
+    seedAtVersion2(file)
+    const raw = new DatabaseSync(file)
+    raw.prepare(`UPDATE sessions SET annotations_json = 'not json' WHERE id = 1`).run()
+    raw.close()
+    const { db } = openDb(file)
+    expect((db.prepare('SELECT annotations_json FROM sessions WHERE id = 1').get() as { annotations_json: string }).annotations_json).toBe('not json')
+    db.close()
+  })
+})

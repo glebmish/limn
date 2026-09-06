@@ -35,7 +35,6 @@ const wireSection = z.object({
   narration: z.array(wireBlock),
   diagram: wireDiagram.optional(),
   contrast: z.object({ was: z.string(), now: z.string() }).optional(),
-  verify: z.string().optional(),
   afterSectionId: z.string().optional()      // scoped-patch placement only; ignored on full gen
 })
 
@@ -131,8 +130,7 @@ export function sectionFromWire(s: WireSection): Section {
       nodes: s.diagram.nodes.map((n) => ({ id: n.id, label: n.label, kind: n.kind, ...(n.sub ? { sub: n.sub } : {}), ...(n.anchor ? { anchor: normalizeWireAnchor(n.anchor) } : {}) })),
       edges: s.diagram.edges
     } } : {}),
-    ...(s.contrast ? { contrast: s.contrast } : {}),
-    ...(s.verify ? { verify: s.verify } : {})
+    ...(s.contrast ? { contrast: s.contrast } : {})
   }
 }
 

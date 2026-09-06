@@ -39,13 +39,13 @@ const mergeRecord = (over: Partial<MergeRecord> = {}): MergeRecord => ({
 })
 
 describe('baseline schema (merged sessions)', () => {
-  it('carries merged_at and merge_json on sessions and lands schema_version at 2', () => {
+  it('carries merged_at and merge_json on sessions and lands schema_version at the current head (3)', () => {
     const db = freshDb()
     const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).toContain('merged_at')
     expect(cols).toContain('merge_json')
     const v = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string }
-    expect(parseInt(v.value, 10)).toBe(2)
+    expect(parseInt(v.value, 10)).toBe(3)
     db.close()
   })
 })

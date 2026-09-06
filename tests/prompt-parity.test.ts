@@ -43,7 +43,7 @@ describe('prompt↔schema parity (quoted literals)', () => {
     for (const expected of [
       'title', 'summary', 'sections', 'narration', 'text', 'anchor', 'endLine',
       'diagram', 'why', 'caption', 'nodes', 'edges', 'from', 'to',
-      'contrast', 'was', 'now', 'verify',
+      'contrast', 'was', 'now',
       'planMap', 'acceptance', 'met', 'source', 'path',
       'hotspots', 'severity', 'questions', 'artifactPaths'
     ]) {

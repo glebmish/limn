@@ -93,7 +93,7 @@ Then produce the structured review:
    - The first block is usually unanchored and says why this section matters.
 3. "diagram": At most 1–2 sections in the whole review carry a diagram — only where a runtime flow or lifecycle is non-obvious from the narration order. Never render parallel alternatives, a file inventory, or a list of UI tweaks as a flow. When a section earns one: "why" is one line saying what the diagram shows that the narration can't; "nodes" are the steps/actors, each \`{ "id", "label", "kind", "sub"?, "anchor"? }\` where "kind" is "plain", "hi" (changed by this branch), or "new" (introduced by it) and "sub" is an optional sublabel; "edges" connect nodes by id as \`{ "from", "to", "label"? }\`; "caption" is one line under the drawing. Omit "diagram" everywhere else.
 4. "hotspots" (top level): risks and notable details go in \`hotspots\` anchored to the exact spot, NOT in the narration; the narration explains, hotspots flag. Each is \`{ "anchor", "text", "severity" }\` with "severity" "risk" (could break) or "note" (worth a close look). Empty array if none.
-5. Per section, fill "contrast" (\`{ "was", "now" }\`) when the section changes observable behavior; omit it for pure additions or refactors. When a section's behavior can be checked in under a minute (a test to run, a command, a UI action), say how in "verify"; else omit.
+5. Per section, fill "contrast" (\`{ "was", "now" }\`) when the section changes observable behavior; omit it for pure additions or refactors.
 6. "title": a one-line description of the whole change. "summary": 2-4 sentences a reviewer should read before anything else.
 7. If a spec/plan artifact exists: fill "planMap" — "acceptance" criteria \`{ "text", "met", "source"? }\` with "met" true/false/"partial" and "source" citing the artifact or changed file that evidences the verdict (\`{ "path", "line"? }\`); "steps" \`{ "n", "text", "sectionId", "status" }\` mapping plan steps to your section ids with "status" done/changed/missing; and "deviations" (\`{ "text", "sectionId" }\`) where the implementation diverged from the stated plan. Null if no artifact.
 8. "questions": gaps in the author's *intent* that the code and specs cannot answer — decisions only the author can make (e.g. "was switching the retry policy from exponential to linear deliberate?"). Do NOT put bugs, inconsistencies, or risks here — those belong in \`hotspots\`. Empty array if none. Give each a short stable "id" like "q1". For each question, set "text" to the question, "context" to a short location/section hint or null, and "options" to 2-4 concise answer choices when the plausible choices are clear; otherwise use an empty array for a free-form decision.
@@ -322,7 +322,7 @@ ${list}
 ${REVIEWER_TEXT_POLICY}
 
 Fold these decisions into the guided review:
-- Where a decision changes how the review should read, update it with edit_review (fields: title, summary, section.block, section.contrast, section.verify).
+- Where a decision changes how the review should read, update it with edit_review (fields: title, summary, section.block, section.contrast).
 - Then call resolve_comment for each (verdict "addressed", with a one-line note on what you changed or confirmed).
 - When you reference a specific file or diff line, call point to point the reviewer at it.
 This is a read-only review refinement: you may read files and run read-only git commands, but do NOT modify any files and do NOT commit.`

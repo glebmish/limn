@@ -152,5 +152,31 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE sessions ADD COLUMN diff_stack TEXT')
     }
+  },
+  {
+    // the per-section "verify" step (a copyable command chip) was dropped from the
+    // review: it was the agent's own self-report that tests passed, nothing the
+    // reviewer could act on. Strip the key from every stored annotations blob so the
+    // Section type and the stored shape agree; a blob that doesn't parse is left as-is
+    // (loadSession already reports those as unloadable — not this migration's job).
+    version: 3,
+    up(db) {
+      for (const table of ['sessions', 'iterations']) {
+        const key = table === 'sessions' ? 'id' : 'rowid'
+        const rows = db.prepare(`SELECT ${key} AS k, annotations_json FROM ${table} WHERE annotations_json IS NOT NULL`)
+          .all() as { k: number; annotations_json: string }[]
+        const write = db.prepare(`UPDATE ${table} SET annotations_json = ? WHERE ${key} = ?`)
+        for (const r of rows) {
+          let ann: { sections?: unknown }
+          try { ann = JSON.parse(r.annotations_json) as { sections?: unknown } } catch { continue }
+          if (!Array.isArray(ann.sections)) continue
+          let touched = false
+          for (const s of ann.sections as Record<string, unknown>[]) {
+            if (s && typeof s === 'object' && 'verify' in s) { delete s.verify; touched = true }
+          }
+          if (touched) write.run(JSON.stringify(ann), r.k)
+        }
+      }
+    }
   }
 ]

@@ -376,29 +376,26 @@ describe('review edit tools (real temp DB)', () => {
     return { db, ctx, sessionId: s.id }
   }
 
-  it('get_review returns the current title + indexed narration + contrast/verify presence', async () => {
+  it('get_review returns the current title + indexed narration + contrast presence', async () => {
     const { ctx } = setup()
     const { result } = await createToolHost(ctx).call('get_review', {})
     const parsed = JSON.parse(result) as {
       title: string
-      sections: { narration: string[]; contrast?: unknown; verify?: string }[]
+      sections: { narration: string[]; contrast?: unknown }[]
     }
     expect(parsed.title).toBe('Old title')
     // array position == blockIndex, so block addressing lines up
     expect(parsed.sections[0].narration).toEqual(['framing block', 'anchored block'])
     expect(parsed.sections[0].contrast).toBeUndefined()
-    expect(parsed.sections[0].verify).toBeUndefined()
   })
 
-  it('get_review surfaces contrast + verify when set', async () => {
+  it('get_review surfaces contrast when set', async () => {
     const ann = baseAnnotations()
     ann.sections[0].contrast = { was: 'threw', now: 'returns null' }
-    ann.sections[0].verify = 'run the auth test suite'
     const { ctx } = setup(ann)
     const { result } = await createToolHost(ctx).call('get_review', {})
-    const parsed = JSON.parse(result) as { sections: { contrast?: { was: string; now: string }; verify?: string }[] }
+    const parsed = JSON.parse(result) as { sections: { contrast?: { was: string; now: string } }[] }
     expect(parsed.sections[0].contrast).toEqual({ was: 'threw', now: 'returns null' })
-    expect(parsed.sections[0].verify).toBe('run the auth test suite')
   })
 
   it('edit_review patches the summary and syncs the denormalized column', async () => {
@@ -494,14 +491,15 @@ describe('review edit tools (real temp DB)', () => {
     expect(action).toMatchObject({ kind: 'review_edited', field: 'section.contrast', sectionId: 's1' })
   })
 
-  it('edit_review section.verify sets verify', async () => {
+  it('edit_review rejects the retired section.verify field as invalid input', async () => {
     const { db, ctx, sessionId } = setup()
-    const { action } = await createToolHost(ctx).call('edit_review', {
-      field: 'section.verify', sectionId: 's1', value: 'run `npm test tests/auth`'
+    const { isError, action } = await createToolHost(ctx).call('edit_review', {
+      field: 'section.verify', sectionId: 's1', value: 'npm test'
     })
-    const sec = loadReviewState(db, sessionId).annotations!.sections[0]
-    expect(sec.verify).toBe('run `npm test tests/auth`')
-    expect(action).toMatchObject({ kind: 'review_edited', field: 'section.verify', sectionId: 's1' })
+    expect(isError).toBe(true)
+    expect(action).toBeUndefined()
+    const sec = loadReviewState(db, sessionId).annotations!.sections[0] as unknown as Record<string, unknown>
+    expect('verify' in sec).toBe(false)
   })
 
   it('update_plan_status flips acceptance[index].met (partial -> true) with a note, emits + persists', async () => {
