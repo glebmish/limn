@@ -6,7 +6,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 // gen state is global to the renderer; genForLoaded scopes it to the review you're
 // viewing so an op started on another session can't paint its progress here.
 function gen(over: Partial<GenState>): GenState {
-  return { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, ...over }
+  return { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), ...over }
 }
 // minimal LoadedReview: genForLoaded only reads state.chats[].id.
 function loadedWithThreads(ids: number[]): LoadedReview {

@@ -148,7 +148,14 @@ export function DiffView({ f, plainNote }: {
                 let it follow the new viewed state (tick → collapse, untick → open).
                 The amber `~` middle ground reads as not-yet-viewed to the checkbox,
                 so clicking it re-views. */}
-            <input type="checkbox" checked={isViewed} onChange={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }} />
+            <input
+              type="checkbox"
+              checked={isViewed}
+              // two-state by design — clicking always re-views. The amber `~` is drift,
+              // not partial selection, so it's surfaced in the label, NOT as indeterminate.
+              aria-label={`Viewed ${f.path}${changedSinceViewed ? ' — changed since you viewed it' : ''}`}
+              onChange={() => { toggleViewed(f.path, isViewed); setManualOpen(null) }}
+            />
             <span className="fv-box">{isViewed ? <I.check style={{ width: 10, height: 10 }} /> : changedSinceViewed ? '~' : null}</span>
             Viewed
           </label>
@@ -235,6 +242,7 @@ export function DiffView({ f, plainNote }: {
                       <button
                         className="gutter-add limn-line-add"
                         title="Comment on this line"
+                        aria-label={`Comment on line ${lineNo}`}
                         onClick={() => setComposerAt({ line: lineNo!, side, hunkRange: h.range, content: l.text })}
                       >
                         <I.plus style={{ width: 12, height: 12 }} />

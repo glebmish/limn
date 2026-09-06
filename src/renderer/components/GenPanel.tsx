@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { checkoutGate, genCancelled, genForLoaded, newOpId, useStore } from '../store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { checkoutGate, genCancelled, genForLoaded, newOpId, pendingApprovals, useStore } from '../store'
 import { I, EngineGlyph, shortSha, ago } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
@@ -7,6 +7,13 @@ import { ToolCallLog } from './ToolCallLog'
 import { useTooltip } from '../lib/useTooltip'
 import { usePopover } from '../lib/usePopover'
 import type { AgentRef, CommitInfo } from '../../shared/types'
+
+/** Hover hint on the "Update review" button. Honest about the mechanism: an update is a
+ *  FRESH engine run (no session resume — ReviewRequest carries no engineSessionId) seeded
+ *  with the prior review's structure, not a resumed "same session". The Limn-side half
+ *  (comments/viewed marks) does survive. See specs/ux-a11y-sweep spec §5. */
+export const UPDATE_REVIEW_HINT =
+  'Fresh agent pass seeded with the existing review’s structure — folds the new commits into the narration. Your comments and viewed marks survive.'
 
 /** mm:ss for the live elapsed counter. */
 function fmtElapsed(ms: number): string {
@@ -127,6 +134,10 @@ export function GenPanel() {
   // core), replacing the old pure-CSS [data-hint] ::after that couldn't flip.
   const hintL = useTooltip<HTMLButtonElement, HTMLSpanElement>({ side: 'top', align: 'start', gap: 9 })
   const hintR = useTooltip<HTMLDivElement, HTMLSpanElement>({ side: 'top', align: 'end', gap: 9 })
+  // folded tool calls for the running strip. Memoized on gen.log and hoisted above the
+  // conditional returns so hook order stays stable (gen.log is a fresh array per event —
+  // bounded by the 200-cap — so this recomputes per event but not on unrelated renders).
+  const calls = useMemo(() => reduceToolCalls(gen.log), [gen.log])
 
   // follow the latest tool call only while the user is parked at the bottom.
   // once they scroll up to read, new calls stop yanking them down; following
@@ -154,13 +165,25 @@ export function GenPanel() {
   if (gen.running) {
     const engineName = reviewAgent.engine === 'codex' ? 'Codex' : 'Claude'
     const verb = gen.kind === 'review' ? 'is exploring the branch' : 'is thinking'
-    const label = `${engineName} ${verb}…`
-    const calls = reduceToolCalls(gen.log)
+    // a parked approval takes over the strip: amber, warn icon, and a jump into the
+    // drawer on the gen thread so the reviewer can answer without hunting for it.
+    const waiting = pendingApprovals(gen).length > 0
+    const label = waiting ? 'Waiting on your approval…' : `${engineName} ${verb}…`
     return (
-      <div className="gen-strip">
+      <div className={'gen-strip' + (waiting ? ' waiting' : '')}>
         <div className="gs-head">
-          <span className="gen-spinner"></span>
+          {waiting
+            ? <I.warn style={{ width: 13, height: 13, color: 'var(--amber)' }} />
+            : <span className="gen-spinner"></span>}
           <span className="gs-title">{label}</span>
+          {waiting && gen.threadId != null && (
+            <button
+              className="btn btn-sm"
+              onClick={() => useStore.getState().openChat(gen.threadId ?? undefined)}
+            >
+              Review request
+            </button>
+          )}
           <button
             className="btn btn-sm btn-ghost"
             onClick={() => useStore.getState().cancelOp()}
@@ -317,7 +340,7 @@ export function GenPanel() {
               onClick={() => void startGenerateNow(steer, true)}
             >
               <I.changed style={{ width: 12, height: 12 }} />Update review
-              {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>Same session. Folds the new commits into the existing review narration; your comments and viewed marks survive.</span>}
+              {hintL.show && <span className="gen-hint" ref={hintL.floatingRef} style={hintL.style} data-side={hintL.side}>{UPDATE_REVIEW_HINT}</span>}
             </button>
           )
         ) : (

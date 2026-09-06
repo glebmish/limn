@@ -440,7 +440,11 @@
 /* ---- per-file "Viewed" tick ---- */
 .file-viewed{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
   color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
-.file-viewed input{display:none}
+/* visually hidden but focusable + in the a11y tree (was display:none, which removed
+   the checkbox from the tab order and the accessibility tree entirely) */
+.file-viewed input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;
+  clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+.file-viewed input:focus-visible + .fv-box{outline:2px solid var(--accent-line);outline-offset:1px}
 .fv-box{width:15px;height:15px;border:1px solid var(--line-3);border-radius:4px;display:flex;
   align-items:center;justify-content:center;background:var(--panel);color:#fff;flex:0 0 auto}
 .gfile.viewed{border-color:var(--accent-line)}

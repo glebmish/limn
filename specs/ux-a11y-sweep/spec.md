@@ -1,6 +1,12 @@
 # UX & accessibility sweep
 
-## Status: Draft — awaiting answers to open questions
+## Status: Ready to implement — all open questions resolved (2026-07-02)
+
+Resolutions: Q1 accept natural tab order (keyboard-reachable "+"); **Q2 invisible at rest
+(`opacity:0`, still focusable) — NOT the subdued-visible variant (§1 updated)**; Q3 nudge
++ deep-link (full card only on the owning thread); Q4 badge unconditionally on pending
+approvals; Q5 native `indeterminate` only; Q6 `CHAT_WINDOW = 100` (single const); Q7 the
+simple Tab-wrap focus trap.
 
 Five small, independently shippable renderer fixes from a UX audit. Each item below was
 re-grounded against the code; where the audit's claim was off, the corrected finding is
@@ -194,11 +200,13 @@ Files touched: `src/renderer/styles/app.css` (lines 307-309), `src/renderer/styl
 
 - wf.css `.gutter-add` base (line 226-229): keep `position:absolute; left:22px;
   top:50%; transform:translateY(-50%); width:18px; height:18px; border-radius:5px;`
-  but change the rest state from `display:none` to a subdued, always-rendered look:
-  `display:flex; opacity:.4; background:transparent; color:var(--muted-2);
-  box-shadow:none;`. (It sits over the old-line-number half of the 46px `.gut` column —
-  `wf.css:193-195` — which is `user-select:none` faint text, so a dimmed glyph there is
-  acceptable; GitHub does the same.)
+  but change the rest state from `display:none` to **invisible-but-present-and-focusable**
+  (resolved open question 2 — *invisible at rest*, not subdued): `display:flex;
+  opacity:0; background:transparent; color:var(--muted-2); box-shadow:none;`. The key
+  difference from today: `display:flex` (not `none`) keeps the button in the tab order
+  and the accessibility tree, so hover **or focus** can reveal it; `opacity:0` means it
+  adds no visible glyph column at rest. (Discoverability-at-rest is intentionally traded
+  away; reachability via hover/focus is the goal.)
 - Active state (replaces wf.css:230 and app.css:308-309):
   ```css
   .dline:hover .gutter-add,
@@ -219,9 +227,11 @@ Files touched: `src/renderer/styles/app.css` (lines 307-309), `src/renderer/styl
 - DiffView.tsx: extend the button with a per-line label for screen readers:
   `aria-label={`Comment on line ${lineNo}`}` (keep the `title`). No structural change.
 
-Interaction summary: every diff line shows a faint grey "+" at the left gutter; hovering
-the line or tabbing to the button turns it into the familiar solid green badge; clicking
-or pressing Enter opens the existing inline Composer (unchanged).
+Interaction summary: the "+" is present on every diff line but invisible at rest
+(`opacity:0`); hovering the line or tabbing to the button reveals it as the familiar
+solid green badge; clicking or pressing Enter opens the existing inline Composer
+(unchanged). Because the button stays `display:flex`, Tab reaches it and focus reveals
+it even though it is not painted at rest.
 
 ### 2a. Real, tri-state-correct Viewed checkboxes
 
@@ -486,44 +496,28 @@ temporary `.dline .gutter-add { opacity:1 }` override for the shot):
 
 ## Open questions to resolve before implementation
 
-1. **Item 1 — tab-stop density.** Making every line's "+" focusable puts one tab stop
-   per diff line (hundreds per file). Accept that, or add `tabindex={-1}` +
-   line-level keyboard nav later? **Recommended:** accept natural tab order now — the
-   buttons are the diff's primary interaction, and Tab lands where the user is looking
-   (the reveal-on-focus makes each stop visible). Revisit with roving tabindex only if
-   real use finds it noisy. (A j/k line-navigation system is explicitly out of scope.)
+1. **Item 1 — tab-stop density.** — **RESOLVED: accept natural tab order.** Every line's
+   "+" is focusable (one tab stop per diff line); Tab reaches it and focus reveals it.
+   Roving tabindex / j-k line nav remains an out-of-scope possible follow-up.
 
-2. **Item 1 — rest-state visibility.** Always-faint "+" on *every* line adds a full
-   column of glyphs to the diff. Alternative: keep rest-state invisible (`opacity: 0`,
-   still focusable — keyboard/focus reveal works either way) and rely on hover/focus
-   only, which fixes reachability but not discoverability. **Recommended:** ship the
-   subdued-visible version (opacity ~.4, grey) per the audit's intent; it matches the
-   `.gut` column's faint text and is the discoverability fix. If it reads as clutter in
-   the screenshot pass, drop to opacity 0 as the fallback — decide on the shot.
+2. **Item 1 — rest-state visibility.** — **RESOLVED: invisible at rest (`opacity:0`,
+   still `display:flex` so focusable).** NOT the subdued-visible (opacity ~.4) variant.
+   Reachability via hover/focus is the goal; discoverability-at-rest is intentionally
+   traded away. §1 updated to match. (This removes the "decide on the screenshot" branch.)
 
-3. **Item 3 — full card everywhere vs. nudge + deep-link.** Should the full
-   ApprovalCard (with Approve/Deny) render even when viewing a *different* chat, or the
-   compact "Go to approval" nudge as specced? **Recommended:** nudge + deep-link. An
-   Approve button detached from the requesting thread's context invites rubber-stamping
-   a command you can't see the lead-up to; one extra click keeps the decision next to
-   its context.
+3. **Item 3 — full card everywhere vs. nudge + deep-link.** — **RESOLVED: nudge +
+   deep-link.** The full ApprovalCard (Approve/Deny) renders only on the owning thread;
+   other chats show the compact "Go to approval" nudge. Keeps the decision next to its
+   requesting context.
 
-4. **Item 3 — badge scope.** Should the header Chat button *also* badge while the
-   drawer is already open (redundant with the visible card/nudge)? **Recommended:**
-   yes, keep it unconditional on pending approvals — simpler logic, and the redundancy
-   is harmless amber.
+4. **Item 3 — badge scope.** — **RESOLVED: yes, unconditional.** The header Chat button
+   badges whenever approvals are pending, even with the drawer open (harmless amber,
+   simpler logic).
 
-5. **Item 2a — native `indeterminate` vs. `aria-checked="mixed"`.** **Recommended:**
-   native `indeterminate` property only (via ref callback). It's the platform way for
-   `<input type=checkbox>`, announced as "mixed" everywhere that matters; adding
-   `aria-checked` on top is redundant and risks disagreeing with the DOM state.
+5. **Item 2a — native `indeterminate` vs. `aria-checked="mixed"`.** — **RESOLVED: native
+   `indeterminate` only** (via ref callback); no `aria-checked`.
 
-6. **Item 4 — window size.** 100 initial + 100 per "Show earlier" click is a guess.
-   **Recommended:** keep 100/100 (well under any render-cost cliff with memoized
-   messages, and >1 screen of history); make both a single `CHAT_WINDOW` const so
-   tuning is a one-line change.
+6. **Item 4 — window size.** — **RESOLVED: 100/100 via a single `CHAT_WINDOW` const.**
 
-7. **Item 2c — trap strictness.** Is the ~10-line Tab-wrap trap enough, or do we need
-   sentinel elements / inert background? **Recommended:** the simple Tab-wrap. It's a
-   single small modal in a single-window Electron app; `aria-modal` already hides the
-   background from AT, and the trap only needs to stop Tab from escaping visually.
+7. **Item 2c — trap strictness.** — **RESOLVED: the simple ~10-line Tab-wrap trap.** No
+   sentinel elements / inert background; `aria-modal` already hides the background from AT.

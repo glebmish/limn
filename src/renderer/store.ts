@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { CliOpenMsg, DashboardData, LoadedReview, OpErrorCode, OperationStatus } from '../shared/ipc'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, Hunk, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, ApprovalRequest, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, ExecutionMode, FileDiff, Hunk, RepoInfo, RepoState, Section, SessionListItem, ViewMark } from '../shared/types'
 import { fileEffectivelyExcluded } from '../shared/types'
 import { defaultAgent } from '../shared/agents'
 import { DEFAULT_EXECUTION_MODE } from '../shared/executionMode'
@@ -192,6 +192,10 @@ export interface GenState {
   /** Stable classification of a failed op (e.g. a lost engine session), so the chat
    *  surface can render a distinct, actionable state instead of the generic error. */
   errorCode: OpErrorCode | null
+  /** Request-ids the reviewer has already answered this op — the single source of
+   *  truth so every approval surface (drawer card, nudge, strip, badge) agrees.
+   *  Reset per op in startOp; a request is "pending" until its id lands here. */
+  answeredApprovals: Set<string>
 }
 
 /** Whether a finished op failed because the thread's engine session was pruned — the
@@ -206,7 +210,7 @@ export function genCancelled(gen: GenState): boolean {
 }
 
 /** A neutral gen state — the effective op for a review that owns no in-flight op. */
-const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null }
+const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() }
 
 /** `gen` is global to the renderer, but an op belongs to the review whose thread it
  *  streams into. Scope it to the loaded review so an op started on a *different*
@@ -215,6 +219,17 @@ const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: n
 export function genForLoaded(gen: GenState, loaded: LoadedReview | null): GenState {
   if (gen.threadId != null && loaded?.state.chats?.some((c) => c.id === gen.threadId)) return gen
   return IDLE_GEN
+}
+
+/** Approval requests still awaiting the reviewer: derived from the running op's log,
+ *  minus any id already recorded in `answeredApprovals` (the single source of truth).
+ *  Empty when no op is running. Requests park the engine, so the log can't advance
+ *  past a pending request and evict it — this is safe against the 200-event cap. */
+export function pendingApprovals(gen: GenState): ApprovalRequest[] {
+  if (!gen.running) return []
+  return gen.log
+    .flatMap((e) => (e.type === 'approval_request' ? [e.request] : []))
+    .filter((r) => !gen.answeredApprovals.has(r.id))
 }
 
 /** The active chat thread (or a sensible default) within the loaded review. */
@@ -546,7 +561,7 @@ export const useStore = create<AppStore>((set, get) => {
     docPath: null,
     diffMode: 'branch',
 
-    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null },
+    gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() },
 
     async boot() {
       try {
@@ -797,7 +812,7 @@ export const useStore = create<AppStore>((set, get) => {
           sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
           // reset the (global) gen state so a previous session's running/errored op
           // doesn't bleed its strip or error banner onto the one being opened.
-          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null },
+          gen: { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set() },
           repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
           viewedAt: loaded.state.viewedAt,
           collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
@@ -970,7 +985,7 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     startOp(kind, opId, threadId) {
-      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null } })
+      set({ gen: { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null, answeredApprovals: new Set() } })
     },
 
     pushOpEvent(ev) {
@@ -1074,8 +1089,11 @@ export const useStore = create<AppStore>((set, get) => {
     },
 
     respondApproval(requestId, decision) {
-      const opId = get().gen.opId
-      if (opId) void window.api.respondApproval(opId, requestId, decision)
+      const gen = get().gen
+      // record the id in the single source of truth BEFORE the IPC call, so every
+      // approval surface drops this request from `pendingApprovals` immediately.
+      set({ gen: { ...gen, answeredApprovals: new Set(gen.answeredApprovals).add(requestId) } })
+      if (gen.opId) void window.api.respondApproval(gen.opId, requestId, decision)
     },
 
     cancelOp() {

@@ -40,7 +40,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
 
   return (
     <div className={cls} ref={secRef} data-limn-section={s.id}>
-      <div className="gsec-head" {...(open ? {} : clickable(() => openSection(s.id)))} style={open ? undefined : { cursor: 'pointer' }}>
+      <div className="gsec-head" {...(open ? {} : clickable(() => openSection(s.id), { expanded: false, label: `Review section: ${s.name}` }))} style={open ? undefined : { cursor: 'pointer' }}>
         {open && <CmtPlus extra="section-plus" stop onClick={() => setCommenting('header')} />}
         <span className="gsec-no">{n}</span>
         <div className="gsec-h">
@@ -69,6 +69,10 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <input
               type="checkbox"
               checked={done}
+              // native tri-state: the section is "mixed" when only some files are viewed.
+              // Screen readers announce indeterminate as "mixed"; no aria-checked needed.
+              ref={(el) => { if (el) el.indeterminate = viewState === 'some' }}
+              aria-label={`Mark all files in “${s.name}” viewed`}
               onChange={() => setSectionViewed(s.id, files.map((f) => f.path), viewState !== 'all')}
             />
             <span className={'fv-box' + (viewState === 'some' ? ' some' : '')}>

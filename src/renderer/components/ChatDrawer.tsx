@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, genSessionLost, useStore } from '../store'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { activeChat, chatsWithDraft, checkoutGate, genForLoaded, genSessionLost, pendingApprovals, useStore } from '../store'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, FocusTarget, MessageSegment, ToolCall } from '../../shared/types'
@@ -15,7 +15,25 @@ import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 import { dev } from '../dev'
 import { focusAnchor } from '../lib/focus'
-import type { Comment } from '../../shared/types'
+import type { ChatMessage as ChatMsg, Comment } from '../../shared/types'
+
+/** Default number of trailing messages the drawer mounts; each "Show earlier" click
+ *  reveals another window of this size. A single knob per spec §4 (Q6). */
+const CHAT_WINDOW = 100
+/** Stable empty fallback so the memoized ChatMessage's `comments` prop keeps identity
+ *  across streaming re-renders (a fresh `[]` each render would defeat the memo). */
+const EMPTY_COMMENTS: Comment[] = []
+/** Stable empty fallback for a chat with no messages, so `windowMessages` and the
+ *  submitted-refs memo key on a constant identity rather than a fresh `[]` each render. */
+const EMPTY_MESSAGES: ChatMsg[] = []
+
+/** Pure slice arithmetic for the message window: mount only the last `shown` messages,
+ *  reporting how many older ones are hidden (0 → no "Show earlier" button) and the
+ *  index offset of the first visible message (so callers can key by real index). */
+export function windowMessages<T>(messages: T[], shown: number): { start: number; visible: T[]; hidden: number } {
+  const start = Math.max(0, messages.length - shown)
+  return { start, visible: messages.slice(start), hidden: start }
+}
 
 /** Right-sidebar multi-chat panel: a list of chats tied to the review, each with
  *  its own agent. Chat 1 resumes the review agent's session; new chats can target
@@ -46,6 +64,36 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const stickRef = useRef(true)
   const queued = queuedComments()
 
+  // windowing: mount only the last `shown` messages so a long thread (chat history
+  // accumulates forever in the DB) doesn't re-render N markdown parses per event.
+  // Reset to one window whenever the active chat changes.
+  const [shown, setShown] = useState(CHAT_WINDOW)
+  useEffect(() => { setShown(CHAT_WINDOW) }, [activeChatId])
+  const messages = active?.messages ?? EMPTY_MESSAGES
+  const { start, visible, hidden } = windowMessages(messages, shown)
+  // submitted-comment refs for every message, keyed on the (stable-between-streams)
+  // messages array, so each entry keeps a stable identity and the memoized ChatMessage
+  // rows don't re-render on unrelated events. Passed per-row as a prop.
+  const submittedRefsByIndex = useMemo(
+    () => messages.map((m, i) => m.role === 'user' ? (m.commentRefs ?? inferSubmittedCommentRefs(messages, i)) : undefined),
+    [messages]
+  )
+  // scroll anchoring: "Show earlier" prepends older rows above the viewport; capture
+  // scrollHeight before the prepend and re-add the delta after layout so the reader
+  // stays put instead of being yanked to the top.
+  const anchorRef = useRef<number | null>(null)
+  const showEarlier = (): void => {
+    anchorRef.current = scrollRef.current?.scrollHeight ?? null
+    setShown((s) => s + CHAT_WINDOW)
+  }
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (el && anchorRef.current != null) {
+      el.scrollTop += el.scrollHeight - anchorRef.current
+      anchorRef.current = null
+    }
+  }, [shown])
+
   // stream the running op into whichever thread it targets — review generation and
   // chat turns both flow through this one path (routed by threadId, not kind).
   const streaming = gen.running && gen.threadId != null && gen.threadId === active?.id
@@ -61,22 +109,34 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     : ['', '']
   // ordered segments (text↔tool interleave) + the folded tool calls they reference;
   // rendered inline so live + persisted messages keep the agent's true call order.
-  const liveSegments = streaming ? reduceSegments(gen.log) : []
-  const liveCalls = streaming ? reduceToolCalls(gen.log) : []
+  // Memoized on [streaming, gen.log]: the log is a fresh array per event (so this still
+  // recomputes per event, bounded by the 200-cap) but stops re-reducing on unrelated
+  // renders — draft typing, scroll state, window changes.
+  const { liveSegments, liveCalls } = useMemo(
+    () => streaming
+      ? { liveSegments: reduceSegments(gen.log), liveCalls: reduceToolCalls(gen.log) }
+      : { liveSegments: [] as MessageSegment[], liveCalls: [] as ToolCall[] },
+    [streaming, gen.log]
+  )
   // a scalar that grows with every streamed event — drives the follow-scroll effect.
   const streamLen = streaming ? gen.log.length : 0
-  const statusLine = streaming
-    ? [...gen.log].reverse().find((e) => e.type === 'status')
-    : undefined
-  const liveActions: AgentAction[] = streaming
-    ? gen.log.flatMap((e) => (e.type === 'action' ? [e.action] : []))
-    : []
-  // pending approvals: derived from the log, minus any answered this op
-  const [answered, setAnswered] = useState<Set<string>>(new Set())
-  useEffect(() => { setAnswered(new Set()) }, [gen.opId])
-  const pendingApprovals = streaming
-    ? gen.log.flatMap((e) => (e.type === 'approval_request' ? [e.request] : [])).filter((r) => !answered.has(r.id))
-    : []
+  const { statusLine, liveActions } = useMemo(
+    () => streaming
+      ? {
+          statusLine: [...gen.log].reverse().find((e) => e.type === 'status'),
+          liveActions: gen.log.flatMap((e) => (e.type === 'action' ? [e.action] : [])) as AgentAction[],
+        }
+      : { statusLine: undefined, liveActions: [] as AgentAction[] },
+    [streaming, gen.log]
+  )
+  // pending approvals: single source of truth is the store (answered ids live on the
+  // gen slice). Scope to this review so a foreign session's op can't surface here.
+  // Un-gated from `streaming`: the parked approval must be reachable even when the
+  // active chat isn't the gen thread (a compact nudge deep-links to it below).
+  const genForReview = genForLoaded(gen, loaded)
+  const genThreadId = genForReview.threadId
+  const pending = pendingApprovals(genForReview)
+  const onGenThread = genThreadId != null && genThreadId === active?.id
 
   // follow the stream only while parked at the bottom, so a burst of tool calls
   // doesn't yank a reader who has scrolled up. switching chats / opening jumps to
@@ -179,35 +239,22 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 grouped a section that way, or what a change affects.
               </div>
             )}
-            {active?.messages.map((m, i) => {
-              const submittedRefs = m.role === 'user' ? (m.commentRefs ?? inferSubmittedCommentRefs(active.messages, i)) : undefined
+            {hidden > 0 && (
+              <button className="chat-earlier" onClick={showEarlier}>
+                Show earlier messages ({hidden} hidden)
+              </button>
+            )}
+            {visible.map((m, i) => {
+              const idx = start + i
               return (
-              <div key={i} className={'chat-msg ' + m.role}>
-                <Ava ai={m.role === 'agent'}>
-                  {m.role === 'agent' ? <EngineGlyph engine={active?.agent.engine} style={{ width: 13, height: 13 }} /> : 'me'}
-                </Ava>
-                <div className="chat-bubble">
-                  {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
-                  {m.role === 'agent' ? (
-                    m.segments && m.segments.length > 0
-                      ? <SegmentBody segments={m.segments} calls={m.tools ?? []} actions={m.actions ?? []} engine={active?.agent.engine} threadId={active?.id} />
-                      : (
-                        <>
-                          {m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
-                          <Markdown text={m.text} />
-                        </>
-                      )
-                  ) : (
-                    <>
-                      <div>{m.text}</div>
-                      {submittedRefs && submittedRefs.length > 0 && (
-                        <SubmittedCommentRefs commentRefs={submittedRefs} comments={loaded?.state.comments ?? []} />
-                      )}
-                    </>
-                  )}
-                  {(!m.segments || m.segments.length === 0) && m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={active?.agent.engine} threadId={active?.id} />}
-                </div>
-              </div>
+                <ChatMessage
+                  key={idx}
+                  m={m}
+                  submittedRefs={submittedRefsByIndex[idx]}
+                  engine={active?.agent.engine}
+                  threadId={active?.id}
+                  comments={loaded?.state.comments ?? EMPTY_COMMENTS}
+                />
               )
             })}
             {streaming && (
@@ -225,14 +272,26 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             )}
           </div>
 
-          {pendingApprovals.length > 0 && (
-            <ApprovalCard
-              request={pendingApprovals[0]}
-              index={0}
-              total={pendingApprovals.length}
-              onDecide={(d) => { store.respondApproval(pendingApprovals[0].id, d); setAnswered((s) => new Set(s).add(pendingApprovals[0].id)) }}
-              onStop={() => store.cancelOp()}
-            />
+          {pending.length > 0 && genThreadId != null && (
+            onGenThread ? (
+              // full card only on the owning (gen) thread — Approve/Deny/Stop live here
+              <ApprovalCard
+                request={pending[0]}
+                index={0}
+                total={pending.length}
+                onDecide={(d) => store.respondApproval(pending[0].id, d)}
+                onStop={() => store.cancelOp()}
+              />
+            ) : (
+              // any other chat: a compact amber nudge that deep-links to the gen thread
+              <div className="chat-oldsession chat-approval-nudge" role="alert">
+                <I.warn style={{ width: 12, height: 12 }} />
+                <span>The review agent is waiting on an approval.</span>
+                <button className="btn btn-sm btn-primary" onClick={() => store.switchChat(genThreadId)}>
+                  Go to approval<I.chevR style={{ width: 11, height: 11 }} />
+                </button>
+              </div>
+            )
           )}
 
           {active && queued.length > 0 && !streaming && (
@@ -314,6 +373,48 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     </div>
   )
 }
+
+/** One chat row, memoized. Persisted message objects have stable identities between
+ *  streams (they only change on reload), and every prop here is either that object or a
+ *  primitive / stable reference (`submittedRefs` from a messages-keyed memo, `comments`
+ *  a store reference with an EMPTY fallback), so `memo` skips re-rendering — and thus
+ *  re-parsing markdown for — every settled message on each streamed event. */
+const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, threadId, comments }: {
+  m: ChatMsg
+  submittedRefs: string[] | undefined
+  engine?: EngineId
+  threadId?: number
+  comments: Comment[]
+}) {
+  return (
+    <div className={'chat-msg ' + m.role}>
+      <Ava ai={m.role === 'agent'}>
+        {m.role === 'agent' ? <EngineGlyph engine={engine} style={{ width: 13, height: 13 }} /> : 'me'}
+      </Ava>
+      <div className="chat-bubble">
+        {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
+        {m.role === 'agent' ? (
+          m.segments && m.segments.length > 0
+            ? <SegmentBody segments={m.segments} calls={m.tools ?? []} actions={m.actions ?? []} engine={engine} threadId={threadId} />
+            : (
+              <>
+                {m.tools && m.tools.length > 0 && <ToolCallLog calls={m.tools} />}
+                <Markdown text={m.text} />
+              </>
+            )
+        ) : (
+          <>
+            <div>{m.text}</div>
+            {submittedRefs && submittedRefs.length > 0 && (
+              <SubmittedCommentRefs commentRefs={submittedRefs} comments={comments} />
+            )}
+          </>
+        )}
+        {(!m.segments || m.segments.length === 0) && m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={engine} threadId={threadId} />}
+      </div>
+    </div>
+  )
+})
 
 /** Render an agent message's ordered segments inline: prose as markdown, each tool
  *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;

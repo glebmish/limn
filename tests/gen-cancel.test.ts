@@ -4,7 +4,7 @@ import type { GenState } from '../src/renderer/store'
 
 // a finished op's gen-state, parameterized by the two signals that classify it.
 function done(over: Partial<GenState>): GenState {
-  return { running: false, opId: 'op-1', kind: 'review', threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, ...over }
+  return { running: false, opId: 'op-1', kind: 'review', threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), ...over }
 }
 
 describe('genCancelled (routes a finished op back to the generate block vs. the failure banner)', () => {

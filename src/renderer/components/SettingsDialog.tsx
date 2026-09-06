@@ -1,8 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { EngineGlyph, I } from '../kit'
 import { ENGINE_PATH_PREF_KEYS } from '../../shared/prefs'
 
 type EngineStatus = { ok: boolean; hint: string }
+
+// Pure wrap logic for the modal's Tab trap: given the focusable elements in
+// tab order and the currently focused one, return where focus should jump to
+// keep it inside the dialog, or null to let the browser handle it normally.
+// Shift+Tab off the first wraps to the last; Tab off the last wraps to the first.
+export function nextTrapTarget(
+  focusables: HTMLElement[],
+  current: EventTarget | null,
+  shift: boolean
+): HTMLElement | null {
+  if (focusables.length === 0) return null
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  if (shift && current === first) return last
+  if (!shift && current === last) return first
+  return null
+}
 
 function PathField({ engine, label, value, status, onChange }: {
   engine: 'claude' | 'codex'
@@ -46,6 +63,21 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+
+  // a11y: move focus into the dialog on open (first field beats the container for
+  // an editor), and restore it to whatever opened us on close. The dialog is
+  // conditionally rendered by App, so unmount === close for every path (Escape,
+  // ✕, Cancel, backdrop). Guard the opener in case it was detached meanwhile.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    const first = modalRef.current?.querySelector<HTMLElement>('#settings-claude')
+      ?? modalRef.current?.querySelector<HTMLElement>('input, button, [tabindex="0"]')
+    first?.focus()
+    return () => {
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [])
 
   const refreshStatus = async (): Promise<void> => {
     const [claude, codex] = await Promise.all([
@@ -100,7 +132,26 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div
+        ref={modalRef}
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onKeyDown={(e) => {
+          if (e.key !== 'Tab') return
+          const focusables = Array.from(
+            modalRef.current?.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), input:not([disabled]), [tabindex="0"]'
+            ) ?? []
+          )
+          const target = nextTrapTarget(focusables, document.activeElement, e.shiftKey)
+          if (target) {
+            e.preventDefault()
+            target.focus()
+          }
+        }}
+      >
         <div className="settings-head">
           <div>
             <div className="eyebrow">Settings</div>

@@ -79,6 +79,8 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .gen-strip .gs-log { margin-top: 8px; max-height: 152px; overflow: hidden auto; }
 .gen-strip.err { border-color: var(--red-line); background: var(--red-soft); }
 .gen-strip.err .gs-title { color: var(--red); }
+.gen-strip.waiting { border-color: var(--amber-line); background: var(--amber-soft); }
+.gen-strip.waiting .gs-title { color: var(--amber); }
 .gen-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--accent-line); border-top-color: var(--accent); animation: limn-spin .8s linear infinite; flex: 0 0 auto; }
 @keyframes limn-spin { to { transform: rotate(360deg); } }
 /* fade-in for floating tooltips (.cm-tip / .chip-tip) now mounted on hover */
@@ -304,10 +306,6 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 /* keep add/del tint readable: tokens darken slightly, base colors still win on signs/gutters */
 .dline.del .code-syn { opacity: .92; }
 
-/* line-comment "+" gutter: hidden until the line is hovered */
-.dline .limn-line-add { display: none; border: none; cursor: pointer; }
-.dline:hover .limn-line-add { display: flex; }
-
 /* ---- repo dashboard ---- */
 .limn-dash { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; height: 100vh; }
 .limn-dash-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 14px 24px 10px; }
@@ -356,6 +354,7 @@ input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-li
 .chat-head { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .chat-body { flex: 1 1 auto; overflow: hidden auto; min-width: 0; min-height: 0; padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
 .chat-hint { font-size: 12px; color: var(--muted); line-height: 1.5; border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 10px 12px; background: var(--panel-2); }
+.chat-earlier { font-size: 11px; color: var(--muted); border: 1px dashed var(--line-3); border-radius: var(--r-md); padding: 6px; cursor: pointer; background: var(--panel-2); }
 .chat-msg { display: flex; gap: 8px; align-items: flex-start; }
 .chat-msg.user { flex-direction: row-reverse; }
 .chat-bubble { max-width: 85%; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 11px; white-space: pre-wrap; word-break: break-word; }

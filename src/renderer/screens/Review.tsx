@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, GUIDANCE, sectionDisclosureState, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, genForLoaded, GUIDANCE, pendingApprovals, sectionDisclosureState, useStore } from '../store'
 import type { GenState } from '../store'
 import { I, shortSha, ago, EngineGlyph, CmtPlus } from '../kit'
 import type { DriftSummary, EngineEvent, FileDiff, Section, ToolVerb } from '../../shared/types'
@@ -46,7 +46,7 @@ function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null, answeredApprovals: new Set() }
 }
 
 /** Titlebar fetch pill (design: 04-drift-close). The branch moved past the loaded
@@ -321,6 +321,9 @@ export default function Review() {
 
   if (!loaded) return null
   const { skeleton, state, artifacts, commits, sinceTagged } = loaded
+  // a parked approval is answerable from the drawer — badge the Chat button
+  // unconditionally so it's discoverable even when the drawer is already open.
+  const hasPendingApproval = pendingApprovals(genForLoaded(gen, loaded)).length > 0
   const annotations = state.annotations
   const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
@@ -638,8 +641,9 @@ export default function Review() {
         <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
           <I.list style={{ width: 13, height: 13 }} />Sessions
         </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title="Chat with the agent">
+        <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title={hasPendingApproval ? 'Chat with the agent — waiting on your approval' : 'Chat with the agent'}>
           <I.bubble style={{ width: 13, height: 13 }} />Chat
+          {hasPendingApproval && <span className="pill pill-amber">approval</span>}
         </button>
         <button className="wf-iconbtn" onClick={store.openSettings} title="Settings" aria-label="Settings">
           <I.gear style={{ width: 13, height: 13 }} />
