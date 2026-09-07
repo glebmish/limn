@@ -6,7 +6,7 @@ import { openDb } from '../src/server/db/db'
 import { approveSessionSha, createSession, getSession, loadReviewState, replaceUiState } from '../src/server/db/sessions'
 import { resolveRefInput } from '../src/server/git'
 import { buildLoadedReview } from '../src/server/review'
-import { makeFixtureRepo } from './helpers/fixtureRepo'
+import { fixtureGit, makeFixtureRepo } from './helpers/fixtureRepo'
 import type { RefPair } from '../src/shared/types'
 
 /** A transient git failure (an index.lock during a concurrent rebase, spawn EAGAIN,
@@ -109,5 +109,39 @@ describe('base→checkpoint slices on a dirty load', () => {
     expect(loaded.skeleton.files.find((f) => f.path === 'src/a.ts')?.baseToApprovedHunks).toBeDefined()
     expect(loaded.merged?.find((f) => f.path === 'src/a.ts')?.baseToApprovedHunks).toBeDefined()
     expect(loaded.merged?.find((f) => f.path === 'src/a.ts')?.baseToViewedHunks).toBeDefined()
+  })
+
+  // …but the memo may NOT collapse to the sha alone: git resolves diff attributes from
+  // the working tree it runs in, so the same two shas render differently in a linked
+  // worktree whose .gitattributes differs from the primary checkout's.
+  it('still diffs per checkout when the two checkouts disagree about a file', async () => {
+    const { dir, shas } = makeFixtureRepo()
+    fixtureGit(dir, 'checkout', '-q', 'main') // free `feature` for a linked worktree
+    const wtDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-lw-')), 'wt')
+    fixtureGit(dir, 'worktree', 'add', '-q', wtDir, 'feature')
+    // …the primary checkout alone calls src/b.ts binary
+    fs.writeFileSync(path.join(dir, '.gitattributes'), 'src/b.ts -diff\n')
+    fs.appendFileSync(path.join(wtDir, 'src/a.ts'), 'export const dirty = true\n') // dirty → merged pass
+
+    const base = await resolveRefInput(dir, 'main')
+    const compare = await resolveRefInput(dir, 'feature')
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-lw-db-')), 'db')).db
+    const session = createSession(db, dir, {
+      base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
+      compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
+    })
+    approveSessionSha(db, session.id, shas.firstFeature)
+
+    diffRefsCalls.length = 0
+    const loaded = await buildLoadedReview(db, getSession(db, session.id)!)
+    expect(loaded.dirty).toBe(true)
+
+    // one diff per checkout for the one checkpoint — the memo did not share across them
+    const forApproved = diffRefsCalls.filter((c) => c.from === loaded.skeleton.mergeBase && c.to === shas.firstFeature)
+    expect(forApproved.length).toBe(2)
+    expect(new Set(forApproved.map((c) => c.dir)).size).toBe(2)
+    // and the two really do disagree: no hunks where `-diff` applies, hunks where it doesn't
+    expect(loaded.skeleton.files.find((f) => f.path === 'src/b.ts')?.baseToApprovedHunks).toEqual([])
+    expect(loaded.merged?.find((f) => f.path === 'src/b.ts')?.baseToApprovedHunks?.length).toBeGreaterThan(0)
   })
 })

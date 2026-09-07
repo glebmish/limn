@@ -154,12 +154,19 @@ export async function assembleReview(
   // .gitattributes differs from the primary checkout's can legitimately render the
   // same pair differently (`-diff` there turns a text diff into "Binary files differ").
   // `repo` (the session's stored path) and `wt` (a real path out of `git worktree
-  // list`) are resolved first, so the usual single-checkout case shares one entry.
+  // list`) are resolved once here, so the usual single-checkout case — where the two
+  // spellings name one directory — shares one entry.
+  // Both surfaces then hold the SAME FileDiff arrays by reference (attachBaseHunks
+  // assigns the diff's own `hunks`): the base→checkpoint slices are read-only from
+  // here on, and anything that needs to mutate one must copy it first.
+  const realDir = (dir: string): string => {
+    try { return fs.realpathSync(dir) } catch { return dir }
+  }
+  const dirKeys = new Map<string, string>([[repo, realDir(repo)]])
+  if (wt) dirKeys.set(wt, realDir(wt))
   const baseSlices = new Map<string, FileDiff[]>()
   const baseToCheckpoint = async (dir: string, sha: string): Promise<FileDiff[]> => {
-    let real: string
-    try { real = fs.realpathSync(dir) } catch { real = dir }
-    const key = `${real}\0${sha}`
+    const key = `${dirKeys.get(dir) ?? dir}\0${sha}`
     let slice = baseSlices.get(key)
     if (!slice) {
       slice = await diffRefs(dir, skeleton.mergeBase, sha)
