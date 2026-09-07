@@ -463,6 +463,15 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
     // failure propagates with git's stderr (still nothing recorded).
     const fresh = await gatherContext(db, sessionId)
     if (fresh.baseHead !== req.expect.baseHead) {
+      // …unless the base moved because OUR OWN merge landed and something after it
+      // threw (mergeInWorktree ends with a rev-parse OUTSIDE its recovery try). The
+      // reviewed tip being reachable from the new base head proves that: a raced
+      // commit by someone else leaves the tip unmerged. preflight-changed is the one
+      // response the sheet retries from, and retrying a landed merge double-lands it,
+      // so report the landing instead — same contract as a record-write failure.
+      if (await isAncestor(ctx.repo, ctx.tipSha, fresh.baseHead)) {
+        throw new MergeRecordWriteError(fresh.baseHead, ctx.baseSymbol, err)
+      }
       return { status: 'preflight-changed', preflight: toPreflight(fresh, evaluateMergeGates(fresh.inputs)) }
     }
     throw err
