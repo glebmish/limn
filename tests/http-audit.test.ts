@@ -5,6 +5,14 @@ import path from 'node:path'
 import net from 'node:net'
 import { startServer, type RunningServer, type ServerOptions } from '../src/server/http'
 
+/** A static root with a real index.html + one hashed asset, like a built SPA. */
+function withIndex(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-static-audit-'))
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html>\n<html>\n  <head>\n    <title>Limn</title>\n  </head>\n  <body><div id="root"></div></body>\n</html>\n')
+  fs.writeFileSync(path.join(dir, 'app.js'), 'console.log(1)\n')
+  return dir
+}
+
 let running: RunningServer | null = null
 afterEach(async () => { await running?.close(); running = null })
 
@@ -61,5 +69,24 @@ describe('malformed request input (audit findings 1 & 2)', () => {
     // an undecodable channel segment is simply an unknown channel — 404, not a crash
     expect(statusLine(raw)).toBe(404)
     expect((await fetch(`${s.url}/health`)).status).toBe(200)
+  })
+})
+
+describe('SPA fallback vs. a missing asset (audit finding 3)', () => {
+  it('404s a missing hashed asset instead of serving the SPA document', async () => {
+    const s = await boot({ staticRoot: withIndex() })
+    const res = await fetch(`${s.url}/assets/index-OLDHASH.js`)
+    expect(res.status).toBe(404)
+    expect(await res.text()).not.toContain('<div id="root">')
+    // an extension-less client-side route still falls back to the SPA document
+    const route = await fetch(`${s.url}/client/side/route`)
+    expect(route.status).toBe(200)
+    expect(await route.text()).toContain('<div id="root">')
+  })
+
+  it('sends index.html with Cache-Control: no-store so a rebuild is picked up on reload', async () => {
+    const s = await boot({ staticRoot: withIndex() })
+    const res = await fetch(`${s.url}/`)
+    expect(res.headers.get('cache-control')).toBe('no-store')
   })
 })

@@ -122,12 +122,23 @@ function serveStatic(pathname: string, res: http.ServerResponse, staticRoot: str
   if (full !== staticRoot && !full.startsWith(staticRoot + path.sep)) { res.writeHead(403).end('forbidden'); return }
   const indexPath = path.join(staticRoot, 'index.html')
   const sendIndex = (buf: Buffer): void => {
-    res.writeHead(200, { 'Content-Type': MIME['.html'] }).end(devHooks ? withDevMeta(buf) : buf)
+    // no-store: this is the one file that must never be served stale — the client-
+    // side router (and every hashed asset it references) is only as fresh as this.
+    res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' }).end(devHooks ? withDevMeta(buf) : buf)
   }
 
   fs.readFile(full, (err, buf) => {
     if (err) {
-      // SPA fallback for client-side routes / unknown paths
+      // The SPA's router only ever produces extension-less paths (`/`, `/hub`,
+      // `/review/<id>`, …); anything with an extension is a static asset request, so
+      // a miss there is a real 404 — not the SPA fallback — or a missing/stale
+      // hashed asset (post-rebuild) would surface as an opaque MIME/module-parse
+      // error instead of "not found".
+      if (path.extname(full) !== '') {
+        res.writeHead(404, { 'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream' }).end('not found')
+        return
+      }
+      // SPA fallback for client-side routes
       fs.readFile(indexPath, (e2, idx) => {
         if (e2) { res.writeHead(404).end('not found'); return }
         sendIndex(idx)
