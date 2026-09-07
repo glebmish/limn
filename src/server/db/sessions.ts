@@ -7,6 +7,7 @@ import type {
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
 import { normalizeStack, parseStack, type Stack } from '../../shared/diffStack.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode, LEGACY_EXECUTION_MODE } from '../../shared/executionMode.js'
+import { inTx } from './db.js'
 
 function now(): string { return new Date().toISOString() }
 
@@ -82,18 +83,13 @@ export function recentRepoPaths(db: DatabaseSync, limit: number): string[] {
  *  history stay put — opening the repo again brings it back, with those reviews
  *  under the hub's "Show archived". */
 export function forgetRepo(db: DatabaseSync, repoPath: string, at = now()): number {
-  db.exec('BEGIN')
-  try {
+  return inTx(db, () => {
     const archived = db.prepare(`UPDATE sessions SET archived_at = ?, updated_at = ?
       WHERE archived_at IS NULL AND repo_id = (SELECT id FROM repos WHERE path = ?)`)
       .run(at, at, repoPath)
     db.prepare('UPDATE repos SET last_opened_at = NULL WHERE path = ?').run(repoPath)
-    db.exec('COMMIT')
     return Number(archived.changes)
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
+  })
 }
 
 /** Repos shown in the dashboard's Level-1 index. A repo enters the index either
@@ -641,8 +637,7 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
   const annotations = it.annotations
   const agent = annotations.generatedBy ?? source.agent ?? { engine: it.engine }
 
-  db.exec('BEGIN')
-  try {
+  inTx(db, () => {
     updateSessionMeta(db, targetSessionId, {
       engine: agent.engine,
       model: agent.model ?? null,
@@ -678,25 +673,16 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
       const targetThread = createChatThread(db, targetSessionId, { kind: 'review', agent, title: `Copied review from ${source.pair.compare.symbol}` })
       for (const message of sourceThread.messages) addChatMessage(db, targetThread.id, message)
     }
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn */ }
-    throw err
-  }
+  })
 }
 
 export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 'spec' | 'plan'; path: string }[]): void {
-  db.exec('BEGIN')
-  try {
+  inTx(db, () => {
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(sessionId)
     for (const r of refs) {
       db.prepare('INSERT INTO artifacts (session_id, role, path) VALUES (?, ?, ?)').run(sessionId, r.role, r.path)
     }
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
+  })
 }
 
 export function approveArtifact(db: DatabaseSync, sessionId: number, path: string, sha: string): void {
@@ -709,16 +695,11 @@ export function unapproveArtifact(db: DatabaseSync, sessionId: number, path: str
 }
 
 export function approveSessionSurface(db: DatabaseSync, sessionId: number, sha: string, hash: string): void {
-  db.exec('BEGIN')
-  try {
+  inTx(db, () => {
     db.prepare(`INSERT INTO session_approvals (session_id, sha, hash, approved_at) VALUES (?, ?, ?, ?)
       ON CONFLICT(session_id, hash) DO UPDATE SET sha = excluded.sha, approved_at = excluded.approved_at`).run(sessionId, sha, hash, now())
     updateSessionMeta(db, sessionId, { approvedSha: sha })
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
+  })
 }
 
 export function approveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
@@ -726,17 +707,12 @@ export function approveSessionSha(db: DatabaseSync, sessionId: number, sha: stri
 }
 
 export function unapproveSessionSurface(db: DatabaseSync, sessionId: number, hash: string): void {
-  db.exec('BEGIN')
-  try {
+  inTx(db, () => {
     db.prepare('DELETE FROM session_approvals WHERE session_id = ? AND hash = ?').run(sessionId, hash)
     const latest = db.prepare(`SELECT sha FROM session_approvals WHERE session_id = ?
       ORDER BY approved_at DESC LIMIT 1`).get(sessionId) as { sha: string } | undefined
     updateSessionMeta(db, sessionId, { approvedSha: latest?.sha ?? null })
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
+  })
 }
 
 export function unapproveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
@@ -755,8 +731,7 @@ export interface UiStatePatch {
 /** Replace-semantics for the renderer's saveUiState patch (matches the old
  *  whole-object JSON write, but transactional and targeted). */
 export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiStatePatch): void {
-  db.exec('BEGIN')
-  try {
+  inTx(db, () => {
     if (patch.viewedAt !== undefined) {
       db.prepare('DELETE FROM viewed_files WHERE session_id = ?').run(sessionId)
       for (const [file, mark] of Object.entries(patch.viewedAt)) {
@@ -781,11 +756,7 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
     if (patch.diffStack !== undefined) {
       db.prepare('UPDATE sessions SET diff_stack = ? WHERE id = ?').run(JSON.stringify(normalizeStack(patch.diffStack)), sessionId)
     }
-    db.exec('COMMIT')
-  } catch (err) {
-    try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
-    throw err
-  }
+  })
 }
 
 // ── assembly: DB → ReviewState (IPC shape the renderer already knows) ──

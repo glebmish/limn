@@ -65,14 +65,15 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
  *  Not re-entrant: `fn` must not open its own transaction — including via a dao
  *  helper that opens one itself (e.g. `setArtifacts`, which is why ipc.ts's
  *  generate persist calls it just outside its `inTx` block). */
-export function inTx(db: DatabaseSync, fn: () => void): void {
+export function inTx<T>(db: DatabaseSync, fn: () => T): T {
   // IMMEDIATE: every caller writes, and a deferred BEGIN that reads first then writes
   // upgrades its lock mid-transaction — which fails with SQLITE_BUSY_SNAPSHOT without
   // honouring busy_timeout when a second Limn process holds the write lock.
   db.exec('BEGIN IMMEDIATE')
   try {
-    fn()
+    const result = fn()
     db.exec('COMMIT')
+    return result
   } catch (err) {
     try { db.exec('ROLLBACK') } catch { /* no active txn — keep original error */ }
     throw err
