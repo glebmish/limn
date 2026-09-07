@@ -110,3 +110,28 @@ describe('hash-object containment', () => {
     expect((await hashObjects(dir, ['src/a.ts'])).get('src/a.ts')).toMatch(/^[0-9a-f]{40}$/)
   })
 })
+
+// running as root defeats chmod 000 — the unreadable-file scenario can't be staged
+const asUser = (process.getuid?.() ?? 1) !== 0
+
+describe('hash-object partial failures', () => {
+  it.runIf(asUser)('one unreadable file costs only itself, not the whole batch', async () => {
+    // `git hash-object a b c` aborts (exit 128) at the first operand it can't open —
+    // a file deleted in the stat→spawn window, or one the user can't read.
+    const locked = path.join(dir, 'locked.txt')
+    fs.writeFileSync(locked, 'nope\n')
+    fs.chmodSync(locked, 0o000)
+    try {
+      const map = await hashObjects(dir, ['src/a.ts', 'locked.txt', 'mode.sh'])
+      expect(map.get('src/a.ts')).toMatch(/^[0-9a-f]{40}$/)
+      expect(map.get('mode.sh')).toMatch(/^[0-9a-f]{40}$/)
+      expect(map.has('locked.txt')).toBe(false)
+      // the -w flavor degrades the same way
+      const written = await hashObjectsWrite(dir, ['src/a.ts', 'locked.txt'])
+      expect(written.get('src/a.ts')).toBe(map.get('src/a.ts'))
+      expect(written.has('locked.txt')).toBe(false)
+    } finally {
+      fs.chmodSync(locked, 0o644)
+    }
+  })
+})

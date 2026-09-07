@@ -236,9 +236,23 @@ export async function hashObjects(dir: string, paths: string[], opts?: { write?:
   })
   if (existing.length === 0) return out
   const argv = ['hash-object', ...(opts?.write ? ['-w'] : []), '--']
-  const raw = await execGit(dir, [...argv, ...existing])
-  const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
-  existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
+  try {
+    const raw = await execGit(dir, [...argv, ...existing])
+    const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
+    existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
+  } catch {
+    // `git hash-object a b c` aborts (exit 128) at the FIRST operand it can't open —
+    // a file deleted in the stat→spawn window (the concurrent-edit case this tool
+    // exists for), or one the user can't read. The whole batch failing would drop
+    // every fileHash and silently degrade "changed since viewed" for the pass, so
+    // retry the survivors one at a time: a bad path then costs only itself.
+    for (const p of existing) {
+      try {
+        const sha = (await execGit(dir, [...argv, p])).trim()
+        if (sha) out.set(p, sha)
+      } catch { /* this one path is unopenable — skip it, like a missing file */ }
+    }
+  }
   return out
 }
 
