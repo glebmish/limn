@@ -20,6 +20,18 @@ describe('readWorkingFile', () => {
     if (noeol.ok) expect(noeol.lines).toEqual(['still no newline at end'])
   })
 
+  // A latin-1/cp1252 file (a fixture, a vendored file, a smart quote saved in the
+  // wrong encoding) decodes to U+FFFD and would be written back as EF BF BD —
+  // corrupting bytes no edit ever touched. A NUL byte, by contrast, IS valid UTF-8
+  // and round-trips, so the `\0` check has to stay for files like img.bin.
+  it('refuses a text file whose bytes are not valid UTF-8', () => {
+    const fx = makeFixtureRepo()
+    fs.writeFileSync(path.join(fx.dir, 'latin1.ts'), Buffer.from('// caf\xe9\nline2\n', 'latin1'))
+    expect(readWorkingFile(fx.dir, 'latin1.ts')).toMatchObject({ ok: false, reason: 'binary' })
+    fs.writeFileSync(path.join(fx.dir, 'nul.txt'), Buffer.from('a\0b\n', 'utf8'))
+    expect(readWorkingFile(fx.dir, 'nul.txt')).toMatchObject({ ok: false, reason: 'binary' })
+  })
+
   it('refuses binary, missing, and escaping paths', () => {
     const fx = makeFixtureRepo()
     expect(readWorkingFile(fx.dir, 'img.bin')).toMatchObject({ ok: false, reason: 'binary' })
@@ -206,6 +218,18 @@ describe('applyEditToFile', () => {
     })
     expect(result.ok).toBe(true)
     expect(fs.statSync(p).mode & 0o111).not.toBe(0)
+  })
+
+  it('leaves a non-UTF-8 file byte-identical instead of rewriting it as U+FFFD', async () => {
+    const fx = makeFixtureRepo()
+    const p = path.join(fx.dir, 'latin1.ts')
+    const bytes = Buffer.from('// caf\xe9\nline2\n', 'latin1') // the invalid byte is on line 1
+    fs.writeFileSync(p, bytes)
+    const result = await applyEditToFile(fx.dir, 'latin1.ts', {
+      start: 2, end: 2, snapshot: ['line2'], newLines: ['line2 edited'] // …the edit is on line 2
+    })
+    expect(result.ok).toBe(false)
+    expect(fs.readFileSync(p)).toEqual(bytes)
   })
 
   it('a missing file is a conflict with empty current', async () => {

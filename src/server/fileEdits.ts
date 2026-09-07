@@ -40,7 +40,14 @@ export function readWorkingFile(workdir: string, rel: string): WorkingFile {
   try { stat = fs.statSync(real) } catch { return { ok: false, reason: 'missing' } }
   if (!stat.isFile()) return { ok: false, reason: 'missing' }
   if (stat.size > MAX_EDIT_BYTES) return { ok: false, reason: 'too-large' }
-  const content = fs.readFileSync(real, 'utf8')
+  const buf = fs.readFileSync(real)
+  const content = buf.toString('utf8')
+  // Every byte sequence that is not valid UTF-8 decodes to U+FFFD and would be
+  // written back (applyEditToFile writes the joined lines as utf8) as EF BF BD —
+  // silently corrupting a latin-1/cp1252 file everywhere, not just in the edited
+  // span. Refuse it like a binary. A genuine NUL byte, by contrast, IS valid UTF-8
+  // and round-trips, so the check below stays as the binary guard it always was.
+  if (!Buffer.from(content, 'utf8').equals(buf)) return { ok: false, reason: 'binary' }
   if (content.includes('\0')) return { ok: false, reason: 'binary' }
   const lines = content.split('\n')
   const trailingNewline = lines[lines.length - 1] === ''
