@@ -160,11 +160,12 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     if (!res.ok && res.reason !== 'conflict') {
       // The file left the editable set while the frame was open (it outgrew the cap,
       // or stopped being text — a generation writing to it is exactly this feature's
-      // concurrency). There is no fresh content to re-anchor on, so close the frame
-      // with a word for the reviewer — the same verdict the frame's own open path
-      // reaches for these files, where it closes silently.
-      useStore.setState({ error: `${f.path} can no longer be edited here — it is ${res.reason === 'too-large' ? 'too large' : 'no longer text'}.` })
-      setEditFrame(null)
+      // concurrency). There is no fresh content to re-anchor on, so unlike a conflict
+      // this save can never be retried against the file. The frame stays open all the
+      // same: closing it would throw away text the reviewer typed and cannot get back
+      // (spec inv 6's "never a retype"), so they keep it until they copy it out.
+      const why = res.reason === 'too-large' ? 'too large' : 'no longer text'
+      useStore.setState({ error: `${f.path} can no longer be edited here — it is ${why}. Your text is still in the frame; copy it out before closing.` })
       return
     }
     if (res.ok) {
