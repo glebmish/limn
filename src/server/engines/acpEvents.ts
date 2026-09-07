@@ -43,6 +43,16 @@ export function verbOf(kind: ToolKind | undefined, title: string): ToolVerb {
   }
 }
 
+/** kv values are a display preview, so each is capped the way tool OUTPUT is
+ *  (`clampOut`). Uncapped, a Write's `content` or an Edit's `new_string` — the
+ *  adapter forwards the tool input verbatim — would put a whole file body in one
+ *  event, sticky on the reduced tool call, persisted on the ChatMessage and
+ *  rendered into an unscrolled row. */
+const KV_MAX = 500
+function clampKv(value: string): string {
+  return value.length > KV_MAX ? value.slice(0, KV_MAX) + '…' : value
+}
+
 /** Primary display arg + kv pairs for a tool_call's rawInput, mirroring
  *  claude.ts's `primaryArg`: prefer the first location's path, then (for an
  *  execute call) the shell command via `bashArg`, then a salient rawInput
@@ -52,7 +62,7 @@ function primaryArg(rawInput: unknown, locations: ToolCallLocation[] | null | un
   const kv = input
     ? Object.entries(input)
         .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
-        .map(([k, v]) => [k, String(v)] as [string, string])
+        .map(([k, v]) => [k, clampKv(String(v))] as [string, string])
     : []
   const firstLocation = locations?.[0]?.path
   if (firstLocation) return { arg: firstLocation, kv }

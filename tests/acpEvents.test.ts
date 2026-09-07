@@ -118,6 +118,37 @@ describe('acpToEvents — tool_call (new call)', () => {
       { type: 'tool', call: { id: 't6', verb: 'other', name: 'Think', state: 'run' } }
     ])
   })
+
+  it('caps a long kv value — a Write\'s whole file body never lands on the event', () => {
+    const body = 'x'.repeat(200_000)
+    const update: SessionUpdate = {
+      sessionUpdate: 'tool_call',
+      toolCallId: 't7',
+      title: 'Write',
+      kind: 'edit',
+      rawInput: { file_path: '/repo/a.ts', content: body }
+    }
+    const call = (acpToEvents(update)[0] as { call: { kv: [string, string][] } }).call
+    expect(call.kv).toEqual([
+      ['file_path', '/repo/a.ts'],
+      ['content', 'x'.repeat(500) + '…']
+    ])
+  })
+
+  it('leaves a short kv value untouched (no truncation marker)', () => {
+    const update: SessionUpdate = {
+      sessionUpdate: 'tool_call',
+      toolCallId: 't8',
+      title: 'Write',
+      kind: 'edit',
+      rawInput: { file_path: '/repo/a.ts', content: 'short body' }
+    }
+    const call = (acpToEvents(update)[0] as { call: { kv: [string, string][] } }).call
+    expect(call.kv).toEqual([
+      ['file_path', '/repo/a.ts'],
+      ['content', 'short body']
+    ])
+  })
 })
 
 describe('acpToEvents — tool_call_update', () => {
