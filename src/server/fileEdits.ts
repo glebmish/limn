@@ -8,8 +8,10 @@ const MAX_EDIT_BYTES = 2 * 1024 * 1024
 
 /** Resolve `rel` inside `workdir`, refusing traversal and symlink escapes (the same
  *  containment rule as artifacts.loadArtifact). Throws on escape; the underlying
- *  realpath throws ENOENT for missing files — callers map that to 'missing'. */
-function containedPath(workdir: string, rel: string): string {
+ *  realpath throws ENOENT for missing files — callers map that to 'missing'.
+ *  Shared with git.ts/anchorStamp.ts: every caller-supplied relative path git or
+ *  fs sees goes through here. */
+export function containedPath(workdir: string, rel: string): string {
   if (nodePath.isAbsolute(rel)) throw new Error(`absolute path not allowed: ${rel}`)
   const root = fs.realpathSync(workdir)
   const full = nodePath.resolve(root, rel)

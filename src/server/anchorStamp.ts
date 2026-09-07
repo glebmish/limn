@@ -1,8 +1,8 @@
 import fs from 'node:fs'
-import nodePath from 'node:path'
 import { effectiveRef } from '../shared/types.js'
 import type { AnchorContext, AnchorStamp, CommentAnchor, SessionMeta } from '../shared/types.js'
 import { CONTEXT_N } from './anchor.js'
+import { containedPath } from './fileEdits.js'
 import { EMPTY_TREE, blobShaAt, hashObjectsWrite, headSha, mergeBase, pathHasChanges, showFile } from './git.js'
 
 // ── creation-time anchor stamping ──────────────────────────────
@@ -16,9 +16,12 @@ type SurfaceState = AnchorStamp['surface']
 
 /** Read a working-tree file as text, or null if it is gone/unreadable/binary.
  *  Matches syntheticAddedFile's on-disk read (git.ts). Shared with the
- *  re-anchor pipeline's new-content resolution (anchor.ts). */
+ *  re-anchor pipeline's new-content resolution (anchor.ts).
+ *  `path` is caller-supplied (an agent's comment anchor), so it is held to the
+ *  worktree — an escaping path reads as absent rather than leaking its content
+ *  into the stamped context. */
 export function readOnDisk(workdir: string, path: string): string | null {
-  try { return fs.readFileSync(nodePath.join(workdir, path), 'utf8') }
+  try { return fs.readFileSync(containedPath(workdir, path), 'utf8') }
   catch { return null }
 }
 

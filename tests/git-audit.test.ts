@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git } from './helpers/fixtureRepo'
-import { defaultBase, getDiff, listBranches, workingTreeDiff } from '../src/server/git'
+import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, workingTreeDiff } from '../src/server/git'
 
 // A throwaway repo we can point hostile git config at. The app must read the same
 // diffs no matter what the end user's ~/.gitconfig (or the repo's own config) says.
@@ -68,5 +68,45 @@ describe('listBranches on a detached HEAD', () => {
     git(dir, 'branch', '-D', 'feature')
     git(dir, 'branch', '-m', 'main', 'trunk')
     expect(await defaultBase(dir)).toBe('trunk')
+  })
+})
+
+describe('hash-object containment', () => {
+  // An artifact anchor's path is client/agent-supplied and reaches hashObjects*
+  // verbatim; `git hash-object -w` happily reads and stores a file outside the
+  // worktree, and catBlob reads it straight back out again.
+  const secret = 'SECRET\nSECOND\nTHIRD\n'
+
+  it('skips a traversal path and stores nothing', async () => {
+    const outside = path.join(dir, '..', `limn-outside-${process.pid}.txt`)
+    fs.writeFileSync(outside, secret)
+    try {
+      const rel = path.relative(dir, outside)
+      const sha = git(dir, 'hash-object', '--', rel) // computes only — no -w, no write
+      expect(await catBlob(dir, sha)).toBeNull()
+      expect([...(await hashObjects(dir, [rel])).keys()]).toEqual([])
+      expect([...(await hashObjectsWrite(dir, [rel])).keys()]).toEqual([])
+      expect(await catBlob(dir, sha)).toBeNull() // still absent from the object store
+    } finally {
+      fs.rmSync(outside, { force: true })
+    }
+  })
+
+  it('skips a symlink whose target escapes the worktree', async () => {
+    const outside = path.join(dir, '..', `limn-link-target-${process.pid}.txt`)
+    fs.writeFileSync(outside, secret)
+    try {
+      fs.symlinkSync(outside, path.join(dir, 'leak.md'))
+      const sha = git(dir, 'hash-object', '--', 'leak.md')
+      expect([...(await hashObjects(dir, ['leak.md'])).keys()]).toEqual([])
+      expect([...(await hashObjectsWrite(dir, ['leak.md'])).keys()]).toEqual([])
+      expect(await catBlob(dir, sha)).toBeNull()
+    } finally {
+      fs.rmSync(outside, { force: true })
+    }
+  })
+
+  it('still hashes an ordinary path inside the worktree', async () => {
+    expect((await hashObjects(dir, ['src/a.ts'])).get('src/a.ts')).toMatch(/^[0-9a-f]{40}$/)
   })
 })

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import nodePath from 'node:path'
 import { execGit, execGitDiff } from './exec.js'
+import { containedPath } from './fileEdits.js'
 import { tagOrigins } from './mergeDiff.js'
 import type { EditHunk } from './anchor.js'
 import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, MergeStrategy, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
@@ -222,11 +223,16 @@ async function syntheticAddedFile(dir: string, path: string): Promise<FileDiff |
  *  that look like options. This is the "did the file change since viewed" key.
  *
  *  `write` persists each file as a loose blob in the object DB (`-w`) so the content
- *  is recoverable later via catBlob — the only difference, hence one function. */
+ *  is recoverable later via catBlob — the only difference, hence one function.
+ *
+ *  Paths reach here caller-supplied (an agent's comment anchor), so each is held to
+ *  the worktree by `containedPath` before git sees it: `hash-object -w -- ../secret`
+ *  would otherwise read and permanently store a file from outside the repo, which
+ *  catBlob then reads straight back. An escaping path is skipped like a missing one. */
 export async function hashObjects(dir: string, paths: string[], opts?: { write?: boolean }): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   const existing = paths.filter((p) => {
-    try { return fs.statSync(nodePath.join(dir, p)).isFile() } catch { return false }
+    try { return fs.statSync(containedPath(dir, p)).isFile() } catch { return false }
   })
   if (existing.length === 0) return out
   const argv = ['hash-object', ...(opts?.write ? ['-w'] : []), '--']

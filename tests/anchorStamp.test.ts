@@ -120,6 +120,23 @@ describe('stampAnchor — artifact anchors', () => {
     expect(await catBlob(fx.dir, out.stamp!.blobSha!)).toBe(fs.readFileSync(path.join(fx.dir, 'docs/spec.md'), 'utf8'))
     expect(out.context).toEqual({ before: ['# Rate limiting spec', ''], after: ['', '- criterion one', '- criterion two'] })
   })
+
+  it('an artifact path that escapes the worktree yields no content and no stored blob', async () => {
+    // the anchor path is client/agent-supplied: a symlink out of the worktree must
+    // not become captured context or a loose blob in the user's object store
+    const outside = path.join(fx.dir, '..', `limn-anchor-outside-${process.pid}.txt`)
+    fs.writeFileSync(outside, 'SECRET\nSECOND\nTHIRD\n')
+    try {
+      fs.symlinkSync(outside, path.join(fx.dir, 'leak.md'))
+      const anchor: CommentAnchor = { kind: 'artifact', path: 'leak.md', line: 2, lineContent: '' }
+      const out = asArtifact(await stampAnchor(fx.dir, makeSession(fx), anchor))
+      expect(out.stamp!.blobSha).toBeUndefined()
+      expect(out.context).toBeUndefined()
+      expect(out.lineContent).toBe('') // no heal — nothing was read
+    } finally {
+      fs.rmSync(outside, { force: true })
+    }
+  })
 })
 
 describe('add_comment wiring — the agent path stamps the anchor', () => {
