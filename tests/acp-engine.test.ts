@@ -581,6 +581,35 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     }
   })
 
+  it('12b. a BROKEN Claude path override fails the turn with the Settings hint, not a raw adapter error', async () => {
+    // Claude self-discovers its binary, so it has no `binaryRequired` gate — but a
+    // configured override is handed to the adapter verbatim, so a stale one must
+    // fail fast with the same actionable hint Settings shows.
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.claude]: '/no/such/claude' })
+    try {
+      const engine = new AcpEngine({ ...CLAUDE_ACP_CONFIG, adapterEntry: FAKE_ENTRY })
+      const run = engine.chat({ repo: '/r', message: 'go' })
+      const events = await drain(run.events)
+      expect(events.at(-1)).toMatchObject({ type: 'error' })
+      await expect(run.result).rejects.toThrow('Configured path does not exist or is not executable.')
+    } finally {
+      setEngineBinaryPrefs({})
+    }
+  })
+
+  it('12c. Claude with NO override still runs when the binary is unresolvable — the adapter self-discovers', async () => {
+    const originalPath = process.env.PATH
+    process.env.PATH = ''
+    try {
+      const { engine } = fakeEngine({ sessionId: 'ch-12c', turns: [{ text: 'ok' }] })
+      const run = engine.chat({ repo: '/r', engineSessionId: 'ch-12c', message: 'go' })
+      await drain(run.events)
+      expect((await run.result).value).toBe('ok')
+    } finally {
+      process.env.PATH = originalPath
+    }
+  })
+
   it('13. auto tier selects the native "auto" mode when the session advertises it', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'chat-auto',

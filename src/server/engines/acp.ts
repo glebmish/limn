@@ -201,14 +201,17 @@ export class AcpEngine implements ReviewEngine {
         }
 
         // (b) spawn the adapter and wire an ACP ClientSideConnection over its stdio.
-        // Fail fast with an actionable error when the adapter can't self-discover its
-        // native binary and Limn can't resolve one either (Codex: the bundled fallback
-        // is stripped from the package, so a missing `codex` would otherwise crash the
-        // adapter with a raw MODULE_NOT_FOUND).
-        if (this.config.binaryRequired) {
-          const st = engineBinaryStatus(this.config.id)
-          if (!st.ok) throw new Error(st.hint)
-        }
+        // Fail fast with an actionable error in the two cases the adapter cannot
+        // recover from: (1) the adapter can't self-discover its native binary and
+        // Limn can't resolve one either (Codex: the bundled fallback is stripped from
+        // the package, so a missing `codex` would otherwise crash the adapter with a
+        // raw MODULE_NOT_FOUND); (2) the user CONFIGURED a path in Settings and it is
+        // broken — `binaryEnv` hands a configured path to the adapter unvalidated, so
+        // without this the turn would die with whatever raw spawn error the adapter
+        // produced instead of the hint Settings already shows. An UNconfigured,
+        // unresolved binary is left alone: Claude's adapter discovers `claude` itself.
+        const st = engineBinaryStatus(this.config.id)
+        if ((this.config.binaryRequired || st.configured) && !st.ok) throw new Error(st.hint)
         child = spawnAdapter(this.config.adapterEntry, {
           ...this.config.env?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }),
           ...this.config.binaryEnv?.()
