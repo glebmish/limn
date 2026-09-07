@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git } from './helpers/fixtureRepo'
-import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, pickDefaultBase, repoState, workingTreeDiff } from '../src/server/git'
+import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, mergedWorkingDiff, pickDefaultBase, repoState, workingTreeDiff } from '../src/server/git'
 
 // A throwaway repo we can point hostile git config at. The app must read the same
 // diffs no matter what the end user's ~/.gitconfig (or the repo's own config) says.
@@ -148,5 +148,38 @@ describe('pickDefaultBase', () => {
     const st = await repoState(dir)
     expect(st.defaultBase).toBe(pickDefaultBase(st.branches))
     expect(st.defaultBase).toBe('main')
+  })
+})
+
+describe('a conflicted working tree (git\'s combined `diff --cc` output)', () => {
+  /** Leaves `feature` mid-merge with src/a.ts and b/keep.ts conflicted, plus one
+   *  ordinary uncommitted edit for contrast. */
+  function conflictOnFeature(): void {
+    fs.writeFileSync(path.join(dir, 'src/a.ts'), 'one\nFEATURE\n')
+    fs.writeFileSync(path.join(dir, 'b/keep.ts'), 'x\nFEATURE\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'feature edit')
+    git(dir, 'checkout', '-q', 'main')
+    fs.writeFileSync(path.join(dir, 'src/a.ts'), 'one\nMAIN\n')
+    fs.writeFileSync(path.join(dir, 'b/keep.ts'), 'x\nMAIN\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'main edit')
+    git(dir, 'checkout', '-q', 'feature')
+    try { git(dir, 'merge', 'main') } catch { /* conflict is the point; git exits 1 */ }
+    fs.appendFileSync(path.join(dir, 'mode.sh'), 'dirty line\n')
+  }
+
+  it('attributes conflicted lines to the working tree, not to the index', async () => {
+    conflictOnFeature()
+    const files = await mergedWorkingDiff(dir, 'main', 'feature')
+    const originOf = (p: string, text: string): string | undefined =>
+      files.find((f) => f.path === p)?.hunks.flatMap((h) => h.lines).find((l) => l.text === text)?.origin
+
+    // both conflicted files are attributed — not just whichever one survived the parse
+    expect(originOf('src/a.ts', '<<<<<<< HEAD')).toBe('unstaged')
+    expect(originOf('b/keep.ts', '<<<<<<< HEAD')).toBe('unstaged')
+    expect(originOf('src/a.ts', 'MAIN')).toBe('unstaged')
+    // the line the compare branch committed is still committed
+    expect(originOf('src/a.ts', 'FEATURE')).toBe('committed')
+    // and an ordinary dirty file in the same run is unaffected
+    expect(originOf('mode.sh', 'dirty line')).toBe('unstaged')
   })
 })

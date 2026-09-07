@@ -381,11 +381,18 @@ function pathFromDiffHeader(line: string): string | undefined {
   return line.match(/^"a\/(.+)" "b\/\1"$/)?.[1] ?? line.match(/^a\/(.+) b\/\1$/)?.[1]
 }
 
-/** Parse `git diff` unified output into FileDiff[]. */
+/** Parse `git diff` unified output into FileDiff[].
+ *
+ *  Handles git's *combined* form too (`diff --cc <path>`, `@@@ -a,b -c,d +e,f @@@`,
+ *  one prefix column per parent), which a bare `git diff` emits for every unmerged
+ *  path during a merge conflict. Splitting on `diff --git` alone let a `--cc` chunk
+ *  swallow the files after it, and the combined hunk header matched no range, so a
+ *  conflicted file came back empty — and its uncommitted lines then read as "staged
+ *  / in the index", which an unmerged path never is. */
 export function parseUnifiedDiff(raw: string): FileDiff[] {
   const files: FileDiff[] = []
   // split into per-file chunks
-  const chunks = raw.split(/^diff --git /m).filter((c) => c.trim().length > 0)
+  const chunks = raw.split(/^diff --(?:git|cc) /m).filter((c) => c.trim().length > 0)
   for (const chunk of chunks) {
     const lines = chunk.split('\n')
     let oldPath: string | undefined
@@ -398,6 +405,9 @@ export function parseUnifiedDiff(raw: string): FileDiff[] {
     let cur: Hunk | null = null
     let oldNo = 0
     let newNo = 0
+    // prefix columns each body line carries: 1 for a two-way diff, one per parent
+    // (2+) for a combined `--cc` one. Set from each hunk marker's `@` count.
+    let cols = 1
 
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i]
@@ -434,22 +444,31 @@ export function parseUnifiedDiff(raw: string): FileDiff[] {
           newPath = newPath ?? m[2]
         }
       } else if (ln.startsWith('@@')) {
-        const m = ln.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$/)
+        // `@@ -o,n +n,m @@ hdr` and the combined `@@@ -o,n -o,n +n,m @@@ hdr`
+        const m = ln.match(/^((@{2,}) ((?:-\d+(?:,\d+)? )+)\+(\d+)(?:,\d+)? \2) ?(.*)$/)
         if (!m) continue
-        oldNo = parseInt(m[1], 10)
-        newNo = parseInt(m[2], 10)
-        cur = { range: ln.match(/^(@@[^@]*@@)/)![1], header: m[3] ?? '', lines: [] }
+        cols = m[2].length - 1
+        oldNo = parseInt(m[3].match(/^-(\d+)/)![1], 10) // first parent's space
+        newNo = parseInt(m[4], 10)
+        cur = { range: m[1], header: m[5] ?? '', lines: [] }
         hunks.push(cur)
       } else if (cur) {
         if (ln.startsWith('\\')) continue // "\ No newline at end of file"
-        if (ln.startsWith('+')) {
-          cur.lines.push({ old: null, new: newNo++, kind: 'add', text: ln.slice(1) })
-        } else if (ln.startsWith('-')) {
-          cur.lines.push({ old: oldNo++, new: null, kind: 'del', text: ln.slice(1) })
-        } else if (ln.startsWith(' ')) {
-          cur.lines.push({ old: oldNo++, new: newNo++, kind: '', text: ln.slice(1) })
+        const pre = ln.slice(0, cols)
+        const text = ln.slice(cols)
+        // Combined: a line is absent from the result if ANY parent column says `-`,
+        // and is an addition if any column says `+` (added relative to that parent).
+        // Old numbers then track the first parent only — deletions from a combined
+        // diff are matched by text downstream (tagOrigins), never by number.
+        if (pre.length < cols) continue // trailing empty string from the split
+        if (pre.includes('-')) {
+          cur.lines.push({ old: oldNo++, new: null, kind: 'del', text })
+        } else if (pre.includes('+')) {
+          cur.lines.push({ old: null, new: newNo++, kind: 'add', text })
+        } else if (/^ +$/.test(pre)) {
+          cur.lines.push({ old: oldNo++, new: newNo++, kind: '', text })
         }
-        // anything else (e.g. trailing empty string from split) is ignored
+        // anything else (e.g. a stray line git didn't prefix) is ignored
       }
     }
 
