@@ -664,15 +664,20 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
   }
 
   const generateFor = async (sessionId: number, agent: AgentRef, opId: string, reviewThreadId: number, steer?: string, update?: boolean): Promise<void> => {
-    const session = preflightGenerate(sessionId)
-    const repo = session.repo
-    // register before the lane is taken: a generation always holds the exclusive lane,
-    // and its events must be recorded from the very first one.
-    liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true })
-    // from here on the op is registered: ALWAYS retire it, even if a post-outcome
-    // DB write throws — a stranded entry would show as a phantom running op in
-    // every tab's loadSession forever (end is idempotent).
+    // the try opens BEFORE the preflight: beginReview already marked this thread
+    // exempt from the orphan prune, and a preflight rejection (session gone, merged
+    // under a stale tab) must release it too, or the exempt set keeps a crash-shaped
+    // review thread alive for the life of the process. `liveOps.end` on an op that
+    // never registered is a no-op, so widening the try costs nothing.
     try {
+      const session = preflightGenerate(sessionId)
+      const repo = session.repo
+      // register before the lane is taken: a generation always holds the exclusive lane,
+      // and its events must be recorded from the very first one.
+      liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true })
+      // from here on the op is registered: ALWAYS retire it, even if a post-outcome
+      // DB write throws — a stranded entry would show as a phantom running op in
+      // every tab's loadSession forever (end is idempotent).
       const outcome = await operations.run(opId, repo, async () => {
         const baseEff = effectiveRef(session.pair.base)
         const compareEff = effectiveRef(session.pair.compare)
@@ -958,9 +963,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         sendOpResult(opId, 'review', outcome.status, cancelled ? undefined : msg, true, undefined, true)
         if (!cancelled) notifyIfUnfocused('Review generation failed', msg.slice(0, 120))
       }
-      operations.unmarkReviewThread(reviewThreadId)
     } finally {
       liveOps.end(opId)
+      // release the prune exemption whatever happened — a throw in the outcome
+      // handler (the failure note's DB write, notifyIfUnfocused) used to strand it.
+      operations.unmarkReviewThread(reviewThreadId)
     }
   }
 

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
-import { approveSessionSha, createSession, touchRepo } from '../src/server/db/sessions'
+import { approveSessionSha, createSession, listChatThreads, markSessionMerged, touchRepo } from '../src/server/db/sessions'
 import { registerIpc, shutdownIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite } from './helpers/fixtureRepo'
@@ -171,5 +171,30 @@ describe('dashboard repo index (finding 29)', () => {
 
     expect(data.repos.map((r) => r.path)).toEqual([a.dir, b.dir, c.dir])
     expect(data.repos.map((r) => r.current)).toEqual(['feature', 'main', 'feature'])
+  })
+})
+
+describe('review-thread prune exemption (finding 30)', () => {
+  it('a generate rejected at preflight releases its thread to the orphan prune', async () => {
+    const h = setup()
+    const fx = makeFixtureRepo()
+    const sessionId = createSession(h.db, fx.dir, await pairFor(fx.dir, 'main', 'feature'), agent).id
+    // the renderer race the finding names: beginReview lands, then the session is
+    // merged elsewhere before generate runs.
+    const orphan = await h.handlers.get('beginReview')!(sessionId, agent) as number
+    markSessionMerged(h.db, sessionId, {
+      strategy: 'squash', mergedSha: 'f'.repeat(40), reviewedTipSha: fx.shas.head,
+      baseSymbol: 'main', baseShaBefore: fx.shas.base, mergedAt: new Date().toISOString(),
+      overrides: [], dependents: [],
+      cleanup: { archived: false, branchDeleted: false, worktreeRemoved: false, retargeted: [], failures: [] }
+    })
+    await expect(h.handlers.get('generate')!(sessionId, agent, 'op-1', orphan))
+      .rejects.toThrow('merged and read-only')
+
+    // a later review thread makes the orphan prunable (the latest is never pruned)
+    const latest = await h.handlers.get('beginReview')!(sessionId, agent) as number
+    await h.handlers.get('loadSession')!(sessionId)
+
+    expect(listChatThreads(h.db, sessionId).map((t) => t.id)).toEqual([latest])
   })
 })
