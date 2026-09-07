@@ -152,6 +152,8 @@ interface MergeContext {
   branch: string
   baseHead: string
   tipSha: string
+  /** merge-base(base, branch) — the base end of the diff the reviewer actually read. */
+  mb: string
   inputs: MergeGateInputs
   commits: { sha: string; subject: string }[]
   counts: { commits: number; files: number; add: number; del: number }
@@ -255,7 +257,7 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
     title, state.annotations?.summary ?? '', tipSha.slice(0, 7), baseSymbol, baseHead.slice(0, 7))
 
   return {
-    session, state, repo, baseSymbol, branch, baseHead, tipSha,
+    session, state, repo, baseSymbol, branch, baseHead, tipSha, mb,
     inputs: { approvalCoversTip, approvalDirtyOnly, staleInfo, branchDirty, baseSiteDirty, baseMoved, probe, ffPossible },
     commits: commitList.map((c) => ({ sha: c.sha, subject: c.subject })),
     counts, worktreePath, baseWorkdir, dependents, draftMessage
@@ -398,12 +400,24 @@ async function persistMergeRecord(db: DatabaseSync, ctx: MergeContext, record: M
     // Pin the BASE side too (§2 durability). Left as a live branch, the base symbol
     // resolves to the post-merge head, so getDiff collapses merge-base onto the tip
     // and the record renders an EMPTY diff for ff / merge / external merges (squash
-    // survives only because its commit is a sibling of the tip). Freezing base at its
-    // reviewed anchor makes getDiff(baseAnchor..tip) the exact reviewed diff for every
-    // strategy — and keeps section/comment anchors resolving. retargetSessionBase is
-    // the one audited writer allowed to touch a session base (retargetSession throws).
+    // survives only because its commit is a sibling of the tip). Freezing base makes
+    // the record render the reviewed diff for every strategy — and keeps
+    // section/comment anchors resolving. retargetSessionBase is the one audited
+    // writer allowed to touch a session base (retargetSession throws).
+    //
+    // Which sha to freeze at differs by path, because getDiff re-derives
+    // merge-base(base, branch) from whatever it is given:
+    //  · a merge Limn landed → the REVIEWED merge-base. The session-start anchor is
+    //    only equal to it while the base never moved; once the branch absorbed a
+    //    moved base (a mid-review rebase, or a merge from the base), merge-base(anchor,
+    //    tip) sits behind it and the record would render base commits the reviewer
+    //    never reviewed as part of the branch.
+    //  · an EXTERNAL merge → the session-start anchor. There the tip is already an
+    //    ancestor of the base head, so the merge-base has collapsed onto the tip and
+    //    freezing at it would render an empty diff.
+    const baseAnchor = record.external ? base.anchorSha : ctx.mb
     dao.retargetSessionBase(db, ctx.session.id,
-      { kind: 'commit', symbol: base.symbol, anchorSha: base.anchorSha })
+      { kind: 'commit', symbol: base.symbol, anchorSha: baseAnchor })
   })
 }
 

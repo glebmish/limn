@@ -152,6 +152,31 @@ describe('mergeExecute — merged record renders the reviewed diff (§2 durabili
       expect(loaded.refMissing).toBeUndefined()
     })
   }
+
+  it('after a mid-review rebase onto a moved base: no base commits in the rendered diff', async () => {
+    const h = await setup()
+    // the base moves during the review …
+    const wt = externalWorktree(h.dir, 'main')
+    fixtureWrite(wt, 'm.txt', 'base-only work\n')
+    fixtureGit(wt, 'add', '-A')
+    fixtureGit(wt, 'commit', '-m', 'base moves on')
+    const movedMain = fixtureGit(h.dir, 'rev-parse', 'main')
+    // … and the branch absorbs it, so the reviewed diff is movedMain..tip
+    fixtureGit(h.dir, 'rebase', 'main')
+    const rebasedTip = fixtureGit(h.dir, 'rev-parse', 'feature')
+    approveSessionSha(h.db, h.sessionId, rebasedTip)
+
+    const res = await h.handlers.get('mergeExecute')!(
+      h.sessionId, baseReq({ baseHead: movedMain, tipSha: rebasedTip })
+    ) as MergeExecuteResult
+    expect(res.status).toBe('merged')
+
+    const loaded = await buildLoadedReview(h.db, getSession(h.db, h.sessionId)!)
+    expect(loaded.skeleton.mergeBase).toBe(movedMain)
+    // m.txt is the BASE's own commit — it was never part of the reviewed branch
+    expect(loaded.skeleton.files.map((f) => f.path)).not.toContain('m.txt')
+    expect(loaded.skeleton.files.length).toBeGreaterThan(0)
+  })
 })
 
 describe('mergeExecute — post-land record-write failure (#5)', () => {
