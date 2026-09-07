@@ -570,23 +570,29 @@ export function latestIteration(db: DatabaseSync, sessionId: number): Iteration 
 export function reviewCopyCandidates(
   db: DatabaseSync, repoPath: string, currentSessionId: number, baseSha: string, positions: Map<string, number>
 ): ReviewCopyCandidate[] {
-  const rows = db.prepare(`SELECT s.*, r.path AS repo_path,
-      i.n, i.engine AS iteration_engine, i.engine_session_id, i.end_sha,
-      i.summary AS iteration_summary, i.at AS iteration_at,
-      i.title AS iteration_title, i.annotations_json
+  // Only the columns this builds from: `s.*` also dragged in a second annotations_json
+  // (the session's), which silently shadowed the iteration's in the row object.
+  const rows = db.prepare(`SELECT s.id, s.base_symbol, s.compare_symbol,
+      i.n, i.engine AS iteration_engine, i.end_sha,
+      i.at AS iteration_at, i.title AS iteration_title, i.annotations_json
     FROM sessions s JOIN repos r ON r.id = s.repo_id
     JOIN iterations i ON i.session_id = s.id
     WHERE r.path = ? AND s.id != ? AND s.base_anchor_sha = ?
       AND s.archived_at IS NULL
     ORDER BY i.at DESC, s.updated_at DESC, s.id DESC`)
-    .all(repoPath, currentSessionId, baseSha) as unknown as (SessionDbRow & {
-      n: number; iteration_engine: EngineId; engine_session_id: string; end_sha: string
-      iteration_summary: string | null; iteration_at: string; iteration_title: string; annotations_json: string
-    })[]
+    .all(repoPath, currentSessionId, baseSha) as unknown as {
+      id: number; base_symbol: string; compare_symbol: string
+      n: number; iteration_engine: EngineId; end_sha: string
+      iteration_at: string; iteration_title: string; annotations_json: string
+    }[]
   const out: ReviewCopyCandidate[] = []
   for (const row of rows) {
     const pos = positions.get(row.end_sha)
     if (pos == null) continue
+    // the agent that produced *this iteration* — the session's engine/model columns are
+    // rewritten by every later generation, so pairing them with the iteration's engine
+    // can describe an agent that never existed. A malformed blob degrades to the engine.
+    const generatedBy = safeJson<ReviewAnnotations>(row.annotations_json)?.generatedBy
     out.push({
       sessionId: row.id,
       iteration: row.n,
@@ -595,7 +601,7 @@ export function reviewCopyCandidates(
       endSha: row.end_sha,
       commitsOld: pos,
       at: row.iteration_at,
-      agent: rowToAgent(row.iteration_engine, row.model, row.reasoning_effort),
+      agent: generatedBy ?? { engine: row.iteration_engine },
       baseSymbol: row.base_symbol,
       compareSymbol: row.compare_symbol
     })

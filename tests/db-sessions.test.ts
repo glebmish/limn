@@ -280,6 +280,22 @@ describe('sessions DAO', () => {
     expect(copied.chats.find((c) => c.kind === 'review')?.messages[0]?.text).toBe('review text')
   })
 
+  it('a candidate reports the agent that generated that iteration, not the session current one', () => {
+    const source = createSession(db, '/repo', pair, { engine: 'claude', model: 'claude-sonnet-4' })
+    const target = createSession(db, '/repo', { ...pair, compare: { ...pair.compare, symbol: 'other', anchorSha: 'd'.repeat(40) } })
+    const annotations = {
+      title: 'T', summary: 'S', sections: [], questions: [],
+      generatedBy: { engine: 'claude' as const, model: 'claude-sonnet-4' }
+    }
+    addIteration(db, source.id, { n: 1, engine: 'claude', sessionId: 'es-old', endSha: 'b'.repeat(40), at: 'T1', title: 'T', annotations, scope: 'full' })
+    // the session is regenerated with a different agent — sessions.engine/model are
+    // rewritten, while the iteration keeps the engine that produced it
+    updateSessionMeta(db, source.id, { engine: 'codex', model: 'gpt-5-codex' })
+
+    const [candidate] = reviewCopyCandidates(db, '/repo', target.id, pair.base.anchorSha, new Map([['b'.repeat(40), 2]]))
+    expect(candidate.agent).toEqual({ engine: 'claude', model: 'claude-sonnet-4' })
+  })
+
   it('retargetSession moves identity to the new side', () => {
     const s = createSession(db, '/repo', pair)
     retargetSession(db, s.id, 'compare', { kind: 'commit', symbol: 'HEAD~2', anchorSha: 'e'.repeat(40) })
