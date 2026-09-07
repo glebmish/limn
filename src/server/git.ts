@@ -19,11 +19,17 @@ export async function currentBranch(dir: string): Promise<string> {
   return (await execGit(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
 }
 
-export async function defaultBase(dir: string): Promise<string> {
-  const branches = await listBranches(dir)
+/** The review base to offer for a branch list: main, else master, else the first
+ *  branch, else HEAD. Pure, so a caller that already holds the list (repoState,
+ *  openRepo, refOptions) answers from it instead of spawning a second `git branch`. */
+export function pickDefaultBase(branches: string[]): string {
   if (branches.includes('main')) return 'main'
   if (branches.includes('master')) return 'master'
   return branches[0] ?? 'HEAD'
+}
+
+export async function defaultBase(dir: string): Promise<string> {
+  return pickDefaultBase(await listBranches(dir))
 }
 
 export async function mergeBase(dir: string, base: string, branch: string): Promise<string> {
@@ -114,8 +120,9 @@ export async function branchCheckedOutAt(dir: string, branch: string): Promise<s
  *  branch is already checked out in another worktree). */
 export async function checkoutBranch(dir: string, branch: string): Promise<void> {
   assertSafeRef(branch) // a client-supplied branch reaches here as a positional git operand
-  if (await isDirty(dir)) {
-    const n = await dirtyCount(dir)
+  // one `git status --porcelain`: its count IS the dirty predicate
+  const n = await dirtyCount(dir)
+  if (n > 0) {
     throw new Error(`Working tree has ${n} uncommitted change${n === 1 ? '' : 's'} — commit or stash first.`)
   }
   await execGit(dir, ['checkout', branch])
@@ -347,9 +354,10 @@ export async function renameMap(dir: string, fromSha: string, toSha: string): Pr
 
 /** Assemble the live git state a repo's hub + review header read. */
 export async function repoState(dir: string): Promise<import('../shared/types.js').RepoState> {
-  const [branches, current, base, worktrees, n] = await Promise.all([
-    listBranches(dir), currentBranch(dir), defaultBase(dir), listWorktrees(dir), dirtyCount(dir)
+  const [branches, current, worktrees, n] = await Promise.all([
+    listBranches(dir), currentBranch(dir), listWorktrees(dir), dirtyCount(dir)
   ])
+  const base = pickDefaultBase(branches)
   // per-worktree dirtiness powers the checkout picker (greys dirty targets); cheap
   // since worktrees are few, and kept here rather than in the hot listWorktrees path.
   await Promise.all(worktrees.map(async (w) => { w.dirty = await isDirty(w.path) }))

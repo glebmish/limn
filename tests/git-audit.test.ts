@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git } from './helpers/fixtureRepo'
-import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, workingTreeDiff } from '../src/server/git'
+import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, pickDefaultBase, repoState, workingTreeDiff } from '../src/server/git'
 
 // A throwaway repo we can point hostile git config at. The app must read the same
 // diffs no matter what the end user's ~/.gitconfig (or the repo's own config) says.
@@ -133,5 +133,20 @@ describe('hash-object partial failures', () => {
     } finally {
       fs.chmodSync(locked, 0o644)
     }
+  })
+})
+
+describe('pickDefaultBase', () => {
+  it('prefers main, then master, then the first branch, then HEAD', () => {
+    expect(pickDefaultBase(['dev', 'main', 'master'])).toBe('main')
+    expect(pickDefaultBase(['dev', 'master'])).toBe('master')
+    expect(pickDefaultBase(['dev', 'trunk'])).toBe('dev')
+    expect(pickDefaultBase([])).toBe('HEAD')
+  })
+
+  it('is what repoState reports, without a second `git branch`', async () => {
+    const st = await repoState(dir)
+    expect(st.defaultBase).toBe(pickDefaultBase(st.branches))
+    expect(st.defaultBase).toBe('main')
   })
 })

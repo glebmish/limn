@@ -15,7 +15,7 @@ import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, Comment
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
-  getDiff, hashObjects, headSha, isAncestor, isDirty, listBranches, recentCommits, repoState, resolveRefInput, untrackedDiffs
+  getDiff, hashObjects, headSha, isAncestor, isDirty, listBranches, pickDefaultBase, recentCommits, repoState, resolveRefInput, untrackedDiffs
 } from './git.js'
 import { execGit } from './exec.js'
 import * as dao from './db/sessions.js'
@@ -456,7 +456,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!fs.existsSync(path.join(repo, '.git'))) throw new Error(`${repo} is not a git repository`)
     dao.touchRepo(db, repo)
     const branches = await listBranches(repo)
-    return { path: repo, branches, current: await currentBranch(repo), defaultBase: await defaultBase(repo) }
+    return { path: repo, branches, current: await currentBranch(repo), defaultBase: pickDefaultBase(branches) }
   })
 
   handle('repoState', async (repo: string) => repoState(repo))
@@ -1405,7 +1405,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('refOptions', async (repo: string, relativeTo: string) => {
     const branches = await listBranches(repo)
-    const base = await defaultBase(repo)
+    const base = pickDefaultBase(branches)
     // recentCommits throws on an unresolvable ref — an in-flight typed ref is normal here
     const commits = await recentCommits(repo, relativeTo, 50).catch(() => [])
     return { branches, defaultBase: base, commits } satisfies RefOptions
