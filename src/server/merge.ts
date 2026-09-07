@@ -6,7 +6,7 @@ import type {
 import {
   aheadCount, branchCheckedOutAt, commitTree, deleteBranch, dirtyCount, driftSummary,
   EMPTY_TREE, headSha, isAncestor, isDirty, listWorktrees, log, mergeBase, mergeInWorktree, mergeTreeProbe,
-  rebaseOnto, removeWorktree, setRef, updateRefCas, type MergeProbe
+  rangeTotals, rebaseOnto, removeWorktree, setRef, updateRefCas, type MergeProbe
 } from './git.js'
 import * as dao from './db/sessions.js'
 import { inTx } from './db/db.js'
@@ -230,7 +230,10 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
       ? aheadCount(repo, mb, baseSymbol).then((commits) => ({ commits, from: mb, to: baseHead }))
       : undefined,
     isAncestor(repo, baseHead, tipSha),
-    driftSummary(repo, branch, mb, null, tipSha)
+    // totals only — `log` above already enumerated the same commits, so the
+    // full driftSummary would spend a serialized `rev-list --count` on a number
+    // this critical path already has.
+    rangeTotals(repo, mb, branch)
   ])
   const counts = { commits: commitList.length, files: range.files, add: range.add, del: range.del }
 

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { makeFixtureRepo, fixtureWrite, fixtureGit, type FixtureRepo } from './helpers/fixtureRepo'
-import { recentCommits, repoRoot, headSha, driftSummary } from '../src/server/git'
+import { recentCommits, repoRoot, headSha, driftSummary, rangeTotals } from '../src/server/git'
 
 let fx: FixtureRepo
 beforeAll(() => { fx = makeFixtureRepo() })
@@ -103,5 +103,11 @@ describe('driftSummary', () => {
     fixtureWrite(dir, 'src/c.ts', 'export const c = 3\nexport const dirty = 1\n') // ignored (no worktree)
     const d = await driftSummary(dir, 'feature', shas.firstFeature, null)
     expect(d).toEqual({ headSha: head, commits: 2, files: 2, add: 2, del: 1, dirty: false })
+  })
+
+  it('rangeTotals matches the committed-only totals without counting commits', async () => {
+    // the merge preflight already knows the commit list, so it takes this half alone
+    expect(await rangeTotals(dir, shas.firstFeature, 'feature')).toEqual({ files: 2, add: 2, del: 1 })
+    expect(await rangeTotals(dir, head, 'feature')).toEqual({ files: 0, add: 0, del: 0 })
   })
 })

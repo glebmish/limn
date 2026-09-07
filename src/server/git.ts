@@ -48,10 +48,16 @@ export async function driftSummary(repo: string, branch: string, sinceSha: strin
   // `knownHead` skips the rev-parse when the caller already resolved the branch tip
   const head = knownHead ?? await headSha(repo, branch)
   const commits = Number((await execGit(repo, ['rev-list', '--count', `${sinceSha}..${branch}`])).trim()) || 0
-  // numstat lines: `<add>\t<del>\t<path>` — binary files report `-`/`-` (→ 0 here).
-  const numstat = workdir
+  const totals = parseNumstat(workdir
     ? await execGit(workdir, ['diff', '--numstat', sinceSha])               // sinceSha → working tree (incl. dirty)
-    : await execGit(repo, ['diff', '--numstat', `${sinceSha}..${branch}`])  // committed-only
+    : await execGit(repo, ['diff', '--numstat', `${sinceSha}..${branch}`])) // committed-only
+  // `dirty` distinguishes the working-tree-edit chip from the commit chip in the pill.
+  const dirty = workdir ? await isDirty(workdir) : false
+  return { headSha: head, commits, ...totals, dirty }
+}
+
+/** numstat lines: `<add>\t<del>\t<path>` — binary files report `-`/`-` (→ 0 here). */
+function parseNumstat(numstat: string): { files: number; add: number; del: number } {
   let files = 0, add = 0, del = 0
   for (const line of numstat.split('\n')) {
     if (!line.trim()) continue
@@ -60,9 +66,14 @@ export async function driftSummary(repo: string, branch: string, sinceSha: strin
     add += Number(a) || 0
     del += Number(d) || 0
   }
-  // `dirty` distinguishes the working-tree-edit chip from the commit chip in the pill.
-  const dirty = workdir ? await isDirty(workdir) : false
-  return { headSha: head, commits, files, add, del, dirty }
+  return { files, add, del }
+}
+
+/** File/line totals of a committed range (`from..to`) — driftSummary's numstat half
+ *  on its own, for callers that already know the commit count and would otherwise pay
+ *  for a `rev-list --count` they throw away. Untracked files are excluded (numstat). */
+export async function rangeTotals(repo: string, from: string, to: string): Promise<{ files: number; add: number; del: number }> {
+  return parseNumstat(await execGit(repo, ['diff', '--numstat', `${from}..${to}`]))
 }
 
 /** Parse `git worktree list --porcelain`. The first entry is the primary
