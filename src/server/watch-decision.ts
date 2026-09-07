@@ -67,6 +67,25 @@ export function createWatchEpoch(): WatchEpoch {
   }
 }
 
+/** Re-entrancy guard for the poll loop. The interval fires every LIVE_INTERVAL_MS
+ *  whether or not the previous poll finished, and one poll runs up to six git
+ *  subprocesses (`status`, a full `diff --binary`, `ls-files`, `hash-object`, …) — on
+ *  a large or heavily dirty repo that can outlast the cadence, and every further tick
+ *  would fan out another set on top of the ones still running. A tick that lands while
+ *  a poll is in flight is dropped: the next one picks the state up anyway. */
+export function createPollGate(): (poll: () => Promise<void>) => Promise<void> {
+  let inFlight = false
+  return async (poll) => {
+    if (inFlight) return
+    inFlight = true
+    try {
+      await poll()
+    } finally {
+      inFlight = false
+    }
+  }
+}
+
 export function decideWatch(state: WatchDecisionState, result: PollResult): WatchDecision {
   if (result.ok) {
     if (state.stopped) {

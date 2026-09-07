@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, PROBE_INTERVAL_MS, FAILURE_THRESHOLD
+  createPollGate, createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, PROBE_INTERVAL_MS, FAILURE_THRESHOLD
 } from '../src/server/watch-decision'
 
 const fail = (reason = 'boom') => ({ ok: false as const, reason })
@@ -92,5 +92,40 @@ describe('createWatchEpoch (watcher lifecycle generation guard)', () => {
     const e = createWatchEpoch()
     e.bump(); const pollEpoch = e.current()
     expect(e.isCurrent(pollEpoch)).toBe(true)
+  })
+})
+
+// Models the ipc.ts wiring: the 500ms interval fires `poll` regardless of whether the
+// previous one finished, so the gate is what keeps one poll's git fan-out from
+// stacking on the last one's.
+describe('createPollGate (one poll at a time)', () => {
+  it('drops a tick that arrives while the previous poll is still in flight', async () => {
+    const gate = createPollGate()
+    let started = 0
+    let release = (): void => {}
+    const parked = new Promise<void>((r) => { release = r })
+    const slow = async (): Promise<void> => { started++; await parked }
+
+    void gate(slow) // poll 1 — parks mid-git
+    await gate(slow) // the next interval tick lands on top of it
+    expect(started).toBe(1)
+
+    release()
+  })
+
+  it('lets the next tick run once the previous poll settled', async () => {
+    const gate = createPollGate()
+    let started = 0
+    await gate(async () => { started++ })
+    await gate(async () => { started++ })
+    expect(started).toBe(2)
+  })
+
+  it('releases the gate when a poll throws, so the loop is not wedged forever', async () => {
+    const gate = createPollGate()
+    await expect(gate(async () => { throw new Error('boom') })).rejects.toThrow('boom')
+    let ran = false
+    await gate(async () => { ran = true })
+    expect(ran).toBe(true)
   })
 })

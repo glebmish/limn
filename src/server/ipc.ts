@@ -44,7 +44,7 @@ import { LiveOpRegistry } from './liveOps.js'
 import { EngineSessionLostError, isCancellation } from './engines/errors.js'
 import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../shared/prefs.js'
 import { applyConfigChange } from '../shared/agentConfig.js'
-import { createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
+import { createPollGate, createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
 
 const operations = new OperationCoordinator()
 
@@ -144,7 +144,13 @@ async function startWatch(repo: string, branch: string, loadedSha: string): Prom
     timer: setInterval(() => void poll(), LIVE_INTERVAL_MS).unref()
   }
   watcher = w
-  async function poll(): Promise<void> {
+  // one poll at a time (see createPollGate): a poll on a big dirty tree can outlast
+  // the 500ms cadence, and stacked ticks would multiply its git subprocesses.
+  const gate = createPollGate()
+  function poll(): Promise<void> {
+    return gate(pollOnce)
+  }
+  async function pollOnce(): Promise<void> {
     if (operations.repoBusy(repo)) return // our own agent op — reload arrives via op:result
     let result: PollResult
     /** the fresh head/sig on success — folded into lastHead/lastSig even when quiet. */
