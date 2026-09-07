@@ -133,3 +133,20 @@ describe('the one global branch watch survives unrelated sessions (finding 24)',
     expect(displaced?.watchStopped?.reason).toBeTruthy()
   })
 })
+
+describe('worktree excludes on a linked worktree (finding 27)', () => {
+  it('excludes .worktrees/ via the common git dir, so the linked worktree stays clean', async () => {
+    const h = setup()
+    const fx = makeFixtureRepo()
+    // open Limn on a LINKED worktree (its `.git` is a file, not a directory)
+    const linked = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-linked-')), 'wt')
+    fixtureGit(fx.dir, 'worktree', 'add', linked, 'main')
+    fixtureGit(fx.dir, 'branch', 'spare', 'main')
+
+    await h.handlers.get('addWorktreeFor')!(linked, 'spare', 'spare')
+
+    const exclude = fs.readFileSync(path.join(fx.dir, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude.split('\n').map((l) => l.trim())).toContain('.worktrees/')
+    expect(fixtureGit(linked, 'status', '--porcelain')).not.toContain('.worktrees')
+  })
+})

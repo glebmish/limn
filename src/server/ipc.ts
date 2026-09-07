@@ -409,9 +409,13 @@ async function pumpEvents(events: AsyncIterable<EngineEvent>, emit: (event: Engi
 /** Add `pattern` to the repo's local `.git/info/exclude` (idempotent). Local-only —
  *  doesn't touch tracked `.gitignore` and never gets committed; shared across the
  *  repo's worktrees via the common git dir. Best-effort: never throws. */
-function ignoreLocally(repo: string, pattern: string): void {
+async function ignoreLocally(repo: string, pattern: string): Promise<void> {
   try {
-    const exclude = path.join(repo, '.git', 'info', 'exclude')
+    // ask git for the common git dir rather than assuming `<repo>/.git` is one: in a
+    // LINKED worktree that path is a file, and mkdir would throw ENOTDIR into the
+    // catch below — leaving the exclusion unwritten (finding 27).
+    const common = (await execGit(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim()
+    const exclude = path.join(common, 'info', 'exclude')
     const cur = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : ''
     if (cur.split('\n').some((l) => l.trim() === pattern)) return
     fs.mkdirSync(path.dirname(exclude), { recursive: true })
@@ -528,7 +532,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // a worktree nested in the repo would otherwise show as untracked `.worktrees/` and
     // dirty the primary tree (blocking checkouts there). Exclude it locally — via
     // `.git/info/exclude` so no tracked file changes and nothing gets committed.
-    ignoreLocally(repo, '.worktrees/')
+    await ignoreLocally(repo, '.worktrees/')
     await addWorktree(repo, branch, dir)
     return repoState(repo)
   })
