@@ -17,6 +17,19 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
   const known = new Set([...skeleton.files.map((f) => f.path), ...untracked])
   const assigned = new Set<string>()
 
+  // A section id is a primary key downstream: the persisted `reviewed_sections` row,
+  // the React list key, the scroll ref and every planMap jump target. The schema only
+  // asks the agent for a "short stable id", so uniqueness is minted here — the scoped
+  // path already does the same for new sections (splice.ts step 4). First occurrence
+  // keeps the id it was cited by; a later collision is re-minted `id-2`, `id-3`, …
+  const takenIds = new Set<string>()
+  const freeId = (base: string): string => {
+    if (!takenIds.has(base)) return base
+    let n = 2
+    while (takenIds.has(`${base}-${n}`)) n++
+    return `${base}-${n}`
+  }
+
   const sections: Section[] = []
   for (const s of parsed.sections) {
     const files = s.files.filter((f) => {
@@ -35,7 +48,12 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       warnings.push(`section "${s.name}" has no valid files — dropped`)
       continue
     }
-    sections.push({ ...s, files })
+    const id = freeId(s.id.trim() || 'section')
+    if (id !== s.id) {
+      warnings.push(`section "${s.name}" cannot keep id "${s.id}" (empty or already used) — re-minted as "${id}"`)
+    }
+    takenIds.add(id)
+    sections.push({ ...s, id, files })
   }
 
   // Block-anchor integrity gate: a narration (or diagram-node) anchor pointing at
@@ -83,8 +101,11 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
   // untracked file is intentionally left orphan so the renderer auto-excludes it.
   const strays = skeleton.files.map((f) => f.path).filter((p) => !assigned.has(p) && !untracked.has(p))
   if (strays.length > 0) {
+    // 'other-changes' is the conventional sweep id, but a prior iteration's sweep
+    // section (or an agent section) may already hold it — take the next free id
+    // rather than renaming a section whose id comments and jumps already reference.
     sections.push({
-      id: 'other-changes',
+      id: freeId('other-changes'),
       name: 'Other changes',
       narration: [{ text: 'Remaining changes in this branch the agent did not group into a section.' }],
       files: strays

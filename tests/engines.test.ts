@@ -171,6 +171,53 @@ describe('mergeAnnotations', () => {
     expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }])
   })
 
+  it('re-mints a duplicate section id, with a warning', async () => {
+    // section ids are the persisted key, the React list key, the scroll ref and every
+    // planMap jump target — two sections sharing one id conflate all of those.
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        { id: 'core', name: 'Core', files: ['src/a.ts'], narration: [{ text: 'w' }] },
+        { id: 'core', name: 'More core', files: ['src/b.ts'], narration: [{ text: 'w' }] }
+      ],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    const ids = annotations.sections.map((s) => s.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids.slice(0, 2)).toEqual(['core', 'core-2']) // first keeps the id it was cited by
+    expect(warnings.some((w) => w.includes('core-2'))).toBe(true)
+  })
+
+  it('mints an id for a section that has none', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: '  ', name: 'Nameless', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    expect(annotations.sections[0].id).toBe('section')
+    expect(warnings.some((w) => w.includes('Nameless'))).toBe(true)
+  })
+
+  it('sweeps strays into a free id when an agent section already claims "other-changes"', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: 'other-changes', name: 'Odds and ends', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      questions: []
+    } as const
+    const { annotations } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    const ids = annotations.sections.map((s) => s.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids[0]).toBe('other-changes') // an agent id is a stable reference — never renamed under it
+    const sweep = annotations.sections[annotations.sections.length - 1]
+    expect(sweep.name).toBe('Other changes')
+    expect(sweep.id).toBe('other-changes-2')
+  })
+
   it('nulls a planMap acceptance source pointing at neither a diff file nor a known artifact, with a warning', async () => {
     const sk = await getDiff(fx.dir, 'main', 'feature')
     const raw = {
