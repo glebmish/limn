@@ -308,7 +308,7 @@ open questions (add/resolve only — do NOT reword existing ones):
 ${priorQuestions}
 ${planMapBlock}
 ${steerBlock}
-DRIFT SINCE ${sinceShort} — the only files that changed; tracked hunks are inlined:
+DRIFT SINCE ${sinceShort} — the tracked files that changed, plus untracked files your sections own; tracked hunks are inlined:
 ${sinceBlock}
 ${ownedUntrackedBlock}${untrackedBlock}
 Produce the scoped patch:

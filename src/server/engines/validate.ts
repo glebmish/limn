@@ -17,20 +17,7 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
   const known = new Set([...skeleton.files.map((f) => f.path), ...untracked])
   const assigned = new Set<string>()
 
-  // A section id is a primary key downstream: the persisted `reviewed_sections` row,
-  // the React list key, the scroll ref and every planMap jump target. The schema only
-  // asks the agent for a "short stable id", so uniqueness is minted here — the scoped
-  // path already does the same for new sections (splice.ts step 4). First occurrence
-  // keeps the id it was cited by; a later collision is re-minted `id-2`, `id-3`, …
-  const takenIds = new Set<string>()
-  const freeId = (base: string): string => {
-    if (!takenIds.has(base)) return base
-    let n = 2
-    while (takenIds.has(`${base}-${n}`)) n++
-    return `${base}-${n}`
-  }
-
-  const sections: Section[] = []
+  const surviving: { section: Section; files: string[] }[] = []
   for (const s of parsed.sections) {
     const files = s.files.filter((f) => {
       if (!known.has(f)) {
@@ -48,11 +35,34 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
       warnings.push(`section "${s.name}" has no valid files — dropped`)
       continue
     }
-    const id = freeId(s.id.trim() || 'section')
-    if (id !== s.id) {
-      warnings.push(`section "${s.name}" cannot keep id "${s.id}" (empty or already used) — re-minted as "${id}"`)
-    }
-    takenIds.add(id)
+    surviving.push({ section: s, files })
+  }
+
+  // A section id is a primary key downstream: the persisted `reviewed_sections` row,
+  // the React list key, the scroll ref and every planMap jump target. The schema only
+  // asks the agent for a "short stable id", so uniqueness is minted here — the scoped
+  // path already does the same for new sections (splice.ts step 4). Every id a
+  // surviving section actually cites is RESERVED before any minting, so an empty or
+  // duplicate id early in the list can never take an id a later section legitimately
+  // owns — that would be exactly the id churn this hygiene exists to prevent.
+  const reserved = new Set(surviving.map((x) => x.section.id.trim()).filter(Boolean))
+  const used = new Set<string>()
+  const freeId = (base: string): string => {
+    const isFree = (id: string): boolean => !used.has(id) && !reserved.has(id)
+    if (isFree(base)) return base
+    let n = 2
+    while (!isFree(`${base}-${n}`)) n++
+    return `${base}-${n}`
+  }
+
+  const sections: Section[] = []
+  for (const { section: s, files } of surviving) {
+    // a padded id is trimmed silently; only a missing or already-taken one is warned.
+    const cited = s.id.trim()
+    const id = cited && !used.has(cited) ? cited : freeId(cited || 'section')
+    if (!cited) warnings.push(`section "${s.name}" has no id — minted "${id}"`)
+    else if (id !== cited) warnings.push(`duplicate section id "${cited}" — re-minted as "${id}"`)
+    used.add(id)
     sections.push({ ...s, id, files })
   }
 

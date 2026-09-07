@@ -276,6 +276,9 @@ describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
       })]
     }))
     const drift = p.slice(p.indexOf('DRIFT SINCE'))
+    // the header must not claim everything under it changed: an untracked file has no
+    // committed baseline, so git lists it whether or not it moved.
+    expect(drift).toContain('the tracked files that changed, plus untracked files your sections own')
     expect(drift).toContain('src/db/mig.ts')                        // the changed file is visible
     expect(drift).toContain('owned by section "Migrations" [s1]')   // and attributed to its section
     expect(drift).not.toContain('UNTRACKED_BODY_LINE')              // but not re-dumped whole

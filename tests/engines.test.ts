@@ -227,6 +227,35 @@ describe('mergeAnnotations', () => {
     expect(warnings.some((w) => w.includes('Nameless'))).toBe(true)
   })
 
+  it('never takes a minted id away from a section that cites it, whatever the order', async () => {
+    // the id-less section comes FIRST: minting must skip 'section' because a later
+    // section legitimately holds it — re-minting THAT one would be the id churn this
+    // hygiene exists to prevent.
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [
+        { id: '', name: 'Nameless', files: ['src/a.ts'], narration: [{ text: 'w' }] },
+        { id: 'section', name: 'Cited as section', files: ['src/b.ts'], narration: [{ text: 'w' }] }
+      ],
+      questions: []
+    } as const
+    const { annotations } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    expect(annotations.sections.slice(0, 2).map((s) => s.id)).toEqual(['section-2', 'section'])
+  })
+
+  it('trims a padded section id without warning about it', async () => {
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: ' core ', name: 'Core', files: [...sk.files.map((f) => f.path)], narration: [{ text: 'w' }] }],
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    expect(annotations.sections[0].id).toBe('core')
+    expect(warnings).toEqual([]) // neither empty nor duplicate — nothing to report
+  })
+
   it('sweeps strays into a free id when an agent section already claims "other-changes"', async () => {
     const sk = await getDiff(fx.dir, 'main', 'feature')
     const raw = {
