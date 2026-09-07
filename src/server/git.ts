@@ -6,8 +6,11 @@ import { tagOrigins } from './mergeDiff.js'
 import type { EditHunk } from './anchor.js'
 import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, MergeStrategy, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
 
+/** Local branch names, refname-sorted. `for-each-ref` rather than `git branch`: the
+ *  latter also prints the `(HEAD detached at …)` pseudo-entry, which is not a branch
+ *  and would reach the checkout picker, resolveRefInput and defaultBase's fallback. */
 export async function listBranches(dir: string): Promise<string[]> {
-  const out = await execGit(dir, ['branch', '--format=%(refname:short)'])
+  const out = await execGit(dir, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'])
   return out.split('\n').map((s) => s.trim()).filter(Boolean)
 }
 

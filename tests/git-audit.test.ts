@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git } from './helpers/fixtureRepo'
-import { getDiff, workingTreeDiff } from '../src/server/git'
+import { defaultBase, getDiff, listBranches, workingTreeDiff } from '../src/server/git'
 
 // A throwaway repo we can point hostile git config at. The app must read the same
 // diffs no matter what the end user's ~/.gitconfig (or the repo's own config) says.
@@ -54,5 +54,19 @@ describe('diff prefixes are pinned against user git config', () => {
     const sk = await getDiff(dir, 'main', 'feature')
     expect(sk.files.map((f) => f.path)).toEqual(['mode.sh'])
     expect(sk.files[0].modeChange).toEqual({ from: '100644', to: '100755' })
+  })
+})
+
+describe('listBranches on a detached HEAD', () => {
+  it('omits git\'s "(HEAD detached at …)" pseudo-entry', async () => {
+    git(dir, 'checkout', '-q', '--detach')
+    expect(await listBranches(dir)).toEqual(['feature', 'main'])
+  })
+
+  it('keeps defaultBase off the pseudo-entry when there is no main/master', async () => {
+    git(dir, 'checkout', '-q', '--detach')
+    git(dir, 'branch', '-D', 'feature')
+    git(dir, 'branch', '-m', 'main', 'trunk')
+    expect(await defaultBase(dir)).toBe('trunk')
   })
 })
