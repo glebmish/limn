@@ -118,6 +118,11 @@ export async function watchState(repo: string, branch: string): Promise<{ head: 
 }
 
 async function startWatch(repo: string, branch: string, loadedSha: string): Promise<void> {
+  // One watcher, many clients: taking the slot for a DIFFERENT target disarms a watch
+  // some other tab (web serve / second window) is still reading, and it would keep
+  // rendering a live titlebar that never fires again. Tell it before taking the slot —
+  // the broadcast is keyed to the old repo/branch, so only the displaced tab sees it.
+  if (watcher && (watcher.repo !== repo || watcher.branch !== branch)) displaceWatch()
   stopWatch()
   const epoch = watchEpoch.current()
   const init = await watchState(repo, branch).catch(() => null)
@@ -221,6 +226,30 @@ function stopWatch(): void {
   // mid-await startWatch, whether or not a watcher is armed right now.
   watchEpoch.bump()
   if (watcher) { clearInterval(watcher.timer); watcher = null }
+}
+
+/** Call the watch down ONLY when it is armed on this target. Every teardown site is a
+ *  per-session event (archive, merge, mark-merged) while the watcher is a single
+ *  module-global slot shared by every client: a bare `stopWatch()` there kills the
+ *  watch another tab's open review is relying on (finding 24). */
+function stopWatchFor(repo: string, branch: string): void {
+  if (watcher && watcher.repo === repo && watcher.branch === branch) stopWatch()
+}
+
+/** Call the armed watch down and tell whoever was reading it, by broadcasting a
+ *  `watchStopped` keyed to ITS repo/branch (the bridge only reacts to a message that
+ *  matches the review it has open). Used where a client takes the single watch slot
+ *  for another target: the displaced tab shows the paused pill instead of a live
+ *  titlebar that will never fire again. */
+function displaceWatch(): void {
+  const w = watcher
+  if (!w) return
+  stopWatch()
+  send('repo:changed', {
+    repo: w.repo, branch: w.branch, headSha: w.lastHead, drift: null,
+    writeCapability: w.lastCapability,
+    watchStopped: { reason: 'another open review took the live watch — reload to resume' }
+  })
 }
 
 /** Fold a self-write (an in-place edit the app just made) into the watch baseline so
@@ -555,7 +584,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && !loaded.state.merged && session.pair.compare.kind === 'branch') {
       void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      stopWatch()
+      // nothing to watch for THIS review — but the slot may hold another tab's watch
+      stopWatchFor(session.repo, session.pair.compare.symbol)
     }
     return loaded
   })
@@ -568,14 +598,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && loaded.session.pair.compare.kind === 'branch') {
       void startWatch(repo, loaded.session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      stopWatch()
+      stopWatchFor(repo, loaded.session.pair.compare.symbol)
     }
     return loaded
   })
 
   handle('archiveSession', async (sessionId: number) => {
+    // read the target before it is archived: the watch comes down only if it is armed
+    // on THIS session's branch (the hub archives any listed row, not just the open one)
+    const session = dao.getSession(db, sessionId)
     dao.archiveSession(db, sessionId)
-    stopWatch()
+    if (session) stopWatchFor(session.repo, session.pair.compare.symbol)
   })
 
   // Create the review thread up front so the review agent is a real, persisted
@@ -1331,7 +1364,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // settle: the session is a terminal record — nothing left to drift against.
       // No repoState broadcast exists (switchBranch RETURNS fresh state); the
       // renderer's store.reload() refetches after a merged result.
-      stopWatch()
+      stopWatchFor(session.repo, session.pair.compare.symbol)
     }
     return outcome.value
   })
@@ -1343,7 +1376,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const opId = `mark-merged-${sessionId}-${Date.now()}`
     const outcome = await operations.run(opId, session.repo, () => markMergedExternal(db, sessionId, cleanup))
     if (outcome.status !== 'succeeded') throw outcome.error
-    stopWatch() // the open review just became a terminal record
+    // this session just became a terminal record — but only ITS watch comes down
+    stopWatchFor(session.repo, session.pair.compare.symbol)
     return outcome.value
   })
 
