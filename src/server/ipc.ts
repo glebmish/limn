@@ -11,7 +11,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileCheckpoint, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileCheckpoint, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -404,6 +404,71 @@ function opRecorder(opId: string): OpRecorder {
 
 async function pumpEvents(events: AsyncIterable<EngineEvent>, emit: (event: EngineEvent) => void): Promise<void> {
   for await (const event of events) emit(event)
+}
+
+/** The envelope the write-capable thread turns share (sendBatch, sendRebase): the
+ *  write-capability precheck, the engine run (tool host, cancel wiring, event pump)
+ *  and the persist tail (agent message + engine-session binding). Runs inside the
+ *  caller's lane; the caller keeps only what differs — its own pre-turn bookkeeping
+ *  and prompt, in `prepare`, which runs after the precheck, and whatever it does with
+ *  the outcome afterwards. NOT used by sendChat: that turn has no capability
+ *  precheck, resolves its workdir differently, and can be re-run read-only on the
+ *  shared lane. */
+async function runThreadTurn(opts: {
+  db: DatabaseSync
+  thread: ChatThread
+  sessionId: number
+  opId: string
+  repo: string
+  compare: RefSide
+  recorder: OpRecorder
+  /** false only for a refine turn (answering an intent question), which stays
+   *  read-only — and so is allowed to run where the agent could not write. */
+  writeEnabled: boolean
+  /** the prompt, plus any pre-turn writes that must not happen before the precheck. */
+  prepare: () => Promise<string> | string
+}): Promise<void> {
+  const { db, thread, sessionId, opId, repo, recorder, writeEnabled } = opts
+  const threadId = thread.id
+  // Write guards are computed from the same capability object the renderer consumes.
+  const capability = await writeCapabilityFor(repo, opts.compare)
+  const workdir = capability.workdir ?? repo
+  if (writeEnabled && !capability.enabled) {
+    const reason = capability.reason === 'not-checked-out'
+      ? 'the compare branch is not checked out'
+      : 'the compare side is not a writable branch'
+    throw new Error(`Agent edits are unavailable because ${reason}`)
+  }
+  const message = await opts.prepare()
+
+  const engine = makeEngine(thread.agent.engine)
+  const tools = createToolHost({
+    db, sessionId, threadId, opId, repo: workdir, agent: thread.agent,
+    engineSessionId: thread.engineSessionId, emit: recorder.emit
+  })
+  // cancel during setup → bail before the (write-enabled) engine launches, so a
+  // stopped turn can't still edit/commit the worktree.
+  operations.throwIfCancelled(opId)
+  // a pruned session rejects this run with the typed EngineSessionLostError.
+  const run = engine.chat({
+    repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
+    message, tools, writeEnabled, opId, executionMode: thread.executionMode,
+    // re-read per permission request (mid-turn mode changes), as in sendChat.
+    currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
+  })
+  operations.registerCancel(opId, run.cancel)
+  const pump = pumpEvents(run.events, recorder.emit)
+  const { value, sessionId: engineSession } = await run.result
+  await pump
+
+  const actions = tools.collected()
+  const toolCalls = reduceToolCalls(recorder.events)
+  const segments = reduceSegments(recorder.events)
+  dao.addChatMessage(db, threadId, {
+    role: 'agent', text: value, at: new Date().toISOString(),
+    ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {})
+  })
+  if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
 }
 
 /** Add `pattern` to the repo's local `.git/info/exclude` (idempotent). Local-only —
@@ -1173,52 +1238,26 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // publish a second live op on this thread.
         liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
         return operations.run(opId, repo, async () => {
-          // Write guards are computed from the same capability object the renderer
-          // consumes. A refine turn (answering an intent question) stays read-only.
-          const capability = await writeCapabilityFor(repo, session.pair.compare)
-          const workdir = capability.workdir ?? repo
-          if (!refine && !capability.enabled) {
-            const reason = capability.reason === 'not-checked-out'
-              ? 'the compare branch is not checked out'
-              : 'the compare side is not a writable branch'
-            throw new Error(`Agent edits are unavailable because ${reason}`)
-          }
-          const writeEnabled = !refine
-          const state = dao.loadReviewState(db, sid)
-          const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
-          if (comments.length === 0 && !steer) throw new Error('Nothing to send')
-          for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
-          sentIds = comments.map((c) => c.id)
-          const userAt = new Date().toISOString()
-          dao.addChatMessage(db, threadId, {
-            role: 'user',
-            at: userAt,
-            text: batchTurnLabel(comments, state.annotations?.questions ?? [], refine, steer),
-            ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
+          // A refine turn (answering an intent question) stays read-only.
+          await runThreadTurn({
+            db, thread, sessionId: sid, opId, repo, compare: session.pair.compare,
+            recorder, writeEnabled: !refine,
+            prepare: () => {
+              const state = dao.loadReviewState(db, sid)
+              const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
+              if (comments.length === 0 && !steer) throw new Error('Nothing to send')
+              for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
+              sentIds = comments.map((c) => c.id)
+              dao.addChatMessage(db, threadId, {
+                role: 'user',
+                at: new Date().toISOString(),
+                text: batchTurnLabel(comments, state.annotations?.questions ?? [], refine, steer),
+                ...(comments.length ? { commentRefs: comments.map((c) => c.id) } : {})
+              })
+              const context = thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
+              return refine ? buildAnswerPrompt(comments, context) : buildBatchPrompt(comments, steer, context)
+            }
           })
-
-          const engine = makeEngine(thread.agent.engine)
-          const tools = createToolHost({
-            db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-            engineSessionId: thread.engineSessionId, emit: recorder.emit
-          })
-          // cancel during setup → bail before the (write-enabled) engine launches, so a
-          // stopped batch can't still edit/commit the worktree.
-          operations.throwIfCancelled(opId)
-          // a pruned session rejects this run with the typed EngineSessionLostError.
-          const run = engine.chat({
-            repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-            message: refine
-              ? buildAnswerPrompt(comments, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary })
-              : buildBatchPrompt(comments, steer, thread.engineSessionId ? undefined : { base: state.base, branch: state.branch, summary: state.annotations?.summary }),
-            tools, writeEnabled, opId, executionMode: thread.executionMode,
-            // re-read per permission request (mid-turn mode changes), as in sendChat.
-            currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
-          })
-          operations.registerCancel(opId, run.cancel)
-          const pump = pumpEvents(run.events, recorder.emit)
-          const { value, sessionId: engineSession } = await run.result
-          await pump
 
           // statuses now reflect the agent's resolve/commit tool calls; anything left
           // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
@@ -1226,14 +1265,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           for (const c of after.comments) {
             if (sentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
           }
-          const at = new Date().toISOString()
-          const actions = tools.collected()
-          const toolCalls = reduceToolCalls(recorder.events)
-          const segments = reduceSegments(recorder.events)
-          dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
-          if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-          const resolved = after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
-          return resolved
+          return after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
         })
       })
       if (outcome.status === 'succeeded') {
@@ -1274,51 +1306,21 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // registered only once the guard is ours — a ThreadBusy rejection must never
         // publish a second live op on this thread.
         liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
-        return operations.run(opId, repo, async () => {
-          // Same precheck as sendBatch: the agent can only rebase where it can write — the
-          // compare branch checked out somewhere with a clean tree (spec §6 / branch-dirty gate).
-          const capability = await writeCapabilityFor(repo, session.pair.compare)
-          const workdir = capability.workdir ?? repo
-          if (!capability.enabled) {
-            const reason = capability.reason === 'not-checked-out'
-              ? 'the compare branch is not checked out'
-              : 'the compare side is not a writable branch'
-            throw new Error(`Agent edits are unavailable because ${reason}`)
+        // Same envelope as sendBatch, always write-enabled: the agent can only rebase
+        // where it can write — the compare branch checked out somewhere with a clean
+        // tree (spec §6 / branch-dirty gate) — and with none of the comment bookkeeping.
+        return operations.run(opId, repo, () => runThreadTurn({
+          db, thread, sessionId: sid, opId, repo, compare: session.pair.compare,
+          recorder, writeEnabled: true,
+          prepare: () => {
+            const state = dao.loadReviewState(db, sid)
+            dao.addChatMessage(db, threadId, {
+              role: 'user', at: new Date().toISOString(),
+              text: rebaseTurnLabel(state.base, state.branch, conflictFiles)
+            })
+            return buildRebasePrompt(state.base, state.branch, conflictFiles)
           }
-          const state = dao.loadReviewState(db, sid)
-          dao.addChatMessage(db, threadId, {
-            role: 'user', at: new Date().toISOString(),
-            text: rebaseTurnLabel(state.base, state.branch, conflictFiles)
-          })
-
-          const engine = makeEngine(thread.agent.engine)
-          const tools = createToolHost({
-            db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-            engineSessionId: thread.engineSessionId, emit: recorder.emit
-          })
-          // cancel during setup → bail before the (write-enabled) engine launches, so a
-          // stopped rebase can't still rewrite the branch.
-          operations.throwIfCancelled(opId)
-          // a pruned session rejects this run with the typed EngineSessionLostError.
-          const run = engine.chat({
-            repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-            message: buildRebasePrompt(state.base, state.branch, conflictFiles),
-            tools, writeEnabled: true, opId, executionMode: thread.executionMode,
-            // re-read per permission request (mid-turn mode changes), as in sendChat.
-            currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
-          })
-          operations.registerCancel(opId, run.cancel)
-          const pump = pumpEvents(run.events, recorder.emit)
-          const { value, sessionId: engineSession } = await run.result
-          await pump
-
-          const at = new Date().toISOString()
-          const actions = tools.collected()
-          const toolCalls = reduceToolCalls(recorder.events)
-          const segments = reduceSegments(recorder.events)
-          dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
-          if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
-        })
+        }))
       })
       if (outcome.status === 'succeeded') {
         // reload:true — the rebase rewrote the branch under the review; folding it in
