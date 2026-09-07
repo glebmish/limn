@@ -44,7 +44,7 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 ## Schema
 
-Migration v1 creates the bulk of the schema; later migrations extend it (v2 chat-message segments, v3/v4 `session_approvals` and its surface-hash re-key, v5 `chat_messages.comment_refs_json`, v6 `excluded_files`, v7 `iterations.scope`). `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
+Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it — v2 `sessions.diff_stack`, v3 strips the dropped per-section `verify` key out of every stored annotations blob, v4 drops the dead `sessions.base_ident` generated column, v5 adds `idx_chat_messages_thread`. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
 
 ### Core entity graph
 

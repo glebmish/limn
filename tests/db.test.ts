@@ -91,6 +91,41 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('a real db that fails its integrity check is moved aside with its sidecars, and the fresh db is clean', () => {
+    const file = tmpFile()
+    // a genuine SQLite file with enough b-tree pages to damage past the header — unlike
+    // the plain-text cases above, this one opens fine and takes journal_mode = WAL, so
+    // the failed handle is live (and holds sidecars) when recovery runs.
+    const first = openDb(file).db
+    first.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)')
+    const ins = first.prepare('INSERT INTO t (v) VALUES (?)')
+    for (let i = 0; i < 500; i++) ins.run(`row-${i}-${'x'.repeat(60)}`)
+    first.close()
+    const fd = fs.openSync(file, 'r+')
+    const pages = fs.statSync(file).size / 4096
+    for (let page = 1; page < pages; page++) fs.writeSync(fd, Buffer.alloc(2000, 0x5a), 0, 2000, 4096 * page + 24)
+    fs.closeSync(fd)
+
+    const { db, recoveredFrom } = openDb(file)
+    expect(recoveredFrom).toMatch(/limn\.db\.corrupt-/)
+    expect(fs.existsSync(recoveredFrom!)).toBe(true)
+    expect(fs.existsSync(`${recoveredFrom!}-wal`)).toBe(true)
+    expect(fs.existsSync(`${recoveredFrom!}-shm`)).toBe(true)
+
+    // the fresh db is genuinely fresh and migrated — nothing of the corrupt one leaked
+    // back in through a sidecar left at the original path
+    expect((db.prepare('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check).toBe('ok')
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name = 't'`).get()).toBeUndefined()
+    expect(db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get())
+      .toEqual({ value: String(MIGRATIONS[MIGRATIONS.length - 1].version) })
+    db.prepare(`INSERT INTO prefs (key, value) VALUES ('a', 'b')`).run()
+    expect((db.prepare(`SELECT value FROM prefs WHERE key = 'a'`).get() as { value: string }).value).toBe('b')
+    db.close()
+    // once the fresh handle is closed, the only sidecars left are the backup's
+    expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith('-wal') || f.endsWith('-shm')).sort())
+      .toEqual([`${path.basename(recoveredFrom!)}-shm`, `${path.basename(recoveredFrom!)}-wal`])
+  })
+
   it('recover: false on a corrupt file rejects instead of moving it aside', () => {
     const file = tmpFile()
     fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')
@@ -173,6 +208,9 @@ describe('migrate: two processes starting during a schema bump', () => {
     // service plus a foreground `limn service serve` on the same file): the other
     // process migrates the file to the newest version in the window between our read
     // of schema_version and our own write lock.
+    // NOTE: this patches DatabaseSync.prototype.prepare *globally* (restored in the
+    // finally below), so this test must not run concurrently with another in this file
+    // — vitest runs the cases in a file sequentially, keep it that way.
     const realPrepare = DatabaseSync.prototype.prepare
     let raced = false
     DatabaseSync.prototype.prepare = function (this: DatabaseSync, sql: string) {

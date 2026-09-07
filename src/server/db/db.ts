@@ -47,9 +47,15 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
     // — that would be surprising data loss. Rethrow those instead.
     if (!isCorruptionError(err)) throw err
     if (!recover) throw new Error(`database at ${file} is corrupt; starting the Limn service will recover it (a backup of the corrupt file will be kept)`, { cause: err })
-    // recoveredFrom was chosen (and the sidecars moved under it) by the hook above
+    // recoveredFrom was chosen (and the sidecars moved under it) by the hook above,
+    // which runs on exactly this condition; the ??= is defensive only.
     recoveredFrom ??= `${file}.corrupt-${Date.now()}`
     fs.renameSync(file, recoveredFrom)
+    // Belt and braces after the hook's move: closing the failed handle runs a shutdown
+    // checkpoint, which on a db that opened far enough to take journal_mode = WAL can
+    // put sidecars back at the original path. Anything left there now would sit beside
+    // the brand-new db opened below — a stale WAL poisoning a fresh file.
+    for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
     db = open(file)
   }
   try {
@@ -100,7 +106,9 @@ function open(file: string, onOpenFailed?: (err: unknown) => void): DatabaseSync
     const check = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string }
     if (check.integrity_check !== 'ok') throw new Error(`integrity: ${check.integrity_check}`)
   } catch (err) {
-    onOpenFailed?.(err)
+    // preserving the sidecars is best-effort: a throwing hook must not replace the open
+    // error the caller classifies on, nor skip the close and leak the handle.
+    try { onOpenFailed?.(err) } catch { /* the open error is what matters */ }
     db.close()
     throw err
   }
