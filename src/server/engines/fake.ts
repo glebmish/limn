@@ -247,6 +247,10 @@ export class FakeEngine implements ReviewEngine {
   chat(turn: ChatTurn): EngineRun<string> {
     lastChatTurn = turn
     const q = new EventQueue()
+    // set while a `[hold]` turn has this chat parked, so `cancel` can release it —
+    // mirrors generateReview's releaseHold (line 54): otherwise closing the queue
+    // would leave the turn awaiting forever.
+    let releaseChatHold: (() => void) | null = null
     const refine = turn.message.includes('The reviewer answered')
     const batch = Boolean(turn.tools && (turn.writeEnabled || refine))
     const modelTag = turn.model ? ` using **${turn.model}**` : ''
@@ -292,9 +296,14 @@ export class FakeEngine implements ReviewEngine {
         throw new DOMException('cancelled', 'AbortError')
       }
       if (turn.message.includes('[hold]')) {
-        // park holding this turn's lane until releaseFakeHolds() fires (concurrency tests)
+        // park holding this turn's lane until releaseFakeHolds() fires (concurrency
+        // tests) — or cancel releases it directly, so Stop always ends the op.
         q.push({ type: 'status', text: turn.readOnly ? 'holding (read-only)…' : 'holding…' })
-        await new Promise<void>((resolve) => { fakeHoldResolvers.push(resolve) })
+        await new Promise<void>((resolve) => {
+          releaseChatHold = resolve
+          fakeHoldResolvers.push(resolve)
+        })
+        releaseChatHold = null
         q.push({ type: 'done' })
         q.close()
         return { value: 'held then released', sessionId: turn.engineSessionId || 'fake-hold' }
@@ -377,6 +386,6 @@ export class FakeEngine implements ReviewEngine {
       q.close()
       return { value: text, sessionId: turn.engineSessionId || `fake-chat-${Date.now()}` }
     })()
-    return { events: q.iterable(), result, cancel: () => q.close() }
+    return { events: q.iterable(), result, cancel: () => { releaseChatHold?.(); q.close() } }
   }
 }

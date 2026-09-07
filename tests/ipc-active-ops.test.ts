@@ -206,4 +206,19 @@ describe('loadSession — activeOps for chat turns', () => {
     releaseFakeHolds()
     await first
   })
+
+  it('cancel releases a parked chat op so the op is retired', async () => {
+    const h = await setup()
+    const thread = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+
+    const chat = h.handlers.get('sendChat')!(thread, '[hold] keep this thread busy', 'op-cancel')
+    await waitForHold(h, 'op-cancel')
+
+    // without cancel releasing the park this await never settles (the test times out).
+    await h.handlers.get('cancel')!('op-cancel')
+    await chat
+
+    expect(h.results.find((r) => r.opId === 'op-cancel')).toBeDefined()
+    expect((await h.handlers.get('loadSession')!(h.sessionId) as LoadedReview).activeOps).toEqual([])
+  })
 })
