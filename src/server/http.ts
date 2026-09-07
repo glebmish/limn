@@ -179,7 +179,19 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   let boundPort = opts.port
   const requestListener = (req: http.IncomingMessage, res: http.ServerResponse): void => {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+    // Node's HTTP parser accepts Host header values that are not valid URL
+    // authorities (a space, `%%%`, …). `new URL` throws synchronously here — the
+    // very first statement of the listener, before any auth/CSRF guard — and an
+    // uncaught throw inside a synchronous 'request' emit is a process-fatal
+    // uncaughtException (no handler is installed anywhere in src/bin). Answer 400
+    // instead of taking the whole service down on one malformed packet.
+    let url: URL
+    try {
+      url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+    } catch {
+      res.writeHead(400).end('bad request')
+      return
+    }
 
     // Public probe: the CLI reads it before it has any token, and it leaks nothing
     // about the host beyond "a Limn of this version is running here".
