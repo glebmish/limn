@@ -975,6 +975,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('copyReviewFrom', async (sourceSessionId: number, sourceIteration: number, targetSessionId: number) => {
     const target = mustGetSession(db, targetSessionId)
+    assertNotMerged(db, targetSessionId)  // the copy rewrites meta and DELETEs artifacts (§7)
     const targetEndSha = await headSha(target.repo, effectiveRef(target.pair.compare))
     dao.copyGeneratedReview(db, sourceSessionId, sourceIteration, targetSessionId, targetEndSha)
     return dao.loadReviewState(db, targetSessionId)

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
-import { approveSessionSha, createChatThread, createSession, getSession, loadReviewState, markSessionMerged, retargetSession } from '../src/server/db/sessions'
+import { addIteration, approveSessionSha, createChatThread, createSession, getSession, loadReviewState, markSessionMerged, retargetSession } from '../src/server/db/sessions'
 import { buildLoadedReview } from '../src/server/review'
 import { registerIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
@@ -232,6 +232,34 @@ describe('merged sessions are read-only (main-process guards)', () => {
     const h = await mergedHarness()
     await expect(h.handlers.get('retargetSession')!(h.sessionId, 'compare', 'main'))
       .rejects.toThrow('This review is merged and read-only')
+  })
+
+  it('copyReviewFrom rejects — a terminal record cannot take a copied review', async () => {
+    const h = await mergedHarness()
+    // a genuinely copyable source: another session in the repo with one iteration
+    const source = createSession(h.db, h.dir, {
+      base: { kind: 'branch', symbol: 'main', anchorSha: h.shas.base },
+      compare: { kind: 'commit', symbol: 'feature~1', anchorSha: h.shas.firstFeature }
+    }, agent).id
+    const annotations = { title: 'Copied title', summary: 'Copied summary', sections: [], questions: [] }
+    addIteration(h.db, source, {
+      n: 1, engine: 'claude', sessionId: 'es-src', endSha: h.shas.firstFeature,
+      at: 'T1', title: annotations.title, summary: annotations.summary, annotations, scope: 'full'
+    })
+
+    await expect(h.handlers.get('copyReviewFrom')!(source, 1, h.sessionId))
+      .rejects.toThrow('This review is merged and read-only')
+    // the merged record kept its (empty) review — the copy's DELETEs never ran
+    expect(loadReviewState(h.db, h.sessionId).annotations).toBeUndefined()
+    expect(loadReviewState(h.db, h.sessionId).iterations).toEqual([])
+
+    // control: the same copy lands on a session that is not merged
+    const open = createSession(h.db, h.dir, {
+      base: { kind: 'branch', symbol: 'main', anchorSha: h.shas.base },
+      compare: { kind: 'commit', symbol: 'feature~2', anchorSha: h.shas.base }
+    }, agent).id
+    await h.handlers.get('copyReviewFrom')!(source, 1, open)
+    expect(loadReviewState(h.db, open).annotations?.title).toBe('Copied title')
   })
 
   // Note: sendChat is intentionally NOT guarded — read-only chat about a landed
