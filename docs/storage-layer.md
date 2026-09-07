@@ -121,7 +121,8 @@ for an exact identity, which is the resume hint used by the default open path.
 ## Migrations
 
 - **Versioning:** a string in `meta.schema_version` (default `0`), **not** the `user_version` pragma and **not** a migrations table.
-- **Application:** for each `MIGRATIONS` entry with `version > current`, run inside an explicit `BEGIN`/`COMMIT` calling `up(db)` then upserting the new version. Any throw triggers `ROLLBACK` and rethrows — each migration is atomic, and a failure leaves `schema_version` and the schema untouched.
+- **Application:** for each `MIGRATIONS` entry with `version > current`, run inside an explicit `BEGIN IMMEDIATE`/`COMMIT` calling `up(db)` then upserting the new version. Any throw triggers `ROLLBACK` and rethrows — each migration is atomic, and a failure leaves `schema_version` and the schema untouched.
+- **Concurrency:** the transaction is `IMMEDIATE` and `schema_version` is re-read *inside* it, because more than one Limn process may open the file. Two processes starting on the same schema bump would otherwise both read the pre-bump version and both run the same migration, and the loser would abort startup with e.g. `duplicate column name`. Under the write lock the loser sees the committed version and skips.
 - **Forward-only.** Never edit a shipped migration; append a new `{ version, up }`. There are no down-migrations.
 - **DDL uses bare `CREATE TABLE` (no `IF NOT EXISTS`) on purpose** — re-running a migration must fail loudly rather than silently no-op. The test suite exploits exactly this to confirm a migration failure preserves data. Do not "helpfully" add `IF NOT EXISTS`.
 
@@ -140,5 +141,5 @@ Every function takes `db` first. Highlights and contracts:
 
 ### Transaction model — sharp edges
 
-- Transactions are raw `db.exec('BEGIN'|'COMMIT'|'ROLLBACK')`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
+- Transactions are raw `db.exec('BEGIN IMMEDIATE'|'COMMIT'|'ROLLBACK')` — `IMMEDIATE` because every one of them writes, and a deferred transaction that reads before writing upgrades its lock mid-flight, which fails without honouring `busy_timeout`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
 - **Guarded JSON parsing — salvages and reports:** every persisted blob (`comments.json`, `sessions.annotations_json`, chat `anchor_json`/`actions_json`/`tools_json`/`segments_json`/`comment_refs_json`, `iterations.annotations_json`) is parsed through `safeJson` in `loadReviewState` and its helpers. A malformed blob is salvaged per its kind (skip the comment/iteration row, drop the chat field, render annotations as not-yet-generated) rather than failing the whole session load; the degradations are summarized into `ReviewState.loadWarnings` and shown in the renderer's dismissible error strip. Stored data is never mutated or deleted on the read path.

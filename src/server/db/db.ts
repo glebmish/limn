@@ -66,7 +66,10 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
  *  helper that opens one itself (e.g. `setArtifacts`, which is why ipc.ts's
  *  generate persist calls it just outside its `inTx` block). */
 export function inTx(db: DatabaseSync, fn: () => void): void {
-  db.exec('BEGIN')
+  // IMMEDIATE: every caller writes, and a deferred BEGIN that reads first then writes
+  // upgrades its lock mid-transaction — which fails with SQLITE_BUSY_SNAPSHOT without
+  // honouring busy_timeout when a second Limn process holds the write lock.
+  db.exec('BEGIN IMMEDIATE')
   try {
     fn()
     db.exec('COMMIT')
@@ -112,14 +115,26 @@ export function parseSchemaVersion(raw: string | undefined): number {
   return Number.isNaN(v) ? 0 : v
 }
 
+function readSchemaVersion(db: DatabaseSync): number {
+  const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | undefined
+  return parseSchemaVersion(row?.value)
+}
+
 function migrate(db: DatabaseSync): void {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-  const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | undefined
-  let version = parseSchemaVersion(row?.value)
+  let version = readSchemaVersion(db)
   for (const m of MIGRATIONS) {
     if (m.version <= version) continue
-    db.exec('BEGIN')
+    // BEGIN IMMEDIATE (not the deferred BEGIN, which takes no lock until its first
+    // statement) so the version is decided under the write lock: more than one Limn
+    // process may open this file, and two that read the pre-bump version would both
+    // run the same deliberately non-idempotent migration — the loser aborting with
+    // e.g. "duplicate column name". Re-read inside the lock and skip what the other
+    // process already committed.
+    db.exec('BEGIN IMMEDIATE')
     try {
+      version = readSchemaVersion(db)
+      if (m.version <= version) { db.exec('COMMIT'); continue }
       m.up(db)
       db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(m.version))

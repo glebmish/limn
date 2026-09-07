@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb, isCorruptionError } from '../src/server/db/db'
+import { MIGRATIONS } from '../src/server/db/migrations'
 
 function tmpFile(): string {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-db-')), 'limn.db')
@@ -148,6 +149,56 @@ describe('isCorruptionError', () => {
       'unable to open database file'
     ]) {
       expect(isCorruptionError(new Error(m))).toBe(false)
+    }
+  })
+})
+
+describe('migrate: two processes starting during a schema bump', () => {
+  /** Seed a db at schema_version 1 — the state a user's file is in before migration 2
+   *  (`ALTER TABLE sessions ADD COLUMN diff_stack`, deliberately non-idempotent) runs. */
+  function seedAtVersion1(file: string): void {
+    const db = new DatabaseSync(file)
+    db.exec('PRAGMA journal_mode = WAL')
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    MIGRATIONS[0].up(db)
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', '1')`).run()
+    db.close()
+  }
+
+  it('skips a migration the other process already committed instead of aborting with "duplicate column name"', () => {
+    const file = tmpFile()
+    seedAtVersion1(file)
+
+    // Deterministic stand-in for the race docs/storage-layer.md blesses (an installed
+    // service plus a foreground `limn service serve` on the same file): the other
+    // process migrates the file to the newest version in the window between our read
+    // of schema_version and our own write lock.
+    const realPrepare = DatabaseSync.prototype.prepare
+    let raced = false
+    DatabaseSync.prototype.prepare = function (this: DatabaseSync, sql: string) {
+      const stmt = realPrepare.call(this, sql)
+      if (!raced && /^\s*SELECT/i.test(sql) && sql.includes('schema_version')) {
+        const get = stmt.get.bind(stmt) as (...args: unknown[]) => unknown
+        stmt.get = ((...args: unknown[]) => {
+          const row = get(...args) // our (about to be stale) read
+          if (!raced) { raced = true; openDb(file).db.close() }
+          return row
+        }) as typeof stmt.get
+      }
+      return stmt
+    } as DatabaseSync['prepare']
+
+    try {
+      const { db } = openDb(file)
+      expect(raced).toBe(true)
+      expect((db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string }).value)
+        .toBe(String(MIGRATIONS[MIGRATIONS.length - 1].version))
+      // the other process's schema is intact — diff_stack exists exactly once
+      const cols = (db.prepare(`PRAGMA table_info(sessions)`).all() as { name: string }[]).map((c) => c.name)
+      expect(cols.filter((c) => c === 'diff_stack')).toEqual(['diff_stack'])
+      db.close()
+    } finally {
+      DatabaseSync.prototype.prepare = realPrepare
     }
   })
 })
