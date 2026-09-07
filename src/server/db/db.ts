@@ -24,7 +24,22 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
   let db: DatabaseSync
   let recoveredFrom: string | undefined
   try {
-    db = open(file)
+    db = open(file, (err) => {
+      // Last window before SQLite unlinks the sidecars (it does that when the failed
+      // handle closes). In WAL mode the most recent committed transactions live in the
+      // -wal, so a backup kept without it can be missing everything written since the
+      // last checkpoint — move them with the backup rather than losing them. They must
+      // still leave this path: a stale WAL would poison the freshly created db.
+      if (!recover || !isCorruptionError(err)) return
+      recoveredFrom = `${file}.corrupt-${Date.now()}`
+      for (const suffix of ['-wal', '-shm']) {
+        if (!fs.existsSync(`${file}${suffix}`)) continue
+        // best-effort: if the move fails (a platform that won't rename an open file),
+        // fall back to the removal the fresh open needs.
+        try { fs.renameSync(`${file}${suffix}`, `${recoveredFrom}${suffix}`) }
+        catch { fs.rmSync(`${file}${suffix}`, { force: true }) }
+      }
+    })
   } catch (err) {
     // Only move the live db aside when the file is genuinely corrupt. Transient
     // failures (lock contention from a concurrent desktop+web open, a permissions
@@ -32,9 +47,9 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
     // — that would be surprising data loss. Rethrow those instead.
     if (!isCorruptionError(err)) throw err
     if (!recover) throw new Error(`database at ${file} is corrupt; starting the Limn service will recover it (a backup of the corrupt file will be kept)`, { cause: err })
-    recoveredFrom = `${file}.corrupt-${Date.now()}`
+    // recoveredFrom was chosen (and the sidecars moved under it) by the hook above
+    recoveredFrom ??= `${file}.corrupt-${Date.now()}`
     fs.renameSync(file, recoveredFrom)
-    for (const suffix of ['-wal', '-shm']) fs.rmSync(`${file}${suffix}`, { force: true })
     db = open(file)
   }
   try {
@@ -69,7 +84,10 @@ export function isCorruptionError(err: unknown): boolean {
   return /\bintegrity\b|malformed|not a database|file is encrypted|database disk image|sqlite_corrupt|sqlite_notadb/.test(msg)
 }
 
-function open(file: string): DatabaseSync {
+/** `onOpenFailed` runs with the open error while the failed handle is still open —
+ *  the only window in which the -wal/-shm sidecars still exist, since SQLite unlinks
+ *  them as the last connection closes. */
+function open(file: string, onOpenFailed?: (err: unknown) => void): DatabaseSync {
   const db = new DatabaseSync(file)
   try {
     db.exec('PRAGMA journal_mode = WAL')
@@ -78,6 +96,7 @@ function open(file: string): DatabaseSync {
     const check = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string }
     if (check.integrity_check !== 'ok') throw new Error(`integrity: ${check.integrity_check}`)
   } catch (err) {
+    onOpenFailed?.(err)
     db.close()
     throw err
   }

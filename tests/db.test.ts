@@ -73,6 +73,23 @@ describe('openDb', () => {
     db.close()
   })
 
+  it('a corrupt file keeps its -wal/-shm sidecars beside the backup instead of deleting them', () => {
+    const file = tmpFile()
+    fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')
+    fs.writeFileSync(`${file}-wal`, 'pretend write-ahead log with the last committed transactions')
+    fs.writeFileSync(`${file}-shm`, 'pretend shared-memory index')
+    const { db, recoveredFrom } = openDb(file)
+    // the last committed transactions live in the WAL — the aside copy must keep it
+    expect(fs.readFileSync(`${recoveredFrom!}-wal`, 'utf8')).toBe('pretend write-ahead log with the last committed transactions')
+    // the -shm is only a regenerable index (and SQLite rewrites it during the failed
+    // open), so it just has to travel with the backup rather than be destroyed
+    expect(fs.existsSync(`${recoveredFrom!}-shm`)).toBe(true)
+    // and the fresh db is not poisoned by the stale sidecars
+    db.prepare(`INSERT INTO prefs (key, value) VALUES ('a', 'b')`).run()
+    expect((db.prepare(`SELECT value FROM prefs WHERE key = 'a'`).get() as { value: string }).value).toBe('b')
+    db.close()
+  })
+
   it('recover: false on a corrupt file rejects instead of moving it aside', () => {
     const file = tmpFile()
     fs.writeFileSync(file, 'this is not a sqlite database, not even close — pad pad pad')

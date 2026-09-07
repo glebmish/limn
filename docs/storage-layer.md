@@ -34,7 +34,7 @@ All review state — sessions, comments, chat, iterations, approvals, prefs — 
 
 Three failure modes are handled **differently**, and the distinctions are load-bearing:
 
-- **Corruption** — if `open()` (steps 1–4) throws *and* `isCorruptionError(err)` matches (an `integrity_check` failure, `SQLITE_NOTADB`, "file is encrypted", "malformed", etc.), the file is renamed aside to `<file>.corrupt-<timestamp>`, the `-wal`/`-shm` sidecars are removed, and a fresh DB is created. The backup path is returned as `recoveredFrom` and surfaced to the UI as a boot notice. **This loses data** (recreated empty).
+- **Corruption** — if `open()` (steps 1–4) throws *and* `isCorruptionError(err)` matches (an `integrity_check` failure, `SQLITE_NOTADB`, "file is encrypted", "malformed", etc.), the file is renamed aside to `<file>.corrupt-<timestamp>`, the `-wal`/`-shm` sidecars are renamed to sit beside it (they must leave — a stale WAL would poison the fresh db — but the last committed transactions live in the WAL, so the aside copy keeps them), and a fresh DB is created. The backup path is returned as `recoveredFrom` and surfaced to the UI as a boot notice. **This loses data** (recreated empty).
 - **Transient open failure** — if `open()` throws but the error is *not* corruption (lock contention from a concurrent desktop+web open, a permissions error, `SQLITE_BUSY`), it is **rethrown with the file intact**. The recovery path is never taken, so a momentary failure can't drop the user's real database.
 - **Migration failure** — if `migrate()` throws, the DB is closed and the error rethrown, leaving the file **intact**.
 
