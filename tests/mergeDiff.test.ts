@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { tagOrigins } from '../src/server/mergeDiff'
-import { mergedWorkingDiff, parseUnifiedDiff } from '../src/server/git'
+import { mergedWorkingDiff, parseUnifiedDiff, workingTreeDiff } from '../src/server/git'
 import { makeFixtureRepo, fixtureWrite } from './helpers/fixtureRepo'
 import { execGit } from '../src/server/exec'
 import type { DiffLine, FileDiff } from '../src/shared/types'
@@ -117,5 +117,17 @@ describe('mergedWorkingDiff (base→working-tree, origin-tagged)', () => {
 
     expect(origin('export const staged = 1')).toBe('staged')
     expect(origin('export const loose = 2')).toBe('unstaged')
+  })
+
+  it('reuses the caller\'s HEAD→worktree diff instead of recomputing it', async () => {
+    const fx = makeFixtureRepo()
+    fixtureWrite(fx.dir, 'src/b.ts', ['export function b() {', '  return 44', '}', ''].join('\n'))
+    fixtureWrite(fx.dir, 'src/fresh.ts', 'brand new\n') // untracked: the expensive part to re-walk
+
+    const volatile = await workingTreeDiff(fx.dir) // what review.ts already holds
+    const shared = await mergedWorkingDiff(fx.dir, 'main', 'feature', volatile)
+    const recomputed = await mergedWorkingDiff(fx.dir, 'main', 'feature')
+    expect(shared).toEqual(recomputed)
+    expect(volatile.map((f) => f.path)).toContain('src/fresh.ts') // and the array is not consumed
   })
 })

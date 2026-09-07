@@ -177,11 +177,15 @@ export async function untrackedDiffs(dir: string): Promise<FileDiff[]> {
  *  delta (base→HEAD) or the uncommitted delta (HEAD→working-tree). git produces the
  *  merged hunks; `tagOrigins` labels each line via an exact line-number join against
  *  the committed (skeleton) and dirty (volatile) diffs that share HEAD as pivot. */
-export async function mergedWorkingDiff(dir: string, base: string, branch: string): Promise<FileDiff[]> {
+export async function mergedWorkingDiff(dir: string, base: string, branch: string, knownVolatile?: FileDiff[]): Promise<FileDiff[]> {
   const mb = await mergeBase(dir, base, branch).catch(() => EMPTY_TREE) // no common history → empty tree
   const merged = await workingTreeDiffFrom(dir, mb)
   const skeleton = parseUnifiedDiff(await execGit(dir, ['diff', ...DIFF_ARGS, mb, await headSha(dir, branch)]))
-  const volatile = await workingTreeDiff(dir)
+  // `knownVolatile` is the caller's own HEAD→worktree diff (review.ts computes it a
+  // few lines earlier for the volatile band). Recomputing it here would re-run
+  // `git diff HEAD` + `ls-files --others` and re-read every untracked file off disk
+  // for the same answer; tagOrigins only reads it, so sharing the array is safe.
+  const volatile = knownVolatile ?? await workingTreeDiff(dir)
   // Two index pivots split the uncommitted lines: `unstaged` (index → working tree)
   // carries worktree-space line numbers, so its adds join `merged` adds exactly;
   // `staged` (HEAD → index) backs the best-effort text match for staged deletions.

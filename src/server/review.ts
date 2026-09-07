@@ -178,7 +178,7 @@ export async function assembleReview(
   let merged: FileDiff[] | undefined
   if (dirty && wt) {
     try {
-      merged = await mergedWorkingDiff(wt, baseEff, compareEff)
+      merged = await mergedWorkingDiff(wt, baseEff, compareEff, volatile)
       const asSkel = (files: FileDiff[]): DiffSkeleton => ({ ...skeleton, files })
       // Since-tag every file uniformly — a "changed since approved/viewed" rail always
       // means "this line changed since that baseline", even for a wholly-new (untracked)
