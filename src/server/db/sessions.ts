@@ -116,17 +116,6 @@ export function repoIndexRows(db: DatabaseSync): { path: string; sessionCount: n
     ORDER BY lastActivity DESC`).all() as { path: string; sessionCount: number; lastActivity: string }[]
 }
 
-/** Repos that have ≥1 live (non-archived) session, ordered by session activity.
- *  Kept for callers that need session-backed repos only; the dashboard uses
- *  repoIndexRows so transient-only opened repos are included too. */
-export function reposWithSessions(db: DatabaseSync): { path: string; sessionCount: number; lastActivity: string }[] {
-  return db.prepare(`SELECT r.path AS path, COUNT(*) AS sessionCount, MAX(s.updated_at) AS lastActivity
-    FROM repos r JOIN sessions s ON s.repo_id = r.id
-    WHERE s.archived_at IS NULL
-    GROUP BY r.id
-    ORDER BY lastActivity DESC`).all() as { path: string; sessionCount: number; lastActivity: string }[]
-}
-
 // ── sessions ──────────────────────────────────────────────────
 interface SessionDbRow {
   id: number; repo_id: number
@@ -208,16 +197,6 @@ export function listRepoSessions(db: DatabaseSync, repoPath: string, includeArch
 /** Restore a soft-deleted session (clear archived_at). */
 export function unarchiveSession(db: DatabaseSync, id: number): void {
   db.prepare('UPDATE sessions SET archived_at = NULL, updated_at = ? WHERE id = ?').run(now(), id)
-}
-
-/** The latest live session whose compare side is branch `branch` (any base) —
- *  the auto-jump target when a repo opens on that branch. */
-export function latestSessionForBranch(db: DatabaseSync, repoPath: string, branch: string): SessionMeta | null {
-  const row = db.prepare(`${SESSION_SELECT}
-    WHERE r.path = ? AND s.compare_kind = 'branch' AND s.compare_symbol = ? AND s.archived_at IS NULL
-    ORDER BY s.updated_at DESC, s.id DESC LIMIT 1`)
-    .get(repoPath, branch) as SessionDbRow | undefined
-  return row ? rowToMeta(row) : null
 }
 
 /** The most recent live sessions across the given repos (newest first), each

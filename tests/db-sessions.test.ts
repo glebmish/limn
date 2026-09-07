@@ -8,7 +8,7 @@ import {
   ensureRepo, touchRepo, recentRepoPaths,
   repoIndexRows, forgetRepo,
   createSession, findSession, getSession, archiveSession, retargetSession,
-  listRepoSessions, latestSessionForBranch, unarchiveSession,
+  listRepoSessions, unarchiveSession,
   loadReviewState, updateSessionMeta, replaceUiState,
   upsertComment, deleteComment, addIteration, nextIterationNumber, latestIteration, reviewCopyCandidates, copyGeneratedReview, setArtifacts,
   approveArtifact, unapproveArtifact, approveSessionSha, approveSessionSurface, unapproveSessionSha, unapproveSessionSurface, unresolvedCount,
@@ -494,16 +494,6 @@ describe('repo-scoped session queries (hub + branch jump)', () => {
     const b = createSession(db, '/repo', pair, { engine: 'codex' })
     expect(a.id).not.toBe(b.id) // no unique-per-pair constraint on sessions
     expect(listRepoSessions(db, '/repo').length).toBe(2)
-  })
-
-  it('latestSessionForBranch returns the most recently touched live match', () => {
-    const old = createSession(db, '/repo', pair)
-    const recent = createSession(db, '/repo', pair)
-    updateSessionMeta(db, recent.id, { annotations: { title: 'newer', summary: '', sections: [], questions: [] } })
-    expect(latestSessionForBranch(db, '/repo', 'feature')?.id).toBe(recent.id)
-    expect(latestSessionForBranch(db, '/repo', 'nope')).toBeNull()
-    archiveSession(db, recent.id)
-    expect(latestSessionForBranch(db, '/repo', 'feature')?.id).toBe(old.id) // falls back past archived
   })
 
   it('listRepoSessions denormalizes status and excludes archived', () => {
