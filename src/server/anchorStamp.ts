@@ -48,15 +48,28 @@ function resolveContext(content: string | null, L: number, lineContent: string):
   return lineContent ? { context } : { context, lineContent: lines[L - 1] }
 }
 
+/** The tree-level facts a stamp needs: the compare tip and the merge-base. They are
+ *  the same for every anchor stamped against one tree, so a caller stamping a whole
+ *  pass resolves them once (`resolveStampTree`) and hands them to every `stampAnchor`. */
+export interface StampTree { head: string; mb: string }
+
 /** headSha/mergeBase — the tree-level fields shared by both anchor kinds.
  *  headSha is NOT swallowed: if it throws (e.g. a non-repo workdir) the caller's
  *  outer try/catch returns the anchor unstamped rather than fabricate a stamp. */
-async function resolveTreeState(workdir: string, session: SessionMeta): Promise<{ head: string; mb: string }> {
+async function resolveTreeState(workdir: string, session: SessionMeta): Promise<StampTree> {
   const compareEff = effectiveRef(session.pair.compare)
   const baseEff = effectiveRef(session.pair.base)
   const head = await headSha(workdir, compareEff)
   const mb = await mergeBase(workdir, baseEff, compareEff).catch(() => EMPTY_TREE)
   return { head, mb }
+}
+
+/** Resolve the shared tree facts once for a whole stamping pass (a generation's
+ *  narration blocks + diagram nodes, a batch of minted hotspot comments). Never
+ *  throws: `undefined` — a non-repo workdir — just leaves each `stampAnchor` to
+ *  resolve for itself and degrade to an unstamped anchor exactly as before. */
+export async function resolveStampTree(workdir: string, session: SessionMeta): Promise<StampTree | undefined> {
+  try { return await resolveTreeState(workdir, session) } catch { return undefined }
 }
 
 /** Stamp a `kind: 'diff'` anchor. Blob source follows per-file state so the
@@ -68,8 +81,8 @@ async function resolveTreeState(workdir: string, session: SessionMeta): Promise<
  *  `surface` names that same line space, so it is derived from the SAME per-file
  *  signal — an unrelated dirty file elsewhere in the tree says nothing about the
  *  space this line was written in (and would cost the anchor its rename tracking). */
-async function stampDiff(workdir: string, session: SessionMeta, anchor: Extract<CommentAnchor, { kind: 'diff' }>): Promise<CommentAnchor> {
-  const { head, mb } = await resolveTreeState(workdir, session)
+async function stampDiff(workdir: string, tree: StampTree, anchor: Extract<CommentAnchor, { kind: 'diff' }>): Promise<CommentAnchor> {
+  const { head, mb } = tree
   // side 'old' is base space, which is committed by construction — no probe needed
   const changed = anchor.side === 'new' && (await pathHasChanges(workdir, anchor.file))
   const surface: SurfaceState = changed ? 'dirty' : 'committed'
@@ -96,8 +109,8 @@ async function stampDiff(workdir: string, session: SessionMeta, anchor: Extract<
  *  disk (may be untracked docs), so content + blob are always the `-w` on-disk
  *  form; headSha/mergeBase are best-effort provenance (Q10). `surface` names this
  *  file's own line space (same per-file rule as stampDiff). */
-async function stampArtifact(workdir: string, session: SessionMeta, anchor: Extract<CommentAnchor, { kind: 'artifact' }>): Promise<CommentAnchor> {
-  const { head, mb } = await resolveTreeState(workdir, session)
+async function stampArtifact(workdir: string, tree: StampTree, anchor: Extract<CommentAnchor, { kind: 'artifact' }>): Promise<CommentAnchor> {
+  const { head, mb } = tree
   const surface: SurfaceState = (await pathHasChanges(workdir, anchor.path)) ? 'dirty' : 'committed'
   const content = readOnDisk(workdir, anchor.path)
   const blobSha = (await hashObjectsWrite(workdir, [anchor.path])).get(anchor.path)
@@ -109,14 +122,18 @@ async function stampArtifact(workdir: string, session: SessionMeta, anchor: Extr
 /** Enrich a positional comment anchor with its immutable stamp + context at
  *  creation. No-op (returns the anchor untouched) for non-positional anchors and
  *  already-stamped ones (once-only — Q4 immutability). Never throws: any git
- *  failure returns the anchor with whatever resolved, or unchanged. */
-export async function stampAnchor(workdir: string, session: SessionMeta, anchor: CommentAnchor): Promise<CommentAnchor> {
+ *  failure returns the anchor with whatever resolved, or unchanged.
+ *
+ *  `tree`: the pre-resolved tree facts, for a caller stamping many anchors against
+ *  one tree (`resolveStampTree`). Omitted, each call resolves them itself. */
+export async function stampAnchor(workdir: string, session: SessionMeta, anchor: CommentAnchor, tree?: StampTree): Promise<CommentAnchor> {
   if (anchor.kind !== 'diff' && anchor.kind !== 'artifact') return anchor
   if (anchor.stamp) return anchor
   try {
+    const resolved = tree ?? await resolveTreeState(workdir, session)
     return anchor.kind === 'diff'
-      ? await stampDiff(workdir, session, anchor)
-      : await stampArtifact(workdir, session, anchor)
+      ? await stampDiff(workdir, resolved, anchor)
+      : await stampArtifact(workdir, resolved, anchor)
   } catch {
     return anchor // stamping must never reject a comment
   }

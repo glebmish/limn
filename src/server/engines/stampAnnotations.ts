@@ -1,5 +1,5 @@
 import type { CommentAnchor, ReviewAnnotations, SessionMeta } from '../../shared/types.js'
-import { stampAnchor } from '../anchorStamp.js'
+import { resolveStampTree, stampAnchor } from '../anchorStamp.js'
 
 /** Post-merge stamping pass (mirrors `add_comment`, tools.ts): enrich every
  *  diff-kind narration block anchor (and, as of A3, diagram node anchor) with
@@ -10,18 +10,21 @@ import { stampAnchor } from '../anchorStamp.js'
  *  throws (degrades to unstamped on any git failure), so this pass can never
  *  turn a successful generation into a failed one. A4 may extend this further
  *  to hotspot anchors — keep new anchor kinds as additional loops here rather
- *  than growing these. */
+ *  than growing these. The tip/merge-base are the same for every anchor in the
+ *  pass, so they are resolved once here instead of per anchor (a section-rich
+ *  review stamps dozens). */
 export async function stampAnnotationAnchors(workdir: string, session: SessionMeta, ann: ReviewAnnotations): Promise<void> {
+  const tree = await resolveStampTree(workdir, session)
   for (const section of ann.sections) {
     for (const block of section.narration) {
       if (block.anchor?.kind === 'diff') {
-        block.anchor = await stampAnchor(workdir, session, block.anchor) as Extract<CommentAnchor, { kind: 'diff' }>
+        block.anchor = await stampAnchor(workdir, session, block.anchor, tree) as Extract<CommentAnchor, { kind: 'diff' }>
       }
     }
     if (section.diagram) {
       for (const node of section.diagram.nodes) {
         if (node.anchor?.kind === 'diff') {
-          node.anchor = await stampAnchor(workdir, session, node.anchor) as Extract<CommentAnchor, { kind: 'diff' }>
+          node.anchor = await stampAnchor(workdir, session, node.anchor, tree) as Extract<CommentAnchor, { kind: 'diff' }>
         }
       }
     }

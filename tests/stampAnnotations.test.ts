@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeAll } from 'vitest'
+import { describe, expect, it, beforeAll, vi } from 'vitest'
 import { makeFixtureRepo, type FixtureRepo } from './helpers/fixtureRepo'
+import * as git from '../src/server/git'
 import { stampAnnotationAnchors } from '../src/server/engines/stampAnnotations'
 import type { FocusTarget, ReviewAnnotations, SessionMeta } from '../src/shared/types'
 
@@ -78,6 +79,42 @@ describe('stampAnnotationAnchors', () => {
     expect((n1.anchor as DiffAnchor).stamp!.headSha).toBe(fx.shas.head)
     expect(n2.anchor).toEqual({ kind: 'file', file: 'src/a.ts' }) // non-diff anchor untouched
     expect(n3.anchor).toBeUndefined()
+  })
+
+  it('resolves the tree facts ONCE for the whole pass, not once per anchor', async () => {
+    const anchorAt = (line: number): FocusTarget =>
+      ({ kind: 'diff', file: 'src/a.ts', side: 'new', line, hunkRange: '', lineContent: '' })
+    const ann: ReviewAnnotations = {
+      title: 't', summary: 's',
+      sections: [
+        {
+          id: 'a', name: 'A', files: ['src/a.ts'],
+          narration: [{ text: 'one', anchor: anchorAt(1) }, { text: 'two', anchor: anchorAt(2) }],
+          diagram: {
+            why: 'why', caption: 'cap', edges: [],
+            nodes: [
+              { id: 'n1', label: 'One', kind: 'plain', anchor: anchorAt(3) },
+              { id: 'n2', label: 'Two', kind: 'plain', anchor: anchorAt(4) }
+            ]
+          }
+        }
+      ],
+      questions: []
+    }
+    // headSha/mergeBase answer the same for every anchor in one pass — four anchors
+    // must not cost four rev-parse + four merge-base spawns.
+    const head = vi.spyOn(git, 'headSha')
+    const mb = vi.spyOn(git, 'mergeBase')
+    try {
+      await stampAnnotationAnchors(fx.dir, fakeSession(), ann)
+      expect(head).toHaveBeenCalledTimes(1)
+      expect(mb).toHaveBeenCalledTimes(1)
+    } finally {
+      head.mockRestore()
+      mb.mockRestore()
+    }
+    for (const b of ann.sections[0].narration) expect((b.anchor as DiffAnchor).stamp).toBeTruthy()
+    for (const n of ann.sections[0].diagram!.nodes) expect((n.anchor as DiffAnchor).stamp).toBeTruthy()
   })
 
   it('never throws even against a non-repo workdir (stampAnchor degrades to unstamped)', async () => {

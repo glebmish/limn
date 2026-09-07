@@ -23,7 +23,7 @@ import { inTx } from './db/db.js'
 import { batchTurnLabel, rebaseTurnLabel } from '../shared/turnLabels.js'
 import { buildLoadedReview, loadArtifactsFor, previewReview, resolveWorkdir, writeCapabilityFor } from './review.js'
 import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.js'
-import { stampAnchor } from './anchorStamp.js'
+import { resolveStampTree, stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
 import { createToolHost } from './engines/tools.js'
@@ -810,8 +810,11 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           for (const id of supersededHotspotIds(state.comments)) dao.deleteComment(db, sessionId, id)
           const knownFiles = new Set([...skeleton.files.map((f) => f.path), ...untrackedPaths])
           const minted = mintHotspotComments(hotspots, { knownFiles, iteration: iterationN })
+          // one tip/merge-base resolve for the whole batch — they answer the same
+          // for every minted comment (stampAnnotationAnchors does the same)
+          const stampTree = await resolveStampTree(workdir, session)
           for (const c of minted) {
-            const stamped = await stampAnchor(workdir, session, c.anchor)
+            const stamped = await stampAnchor(workdir, session, c.anchor, stampTree)
             dao.upsertComment(db, sessionId, { ...c, anchor: stamped })
           }
         }
