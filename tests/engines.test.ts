@@ -171,6 +171,31 @@ describe('mergeAnnotations', () => {
     expect(sec.diagram!.edges).toEqual([{ from: 'n1', to: 'n2' }, { from: 'n2', to: 'n1' }])
   })
 
+  it('keeps a planMap deviation whose sectionId does not resolve, blanking the link and warning', async () => {
+    // dropping it would lose agent-authored prose AND shift later deviations' index —
+    // the key deviation comment anchors use ({ kind: 'deviation', index }).
+    const sk = await getDiff(fx.dir, 'main', 'feature')
+    const raw = {
+      title: 't', summary: 's',
+      sections: [{ id: 'a', name: 'A', files: ['src/a.ts'], narration: [{ text: 'w' }] }],
+      planMap: {
+        acceptance: [],
+        steps: [],
+        deviations: [
+          { text: 'DEVIATION_ONE', sectionId: 'GHOST' },
+          { text: 'DEVIATION_TWO', sectionId: 'a' }
+        ]
+      },
+      questions: []
+    } as const
+    const { annotations, warnings } = mergeAnnotations(sk, raw as unknown as ReviewAnnotations)
+    const devs = annotations.planMap!.deviations
+    expect(devs.map((d) => d.text)).toEqual(['DEVIATION_ONE', 'DEVIATION_TWO']) // text kept, order held
+    expect(devs[0].sectionId).toBe('') // dangling link blanked, like a step's
+    expect(devs[1].sectionId).toBe('a')
+    expect(warnings.some((w) => w.includes('GHOST'))).toBe(true)
+  })
+
   it('re-mints a duplicate section id, with a warning', async () => {
     // section ids are the persisted key, the React list key, the scroll ref and every
     // planMap jump target — two sections sharing one id conflate all of those.

@@ -129,7 +129,14 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
           return rest
         }),
         steps: parsed.planMap.steps.map((st) => (ids.has(st.sectionId) ? st : { ...st, sectionId: '' })),
-        deviations: parsed.planMap.deviations.filter((d) => ids.has(d.sectionId) || d.sectionId === '')
+        // like a step (line above): the dangling LINK is dropped, never the agent's
+        // prose. Dropping the entry would also shift every later deviation's index,
+        // the key its comment anchors use ({ kind: 'deviation', index }).
+        deviations: parsed.planMap.deviations.map((d) => {
+          if (d.sectionId === '' || ids.has(d.sectionId)) return d
+          warnings.push(`plan deviation "${d.text}" cites unknown section ${d.sectionId} — section link dropped`)
+          return { ...d, sectionId: '' }
+        })
       }
     : undefined
 
