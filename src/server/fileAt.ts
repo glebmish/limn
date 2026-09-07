@@ -27,7 +27,9 @@ export async function readFileAt(repo: string, compare: RefSide, path: string, a
   }
   const wt = compare.kind === 'branch' ? await branchCheckedOutAt(repo, compare.symbol) : null
   if (wt) {
-    const wf = readWorkingFile(wt, path)
+    // display only — never a source for a write-back, so a file whose bytes are not
+    // valid UTF-8 still expands (see readWorkingFile's `readOnly`)
+    const wf = readWorkingFile(wt, path, { readOnly: true })
     if (wf.ok) return { ok: true, lines: wf.lines }
     return { ok: false, reason: wf.reason === 'missing' ? 'absent' : wf.reason }
   }

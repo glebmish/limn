@@ -48,6 +48,15 @@ describe('readFileAt', () => {
     expect((r as { lines: string[] }).lines[1]).toBe('  return 1')
   })
 
+  // Reading for display is not reading for a write-back: a latin-1 file git still
+  // classifies as text keeps expanding its folds (with U+FFFD where the bytes don't
+  // decode) even though the in-place editor refuses it.
+  it('still expands the folds of a latin-1 file', async () => {
+    const { fx, side, read } = await setup()
+    fs.writeFileSync(path.join(fx.dir, 'latin1.ts'), Buffer.from('// caf\xe9\nline2\n', 'latin1'))
+    expect(await read(side, 'latin1.ts', { kind: 'now' })).toEqual({ ok: true, lines: ['// caf�', 'line2'] })
+  })
+
   it('reports absent, binary, and refuses an option-looking sha', async () => {
     const { fx, side, read } = await setup()
     expect(await read(side, 'src/old.ts', { kind: 'now' })).toEqual({ ok: false, reason: 'absent' })
