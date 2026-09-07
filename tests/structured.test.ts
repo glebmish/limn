@@ -43,6 +43,19 @@ describe('parseJson', () => {
     expect(parseJson('preamble\n{"only":"one"}\npostamble')).toEqual({ only: 'one' })
   })
 
+  it('falls through a non-payload ```bash fence to the trailing object', () => {
+    // the FIRST fence is a preamble, not the payload: the fence rung must not throw
+    // the ladder away before the balanced-brace rung sees the real object.
+    expect(parseJson('Ran:\n```bash\ngit log a..b\n```\n{"title":"T"}')).toEqual({ title: 'T' })
+  })
+
+  it('falls through a fenced payload whose own strings contain a ``` fence', () => {
+    // the fence regex captures up to the INNER ``` ({"body":"fix:\n → unterminated);
+    // matchBalanced is string-aware and slices the whole object.
+    const text = '```json\n{"body":"fix:\\n```\\nsome code\\n```"}\n```'
+    expect(parseJson(text)).toEqual({ body: 'fix:\n```\nsome code\n```' })
+  })
+
   it('throws a generic error for non-JSON output', () => {
     expect(() => parseJson('not json at all, no braces')).toThrow('Engine returned non-JSON output')
   })

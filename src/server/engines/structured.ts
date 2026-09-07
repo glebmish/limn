@@ -57,9 +57,15 @@ export function parseJson(text: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
-    // schema-constrained output occasionally arrives fenced — strip and retry
+    // schema-constrained output occasionally arrives fenced — strip and retry. The
+    // regex takes the FIRST fence, which need not be the payload (a ```bash preamble;
+    // a payload whose own string content holds a ``` fence, cut short mid-string), so
+    // a parse failure here falls THROUGH to the brace-slice rung instead of throwing
+    // the rest of the ladder away.
     const m = text.match(/```(?:json)?\n?([\s\S]*?)```/)
-    if (m) return JSON.parse(m[1])
+    if (m) {
+      try { return JSON.parse(m[1]) } catch { /* not the payload — the slice rung may still find it */ }
+    }
     const slices = jsonSlices(text)
     for (let i = slices.length - 1; i >= 0; i--) {
       try { return JSON.parse(slices[i]) } catch { /* an earlier slice may parse */ }
