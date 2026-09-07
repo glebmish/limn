@@ -255,23 +255,37 @@ export function buildScopedUpdatePrompt(input: ScopedUpdatePromptInput): string 
   deviations:${prior.planMap.deviations.length ? '\n' + prior.planMap.deviations.map((d) => `    - [${d.sectionId}]: ${d.text}`).join('\n') : ' (none)'}`
     : 'planMap: none.'
 
+  const ownerLabel = (f: FileDiff): string => {
+    const owner = ownerOf(f)
+    return owner ? `owned by section "${owner.name}" [${owner.id}]` : 'unsectioned — new file'
+  }
+  const sectioned = new Set(prior.sections.flatMap((s) => s.files))
+
   // The since-diff: tracked changes with hunks inlined, each labelled by owner.
   const tracked = since.filter((f) => !f.untracked)
   const sinceBlock = tracked.length
     ? tracked
         .map((f) => {
-          const owner = ownerOf(f)
-          const label = owner ? `owned by section "${owner.name}" [${owner.id}]` : 'unsectioned — new file'
           const tag = f.status === 'renamed' ? `renamed from ${f.oldPath}` : f.status
-          return `### ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''}) — ${label}\n${renderHunks(f)}`
+          return `### ${f.path} (${tag}, +${f.add}/−${f.del}${f.binary ? ', binary' : ''}) — ${ownerLabel(f)}\n${renderHunks(f)}`
         })
         .join('\n\n')
     : '(no tracked file changes in the drift)'
 
+  // Untracked files a prior section already owns. An untracked file has no committed
+  // baseline, so git synthesizes it whole on every pass (`workingTreeDiffFrom`) whether
+  // or not it moved since `sinceSha` — inlining its "hunks" would re-dump an unchanged
+  // file on every scoped iteration. So it is NAMED with its owner instead of inlined:
+  // the agent reads the ones whose narration might have gone stale. Dropping it
+  // entirely (the prior behaviour) hid real drift the header claims to cover.
+  const ownedUntracked = since.filter((f) => f.untracked && sectioned.has(f.path))
+  const ownedUntrackedBlock = ownedUntracked.length
+    ? `\nUntracked files in the drift that a prior section already owns — an untracked file has no committed baseline, so its hunks are NOT inlined and Limn cannot tell how much of it moved since ${sinceShort}. Read one and revise its section only if its current content no longer matches the narration:\n${ownedUntracked.map((f) => `- ${f.path} (${f.add} line${f.add === 1 ? '' : 's'}${f.binary ? ', binary' : ''}) — ${ownerLabel(f)}`).join('\n')}\n`
+    : ''
+
   // Untracked candidates: only untracked files NOT already owned by a prior section,
   // capped by MAX_UNTRACKED_OFFERED (Q7). Already-sectioned untracked files stay with
   // their section unless the engine moves them, so they are not offered here.
-  const sectioned = new Set(prior.sections.flatMap((s) => s.files))
   const untrackedCandidates = since
     .filter((f) => f.untracked && !sectioned.has(f.path))
     .slice(0, MAX_UNTRACKED_OFFERED)
@@ -294,9 +308,9 @@ open questions (add/resolve only — do NOT reword existing ones):
 ${priorQuestions}
 ${planMapBlock}
 ${steerBlock}
-DRIFT SINCE ${sinceShort} — the only files that changed; their hunks are inlined:
+DRIFT SINCE ${sinceShort} — the only files that changed; tracked hunks are inlined:
 ${sinceBlock}
-${untrackedBlock}
+${ownedUntrackedBlock}${untrackedBlock}
 Produce the scoped patch:
 1. For each prior section the drift changes, return it in \`revisedSections\` with the SAME id and a fully rewritten body (narration/files/diagram as needed). Preserve prior narration blocks verbatim where their anchored code is untouched; rewrite only the blocks the drift affects.
 2. For a genuinely new area, add a section to \`revisedSections\` with a fresh id and an \`afterSectionId\` naming the section it should follow (omit to append).

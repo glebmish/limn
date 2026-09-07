@@ -265,6 +265,22 @@ describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
     expect(block).not.toContain('src/db/mig.ts')     // the sectioned untracked file is not offered again
   })
 
+  it('names an already-sectioned untracked file in the drift with its owner, body not inlined', () => {
+    // The drift is one untracked file a prior section already owns: it is neither a
+    // tracked hunk nor an offered candidate, so before the fix it vanished from the
+    // prompt entirely while the drift header claimed every changed file was inlined.
+    const p = buildScopedUpdatePrompt(mkInput({
+      since: [mkFile({
+        path: 'src/db/mig.ts', untracked: true, status: 'added', add: 2,
+        hunks: [{ range: '@@ -0,0 +1,2 @@', header: '', lines: [{ old: null, new: 1, kind: 'add', text: 'UNTRACKED_BODY_LINE' }] }]
+      })]
+    }))
+    const drift = p.slice(p.indexOf('DRIFT SINCE'))
+    expect(drift).toContain('src/db/mig.ts')                        // the changed file is visible
+    expect(drift).toContain('owned by section "Migrations" [s1]')   // and attributed to its section
+    expect(drift).not.toContain('UNTRACKED_BODY_LINE')              // but not re-dumped whole
+  })
+
   it('carries the do-not-re-explore / return-only-revised / keep-ids instruction', () => {
     const p = buildScopedUpdatePrompt(mkInput())
     expect(p).toContain('Do NOT re-explore the whole branch')
