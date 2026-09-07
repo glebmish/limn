@@ -397,6 +397,10 @@ button.limn-chip:hover { background: var(--accent-line); }
 .limn-suggest.done { color: var(--accent-ink); }
 .limn-suggest.dismissed { color: var(--muted); }
 .limn-chip.committed { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); color: var(--ink-2); background: var(--panel-2); border-color: var(--line-2); }
+/* plan-status chip: criterion + verdict stay whole, the agent's note ellipsizes
+   (full text in the title) so a long reason can't stretch the chat column. */
+.limn-chip.plan-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; line-height: 1.7; }
+.limn-chip.plan-chip .pc-note { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- rich agent action cards (limn MCP tools rendered visually in chat) ---- */
 .limn-acts { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }

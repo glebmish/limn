@@ -437,7 +437,7 @@ const TOOL_IMPLS: ToolImpl[] = [
       updateSessionMeta(ctx.db, ctx.sessionId, { annotations: ann })
       return {
         result: `Marked acceptance criterion ${index + 1} as ${met} (${note}).`,
-        action: { kind: 'plan_status_updated', index, met }
+        action: { kind: 'plan_status_updated', index, met, note }
       }
     }
   }

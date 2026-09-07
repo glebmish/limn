@@ -335,12 +335,18 @@ function renderAction(action: AgentAction, engine?: EngineId, threadId?: number)
         </button>
       ) }
     }
-    case 'plan_status_updated':
+    case 'plan_status_updated': {
+      // which criterion, what it now says, and why — the tool demands the note, so
+      // the reviewer sees the reasoning instead of a bare "updated plan status".
+      const verdict = action.met === true ? 'met' : action.met === 'partial' ? 'partial' : 'not met'
       return { kind: 'chip', node: (
-        <span className="limn-chip">
-          <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />updated plan status
+        <span className="limn-chip plan-chip" title={action.note || undefined}>
+          <EngineGlyph engine={engine} style={{ width: 11, height: 11 }} />
+          criterion {action.index + 1} → {verdict}
+          {action.note ? <span className="pc-note">— {action.note}</span> : null}
         </span>
       ) }
+    }
     default:
       return null
   }

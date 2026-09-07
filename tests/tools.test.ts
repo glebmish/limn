@@ -521,7 +521,9 @@ describe('review edit tools (real temp DB)', () => {
     expect(isError).toBeFalsy()
     const planMap = loadReviewState(db, sessionId).annotations!.planMap!
     expect(planMap.acceptance[0].met).toBe(true)
-    expect(action).toEqual({ kind: 'plan_status_updated', index: 0, met: true })
+    // the note the schema makes mandatory rides on the action, so the chip can
+    // show the reviewer WHY a criterion flipped (it used to reach only the model)
+    expect(action).toEqual({ kind: 'plan_status_updated', index: 0, met: true, note: 'confirmed by test run' })
   })
 
   it('update_plan_status throws on an out-of-range index', async () => {

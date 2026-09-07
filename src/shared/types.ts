@@ -261,7 +261,9 @@ export type AgentAction =
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
   | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
   | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.block' | 'section.contrast'; sectionId?: string }
-  | { kind: 'plan_status_updated'; index: number; met: boolean | 'partial' }
+  // `note` is why the criterion flipped — the tool makes it mandatory, so it is
+  // carried here and shown on the chip (actions persisted before it may lack it).
+  | { kind: 'plan_status_updated'; index: number; met: boolean | 'partial'; note: string }
 
 // ── tool-call log (wf-D) ──────────────────────────────────────
 /** Verb drives the row icon + label; derived from the engine's raw tool name. */

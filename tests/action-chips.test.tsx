@@ -216,3 +216,31 @@ describe('comment action cards on a comment the re-anchor pass could not place',
     }
   })
 })
+
+describe('plan status chip', () => {
+  it('names the criterion, the new verdict and the note the tool required', () => {
+    const action: AgentAction = {
+      kind: 'plan_status_updated', index: 2, met: 'partial',
+      note: 'only the happy path is covered'
+    }
+    const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+    expect(out).toContain('criterion 3')
+    expect(out).toContain('partial')
+    expect(out).toContain('only the happy path is covered')
+  })
+
+  it('reads "not met" for a criterion flipped false', () => {
+    const action: AgentAction = { kind: 'plan_status_updated', index: 0, met: false, note: 'the guard is missing' }
+    const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
+    expect(out).toContain('criterion 1')
+    expect(out).toContain('not met')
+    expect(out).toContain('the guard is missing')
+  })
+
+  it('still renders a note-less action persisted before the note was carried', () => {
+    const legacy = { kind: 'plan_status_updated', index: 0, met: true } as unknown as AgentAction
+    const out = renderToStaticMarkup(<ActionChips actions={[legacy]} />)
+    expect(out).toContain('criterion 1')
+    expect(out).toContain('met')
+  })
+})

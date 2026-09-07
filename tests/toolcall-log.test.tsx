@@ -141,12 +141,13 @@ describe('ToolCallLog', () => {
       { id: 'plan-1', verb: 'bash', name: 'mcp__limn__update_plan_status', state: 'ok', out: 'Updated plan item 0.' },
     ]
     const actions: AgentAction[] = [
-      { kind: 'plan_status_updated', index: 0, met: true },
+      { kind: 'plan_status_updated', index: 0, met: true, note: 'verified against the tests' },
     ]
 
     const out = renderToStaticMarkup(<SegmentBody segments={segments} calls={calls} actions={actions} />)
 
-    expect(out).toContain('updated plan status')
+    expect(out).toContain('criterion 1')
+    expect(out).toContain('verified against the tests')
     expect(out).not.toContain('update_plan_status')
   })
 
