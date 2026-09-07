@@ -272,8 +272,13 @@ describe('sessions DAO', () => {
     ]))
     expect(candidates.map((c) => [c.sessionId, c.iteration, c.commitsOld])).toEqual([[source.id, 1, 2]])
 
+    setArtifacts(db, source.id, [{ role: 'spec', path: 'docs/spec.md' }])
+    replaceUiState(db, source.id, { reviewedSections: ['s1'] })
+
     copyGeneratedReview(db, source.id, 1, target.id, 'd'.repeat(40))
     const copied = loadReviewState(db, target.id)
+    expect(copied.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
+    expect(copied.reviewedSections).toEqual(['s1'])
     expect(copied.annotations?.title).toBe('Copied title')
     expect(copied.reviewedAtSha).toBe('d'.repeat(40))
     expect(copied.latestIteration?.endSha).toBe('d'.repeat(40))

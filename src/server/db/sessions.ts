@@ -641,19 +641,26 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
       annotations,
       scope: 'full'
     })
-    const sourceState = loadReviewState(db, sourceSessionId)
+    // the two child tables this copies, read directly: assembling the source's whole
+    // ReviewState here re-parsed every comment, iteration and chat message of a
+    // session only to reach two two-column tables. Both are read before the target's
+    // rows are cleared, so a self-copy still sees its own rows.
+    const sourceArtifacts = db.prepare('SELECT role, path FROM artifacts WHERE session_id = ?')
+      .all(sourceSessionId) as { role: 'spec' | 'plan'; path: string }[]
+    const sourceSections = (db.prepare('SELECT section_id FROM reviewed_sections WHERE session_id = ?')
+      .all(sourceSessionId) as { section_id: string }[]).map((r) => r.section_id)
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(targetSessionId)
-    for (const artifact of sourceState.artifacts) {
+    for (const artifact of sourceArtifacts) {
       db.prepare('INSERT INTO artifacts (session_id, role, path) VALUES (?, ?, ?)').run(targetSessionId, artifact.role, artifact.path)
     }
     db.prepare('DELETE FROM reviewed_sections WHERE session_id = ?').run(targetSessionId)
-    for (const section of sourceState.reviewedSections) {
+    for (const section of sourceSections) {
       db.prepare('INSERT INTO reviewed_sections (session_id, section_id) VALUES (?, ?)').run(targetSessionId, section)
     }
 
-    const sourceThread = listChatThreads(db, sourceSessionId)
-      .find((t) => t.kind === 'review' && t.engineSessionId === it.sessionId)
-      ?? listChatThreads(db, sourceSessionId).filter((t) => t.kind === 'review').at(-1)
+    // one read of the source's threads, not one per branch of the ??
+    const reviewThreads = listChatThreads(db, sourceSessionId).filter((t) => t.kind === 'review')
+    const sourceThread = reviewThreads.find((t) => t.engineSessionId === it.sessionId) ?? reviewThreads.at(-1)
     if (sourceThread) {
       const targetThread = createChatThread(db, targetSessionId, { kind: 'review', agent, title: `Copied review from ${source.pair.compare.symbol}` })
       for (const message of sourceThread.messages) addChatMessage(db, targetThread.id, message)
