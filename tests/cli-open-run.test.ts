@@ -160,7 +160,7 @@ describe('runOpen', () => {
     const io = fakeIo(true)
     const { deps, opened } = fakeDeps({
       backend: () => null,
-      serve: async (_c, _io, onReady) => { onReady?.({ port: 5466, url: 'http://limn.localhost:5466', vanity: false, aliasPort: null, close: async () => {} }); return 0 }
+      serve: async (_c, _io, onReady) => { onReady?.({ port: 5466, url: 'http://limn.localhost:5466', aliasPort: null, close: async () => {} }); return 0 }
     })
     expect(await runOpen(cmd, io, deps)).toBe(0)
     // in-process server role calls the real issueCliOpen, not the fake issueRemote —
@@ -214,7 +214,7 @@ describe('runOpen', () => {
       // test must not depend on `serve`'s own promise settling.
       serve: async (_c, _io, onReady) => new Promise<number>(() => {
         onReady?.({
-          port: 5466, url: 'http://limn.localhost:5466', vanity: false, aliasPort: null,
+          port: 5466, url: 'http://limn.localhost:5466', aliasPort: null,
           close: async () => { closed = true }
         })
       })

@@ -28,9 +28,7 @@ export interface ServerOptions {
 export interface RunningServer {
   port: number
   url: string
-  /** true when the :80 alias is bound */
-  vanity: boolean
-  /** the port the alias actually bound, null when it isn't up */
+  /** the port the :80 alias actually bound, null when it isn't up (or wasn't requested) */
   aliasPort: number | null
   close(): Promise<void>
 }
@@ -328,7 +326,6 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   return {
     port: boundPort,
     url,
-    vanity: alias != null,
     aliasPort: typeof aliasAddr === 'object' && aliasAddr ? aliasAddr.port : null,
     close: () => new Promise<void>((resolve) => {
       // End the push streams first, then drop every remaining socket: a browser tab

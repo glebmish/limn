@@ -110,7 +110,6 @@ describe('startServer', () => {
 
   it('binds the vanity alias when its port is free and tears it down on close()', async () => {
     const s = await boot({ staticRoot: withIndex(), vanityPort80: true, aliasPort: 0 })
-    expect(s.vanity).toBe(true)
     expect(s.aliasPort).toBeGreaterThan(0)
     expect((await fetch(`http://127.0.0.1:${s.aliasPort}/health`)).status).toBe(200)
     const aliasPort = s.aliasPort!
@@ -119,13 +118,12 @@ describe('startServer', () => {
     await expect(fetch(`http://127.0.0.1:${aliasPort}/health`)).rejects.toThrow()
   })
 
-  it('degrades to vanity:false with a log line when the alias port is taken', async () => {
+  it('degrades to aliasPort:null with a log line when the alias port is taken', async () => {
     const blocker = http.createServer()
     await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', () => r()))
     const taken = (blocker.address() as { port: number }).port
     const lines: string[] = []
     const s = await boot({ vanityPort80: true, aliasPort: taken, log: (l) => lines.push(l) })
-    expect(s.vanity).toBe(false)
     expect(s.aliasPort).toBeNull()
     expect(lines.join('\n')).toMatch(/alias not bound/)
     blocker.close()

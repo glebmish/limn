@@ -85,7 +85,7 @@ notification), `pickDirectory` (host directory picker) — and one backing
 implements it today:
 
 - **The HTTP service** (`src/server/http.ts`) — `startServer({ port, host, token,
-  staticRoot, dbPath, vanityPort80 })` returns `{ port, url, vanity, close() }`.
+  staticRoot, dbPath, vanityPort80 })` returns `{ port, url, aliasPort, close() }`.
   `handle` becomes `POST /rpc/<channel>` with a JSON array of arguments;
   `broadcast` becomes one `/events` SSE stream carrying `op:event` /
   `op:result` / `repo:changed` frames; `notify` is a no-op and `pickDirectory`
