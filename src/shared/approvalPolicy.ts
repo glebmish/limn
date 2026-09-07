@@ -4,11 +4,17 @@ import type { ApprovalRequest, ExecutionMode } from './types.js'
  *  These are always allowed regardless of tier — row 1 of the ladder.
  *  Adapters spell the name differently: claude-agent-acp uses `mcp__limn__<tool>`,
  *  codex-acp titles MCP calls `mcp.limn.<tool>` (and its uncorrelated approval
- *  fallback surfaces only the server name, `limn`). */
+ *  fallback surfaces only the server name, `limn`).
+ *
+ *  Matched at a boundary, never as a bare `limn` prefix: the name reaching here is
+ *  not always a registered tool id — acpEvents falls back to the raw serverName and
+ *  even to the model/adapter-supplied tool_call title — and a match is an
+ *  unconditional 'allow' in every caller, so a second server or a title starting
+ *  with "limn" (`limnos`, `limn-writer`) must not ride it. */
 export function isLimnTool(name?: string): boolean {
   if (!name) return false
   const lower = name.toLowerCase()
-  return lower.startsWith('limn') || lower.includes('__limn__') || lower.startsWith('mcp__limn') || lower.startsWith('mcp.limn.')
+  return lower === 'limn' || lower.startsWith('limn.') || lower.startsWith('mcp__limn__') || lower.startsWith('mcp.limn.')
 }
 
 type LadderDecision = 'allow' | 'deny' | 'ask'

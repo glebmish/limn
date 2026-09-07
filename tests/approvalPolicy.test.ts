@@ -58,6 +58,22 @@ describe('isLimnTool', () => {
   it('rejects non-limn MCP tool names', () => {
     expect(isLimnTool('mcp.github.create_issue')).toBe(false)
   })
+  // a match is an unconditional 'allow' at every tier, so the prefix must end at a
+  // boundary: another server (or an adapter-supplied tool_call title) whose name
+  // merely begins with "limn" must not ride the allow.
+  it('rejects a name that merely begins with "limn"', () => {
+    expect(isLimnTool('limnos')).toBe(false)
+    expect(isLimnTool('limn-writer')).toBe(false)
+    expect(isLimnTool('limn-writer.apply')).toBe(false)
+    expect(isLimnTool('mcp__limnos__write')).toBe(false)
+    expect(isLimnTool('limn the diagram')).toBe(false)
+  })
+  it('a look-alike server name is parked on the reviewer, not auto-allowed', () => {
+    const r = req({ kind: 'tool_use', detail: { toolName: 'limn-writer' } })
+    expect(ladderPolicy('ask', r, true)).toBe('ask')
+    expect(readOnlyLadder(r)).toBe('deny')
+    expect(generationLadder(r)).toBe('deny')
+  })
   it('rejects non-limn tool names', () => {
     expect(isLimnTool('Bash')).toBe(false)
   })
