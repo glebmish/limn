@@ -85,7 +85,7 @@ JSON-blob columns: `sessions.annotations_json` (the full `ReviewAnnotations`), `
 
 > Several columns are **denormalized for cheap list queries**: `sessions.title`/`summary` mirror fields inside `annotations_json`; `comments.status` mirrors a field inside `comments.json`. These mirrors are single-write-path enforced, not kept in sync by hand: `sessions.title`/`summary` are derived from `annotations` inside `updateSessionMeta` (the `SessionMetaPatch` type has no `title`/`summary` fields, so they cannot be written independently), and `comments.status` is written from the `Comment` object by `upsertComment`.
 
-The only explicit index is the session-pair index below. Child tables are covered by their composite primary keys; there is no standalone index on `sessions.repo_id` (volume is small).
+The only explicit index is `idx_chat_messages_thread` on `chat_messages(thread_id, id)` (migration 5) — `chat_messages` is the one table that grows without bound and is keyed by its own autoincrement id, so every per-thread read and every `chat_threads` cascade delete would otherwise scan it. Every other child table is covered by its composite primary key; there is no standalone index on `sessions.repo_id` (volume is small).
 
 ## Session identity — the central invariant
 

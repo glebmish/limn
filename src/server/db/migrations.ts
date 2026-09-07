@@ -188,5 +188,15 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('ALTER TABLE sessions DROP COLUMN base_ident')
     }
+  },
+  {
+    // chat_messages is the one table that grows without bound and is keyed only by its
+    // own autoincrement id, so every per-thread read (once per thread on every session
+    // load) and every chat_threads cascade delete scanned it. (thread_id, id) also
+    // covers the ORDER BY id those reads use.
+    version: 5,
+    up(db) {
+      db.exec('CREATE INDEX idx_chat_messages_thread ON chat_messages(thread_id, id)')
+    }
   }
 ]

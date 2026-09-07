@@ -229,6 +229,29 @@ describe('migration 4: drop the dead base_ident column', () => {
   })
 })
 
+describe('migration 5: index chat_messages by thread', () => {
+  it('adds the index to an existing db and the per-thread read uses it instead of scanning', () => {
+    const file = tmpFile()
+    // seed a db as it looked before this migration: everything up to version 4
+    const seed = new DatabaseSync(file)
+    seed.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    for (const m of MIGRATIONS.filter((m) => m.version <= 4)) m.up(seed)
+    seed.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', '4')`).run()
+    expect(seed.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_chat_messages_thread'`).get()).toBeUndefined()
+    seed.close()
+
+    const { db } = openDb(file)
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name = 'idx_chat_messages_thread'`).get())
+      .toEqual({ name: 'idx_chat_messages_thread' })
+    // the read rowToThread runs once per thread on every session load
+    const plan = (db.prepare('EXPLAIN QUERY PLAN SELECT role, text, at FROM chat_messages WHERE thread_id = ? ORDER BY id')
+      .all(1) as { detail: string }[]).map((r) => r.detail).join(' ')
+    expect(plan).toContain('idx_chat_messages_thread')
+    expect(plan).not.toContain('SCAN')
+    db.close()
+  })
+})
+
 describe('migration 3: drop the per-section verify step', () => {
   function seedAtVersion2(file: string): void {
     // build the schema as it was at version 2, rather than faking the version on a
