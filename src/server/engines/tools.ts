@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations } from '../../shared/types.js'
+import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations, SessionMeta } from '../../shared/types.js'
 import { getSession, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
-import { stampAnchor } from '../anchorStamp.js'
+import { resolveStampTree, stampAnchor, type StampTree } from '../anchorStamp.js'
 
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
 // shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
@@ -113,19 +113,31 @@ function normalizeFocusTarget(a: z.infer<typeof focusTarget>): FocusTarget {
 function normalizeAnchor(a: z.infer<typeof focusTarget>): CommentAnchor {
   return normalizeFocusTarget(a)
 }
+/** The per-call stamping context a `point` needs: the session (ctx has no pair →
+ *  reload it) and the tree facts every stop of one call shares. Resolved once for
+ *  the whole call — head/mergeBase cannot differ between stops of the same call, so
+ *  paying for the triple per stop is up to 8 identical session loads and ~8 extra
+ *  git spawns on the interactive path. `undefined` (no session, a DB/git failure)
+ *  simply leaves every stop unstamped, exactly as before. */
+type StampCtx = { session: SessionMeta; tree?: StampTree }
+async function resolveStampCtx(ctx: ToolHostCtx): Promise<StampCtx | undefined> {
+  try {
+    const session = getSession(ctx.db, ctx.sessionId)
+    if (!session) return undefined
+    return { session, tree: await resolveStampTree(ctx.repo, session) }
+  } catch { return undefined }
+}
+
 /** Stamp a diff FocusTarget against the current surface, exactly as `add_comment`
  *  stamps a comment anchor. Without this a `point` stop is frozen in the message's
  *  actions with no blob/context and (models never pass one) an empty `lineContent`,
  *  so the re-anchor pass has nothing to work with and the stop keeps naming a line
  *  number whose code has since moved (#18). Never throws and never rejects a point:
  *  an unstampable target degrades to today's bare target. */
-async function stampFocusTarget(ctx: ToolHostCtx, target: FocusTarget): Promise<FocusTarget> {
-  if (target.kind !== 'diff') return target
+async function stampFocusTarget(ctx: ToolHostCtx, stamp: StampCtx | undefined, target: FocusTarget): Promise<FocusTarget> {
+  if (target.kind !== 'diff' || !stamp) return target
   try {
-    // ctx.repo is already the resolved workdir; ctx has no pair → reload the session.
-    const session = getSession(ctx.db, ctx.sessionId)
-    if (!session) return target
-    return await stampAnchor(ctx.repo, session, target) as FocusTarget
+    return await stampAnchor(ctx.repo, stamp.session, target, stamp.tree) as FocusTarget
   } catch { return target }
 }
 function anchorLabel(a: CommentAnchor): string {
@@ -178,10 +190,13 @@ const TOOL_IMPLS: ToolImpl[] = [
     input: POINT_INPUT,
     run: async (ctx, raw) => {
       const { stops, loop } = raw as z.infer<z.ZodObject<typeof POINT_INPUT>>
+      // one session load + one tree resolve for the whole walkthrough; skipped
+      // entirely when no stop is a diff (nothing to stamp).
+      const stamp = stops.some((s) => s.target.kind === 'diff') ? await resolveStampCtx(ctx) : undefined
       const action: AgentAction = {
         kind: 'point',
         stops: await Promise.all(stops.map(async (s) => ({
-          target: await stampFocusTarget(ctx, normalizeFocusTarget(s.target)),
+          target: await stampFocusTarget(ctx, stamp, normalizeFocusTarget(s.target)),
           ...(s.note?.trim() ? { note: s.note.trim() } : {})
         }))),
         ...(loop ? { loop: true } : {})
