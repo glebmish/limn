@@ -344,7 +344,10 @@ export class FakeEngine implements ReviewEngine {
         // `[edit-review]` — a chat turn that amends the review through the tool host,
         // so a test can drive the tool from whichever lane the turn landed on.
         if (turn.message.includes('[edit-review]')) {
-          await turn.tools.call('edit_review', { field: 'summary', value: 'Edited by the chat turn.' })
+          const edit = await turn.tools.call('edit_review', { field: 'summary', value: 'Edited by the chat turn.' })
+          // relay a refused tool call the way a real agent would, so a test can see
+          // what the tool host actually told the model.
+          if (edit.isError) q.push({ type: 'status', text: `note: ${edit.result}` })
         }
         // tool-enabled read-only chat: exercise the point (single + multi-stop) + suggest action pipe
         await turn.tools.call('point', { stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } }] })

@@ -1107,9 +1107,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
-      // On the shared lane the annotation-rewriting tools are withheld: the
-      // generation holding the exclusive lane persists the annotations it
-      // snapshotted before this turn, so an edit made here would vanish.
+      // On the shared lane the annotation-rewriting tools are withheld: another op
+      // holds the repo exclusively, and a generation among them persists the
+      // annotations it snapshotted before this turn — an edit made here would vanish.
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         emit: recorder.emit,

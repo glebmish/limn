@@ -539,7 +539,9 @@ describe('review edit tools (real temp DB)', () => {
     const host = createToolHost({ ...ctx, allowedTools: SHARED_LANE_TOOL_NAMES, emit: (e) => events.push(e) })
     const { isError, result, action } = await host.call('edit_review', { field: 'summary', value: 'New summary' })
     expect(isError).toBe(true)
-    expect(result).toMatch(/unavailable on this turn/)
+    // the reason names the lane, not a specific op: the shared lane is taken while
+    // ANY exclusive op (a generation, a merge, another thread's turn) holds the repo
+    expect(result).toMatch(/unavailable on this turn: another review operation holds this repo/)
     expect(action).toBeUndefined()
     expect(events).toEqual([])
     expect(host.collected()).toEqual([])

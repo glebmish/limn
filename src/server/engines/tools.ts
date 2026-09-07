@@ -466,11 +466,12 @@ export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
 ])
 
 /** The tools a SHARED-lane (read-only) turn may call — everything except the two
- *  that read the whole `annotations` blob, mutate it, and write it back. A generation
- *  holds the exclusive lane and persists the annotations snapshot it took BEFORE this
- *  turn started, so such an edit is silently overwritten and the reviewer is left with
- *  a "edited the review" chip and no edit. Withheld rather than raced: a refine turn
- *  that genuinely needs them runs on the exclusive lane. Hand-maintained, like
+ *  that read the whole `annotations` blob, mutate it, and write it back. The shared
+ *  lane is taken while ANOTHER op holds the repo exclusively; when that op is a
+ *  generation it persists the annotations snapshot it took BEFORE this turn started,
+ *  so such an edit is silently overwritten and the reviewer is left with an "edited
+ *  the review" chip and no edit. Withheld rather than raced: a refine turn that
+ *  genuinely needs them runs on the exclusive lane. Hand-maintained, like
  *  AUTO_ACCEPT_TOOL_NAMES — a new tool must be classified (tests/tools.test.ts pins
  *  the complement), so it can't ride onto the shared lane unexamined. */
 export const SHARED_LANE_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -494,7 +495,7 @@ export function createToolHost(ctx: ToolHostCtx): AgentToolHost {
       if (!impl) return { result: `Unknown tool: ${name}`, isError: true }
       if (ctx.allowedTools && !ctx.allowedTools.has(name)) {
         return {
-          result: `${name} is unavailable on this turn: a review is generating, and it will persist the review it started from — an edit made now would be lost. Say so, and let the reviewer re-ask once the generation has finished.`,
+          result: `${name} is unavailable on this turn: another review operation holds this repo and may overwrite the review it started from, so an edit made now could be lost. Say so, and let the reviewer re-ask once that operation has finished.`,
           isError: true
         }
       }

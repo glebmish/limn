@@ -143,6 +143,11 @@ describe('concurrent chat — the shared lane never rewrites the review', () => 
 
     // the edit never reached the blob the generation is about to overwrite…
     expect(loadReviewState(h.db, h.sessionId).annotations!.summary).toBe('Generated summary')
+    // …the agent was told why (refused with an explanation, not silently dropped)…
+    const chatEvents = h.events.filter((e) => e.opId === 'op-chat').map((e) => e.event)
+    expect(chatEvents.some((e) =>
+      e.type === 'status' && e.text.includes('edit_review is unavailable on this turn: another review operation holds this repo')
+    )).toBe(true)
     // …and the turn shows no "edited the review" chip for an edit that did not happen
     const turn = getChatThread(h.db, asker)!.messages.at(-1)!
     expect((turn.actions ?? []).some((a) => a.kind === 'review_edited')).toBe(false)

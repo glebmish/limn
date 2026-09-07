@@ -224,23 +224,21 @@ describe('plan status chip', () => {
       note: 'only the happy path is covered'
     }
     const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
-    expect(out).toContain('criterion 3')
-    expect(out).toContain('partial')
+    expect(out).toContain('criterion 3 → partial')
     expect(out).toContain('only the happy path is covered')
   })
 
   it('reads "not met" for a criterion flipped false', () => {
     const action: AgentAction = { kind: 'plan_status_updated', index: 0, met: false, note: 'the guard is missing' }
     const out = renderToStaticMarkup(<ActionChips actions={[action]} />)
-    expect(out).toContain('criterion 1')
-    expect(out).toContain('not met')
+    expect(out).toContain('criterion 1 → not met')
     expect(out).toContain('the guard is missing')
   })
 
   it('still renders a note-less action persisted before the note was carried', () => {
-    const legacy = { kind: 'plan_status_updated', index: 0, met: true } as unknown as AgentAction
+    const legacy: AgentAction = { kind: 'plan_status_updated', index: 0, met: true }
     const out = renderToStaticMarkup(<ActionChips actions={[legacy]} />)
-    expect(out).toContain('criterion 1')
-    expect(out).toContain('met')
+    expect(out).toContain('criterion 1 → met')
+    expect(out).not.toContain('pc-note')
   })
 })
