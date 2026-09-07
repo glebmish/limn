@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/server/db/db'
+import { MIGRATIONS } from '../src/server/db/migrations'
 import {
   createSession, findSession, getSession, retargetSession, archiveSession,
   markSessionMerged, retargetSessionBase, dependentSessions,
@@ -39,13 +40,13 @@ const mergeRecord = (over: Partial<MergeRecord> = {}): MergeRecord => ({
 })
 
 describe('baseline schema (merged sessions)', () => {
-  it('carries merged_at and merge_json on sessions and lands schema_version at the current head (3)', () => {
+  it("carries merged_at and merge_json on sessions and lands schema_version at the migration list's head", () => {
     const db = freshDb()
     const cols = (db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map((c) => c.name)
     expect(cols).toContain('merged_at')
     expect(cols).toContain('merge_json')
     const v = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string }
-    expect(parseInt(v.value, 10)).toBe(3)
+    expect(parseInt(v.value, 10)).toBe(MIGRATIONS[MIGRATIONS.length - 1].version)
     db.close()
   })
 })
@@ -78,10 +79,9 @@ describe('merged-session DAO', () => {
     expect(findSession(db, '/repo', moved)?.id).toBe(s.id)
     expect(getSession(db, s.id)!.pair.base.anchorSha).toBe(newHead)
 
-    // the STORED base_ident generated column recomputes on UPDATE (kind change → c: ident)
+    // a kind change lands too — the base side is stored plainly, no derived column
     retargetSessionBase(db, s.id, { kind: 'commit', symbol: 'main@{1}', anchorSha: newHead })
-    const ident = db.prepare('SELECT base_ident FROM sessions WHERE id = ?').get(s.id) as { base_ident: string }
-    expect(ident.base_ident).toBe(`c:${newHead}`)
+    expect(getSession(db, s.id)!.pair.base).toEqual({ kind: 'commit', symbol: 'main@{1}', anchorSha: newHead })
 
     // base immutability stays the public rule — this DAO function is its one exception
     expect(() => retargetSession(db, s.id, 'base', { kind: 'branch', symbol: 'main', anchorSha: newHead }))

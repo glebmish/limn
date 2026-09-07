@@ -281,9 +281,8 @@ export function markSessionMerged(db: DatabaseSync, sessionId: number, record: M
 /** The ONLY writer allowed to change a session base — the dependent-review retarget
  *  after its branch was rebased onto the new base head (spec §6b step 4). The public
  *  retargetSession keeps throwing for 'base'; base immutability stays the rule and
- *  this is its one audited exception. The STORED base_ident generated column
- *  recomputes on UPDATE, and findSession pins base identity by base_anchor_sha, so
- *  after this the session resolves under the new anchor only. */
+ *  this is its one audited exception. findSession pins base identity by
+ *  base_anchor_sha, so after this the session resolves under the new anchor only. */
 export function retargetSessionBase(db: DatabaseSync, sessionId: number, base: RefSide): void {
   assertResolved(base)
   db.prepare(`UPDATE sessions SET base_kind = ?, base_symbol = ?, base_anchor_sha = ?, updated_at = ?

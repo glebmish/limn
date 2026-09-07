@@ -98,12 +98,14 @@ Identity is computed per side as:
 
 So **branch sides key on name** (the branch follows its tip; anchor-SHA drift is ignored and used only to display "since you reviewed") and **commit sides key on SHA** (frozen).
 
-This rule exists in **two places that must stay in lockstep**:
+The rule applies to the **compare** side, and it exists in **two places that must stay in lockstep**:
 
 - `refIdentity()` in `src/shared/types.ts` (JavaScript, used by `findSession`)
-- the `base_ident` / `compare_ident` **`GENERATED ALWAYS AS … STORED`** columns on `sessions` (SQL)
+- the `compare_ident` **`GENERATED ALWAYS AS … STORED`** column on `sessions` (SQL)
 
 > ⚠️ If you change one without the other, `findSession` computes one key while the DB stores another — resumes silently miss and the app opens a new transient review instead of the expected saved one. Same rule, two implementations.
+
+The **base** side is not keyed that way: `findSession` matches it on `base_anchor_sha`, because a session's base is pinned to the resolved anchor once generated, even for a branch ref. (There was a matching `base_ident` generated column; nothing ever read it, and migration 4 dropped it.)
 
 Multiple live sessions may share the same `(repo, base identity, compare identity)`.
 This is intentional: "New review" creates another live session rather than archiving

@@ -13,8 +13,9 @@ function tmpFile(): string {
 }
 
 // Every RefSide shape whose identity must agree between the TS refIdentity() rule
-// and the SQL `base_ident`/`compare_ident` GENERATED columns. Exercises quoting
-// hazards, prefix collisions, non-ASCII, and the branch/commit distinction.
+// and the SQL `compare_ident` GENERATED column. Exercises quoting hazards, prefix
+// collisions, non-ASCII, and the branch/commit distinction. (The base side has no
+// generated column: findSession pins it by the immutable base_anchor_sha.)
 const CASES: RefSide[] = [
   { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
   { kind: 'branch', symbol: 'feat/x.y-z_1', anchorSha: 'b'.repeat(40) },      // path-ish symbol
@@ -34,26 +35,23 @@ beforeEach(() => {
   db = openDb(tmpFile()).db
 })
 
-function identOf(id: number): { base_ident: string; compare_ident: string } {
-  return db.prepare('SELECT base_ident, compare_ident FROM sessions WHERE id = ?')
-    .get(id) as { base_ident: string; compare_ident: string }
+function identOf(id: number): { compare_ident: string } {
+  return db.prepare('SELECT compare_ident FROM sessions WHERE id = ?')
+    .get(id) as { compare_ident: string }
 }
 
-describe('session identity: TS refIdentity() agrees with the SQL generated columns', () => {
+describe('session identity: TS refIdentity() agrees with the SQL generated column', () => {
   // Each case in the compare slot → covers the compare_ident generated column.
   it.each(CASES)('compare_ident matches refIdentity() for %o', (compare) => {
     const s = createSession(db, '/repo', { base: FIXED_BASE, compare })
-    const row = identOf(s.id)
-    expect(row.base_ident).toBe(refIdentity(FIXED_BASE))
-    expect(row.compare_ident).toBe(refIdentity(compare))
+    expect(identOf(s.id).compare_ident).toBe(refIdentity(compare))
   })
 
-  // Each case in the base slot → covers the base_ident generated column.
-  it.each(CASES)('base_ident matches refIdentity() for %o', (base) => {
+  // Each case in the base slot → the base side is stored plainly; whatever it holds,
+  // the compare identity is unaffected.
+  it.each(CASES)('a base side of %o leaves compare_ident alone', (base) => {
     const s = createSession(db, '/repo', { base, compare: FIXED_COMPARE })
-    const row = identOf(s.id)
-    expect(row.base_ident).toBe(refIdentity(base))
-    expect(row.compare_ident).toBe(refIdentity(FIXED_COMPARE))
+    expect(identOf(s.id).compare_ident).toBe(refIdentity(FIXED_COMPARE))
   })
 
   // findSession consequence — a branch side keys on its name, so anchor-SHA drift

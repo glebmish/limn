@@ -203,9 +203,40 @@ describe('migrate: two processes starting during a schema bump', () => {
   })
 })
 
+describe('migration 4: drop the dead base_ident column', () => {
+  it('drops base_ident from an existing db, keeping its rows and compare_ident', () => {
+    const file = tmpFile()
+    // seed a db as it looked before this migration: everything up to version 3
+    const seed = new DatabaseSync(file)
+    seed.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    for (const m of MIGRATIONS.filter((m) => m.version <= 3)) m.up(seed)
+    seed.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', '3')`).run()
+    seed.prepare(`INSERT INTO repos (id, path) VALUES (1, '/r')`).run()
+    seed.prepare(`INSERT INTO sessions (id, repo_id, base_kind, base_symbol, base_anchor_sha, compare_kind, compare_symbol, compare_anchor_sha, created_at, updated_at)
+      VALUES (1, 1, 'branch', 'main', 'a', 'branch', 'feat', 'b', 't', 't')`).run()
+    // table_xinfo, not table_info: generated columns are hidden from the latter
+    expect((seed.prepare('PRAGMA table_xinfo(sessions)').all() as { name: string }[]).map((c) => c.name)).toContain('base_ident')
+    seed.close()
+
+    const { db } = openDb(file)
+    const cols = (db.prepare('PRAGMA table_xinfo(sessions)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).not.toContain('base_ident')
+    expect(cols).toContain('compare_ident') // findSession still filters on this one
+    // the row survives the rebuild, compare identity intact
+    expect(db.prepare('SELECT base_symbol, base_anchor_sha, compare_ident FROM sessions WHERE id = 1').get())
+      .toEqual({ base_symbol: 'main', base_anchor_sha: 'a', compare_ident: 'b:feat' })
+    db.close()
+  })
+})
+
 describe('migration 3: drop the per-section verify step', () => {
   function seedAtVersion2(file: string): void {
-    const { db } = openDb(file)
+    // build the schema as it was at version 2, rather than faking the version on a
+    // fully-migrated file — later migrations must see a genuinely older db
+    const db = new DatabaseSync(file)
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    for (const m of MIGRATIONS.filter((m) => m.version <= 2)) m.up(db)
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', '2')`).run()
     db.prepare(`INSERT INTO repos (id, path) VALUES (1, '/r')`).run()
     db.prepare(`INSERT INTO sessions (id, repo_id, base_kind, base_symbol, base_anchor_sha, compare_kind, compare_symbol, compare_anchor_sha, annotations_json, created_at, updated_at)
       VALUES (1, 1, 'branch', 'main', 'a', 'branch', 'feat', 'b', ?, 't', 't')`)
@@ -218,8 +249,6 @@ describe('migration 3: drop the per-section verify step', () => {
     db.prepare(`INSERT INTO iterations (session_id, n, engine, engine_session_id, end_sha, title, annotations_json, at)
       VALUES (1, 1, 'claude', 'e', 'b', 'T', ?, 't')`)
       .run(JSON.stringify({ title: 'T', summary: 'S', sections: [{ id: 's1', name: 'A', files: [], narration: [], verify: 'go test ./...' }] }))
-    // pretend migration 3 has not run yet
-    db.prepare(`UPDATE meta SET value = '2' WHERE key = 'schema_version'`).run()
     db.close()
   }
 

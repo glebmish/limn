@@ -178,5 +178,15 @@ export const MIGRATIONS: Migration[] = [
         }
       }
     }
+  },
+  {
+    // base_ident was dead weight: findSession deliberately keys the base side on the
+    // immutable base_anchor_sha ("a session's base is pinned once generated"), so no
+    // statement ever read this generated column — while the docs still demanded it be
+    // kept in lockstep with refIdentity(). compare_ident stays: findSession filters on it.
+    version: 4,
+    up(db) {
+      db.exec('ALTER TABLE sessions DROP COLUMN base_ident')
+    }
   }
 ]
