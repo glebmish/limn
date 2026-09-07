@@ -341,6 +341,11 @@ export class FakeEngine implements ReviewEngine {
           await turn.tools.call('resolve_comment', { commentId: id, verdict: 'addressed', note: 'Done (demo).' })
         }
       } else if (turn.tools) {
+        // `[edit-review]` — a chat turn that amends the review through the tool host,
+        // so a test can drive the tool from whichever lane the turn landed on.
+        if (turn.message.includes('[edit-review]')) {
+          await turn.tools.call('edit_review', { field: 'summary', value: 'Edited by the chat turn.' })
+        }
         // tool-enabled read-only chat: exercise the point (single + multi-stop) + suggest action pipe
         await turn.tools.call('point', { stops: [{ target: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2 } }] })
         await turn.tools.call('point', {

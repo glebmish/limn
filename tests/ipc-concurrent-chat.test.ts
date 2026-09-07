@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDb } from '../src/server/db/db'
-import { createSession, createChatThread, getChatThread, loadReviewState, upsertComment } from '../src/server/db/sessions'
+import { createSession, createChatThread, getChatThread, loadReviewState, updateSessionMeta, upsertComment } from '../src/server/db/sessions'
 import { registerIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { releaseFakeHolds } from '../src/server/engines/fake'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
-import type { AgentRef, RefPair } from '../src/shared/types'
+import type { AgentRef, RefPair, ReviewAnnotations } from '../src/shared/types'
 import type { OpEventMsg, OpResultMsg } from '../src/shared/ipc'
 import type { Transport } from '../src/server/transport'
 import fs from 'node:fs'
@@ -118,6 +118,50 @@ describe('concurrent chat — two-lane routing', () => {
     expect(heldEvents.length).toBeGreaterThan(0)
     expect(heldEvents.every((e) => e.exclusive === true)).toBe(true)
     expect(h.results.find((r) => r.opId === 'op-x')!.exclusive).toBe(true)
+  })
+})
+
+describe('concurrent chat — the shared lane never rewrites the review', () => {
+  const annotations: ReviewAnnotations = {
+    title: 'Generated title', summary: 'Generated summary', sections: [], questions: []
+  }
+
+  it('withholds edit_review from a shared-lane turn while a generation holds the exclusive lane', async () => {
+    const h = await setup()
+    updateSessionMeta(h.db, h.sessionId, { annotations })
+    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+
+    // a generation takes the exclusive lane and parks mid-pass, holding the
+    // annotations snapshot it will persist when it finishes.
+    const reviewThread = await h.handlers.get('beginReview')!(h.sessionId, agent, false, '[hold]') as number
+    const gen = h.handlers.get('generate')!(h.sessionId, agent, 'op-gen', reviewThread, '[hold]', false)
+    await waitForHold(h, 'op-gen')
+
+    // a chat turn routed to the shared lane asks the agent to amend the review
+    await h.handlers.get('sendChat')!(asker, '[edit-review] tighten the summary', 'op-chat')
+    expect(h.results.find((r) => r.opId === 'op-chat')!.status).toBe('succeeded')
+
+    // the edit never reached the blob the generation is about to overwrite…
+    expect(loadReviewState(h.db, h.sessionId).annotations!.summary).toBe('Generated summary')
+    // …and the turn shows no "edited the review" chip for an edit that did not happen
+    const turn = getChatThread(h.db, asker)!.messages.at(-1)!
+    expect((turn.actions ?? []).some((a) => a.kind === 'review_edited')).toBe(false)
+
+    releaseFakeHolds()
+    await gen
+    expect(h.results.find((r) => r.opId === 'op-gen')!.status).toBe('succeeded')
+  })
+
+  it('the same turn on the exclusive lane (idle repo) still edits the review', async () => {
+    const h = await setup()
+    updateSessionMeta(h.db, h.sessionId, { annotations })
+    const t = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+
+    await h.handlers.get('sendChat')!(t, '[edit-review] tighten the summary', 'op-solo')
+    expect(h.results.find((r) => r.opId === 'op-solo')!.status).toBe('succeeded')
+    expect(loadReviewState(h.db, h.sessionId).annotations!.summary).toBe('Edited by the chat turn.')
+    const turn = getChatThread(h.db, t)!.messages.at(-1)!
+    expect((turn.actions ?? []).some((a) => a.kind === 'review_edited')).toBe(true)
   })
 })
 

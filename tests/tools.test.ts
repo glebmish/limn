@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolDef, type ToolHostCtx } from '../src/server/engines/tools'
+import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, SHARED_LANE_TOOL_NAMES, type ToolDef, type ToolHostCtx } from '../src/server/engines/tools'
 import { FakeEngine } from '../src/server/engines/fake'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 import { openDb } from '../src/server/db/db'
@@ -62,6 +62,17 @@ describe('AUTO_ACCEPT_TOOL_NAMES — auto-accept allowlist', () => {
     const fake: ToolDef = { name: 'write_file', description: 'x', input: {} }
     expect(() => assertAutoAcceptCoverage([...LIMN_TOOLS, fake]))
       .toThrow(/limn tools not cleared for auto-accept: write_file/)
+  })
+})
+
+describe('SHARED_LANE_TOOL_NAMES — what a read-only shared-lane turn may call', () => {
+  it('withholds exactly the two annotation-rewriting tools, and lists only real tools', () => {
+    // A generation on the exclusive lane persists the annotations snapshot it took
+    // before the shared turn started, so a whole-blob rewrite from that turn is lost.
+    // A new tool must be classified here (this fails until it is).
+    const withheld = LIMN_TOOLS.map((t) => t.name).filter((n) => !SHARED_LANE_TOOL_NAMES.has(n)).sort()
+    expect(withheld).toEqual(['edit_review', 'update_plan_status'])
+    for (const n of SHARED_LANE_TOOL_NAMES) expect(LIMN_TOOLS.some((t) => t.name === n)).toBe(true)
   })
 })
 
@@ -518,6 +529,35 @@ describe('review edit tools (real temp DB)', () => {
     const { isError, result } = await createToolHost(ctx).call('update_plan_status', { index: 9, met: true, note: 'x' })
     expect(isError).toBe(true)
     expect(result).toMatch(/index/)
+  })
+
+  it('a host restricted to the shared lane refuses edit_review with an actionable error, changing nothing', async () => {
+    const { db, ctx, sessionId } = setup()
+    const events: EngineEvent[] = []
+    const host = createToolHost({ ...ctx, allowedTools: SHARED_LANE_TOOL_NAMES, emit: (e) => events.push(e) })
+    const { isError, result, action } = await host.call('edit_review', { field: 'summary', value: 'New summary' })
+    expect(isError).toBe(true)
+    expect(result).toMatch(/unavailable on this turn/)
+    expect(action).toBeUndefined()
+    expect(events).toEqual([])
+    expect(host.collected()).toEqual([])
+    expect(loadReviewState(db, sessionId).annotations!.summary).toBe('Old summary')
+  })
+
+  it('a host restricted to the shared lane refuses update_plan_status, leaving the criterion alone', async () => {
+    const { db, ctx, sessionId } = setup()
+    const host = createToolHost({ ...ctx, allowedTools: SHARED_LANE_TOOL_NAMES })
+    const { isError } = await host.call('update_plan_status', { index: 0, met: true, note: 'x' })
+    expect(isError).toBe(true)
+    expect(loadReviewState(db, sessionId).annotations!.planMap!.acceptance[0].met).toBe('partial')
+  })
+
+  it('a host restricted to the shared lane still serves the read/comment tools', async () => {
+    const { ctx } = setup()
+    const host = createToolHost({ ...ctx, allowedTools: SHARED_LANE_TOOL_NAMES })
+    const { isError, result } = await host.call('get_review', {})
+    expect(isError).toBeFalsy()
+    expect(JSON.parse(result) as { title: string }).toMatchObject({ title: 'Old title' })
   })
 
   it('update_plan_status throws when there is no planMap', async () => {

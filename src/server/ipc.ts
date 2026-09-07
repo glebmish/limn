@@ -26,7 +26,7 @@ import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.
 import { resolveStampTree, stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
-import { createToolHost } from './engines/tools.js'
+import { createToolHost, SHARED_LANE_TOOL_NAMES } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { isPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
@@ -1107,9 +1107,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
+      // On the shared lane the annotation-rewriting tools are withheld: the
+      // generation holding the exclusive lane persists the annotations it
+      // snapshotted before this turn, so an edit made here would vanish.
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        emit: recorder.emit
+        emit: recorder.emit,
+        ...(readOnly ? { allowedTools: SHARED_LANE_TOOL_NAMES } : {})
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
