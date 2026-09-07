@@ -237,6 +237,25 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorLine(c)).toBe(2)
   })
 
+  it('3b. rename: an UNRELATED dirty file in the tree does not stop the comment following the mv', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    fixtureWrite(repo, 'src/a.ts', lines('export const A = 1', 'export const B = 2')); commit(repo, 'add a')
+    const session = mkSession(repo)
+    // scratch file elsewhere in the tree — src/a.ts itself is clean and committed, so
+    // the comment's line space is committed space and rename tracking must stay on
+    fixtureWrite(repo, 'src/other.ts', lines('export const OTHER = 1'))
+    const c = await stampedComment(repo, session, { file: 'src/a.ts', line: 2, text: 'export const B = 2' })
+    fixtureGit(repo, 'mv', 'src/a.ts', 'src/b.ts'); commit(repo, 'rename a→b')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).not.toBe('outdated')
+    expect(anchorFile(c)).toBe('src/b.ts')
+    expect(anchorLine(c)).toBe(2)
+    // …because the stamp records the space of THIS file's line, not the tree's mood
+    expect((c.anchor as { stamp: { surface: string } }).stamp.surface).toBe('committed')
+  })
+
   it('4. unchanged line, edits elsewhere: stage 1 maps by the net insertion delta', async () => {
     const repo = mkRepo()
     fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')

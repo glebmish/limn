@@ -3,7 +3,7 @@ import nodePath from 'node:path'
 import { effectiveRef } from '../shared/types.js'
 import type { AnchorContext, AnchorStamp, CommentAnchor, SessionMeta } from '../shared/types.js'
 import { CONTEXT_N } from './anchor.js'
-import { EMPTY_TREE, blobShaAt, hashObjectsWrite, headSha, isDirty, mergeBase, pathHasChanges, showFile } from './git.js'
+import { EMPTY_TREE, blobShaAt, hashObjectsWrite, headSha, mergeBase, pathHasChanges, showFile } from './git.js'
 
 // ── creation-time anchor stamping ──────────────────────────────
 // Enrich a positional comment anchor with its immutable AnchorStamp + captured
@@ -48,16 +48,15 @@ function resolveContext(content: string | null, L: number, lineContent: string):
   return lineContent ? { context } : { context, lineContent: lines[L - 1] }
 }
 
-/** headSha/mergeBase/surface — the tree-level fields shared by both anchor kinds.
+/** headSha/mergeBase — the tree-level fields shared by both anchor kinds.
  *  headSha is NOT swallowed: if it throws (e.g. a non-repo workdir) the caller's
  *  outer try/catch returns the anchor unstamped rather than fabricate a stamp. */
-async function resolveTreeState(workdir: string, session: SessionMeta): Promise<{ head: string; mb: string; surface: SurfaceState }> {
+async function resolveTreeState(workdir: string, session: SessionMeta): Promise<{ head: string; mb: string }> {
   const compareEff = effectiveRef(session.pair.compare)
   const baseEff = effectiveRef(session.pair.base)
   const head = await headSha(workdir, compareEff)
   const mb = await mergeBase(workdir, baseEff, compareEff).catch(() => EMPTY_TREE)
-  const surface: SurfaceState = (await isDirty(workdir)) ? 'dirty' : 'committed'
-  return { head, mb, surface }
+  return { head, mb }
 }
 
 /** Stamp a `kind: 'diff'` anchor. Blob source follows per-file state so the
@@ -65,16 +64,22 @@ async function resolveTreeState(workdir: string, session: SessionMeta): Promise<
  *   - side 'old'          → base blob at mergeBase (base space)
  *   - side 'new', clean   → tip blob at headSha (== worktree space for a clean file)
  *   - side 'new', dirty/untracked → on-disk content, persisted `-w` so it is
- *     recoverable later (worktree space). */
+ *     recoverable later (worktree space).
+ *  `surface` names that same line space, so it is derived from the SAME per-file
+ *  signal — an unrelated dirty file elsewhere in the tree says nothing about the
+ *  space this line was written in (and would cost the anchor its rename tracking). */
 async function stampDiff(workdir: string, session: SessionMeta, anchor: Extract<CommentAnchor, { kind: 'diff' }>): Promise<CommentAnchor> {
-  const { head, mb, surface } = await resolveTreeState(workdir, session)
+  const { head, mb } = await resolveTreeState(workdir, session)
+  // side 'old' is base space, which is committed by construction — no probe needed
+  const changed = anchor.side === 'new' && (await pathHasChanges(workdir, anchor.file))
+  const surface: SurfaceState = changed ? 'dirty' : 'committed'
 
   let content: string | null
   let blobSha: string | undefined
   if (anchor.side === 'old') {
     content = await showFile(workdir, mb, anchor.file)
     blobSha = (await blobShaAt(workdir, mb, anchor.file)) ?? undefined
-  } else if (await pathHasChanges(workdir, anchor.file)) {
+  } else if (changed) {
     content = readOnDisk(workdir, anchor.file)
     blobSha = (await hashObjectsWrite(workdir, [anchor.file])).get(anchor.file)
   } else {
@@ -89,9 +94,11 @@ async function stampDiff(workdir: string, session: SessionMeta, anchor: Extract<
 
 /** Stamp a `kind: 'artifact'` anchor. Artifacts are read from the working tree on
  *  disk (may be untracked docs), so content + blob are always the `-w` on-disk
- *  form; headSha/mergeBase are best-effort provenance (Q10). */
+ *  form; headSha/mergeBase are best-effort provenance (Q10). `surface` names this
+ *  file's own line space (same per-file rule as stampDiff). */
 async function stampArtifact(workdir: string, session: SessionMeta, anchor: Extract<CommentAnchor, { kind: 'artifact' }>): Promise<CommentAnchor> {
-  const { head, mb, surface } = await resolveTreeState(workdir, session)
+  const { head, mb } = await resolveTreeState(workdir, session)
+  const surface: SurfaceState = (await pathHasChanges(workdir, anchor.path)) ? 'dirty' : 'committed'
   const content = readOnDisk(workdir, anchor.path)
   const blobSha = (await hashObjectsWrite(workdir, [anchor.path])).get(anchor.path)
   const stamp: AnchorStamp = { headSha: head, mergeBase: mb, blobSha, surface, origLine: anchor.line, origPath: anchor.path }
