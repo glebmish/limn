@@ -52,6 +52,15 @@ function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb)
 }
 
+/** Decode an `/rpc/<channel>` path segment without throwing. The WHATWG URL parser
+ *  leaves invalid percent-escapes untouched in `pathname`, so a client can send one
+ *  straight through to `decodeURIComponent`, which throws synchronously — inside the
+ *  request listener that is a process-fatal uncaughtException. Channel names come
+ *  from a fixed allowlist, so an undecodable segment is simply an unknown channel. */
+function decodeChannel(raw: string): string | null {
+  try { return decodeURIComponent(raw) } catch { return null }
+}
+
 function authorized(req: http.IncomingMessage, url: URL, token: string): boolean {
   if (!token) return true
   // header is preferred (doesn't land in logs/history); query param kept for convenience
@@ -234,9 +243,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           .end(JSON.stringify({ error: 'Content-Type must be application/json' }))
         return
       }
-      const channel = decodeURIComponent(url.pathname.slice('/rpc/'.length))
-      const fn = handlers.get(channel)
-      if (!fn) { res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: `unknown channel ${channel}` })); return }
+      const rawChannel = url.pathname.slice('/rpc/'.length)
+      const channel = decodeChannel(rawChannel)
+      const fn = channel != null ? handlers.get(channel) : undefined
+      if (!fn) { res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: `unknown channel ${channel ?? rawChannel}` })); return }
       void (async () => {
         try {
           const raw = await readBody(req)

@@ -42,13 +42,24 @@ function statusLine(raw: string): number | null {
   return m ? Number(m[1]) : null
 }
 
-describe('malformed request input (audit finding 1)', () => {
+describe('malformed request input (audit findings 1 & 2)', () => {
   it('answers 400 for a Host header that is not a valid URL authority, and keeps the service alive', async () => {
     const s = await boot()
     const { raw, closedWithoutResponse } = await rawRequest(s.port, 'GET / HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n')
     expect(closedWithoutResponse).toBe(false)
     expect(statusLine(raw)).toBe(400)
     // the service must still be able to answer afterward — nothing crashed
+    expect((await fetch(`${s.url}/health`)).status).toBe(200)
+  })
+
+  it('answers with a non-crash status for an unparsable percent-escape in /rpc/<channel>', async () => {
+    const s = await boot()
+    const body = '[]'
+    const req = `POST /rpc/%zz HTTP/1.1\r\nHost: 127.0.0.1:${s.port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+    const { raw, closedWithoutResponse } = await rawRequest(s.port, req)
+    expect(closedWithoutResponse).toBe(false)
+    // an undecodable channel segment is simply an unknown channel — 404, not a crash
+    expect(statusLine(raw)).toBe(404)
     expect((await fetch(`${s.url}/health`)).status).toBe(200)
   })
 })
