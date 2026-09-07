@@ -207,13 +207,15 @@ export interface ReanchorCtx {
 type PositionalAnchor = Extract<CommentAnchor, { kind: 'diff' } | { kind: 'artifact' }>
 
 /** The stage-2 position hint for an EDITED line: the newStart of the hunk that
- *  contains L (a real replace hunk, oldLen > 0); falls back to the stamp's
- *  immutable origLine when L sits in no such hunk. */
-function editedHint(hunks: EditHunk[], L: number, origLine: number): number {
+ *  contains L (a real replace hunk, oldLen > 0). Only ever called after `mapLine`
+ *  reported 'EDITED' for the same (hunks, L) — which is exactly the predicate this
+ *  loop tests — so the scan always finds that hunk; the trailing `return L` only
+ *  keeps the function total. */
+function editedHint(hunks: EditHunk[], L: number): number {
   for (const h of hunks) {
-    if (h.oldLen > 0 && L >= h.oldStart && L < h.oldStart + Math.max(h.oldLen, 1)) return h.newStart
+    if (h.oldLen > 0 && L >= h.oldStart && L < h.oldStart + h.oldLen) return h.newStart
   }
-  return origLine
+  return L
 }
 
 /** Find the rendered line in `file` at (side, line) by NUMBER (not text), with the
@@ -378,7 +380,7 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
     if (!resolved) return null // nothing to map/fuzz against → stage 3
     const { content: newContent, lines: contentLines } = resolved
 
-    let hint = stamp.origLine ?? a.line
+    let hint = stamp.origLine
     // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
@@ -386,14 +388,13 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
       // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
       // edit list is built from), NOT the already-mutated a.line — else the shift delta
       // compounds on every reload once stage 0 stops short-circuiting.
-      const origLine = stamp.origLine ?? a.line
-      const mapped = mapLine(editList, origLine)
+      const mapped = mapLine(editList, stamp.origLine)
       if (typeof mapped === 'number') { setLine(a, mapped); return placed(a, false) }
       // 'EDITED': the anchored line itself was rewritten. The flag records THAT — not
       // where the anchor ends up; stage 2 may re-place it on the replacement code, or
       // it may stay put and be flagged notInDiff/outdated/stale below (#18).
       out.edited = true
-      hint = editedHint(editList, origLine, origLine) // 'EDITED' → stage 2 hint
+      hint = editedHint(editList, stamp.origLine) // 'EDITED' → stage 2 hint
     }
 
     // Stage 2 — fuzzy context fallback over the FULL new content.
