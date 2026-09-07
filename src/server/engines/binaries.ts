@@ -39,8 +39,10 @@ function fromPath(name: string): string | undefined {
     if (!dir) continue
     const p = path.join(dir, name)
     try {
+      // `statSync` FOLLOWS symlinks, so this accepts a symlink to an executable
+      // file (the common `npm`/`brew` shim) and rejects one pointing at a directory.
       fs.accessSync(p, fs.constants.X_OK)
-      if (fs.statSync(p).isFile() || fs.lstatSync(p).isSymbolicLink()) return p
+      if (fs.statSync(p).isFile()) return p
     } catch {
       // not here
     }
@@ -60,8 +62,8 @@ function executableProblem(file: string): string | undefined {
   if (!path.isAbsolute(file)) return 'Configured path must be absolute.'
   try {
     fs.accessSync(file, fs.constants.X_OK)
-    const st = fs.statSync(file)
-    if (!st.isFile() && !fs.lstatSync(file).isSymbolicLink()) return 'Configured path is not a file.'
+    // `statSync` follows symlinks — a symlink to an executable file passes here.
+    if (!fs.statSync(file).isFile()) return 'Configured path is not a file.'
     return undefined
   } catch {
     return 'Configured path does not exist or is not executable.'

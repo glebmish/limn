@@ -53,6 +53,60 @@ describe('engine binary preferences', () => {
     })
   })
 
+  it('resolves a PATH entry that is a symlink to an executable file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    const real = executable(dir, 'codex-real')
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    const link = path.join(binDir, 'codex')
+    fs.symlinkSync(real, link)
+    process.env.PATH = binDir
+
+    expect(codexBinaryPath()).toBe(link)
+    expect(engineBinaryStatus('codex')).toMatchObject({ source: 'path', ok: true, path: link })
+  })
+
+  it('does not accept a PATH entry that is a symlink to a directory', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    const target = path.join(dir, 'codex-dir')
+    fs.mkdirSync(target)
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    fs.symlinkSync(target, path.join(binDir, 'codex'))
+    process.env.PATH = binDir
+
+    expect(codexBinaryPath()).toBeUndefined()
+    expect(engineBinaryStatus('codex')).toMatchObject({ configured: false, source: 'missing', ok: false })
+  })
+
+  it('rejects a configured path that is a symlink to a directory', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    const target = path.join(dir, 'codex-dir')
+    fs.mkdirSync(target)
+    const link = path.join(dir, 'codex-link')
+    fs.symlinkSync(target, link)
+    process.env.PATH = ''
+
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.codex]: link })
+
+    expect(engineBinaryStatus('codex')).toMatchObject({
+      configured: true,
+      source: 'configured',
+      ok: false,
+      hint: 'Configured path is not a file.'
+    })
+  })
+
+  it('accepts a configured path that is a symlink to an executable file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
+    const real = executable(dir, 'codex-real')
+    const link = path.join(dir, 'codex-link')
+    fs.symlinkSync(real, link)
+    process.env.PATH = ''
+
+    setEngineBinaryPrefs({ [ENGINE_PATH_PREF_KEYS.codex]: link })
+
+    expect(engineBinaryStatus('codex')).toMatchObject({ configured: true, ok: true, path: link })
+  })
+
   it('does not silently ignore an invalid configured path', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-bin-'))
     executable(dir, 'codex')
