@@ -74,7 +74,7 @@ export class FakeEngine implements ReviewEngine {
       }
       const byDir = new Map<string, string[]>()
       for (const f of req.diff.files) {
-        const dir = f.path.includes('/') ? f.path.split('/')[0] : '(root)'
+        const dir = topDir(f.path)
         byDir.set(dir, [...(byDir.get(dir) ?? []), f.path])
       }
       const sections = [...byDir.entries()].map(([dir, files], i) => ({
