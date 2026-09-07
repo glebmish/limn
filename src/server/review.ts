@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
+import fs from 'node:fs'
 import type { LoadedReview } from '../shared/ipc.js'
 import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
@@ -145,12 +146,33 @@ export async function assembleReview(
   // …and the base→checkpoint slice beside each checkpoint→now one: the Multi
   // layout's middle column, aligned on base line numbers like `hunks` itself.
   const BASE_KEY = { review: 'baseToReviewHunks', approved: 'baseToApprovedHunks' } as const
+  // `git diff <mergeBase> <sha>` is a pure two-sha diff that never reads the working
+  // tree, and the committed pass below and the merged/dirty pass further down ask for
+  // exactly the same pairs — so each pair costs one subprocess per load, not two.
+  // The memo is keyed by the checkout as well as the sha, though: git resolves diff
+  // attributes from the working tree it runs in, so a linked worktree whose
+  // .gitattributes differs from the primary checkout's can legitimately render the
+  // same pair differently (`-diff` there turns a text diff into "Binary files differ").
+  // `repo` (the session's stored path) and `wt` (a real path out of `git worktree
+  // list`) are resolved first, so the usual single-checkout case shares one entry.
+  const baseSlices = new Map<string, FileDiff[]>()
+  const baseToCheckpoint = async (dir: string, sha: string): Promise<FileDiff[]> => {
+    let real: string
+    try { real = fs.realpathSync(dir) } catch { real = dir }
+    const key = `${real}\0${sha}`
+    let slice = baseSlices.get(key)
+    if (!slice) {
+      slice = await diffRefs(dir, skeleton.mergeBase, sha)
+      baseSlices.set(key, slice)
+    }
+    return slice
+  }
   for (const b of baselines) {
     try {
       const since = await diffSince(repo, b.sha, compareEff)
       if (b.sha === railSha) markSince(skeleton, since, 'since')
       attachSinceHunks(skeleton.files, since.files, HUNK_KEY[b.mode])
-      attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, b.sha), BASE_KEY[b.mode])
+      attachBaseHunks(skeleton.files, await baseToCheckpoint(repo, b.sha), BASE_KEY[b.mode])
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
   }
   const byViewSha = new Map<string, Set<string>>()
@@ -174,7 +196,7 @@ export async function assembleReview(
       const since = await diffSince(repo, sha, compareEff)
       markSince(skeleton, since, 'sinceViewed', paths)
       attachSinceHunks(skeleton.files, since.files, 'sinceViewedHunks', paths)
-      attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, sha), 'baseToViewedHunks', paths)
+      attachBaseHunks(skeleton.files, await baseToCheckpoint(repo, sha), 'baseToViewedHunks', paths)
     } catch { /* decoration failed for this load — the marks stay */ }
   }
   if (viewedDropped && persist) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
@@ -198,7 +220,7 @@ export async function assembleReview(
           const sinceW = await diffSinceWorking(wt, b.sha)
           if (b.sha === railSha) markSince(asSkel(merged), asSkel(sinceW), 'since')
           attachSinceHunks(merged, sinceW, HUNK_KEY[b.mode])
-          attachBaseHunks(merged, await diffRefs(wt, skeleton.mergeBase, b.sha), BASE_KEY[b.mode])
+          attachBaseHunks(merged, await baseToCheckpoint(wt, b.sha), BASE_KEY[b.mode])
         } catch { /* baseline unreachable */ }
       }
       for (const [sha, paths] of byViewSha) {
@@ -206,7 +228,7 @@ export async function assembleReview(
           const sinceW = await diffSinceWorking(wt, sha)
           markSince(asSkel(merged), asSkel(sinceW), 'sinceViewed', paths)
           attachSinceHunks(merged, sinceW, 'sinceViewedHunks', paths)
-          attachBaseHunks(merged, await diffRefs(wt, skeleton.mergeBase, sha), 'baseToViewedHunks', paths)
+          attachBaseHunks(merged, await baseToCheckpoint(wt, sha), 'baseToViewedHunks', paths)
         } catch { /* view sha unreachable */ }
       }
     } catch { merged = undefined /* fall back to skeleton + volatile band */ }
