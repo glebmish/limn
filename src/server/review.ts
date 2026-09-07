@@ -189,7 +189,13 @@ export async function assembleReview(
     // nothing about the sha: skip this load's decoration and keep the ticks, exactly
     // as the baselines loop above does.
     if (!(await commitExists(repo, sha))) {
-      for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
+      // The probe is a git call too, and exec.ts throws a message-only Error, so a
+      // false can equally mean "git could not run here at all". Ask it about a sha we
+      // know exists before believing the verdict; if even that comes back false the
+      // probe is broken, not the checkpoint, and the ticks stay.
+      if (await commitExists(repo, skeleton.headSha)) {
+        for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
+      }
       continue
     }
     try {

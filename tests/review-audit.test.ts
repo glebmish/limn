@@ -12,7 +12,7 @@ import type { RefPair } from '../src/shared/types'
 /** A transient git failure (an index.lock during a concurrent rebase, spawn EAGAIN,
  *  the 64 MB maxBuffer) in the since-diff for a viewed sha that is perfectly
  *  reachable — the case the viewed loop must NOT confuse with "rebased away". */
-const gitHooks = { failDiffSinceFor: null as string | null }
+const gitHooks = { failDiffSinceFor: null as string | null, breakCommitExists: false }
 /** Every `diffRefs(dir, from, to)` the load ran, in order. */
 const diffRefsCalls: { dir: string; from: string; to: string }[] = []
 vi.mock('../src/server/git', async (importOriginal) => {
@@ -25,6 +25,10 @@ vi.mock('../src/server/git', async (importOriginal) => {
       }
       return actual.diffSince(...args)
     },
+    // git cannot run in this repo at all (a broken/absent binary, spawn EAGAIN): the
+    // probe returns false for every sha, reachable or not
+    commitExists: async (...args: Parameters<typeof actual.commitExists>) =>
+      gitHooks.breakCommitExists ? false : actual.commitExists(...args),
     diffRefs: async (...args: Parameters<typeof actual.diffRefs>) => {
       diffRefsCalls.push({ dir: args[0], from: args[1], to: args[2] })
       return actual.diffRefs(...args)
@@ -56,6 +60,20 @@ describe('viewed marks vs. a failing since-diff', () => {
       gitHooks.failDiffSinceFor = null
     }
     expect(loadReviewState(db, sessionId).viewedAt['src/a.ts']).toEqual({ sha: shas.firstFeature, hash: 'h0' })
+  })
+
+  it('keeps the marks when the reachability probe itself cannot run', async () => {
+    const { db, sessionId, shas } = await setup()
+    const mark = { sha: shas.firstFeature, hash: 'h0' }
+    replaceUiState(db, sessionId, { viewedAt: { 'src/a.ts': mark } })
+    gitHooks.breakCommitExists = true
+    try {
+      const loaded = await buildLoadedReview(db, getSession(db, sessionId)!)
+      expect(loaded.state.viewedAt['src/a.ts']).toEqual(mark)
+    } finally {
+      gitHooks.breakCommitExists = false
+    }
+    expect(loadReviewState(db, sessionId).viewedAt['src/a.ts']).toEqual(mark)
   })
 
   it('drops the marks recorded at a sha that no longer names a commit', async () => {
