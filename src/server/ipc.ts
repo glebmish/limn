@@ -427,9 +427,7 @@ async function ignoreLocally(repo: string, pattern: string): Promise<void> {
  *  the RPC carrier maps it to HTTP 404 (same `{ error }` body as every other thrown error). */
 export class NotFoundError extends Error {}
 
-/** Run writes in one transaction. node:sqlite has no better-sqlite3 `db.transaction()`,
- *  so mirror the dao's BEGIN/COMMIT/ROLLBACK pattern. Not re-entrant — `fn` must not
- *  call a dao helper that opens its own transaction (e.g. setArtifacts). */
+/** The session row, or a `NotFoundError` when the id names no session. */
 function mustGetSession(db: DatabaseSync, id: number): SessionMeta {
   const s = dao.getSession(db, id)
   if (!s) throw new NotFoundError(`session ${id} not found`)

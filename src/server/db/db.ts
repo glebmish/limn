@@ -47,7 +47,9 @@ export function openDb(file: string, opts: OpenOptions = {}): OpenResult {
 }
 
 /** Run writes in one transaction (node:sqlite has no db.transaction()).
- *  Not re-entrant: `fn` must not open its own transaction. */
+ *  Not re-entrant: `fn` must not open its own transaction — including via a dao
+ *  helper that opens one itself (e.g. `setArtifacts`, which is why ipc.ts's
+ *  generate persist calls it just outside its `inTx` block). */
 export function inTx(db: DatabaseSync, fn: () => void): void {
   db.exec('BEGIN')
   try {
