@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openDb } from '../src/server/db/db'
-import { createSession, createChatThread, getChatThread } from '../src/server/db/sessions'
+import { createSession, createChatThread, getChatThread, loadReviewState, upsertComment } from '../src/server/db/sessions'
 import { registerIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { releaseFakeHolds } from '../src/server/engines/fake'
@@ -156,6 +156,33 @@ describe('concurrent chat — per-thread guard', () => {
     const resB = h.results.find((r) => r.opId === 'op-b')!
     expect(resB.status).toBe('failed')
     expect(resB.error).toContain('A turn is already running in this chat')
+
+    releaseFakeHolds()
+    await holding
+    expect(h.results.find((r) => r.opId === 'op-1')!.status).toBe('succeeded')
+  })
+})
+
+describe('concurrent chat — sendBatch rollback', () => {
+  it('a rejected batch does not un-send the comments the in-flight batch is working', async () => {
+    const h = await setup()
+    const t = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+    upsertComment(h.db, h.sessionId, {
+      id: 'c1', author: 'user', text: 'rename this', status: 'queued', replies: [], iteration: 1,
+      createdAt: new Date().toISOString(),
+      anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '@@ -1 +1 @@', lineContent: 'x' }
+    })
+
+    // op-1 takes the thread and parks mid-turn with c1 marked 'sent'
+    const holding = h.handlers.get('sendBatch')!(t, ['c1'], '[hold] first batch', 'op-1')
+    await waitForHold(h, 'op-1')
+    expect(loadReviewState(h.db, h.sessionId).comments[0].status).toBe('sent')
+
+    // a second client re-sends the same comment: rejected by the per-thread guard
+    // BEFORE the body ran, so it must leave op-1's 'sent' marks alone.
+    await h.handlers.get('sendBatch')!(t, ['c1'], 'racing batch', 'op-2')
+    expect(h.results.find((r) => r.opId === 'op-2')!.status).toBe('failed')
+    expect(loadReviewState(h.db, h.sessionId).comments[0].status).toBe('sent')
 
     releaseFakeHolds()
     await holding

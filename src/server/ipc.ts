@@ -1137,6 +1137,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const repo = session.repo
     const recorder = opRecorder(opId)
     recorder.exclusive = true // a batch turn is write-capable → always the exclusive lane
+    // The ids THIS turn marked 'sent'. Stays empty when the body never ran (a
+    // ThreadBusy/RepoBusy rejection), so a rejected request can't roll back the
+    // comments the batch that is actually in flight marked (finding 26).
+    let sentIds: string[] = []
     // Per-thread guard, as in sendChat: one in-flight turn per thread, fail fast.
     // `finally` retires the op whatever happens after the outcome (the rollback reads
     // and writes below can throw); `end` is idempotent / a no-op if never registered.
@@ -1161,6 +1165,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
           if (comments.length === 0 && !steer) throw new Error('Nothing to send')
           for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
+          sentIds = comments.map((c) => c.id)
           const userAt = new Date().toISOString()
           dao.addChatMessage(db, threadId, {
             role: 'user',
@@ -1196,7 +1201,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           // 'sent' (un-addressed) rolls back to 'queued' so it isn't lost.
           const after = dao.loadReviewState(db, sid)
           for (const c of after.comments) {
-            if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
+            if (sentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
           }
           const at = new Date().toISOString()
           const actions = tools.collected()
@@ -1212,10 +1217,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
         notifyIfUnfocused('Agent handled your comments', `${outcome.value}/${commentIds.length} resolved — ${agentLabel(thread.agent)}`)
       } else {
-        // roll back "sent" so comments aren't stuck
+        // roll back the marks THIS turn made, so its comments aren't stuck 'sent'
         const st = dao.loadReviewState(db, sid)
         for (const c of st.comments) {
-          if (commentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
+          if (sentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
         }
         reportTurnFailure({ db, threadId, opId, outcome, label: 'Batch', exclusive: true, notify: true })
       }
