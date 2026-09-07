@@ -34,7 +34,7 @@ const fakeSession: SessionMeta = {
   createdAt: 'now', updatedAt: 'now'
 }
 function mkCtx(forAnchor: DiffSkeleton): ReanchorCtx {
-  return { workdir: '/nonexistent', wt: null, forAnchor, dirty: false, currentTip: 'y', currentMergeBase: 'x', session: fakeSession }
+  return { workdir: '/nonexistent', hasWorktree: false, forAnchor, currentTip: 'y', currentMergeBase: 'x', session: fakeSession }
 }
 
 describe('reanchorComments', () => {

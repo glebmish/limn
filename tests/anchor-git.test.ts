@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { makeFixtureRepo, type FixtureRepo, fixtureGit, fixtureWrite } from './helpers/fixtureRepo'
 import * as git from '../src/server/git'
-import { blobShaAt, catBlob, showFile, hashObjectsWrite, diffContents, renameMap, hashObjects, getDiff, isDirty } from '../src/server/git'
+import { blobShaAt, catBlob, showFile, hashObjectsWrite, diffContents, renameMap, hashObjects, getDiff } from '../src/server/git'
 import { execGitDiff } from '../src/server/exec'
 import { createReanchorPass, reanchorComments, reanchorFocusTargets, reviewFocusTargets, type ReanchorCtx } from '../src/server/anchor'
 import * as anchorStamp from '../src/server/anchorStamp'
@@ -165,7 +165,7 @@ async function buildCtx(repo: string, session: SessionMeta): Promise<ReanchorCtx
   const paths = [...new Set(skeleton.files.map((f) => f.path))]
   const hashes = await hashObjects(repo, paths)
   for (const f of skeleton.files) { const h = hashes.get(f.path); if (h) f.fileHash = h }
-  return { workdir: repo, wt: repo, forAnchor: skeleton, dirty: await isDirty(repo), currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session }
+  return { workdir: repo, hasWorktree: true, forAnchor: skeleton, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session }
 }
 const anchorLine = (c: Comment): number => (c.anchor as { line: number }).line
 const anchorFile = (c: Comment): string => (c.anchor as { file: string }).file

@@ -238,7 +238,7 @@ export async function assembleReview(
     : volatile.length
     ? { ...skeleton, files: mergeFilesByPath(skeleton.files, volatile) }
     : skeleton
-  const reanchorCtx = { workdir, wt, forAnchor, dirty, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session }
+  const reanchorCtx = { workdir, hasWorktree: wt !== null, forAnchor, currentTip: skeleton.headSha, currentMergeBase: skeleton.mergeBase, session }
   // One pass for every anchor family in the review, so they share its per-load git
   // memos (a second pass would re-probe every blob and re-run every diff).
   const pass = createReanchorPass(reanchorCtx, artifacts)

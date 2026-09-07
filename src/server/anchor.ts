@@ -193,13 +193,12 @@ export function fuzzyFind(
 // success. The pass mutates `comments`/`artifacts` in place; callers persist.
 
 /** The git context the re-anchor pass runs against — the rendered surface plus
- *  the current tip/merge-base and the worktree (or null when the compare is a
- *  commit / checked out nowhere). */
+ *  the current tip/merge-base and whether the compare is checked out in a worktree
+ *  (`workdir` IS that worktree when it is). */
 export interface ReanchorCtx {
   workdir: string
-  wt: string | null          // the compare worktree, or null (commit compare / not checked out)
+  hasWorktree: boolean       // is the compare checked out? (false: commit compare / checked out nowhere)
   forAnchor: DiffSkeleton    // the rendered surface (stage 3 + render placement run against this)
-  dirty: boolean
   currentTip: string         // skeleton.headSha  (current compare tip)
   currentMergeBase: string   // skeleton.mergeBase (current merge-base)
   session: SessionMeta       // for heal-forward stamping of legacy anchors
@@ -321,7 +320,7 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
     }
     let content: string | null
     if (a.side === 'old') content = await memoLookup(`show:old:${a.file}`, () => showFile(ctx.workdir, ctx.currentMergeBase, a.file))
-    else if (ctx.wt) content = await memoLookup(`disk:${a.file}`, async () => readOnDisk(ctx.workdir, a.file))
+    else if (ctx.hasWorktree) content = await memoLookup(`disk:${a.file}`, async () => readOnDisk(ctx.workdir, a.file))
     else content = await memoLookup(`show:new:${a.file}`, () => showFile(ctx.workdir, ctx.currentTip, a.file))
     if (content === null) return null
     return { content, lines: splitLines(content) }
