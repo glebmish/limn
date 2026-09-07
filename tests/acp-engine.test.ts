@@ -253,6 +253,81 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
   })
 
+  it('4g. a deny picks reject_always when the adapter offers no reject_once — never the leading allow', async () => {
+    // Adapters list their allow options FIRST, so a positional fallback would turn a
+    // deny into an allow on any adapter that spells rejection `reject_always`.
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4g',
+      turns: [{
+        permission: {
+          toolCallId: 'cmd4g',
+          title: 'run',
+          kind: 'execute',
+          rawInput: { command: 'ls' },
+          options: [
+            { kind: 'allow_once', name: 'Allow', optionId: 'allow' },
+            { kind: 'reject_always', name: 'Decline', optionId: 'reject' }
+          ]
+        },
+        text: 'done',
+        rejectedText: 'refused'
+      }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4g', message: 'go', opId: 'op4g', executionMode: 'full', readOnly: true })
+    await drain(run.events)
+    const { value } = await run.result
+    expect(value).toBe('refused') // reject branch taken
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
+  })
+
+  it('4h. a deny with no reject option at all answers `cancelled`, not the leading allow', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4h',
+      turns: [{
+        permission: {
+          toolCallId: 'cmd4h',
+          title: 'run',
+          kind: 'execute',
+          rawInput: { command: 'ls' },
+          options: [{ kind: 'allow_once', name: 'Allow', optionId: 'allow' }]
+        },
+        text: 'done',
+        rejectedText: 'refused'
+      }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4h', message: 'go', opId: 'op4h', executionMode: 'full', readOnly: true })
+    await drain(run.events)
+    // the fake stops the turn on a cancelled outcome → the engine's quiet cancel settle
+    await expect(run.result).rejects.toBeInstanceOf(CancelledError)
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect(outcome?.outcome).toEqual({ outcome: 'cancelled' })
+  })
+
+  it('4i. an allow picks allow_always when the adapter offers no allow_once', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'ch-4i',
+      turns: [{
+        permission: {
+          toolCallId: 'lt4i',
+          title: 'mcp__limn__focus',
+          kind: 'other',
+          rawInput: {},
+          options: [
+            { kind: 'allow_always', name: 'Always allow', optionId: 'allow' },
+            { kind: 'reject_once', name: 'Reject', optionId: 'reject' }
+          ]
+        },
+        text: 'focused'
+      }]
+    })
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4i', message: 'go', opId: 'op4i', executionMode: 'ask' })
+    await drain(run.events)
+    expect(await run.result.then((r) => r.value)).toBe('focused')
+    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
+    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('allow')
+  })
+
   it('4e. mid-turn ask→full: the SECOND file change is auto-allowed, never parked', async () => {
     // The tier is re-read (turn.currentMode) at EVERY permission request, so moving
     // the selector while a turn streams takes effect from the next request on.

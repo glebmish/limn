@@ -53,12 +53,19 @@ function isStructuredParse(err: unknown): boolean {
   return Boolean(err && typeof err === 'object' && (err as Record<symbol, unknown>)[STRUCTURED_PARSE])
 }
 
-/** Pick the option whose kind matches (allow → allow_once, deny → reject_once);
- *  falls back to the first option so a non-standard adapter still gets an answer. */
+/** Pick the option whose kind matches the decision's FAMILY — allow → allow_once
+ *  then allow_always, deny → reject_once then reject_always. Never positional: an
+ *  adapter lists its allow options first, so falling back to `options[0]` would
+ *  answer a deny with an allow whenever the adapter spelled rejection some other
+ *  way. `undefined` means "this adapter offers nothing in that family"; the caller
+ *  answers `cancelled`, which every adapter treats as not-permitted. */
 function optionFor(options: PermissionOption[], decision: 'allow' | 'deny'): string | undefined {
-  const wanted = decision === 'allow' ? 'allow_once' : 'reject_once'
-  const match = options.find((o) => o.kind === wanted)
-  return (match ?? options[0])?.optionId
+  const wanted = decision === 'allow' ? (['allow_once', 'allow_always'] as const) : (['reject_once', 'reject_always'] as const)
+  for (const kind of wanted) {
+    const match = options.find((o) => o.kind === kind)
+    if (match) return match.optionId
+  }
+  return undefined
 }
 
 /** Session/new|load|resume responses carry the session's advertised mode ids on
