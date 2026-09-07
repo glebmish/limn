@@ -14,8 +14,11 @@ import { inTx } from './db/db.js'
 /** Inputs the gate evaluator is pure over — gathered from git + db by
  *  `gatherMergePreflight` (Task 8), synthesized directly in unit tests. */
 export interface MergeGateInputs {
-  /** approvalFresh over the session's approved shas vs the current tip. */
+  /** approvalFresh over the session's approved surface hashes vs the current tip. */
   approvalCoversTip: boolean
+  /** the latest approval was taken at the tip over a DIRTY surface, so it covers
+   *  uncommitted edits rather than the commits a merge would land. */
+  approvalDirtyOnly?: boolean
   /** commit/line delta since the latest approved sha; absent when there is no
    *  approved sha to count from (never-approved review, or unreachable after rebase). */
   staleInfo?: { commits: number; add: number; del: number; sinceSha: string }
@@ -64,9 +67,11 @@ export function evaluateMergeGates(i: MergeGateInputs): MergeGate[] {
     const s = i.staleInfo
     gates.push({
       id: 'stale-approval', severity: 'amber',
-      detail: s
-        ? `${s.commits} commit${plural(s.commits)} since approval ${s.sinceSha.slice(0, 7)} (+${s.add} / −${s.del})`
-        : 'The approval does not cover the current tip',
+      detail: i.approvalDirtyOnly
+        ? 'The approval covers uncommitted edits, not the committed tip'
+        : s
+          ? `${s.commits} commit${plural(s.commits)} since approval ${s.sinceSha.slice(0, 7)} (+${s.add} / −${s.del})`
+          : 'The approval does not cover the current tip',
       ...(s ? { commits: s.commits, add: s.add, del: s.del } : {})
     })
   }
@@ -197,16 +202,22 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
     return count > 0 ? { workdir, count } : undefined
   }
 
-  // approval gate: the committed tip must be explicitly approved. Dirty-surface
-  // approvals don't count here — a merge can only land commits (branch-dirty is
-  // its own red gate).
-  const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
-  const approvalCoversTip = approvedShas.includes(tipSha)
+  // approval gate: the committed tip must be explicitly approved AS A CLEAN SURFACE
+  // — a merge can only land commits (branch-dirty is its own red gate). That is what
+  // `approvedHashes` carries: the surface hash is the bare head sha for a clean tree
+  // and 'dirty:<digest>' otherwise. `approvedShas` would NOT do — a dirty-surface
+  // approval also stores the committed HEAD in its sha column, so reading it calls
+  // the tip approved after an approve-then-discard the reviewer never saw committed.
+  const approvedHashes = state.approvedHashes ?? state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  const approvalCoversTip = approvedHashes.includes(tipSha)
+  // …and when the latest approval sits AT the tip without covering it, the drift
+  // counts below would all be zero; say what actually happened instead.
+  const approvalDirtyOnly = !approvalCoversTip && state.approvedSha === tipSha
   const worktreePath = checkedOutAt(branch)
   const baseWorkdir = checkedOutAt(baseSymbol)
 
   const [staleInfo, branchDirty, baseSiteDirty, baseMoved, ffPossible, range] = await Promise.all([
-    !approvalCoversTip && state.approvedSha
+    !approvalCoversTip && !approvalDirtyOnly && state.approvedSha
       ? driftSummary(repo, branch, state.approvedSha, null, tipSha) // committed-only
         .then((d): MergeGateInputs['staleInfo'] => ({ commits: d.commits, add: d.add, del: d.del, sinceSha: state.approvedSha! }))
         .catch(() => undefined) /* approved sha unreachable (rebase) — stale gate without counts */
@@ -245,7 +256,7 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
 
   return {
     session, state, repo, baseSymbol, branch, baseHead, tipSha,
-    inputs: { approvalCoversTip, staleInfo, branchDirty, baseSiteDirty, baseMoved, probe, ffPossible },
+    inputs: { approvalCoversTip, approvalDirtyOnly, staleInfo, branchDirty, baseSiteDirty, baseMoved, probe, ffPossible },
     commits: commitList.map((c) => ({ sha: c.sha, subject: c.subject })),
     counts, worktreePath, baseWorkdir, dependents, draftMessage
   }

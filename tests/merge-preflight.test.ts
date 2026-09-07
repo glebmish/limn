@@ -3,8 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
-import { approveSessionSha, createSession, markSessionMerged } from '../src/server/db/sessions'
+import { approveSessionSha, approveSessionSurface, createSession, getSession, markSessionMerged } from '../src/server/db/sessions'
 import { gatherMergePreflight } from '../src/server/merge'
+import { buildLoadedReview } from '../src/server/review'
 import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite, type FixtureRepo } from './helpers/fixtureRepo'
 import type { AgentRef, MergeRecord, RefPair } from '../src/shared/types'
@@ -74,6 +75,28 @@ describe('gatherMergePreflight', () => {
     expect(gate.add).toBe(2)         // one changed line + one new line
     expect(gate.del).toBe(1)
     expect(gate.detail).toContain(shas.firstFeature.slice(0, 7))
+  })
+
+  it('dirty-only approval: discarding the edits leaves the committed tip unapproved', async () => {
+    const { db, dir, shas, sessionId } = await setup()
+    const session = getSession(db, sessionId)!
+    // approve while the worktree carries an in-place edit — the `approve` handler
+    // stores sha = the committed HEAD, hash = 'dirty:<digest>'
+    const cSrc = path.join(dir, 'src/c.ts')
+    const original = fs.readFileSync(cSrc, 'utf8')
+    fs.writeFileSync(cSrc, 'export const c = 4\n')
+    const dirtyLoad = await buildLoadedReview(db, session)
+    expect(dirtyLoad.branchHash).toMatch(/^dirty:/)
+    approveSessionSurface(db, sessionId, dirtyLoad.skeleton.headSha, dirtyLoad.branchHash)
+    // ↺ discard: the tree is clean again at the same commit — nothing that got
+    // approved is on the branch, so the merge sheet must not read as approved
+    fs.writeFileSync(cSrc, original)
+
+    const p = await gatherMergePreflight(db, sessionId)
+    const gate = p.gates.find((g) => g.id === 'stale-approval')!
+    expect(gate?.severity).toBe('amber')
+    expect(gate?.detail).toBe('The approval covers uncommitted edits, not the committed tip')
+    expect(shas.head).toBe(dirtyLoad.skeleton.headSha)
   })
 
   it('base-moved (feature-untouched file): amber, probe clean, ff off, squash/merge on', async () => {
