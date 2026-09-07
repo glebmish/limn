@@ -333,14 +333,21 @@ const TOOL_IMPLS: ToolImpl[] = [
       'Get a compact snapshot of review progress: which files/sections the reviewer has ' +
       'marked viewed, and comment counts by status (queued/sent/resolved/outdated). Call this ' +
       'to calibrate what to suggest next — e.g. don\'t re-suggest a file already viewed, and ' +
-      'check for queued comments before wrapping up.',
+      'check for queued comments before wrapping up. Each `viewed_files` entry names the ' +
+      'commit sha the tick was taken at: a file whose content changed since then reads as ' +
+      'changed-since-viewed to the reviewer and may be worth walking again.',
     input: GET_PROGRESS_INPUT,
     run: (ctx) => {
       const state = loadReviewState(ctx.db, ctx.sessionId)
       const comments = { queued: 0, sent: 0, resolved: 0, outdated: 0 }
       for (const c of state.comments) comments[c.status]++
       const slim = {
-        viewed_files: Object.keys(state.viewedAt),
+        // A tick is only live while the file still matches the sha AND content hash it
+        // was taken at (fileViewed, renderer/store/derive.ts) — a drifted file reads as
+        // changed-since-viewed in the UI. That check needs the loaded diff, which this
+        // synchronous tool doesn't have, so report the mark's own sha rather than a bare
+        // key that would imply every entry is currently viewed.
+        viewed_files: Object.entries(state.viewedAt).map(([file, m]) => ({ file, sha: m.sha })),
         reviewed_sections: state.reviewedSections,
         comments,
         // Live commit/file drift requires shelling out to git (async); this tool stays

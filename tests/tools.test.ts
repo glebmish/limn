@@ -566,12 +566,32 @@ describe('get_review_progress (real temp DB)', () => {
     const { result, isError } = await createToolHost(ctx).call('get_review_progress', {})
     expect(isError).toBeFalsy()
     const parsed = JSON.parse(result) as {
-      viewed_files: string[]; reviewed_sections: string[]
+      viewed_files: { file: string; sha: string }[]; reviewed_sections: string[]
       comments: { queued: number; sent: number; resolved: number; outdated: number }
     }
-    expect(parsed.viewed_files).toEqual(['src/a.ts'])
+    expect(parsed.viewed_files).toEqual([{ file: 'src/a.ts', sha: 'c'.repeat(40) }])
     expect(parsed.reviewed_sections).toEqual(['s1'])
     expect(parsed.comments).toEqual({ queued: 1, sent: 1, resolved: 1, outdated: 1 })
+  })
+
+  // A view mark is only a live tick while the file still matches the sha (and
+  // content) it was ticked at — the UI clears it on drift (fileViewed). The tool
+  // can't compute that drift synchronously, so it must at least name the sha each
+  // tick was taken at instead of implying every key is currently viewed.
+  it('names the sha each view mark was taken at rather than emitting bare file keys', async () => {
+    const { db, ctx, sessionId } = setup()
+    replaceUiState(db, sessionId, {
+      viewedAt: {
+        'src/a.ts': { sha: 'c'.repeat(40), hash: 'hash1' },
+        'src/b.ts': { sha: 'd'.repeat(40), hash: 'hash2' }
+      }
+    })
+    const { result } = await createToolHost(ctx).call('get_review_progress', {})
+    const parsed = JSON.parse(result) as { viewed_files: { file: string; sha: string }[] }
+    expect(parsed.viewed_files).toEqual([
+      { file: 'src/a.ts', sha: 'c'.repeat(40) },
+      { file: 'src/b.ts', sha: 'd'.repeat(40) }
+    ])
   })
 
   it('is read-only: emits no action and collects nothing', async () => {
