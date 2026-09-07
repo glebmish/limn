@@ -445,6 +445,20 @@ function assertNotMerged(db: DatabaseSync, sessionId: number): void {
   if (row?.merged_at) throw new Error(MERGED_READONLY_MESSAGE)
 }
 
+/** Map with a concurrency cap, preserving input order. `repoState` fans out ~6 git
+ *  processes per repo and the repo index is uncapped, so a bare `Promise.all` over it
+ *  would be a process storm; serial awaits made the landing screen wait for the SUM of
+ *  every repo's git round-trip (finding 29). A handful at a time is the middle. */
+async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) out[i] = await fn(items[i])
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
 /** The repo index reads light git state per repo (repoState), so the whole builder
  *  is async; the only caller is the (already async) dashboard handler. */
 async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<DashboardData> {
@@ -455,19 +469,18 @@ async function buildDashboard(db: DatabaseSync, bootNotices: string[]): Promise<
   // Level-1 index: every opened repo plus every repo with ≥1 live session,
   // newest-activity first, each carrying the light git state its row shows. Repos
   // whose path has vanished or no longer reads as a git repo are skipped.
-  const repoRows = dao.repoIndexRows(db)
-  const repos: RepoIndexEntry[] = []
-  for (const row of repoRows) {
-    if (!fs.existsSync(row.path)) continue
+  const repoRows = dao.repoIndexRows(db).filter((row) => fs.existsSync(row.path))
+  const entries = await mapWithLimit(repoRows, 4, async (row): Promise<RepoIndexEntry | null> => {
     try {
       const st = await repoState(row.path)
-      repos.push({
+      return {
         path: row.path, current: st.current, defaultBase: st.defaultBase,
         worktrees: st.worktrees,
         sessionCount: row.sessionCount, lastActivity: row.lastActivity
-      })
-    } catch { /* unreadable repo — leave it out of the index */ }
-  }
+      }
+    } catch { return null /* unreadable repo — leave it out of the index */ }
+  })
+  const repos = entries.filter((e): e is RepoIndexEntry => e !== null)
   return { repos, recents, recentSessions, notices: bootNotices }
 }
 

@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
-import { approveSessionSha, createSession } from '../src/server/db/sessions'
+import { approveSessionSha, createSession, touchRepo } from '../src/server/db/sessions'
 import { registerIpc, shutdownIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite } from './helpers/fixtureRepo'
 import type { AgentRef, MergeExecuteRequest, MergeExecuteResult, RefPair } from '../src/shared/types'
-import type { RepoChangedMsg } from '../src/shared/ipc'
+import type { DashboardData, RepoChangedMsg } from '../src/shared/ipc'
 import type { Transport } from '../src/server/transport'
 
 const agent: AgentRef = { engine: 'claude' }
@@ -148,5 +148,28 @@ describe('worktree excludes on a linked worktree (finding 27)', () => {
     const exclude = fs.readFileSync(path.join(fx.dir, '.git', 'info', 'exclude'), 'utf8')
     expect(exclude.split('\n').map((l) => l.trim())).toContain('.worktrees/')
     expect(fixtureGit(linked, 'status', '--porcelain')).not.toContain('.worktrees')
+  })
+})
+
+describe('dashboard repo index (finding 29)', () => {
+  it('keeps index order, pairs each row with its own git state, and skips unreadable repos', async () => {
+    const h = setup()
+    const a = makeFixtureRepo()
+    const b = makeFixtureRepo()
+    const c = makeFixtureRepo()
+    fixtureGit(b.dir, 'checkout', '-q', 'main') // so a shuffled result would be visible
+    const notGit = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-notgit-'))
+    const gone = path.join(os.tmpdir(), 'limn-vanished-repo-that-never-existed')
+    // newest activity first — interleave the two unreadable paths
+    touchRepo(h.db, a.dir, '2026-01-01T00:00:05.000Z')
+    touchRepo(h.db, notGit, '2026-01-01T00:00:04.000Z')
+    touchRepo(h.db, b.dir, '2026-01-01T00:00:03.000Z')
+    touchRepo(h.db, gone, '2026-01-01T00:00:02.000Z')
+    touchRepo(h.db, c.dir, '2026-01-01T00:00:01.000Z')
+
+    const data = await h.handlers.get('dashboard')!() as DashboardData
+
+    expect(data.repos.map((r) => r.path)).toEqual([a.dir, b.dir, c.dir])
+    expect(data.repos.map((r) => r.current)).toEqual(['feature', 'main', 'feature'])
   })
 })
