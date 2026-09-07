@@ -20,7 +20,6 @@ export interface LoadedReview {
   state: ReviewState
   artifacts: Artifact[]
   commits: CommitInfo[]
-  sinceTagged: boolean
   /** the working tree is dirty AND checked out on the compare branch — the
    *  volatile band (HEAD → working tree) below applies. */
   dirty: boolean

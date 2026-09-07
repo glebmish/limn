@@ -104,7 +104,7 @@ export async function assembleReview(
         compareLoc: await locateSide(repo, pair.compare),
         skeleton: { base: baseEff, branch: compareEff, mergeBase: '', headSha: '', files: [] },
         branchHash: '',
-        artifacts: [], commits: [], sinceTagged: false, dirty: false, volatile: [],
+        artifacts: [], commits: [], dirty: false, volatile: [],
         writeCapability: await writeCapabilityFor(repo, pair.compare),
         refMissing: { side, symbol },
         activeOps: []
@@ -134,7 +134,6 @@ export async function assembleReview(
     if (!candidatePositions.has(commits[i].sha)) candidatePositions.set(commits[i].sha, i)
   }
   const copyCandidates = dao.reviewCopyCandidates(db, repo, session.id, pair.base.anchorSha, candidatePositions).slice(0, 3)
-  let sinceTagged = false
   // The reader can switch a file to either commit baseline (see commitBaselines), so
   // each gets its own slice. The RAIL, though, stays single — one amber hatch means
   // "moved since your latest checkpoint" (the approval if there is one, else the sha
@@ -149,7 +148,7 @@ export async function assembleReview(
   for (const b of baselines) {
     try {
       const since = await diffSince(repo, b.sha, compareEff)
-      if (b.sha === railSha) { markSince(skeleton, since, 'since'); sinceTagged = true }
+      if (b.sha === railSha) markSince(skeleton, since, 'since')
       attachSinceHunks(skeleton.files, since.files, HUNK_KEY[b.mode])
       attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, b.sha), BASE_KEY[b.mode])
     } catch { /* baseline unreachable (rebase) — full diff without drift */ }
@@ -277,7 +276,7 @@ export async function assembleReview(
     compareContext: await describeSide(repo, pair.compare),
     baseLoc: await locateSide(repo, pair.base),
     compareLoc: await locateSide(repo, pair.compare),
-    skeleton, branchHash, state, artifacts, commits, sinceTagged, dirty, volatile, merged,
+    skeleton, branchHash, state, artifacts, commits, dirty, volatile, merged,
     copyCandidates,
     // compare branch is checked out in some worktree (primary or linked); null for
     // non-branch compares. Gates the agent (writes can't land when checked out nowhere).
