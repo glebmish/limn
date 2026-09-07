@@ -281,7 +281,7 @@ describe('MergeSheetPanel — reduced Mark-merged mode (S12)', () => {
     // a --no-ff external merge leaves baseHead ≠ tip, so the amber base-moved gate
     // trips — but the merge already happened; only the bookkeeping is ours.
     const out = external(makePreflight({
-        gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }],
+      gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }],
     }))
     expect(foot(out)).not.toContain('disabled')
     // no rebase/override theater for a branch that already landed

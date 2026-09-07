@@ -92,8 +92,8 @@ describe('gatherMergePreflight', () => {
 
     const p = await gatherMergePreflight(db, sessionId)
     const gate = p.gates.find((g) => g.id === 'stale-approval')!
-    expect(gate?.severity).toBe('amber')
-    expect(gate?.detail).toBe('The approval covers uncommitted edits, not the committed tip')
+    expect(gate.severity).toBe('amber')
+    expect(gate.detail).toBe('The approval covers uncommitted edits, not the committed tip')
     expect(shas.head).toBe(dirtyLoad.skeleton.headSha)
   })
 

@@ -204,7 +204,9 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
   // and 'dirty:<digest>' otherwise. `approvedShas` would NOT do — a dirty-surface
   // approval also stores the committed HEAD in its sha column, so reading it calls
   // the tip approved after an approve-then-discard the reviewer never saw committed.
-  const approvedHashes = state.approvedHashes ?? state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
+  // No sha-set fallback on purpose: loadReviewState always fills `approvedHashes`, and
+  // falling back to the sha set would quietly reinstate exactly that bug.
+  const approvedHashes = state.approvedHashes ?? []
   const approvalCoversTip = approvedHashes.includes(tipSha)
   // …and when the latest approval sits AT the tip without covering it, the drift
   // counts below would all be zero; say what actually happened instead.
