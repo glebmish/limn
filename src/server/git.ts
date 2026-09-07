@@ -219,14 +219,18 @@ async function syntheticAddedFile(dir: string, path: string): Promise<FileDiff |
 
 /** Content hash (git blob sha) of each given path as it currently is on disk, keyed
  *  by path. Missing paths (e.g. deleted files) are skipped. The `--` guards filenames
- *  that look like options. This is the "did the file change since viewed" key. */
-export async function hashObjects(dir: string, paths: string[]): Promise<Map<string, string>> {
+ *  that look like options. This is the "did the file change since viewed" key.
+ *
+ *  `write` persists each file as a loose blob in the object DB (`-w`) so the content
+ *  is recoverable later via catBlob — the only difference, hence one function. */
+export async function hashObjects(dir: string, paths: string[], opts?: { write?: boolean }): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   const existing = paths.filter((p) => {
     try { return fs.statSync(nodePath.join(dir, p)).isFile() } catch { return false }
   })
   if (existing.length === 0) return out
-  const raw = await execGit(dir, ['hash-object', '--', ...existing])
+  const argv = ['hash-object', ...(opts?.write ? ['-w'] : []), '--']
+  const raw = await execGit(dir, [...argv, ...existing])
   const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
   existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
   return out
@@ -266,20 +270,11 @@ export async function showFile(dir: string, ref: string, path: string): Promise<
   }
 }
 
-/** Like hashObjects, but persists each file as a loose blob in the object DB
- *  (`-w`) so the content is recoverable later via catBlob. Same Map<path,sha>
- *  return, same missing-path skipping. This is the ONLY difference from
- *  hashObjects — do not modify hashObjects. */
-export async function hashObjectsWrite(dir: string, paths: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  const existing = paths.filter((p) => {
-    try { return fs.statSync(nodePath.join(dir, p)).isFile() } catch { return false }
-  })
-  if (existing.length === 0) return out
-  const raw = await execGit(dir, ['hash-object', '-w', '--', ...existing])
-  const shas = raw.split('\n').map((s) => s.trim()).filter(Boolean)
-  existing.forEach((p, i) => { if (shas[i]) out.set(p, shas[i]) })
-  return out
+/** hashObjects with the blobs persisted (`-w`), so a stamped anchor's content is
+ *  recoverable later via catBlob. Named for its call sites, which read better as
+ *  "write" than as an options bag. */
+export function hashObjectsWrite(dir: string, paths: string[]): Promise<Map<string, string>> {
+  return hashObjects(dir, paths, { write: true })
 }
 
 /** The -U0 edit list between two in-memory contents, as EditHunk[] (ascending),
