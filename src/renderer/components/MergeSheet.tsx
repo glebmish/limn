@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type {
   DependentReview, MergeExecuteRequest, MergeGate, MergeGateId, MergePreflight, MergeStrategy
 } from '../../shared/types'
+import { mergeOk } from '../../shared/types'
 import type { LoadedReview } from '../../shared/ipc'
 import { anyExclusiveRunning, useStore } from '../store'
 import { api } from '../lib/api'
@@ -53,13 +54,6 @@ export function strategySubLabel(
       : s === 'squash' ? 'Flatten the branch' : 'Keeps the branch shape'
   }
   return s === 'ff' ? `Not possible — ${base} diverged` : 'Not possible — merging would conflict'
-}
-
-/** Red gates always block; amber gates block until explicitly acked ("Merge anyway");
- *  info gates never block. Mirrors main's `mergeOk` so the CTA and the authoritative
- *  re-check agree. */
-export function mergeBlocked(gates: MergeGate[], acked: ReadonlySet<MergeGateId>): boolean {
-  return gates.some((g) => g.severity === 'red' || (g.severity === 'amber' && !acked.has(g.id)))
 }
 
 /** Dependents that keep the merged branch alive: not selected for retarget, or not
@@ -209,7 +203,7 @@ export function MergeSheetPanel({ pf, repo, busy, executing, external, initialSt
   // merge that isn't ours to choose (base-moved is EXPECTED after a --no-ff land),
   // so they neither render nor block; only the bookkeeping CTA remains.
   const note = executing ? null : gateFooterNote(external ? [] : pf.gates, acked, busy)
-  const disabled = (!external && mergeBlocked(pf.gates, acked)) || busy || executing
+  const disabled = (!external && !mergeOk(pf.gates, [...acked])) || busy || executing
   const copyCmd = 'git -C ' + (pf.cleanup.worktreePath ?? repo) + ' rebase ' + base
 
   const toggleRetarget = (id: number): void => {

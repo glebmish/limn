@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MergeGate, MergeGateId } from '../src/shared/types'
 import {
-  ctaLabel, deleteBranchBlockers, gateFooterNote, mergeBlocked, pickStrategy,
+  ctaLabel, deleteBranchBlockers, gateFooterNote, pickStrategy,
   readStrategyPref, strategyPrefKey
 } from '../src/renderer/components/MergeSheet'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -12,7 +12,6 @@ import type { MergePreflight, MergeStrategy } from '../src/shared/types'
 
 const amber = (id: MergeGateId): MergeGate => ({ id, severity: 'amber', detail: 'd' })
 const red = (id: MergeGateId): MergeGate => ({ id, severity: 'red', detail: 'd' })
-const info = (id: MergeGateId): MergeGate => ({ id, severity: 'info', detail: 'd' })
 const none: ReadonlySet<MergeGateId> = new Set()
 
 describe('pickStrategy (spec resolution 6: squash default, ladder squash→merge→ff)', () => {
@@ -48,19 +47,6 @@ describe('ctaLabel (design board 1 CTA labels)', () => {
     expect(ctaLabel('ff', 'main')).toBe('Fast-forward main')
     expect(ctaLabel('squash', 'main')).toBe('Squash & merge')
     expect(ctaLabel('merge', 'main')).toBe('Merge into main')
-  })
-})
-
-describe('mergeBlocked (red always; amber until acked; info never)', () => {
-  it('red gates block regardless of acks', () => {
-    expect(mergeBlocked([red('conflicts')], new Set<MergeGateId>(['conflicts']))).toBe(true)
-  })
-  it('amber gates block until acked', () => {
-    expect(mergeBlocked([amber('stale-approval')], none)).toBe(true)
-    expect(mergeBlocked([amber('stale-approval')], new Set<MergeGateId>(['stale-approval']))).toBe(false)
-  })
-  it('info gates never block', () => {
-    expect(mergeBlocked([info('probe-unavailable')], none)).toBe(false)
   })
 })
 
@@ -165,7 +151,6 @@ describe('MergeSheetPanel — green board (design 08 board 1)', () => {
 
 describe('MergeSheetPanel — G1 stale approval (amber)', () => {
   const pf = makePreflight({
-    ok: false,
     gates: [{
       id: 'stale-approval', severity: 'amber',
       detail: 'Approval is behind the branch. 2 commits since c7e0d44 (+26 −16) aren’t covered — re-review the delta, or merge anyway.',
@@ -184,7 +169,6 @@ describe('MergeSheetPanel — G1 stale approval (amber)', () => {
 
 describe('MergeSheetPanel — G2 base moved (amber, ff off the table)', () => {
   const pf = makePreflight({
-    ok: false,
     strategies: { ff: false, squash: true, merge: true },
     gates: [{
       id: 'base-moved', severity: 'amber',
@@ -207,7 +191,6 @@ describe('MergeSheetPanel — G2 base moved (amber, ff off the table)', () => {
 
 describe('MergeSheetPanel — C1 conflicts (red)', () => {
   const pf = makePreflight({
-    ok: false,
     strategies: { ff: false, squash: false, merge: false },
     gates: [{
       id: 'conflicts', severity: 'red',
@@ -238,7 +221,6 @@ describe('MergeSheetPanel — C1 conflicts (red)', () => {
 
 describe('MergeSheetPanel — G3 dirty merge site (red)', () => {
   const pf = makePreflight({
-    ok: false,
     gates: [{
       id: 'base-site-dirty', severity: 'red',
       detail: 'Blocked — uncommitted changes where main is checked out. 3 modified files in ~/code/acme-api. Commit or stash first — Limn won’t touch uncommitted work.',
@@ -299,8 +281,7 @@ describe('MergeSheetPanel — reduced Mark-merged mode (S12)', () => {
     // a --no-ff external merge leaves baseHead ≠ tip, so the amber base-moved gate
     // trips — but the merge already happened; only the bookkeeping is ours.
     const out = external(makePreflight({
-      ok: false,
-      gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }],
+        gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }],
     }))
     expect(foot(out)).not.toContain('disabled')
     // no rebase/override theater for a branch that already landed

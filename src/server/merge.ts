@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   DependentReview, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergeGate,
-  MergeGateId, MergeOverride, MergePreflight, MergeRecord, MergeStrategy, ReviewState, SessionMeta
+  MergeOverride, MergePreflight, MergeRecord, MergeStrategy, ReviewState, SessionMeta
 } from '../shared/types.js'
+import { mergeOk } from '../shared/types.js'
 import {
   aheadCount, branchCheckedOutAt, commitTree, deleteBranch, dirtyCount, driftSummary,
   EMPTY_TREE, headSha, isAncestor, isDirty, listWorktrees, log, mergeBase, mergeInWorktree, mergeTreeProbe,
@@ -89,13 +90,6 @@ export function evaluateMergeGates(i: MergeGateInputs): MergeGate[] {
     })
   }
   return gates
-}
-
-/** The CTA verdict: no red gates (never overridable), every amber acked in
- *  `overrides`, info gates never block. */
-export function mergeOk(gates: MergeGate[], overrides: MergeGateId[]): boolean {
-  return gates.every((g) =>
-    g.severity === 'info' || (g.severity === 'amber' && overrides.includes(g.id)))
 }
 
 /** MECHANICAL availability only (what the picker can offer): ff iff the base head is
@@ -269,7 +263,6 @@ async function gatherContext(db: DatabaseSync, sessionId: number): Promise<Merge
 
 function toPreflight(ctx: MergeContext, gates: MergeGate[]): MergePreflight {
   return {
-    ok: mergeOk(gates, []),
     gates,
     strategies: strategyAvailability(ctx.inputs),
     commits: ctx.commits,

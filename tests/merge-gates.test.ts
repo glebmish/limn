@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { draftMergeMessage, evaluateMergeGates, mergeOk, strategyAvailability, type MergeGateInputs } from '../src/server/merge'
+import { draftMergeMessage, evaluateMergeGates, strategyAvailability, type MergeGateInputs } from '../src/server/merge'
+import { mergeOk } from '../src/shared/types'
 import type { MergeProbe } from '../src/server/git'
 
 const cleanProbe: MergeProbe = { status: 'clean', treeOid: 'tree000', conflictFiles: [] }

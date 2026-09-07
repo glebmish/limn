@@ -202,7 +202,7 @@ describe('mergeExecute — authoritative re-check (S10 / Seq C)', () => {
     const h = await setup()
     approveSessionSha(h.db, h.sessionId, h.shas.head)
     const pre = await h.handlers.get('mergePreflight')!(h.sessionId) as MergePreflight
-    expect(pre.ok).toBe(true)
+    expect(pre.gates).toEqual([])
 
     // the race: base moves between preflight and confirm
     const wt = externalWorktree(h.dir, 'main')

@@ -505,6 +505,15 @@ export interface MergeGate {
   workdir?: string                // base-site-dirty / branch-dirty
 }
 
+/** The CTA verdict, and the same rule the authoritative re-check at confirm applies:
+ *  no red gates (never overridable), every amber explicitly overridden ("Merge
+ *  anyway"), info gates never block. Lives here so the sheet and the server share ONE
+ *  implementation of the blocking rule. */
+export function mergeOk(gates: MergeGate[], overrides: readonly MergeGateId[]): boolean {
+  return gates.every((g) =>
+    g.severity === 'info' || (g.severity === 'amber' && overrides.includes(g.id)))
+}
+
 /** A live session stacked on the branch being merged (its base symbol IS that branch). */
 export interface DependentReview {
   sessionId: number
@@ -515,7 +524,6 @@ export interface DependentReview {
 }
 
 export interface MergePreflight {
-  ok: boolean                     // no red gates and no un-overridden ambers
   gates: MergeGate[]
   strategies: Record<MergeStrategy, boolean>
   commits: { sha: string; subject: string }[]    // base..tip, newest first

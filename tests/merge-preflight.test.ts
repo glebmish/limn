@@ -45,7 +45,6 @@ describe('gatherMergePreflight', () => {
     const { db, dir, shas, sessionId } = await setup()
     approveSessionSha(db, sessionId, shas.head)
     const p = await gatherMergePreflight(db, sessionId)
-    expect(p.ok).toBe(true)
     expect(p.gates).toEqual([])
     expect(p.strategies).toEqual({ ff: true, squash: true, merge: true })
     expect(p.baseHead).toBe(shas.base)
@@ -68,7 +67,6 @@ describe('gatherMergePreflight', () => {
     const { db, shas, sessionId } = await setup()
     approveSessionSha(db, sessionId, shas.firstFeature)
     const p = await gatherMergePreflight(db, sessionId)
-    expect(p.ok).toBe(false)
     const gate = p.gates.find((g) => g.id === 'stale-approval')!
     expect(gate.severity).toBe('amber')
     expect(gate.commits).toBe(2)     // 'tweak b' + 'add c'
@@ -126,7 +124,6 @@ describe('gatherMergePreflight', () => {
     const gate = p.gates.find((g) => g.id === 'conflicts')!
     expect(gate.severity).toBe('red')
     expect(gate.files).toContain('src/a.ts')
-    expect(p.ok).toBe(false)
     expect(p.strategies).toEqual({ ff: false, squash: false, merge: false })
   })
 
@@ -138,7 +135,6 @@ describe('gatherMergePreflight', () => {
     const gate = p.gates.find((g) => g.id === 'branch-dirty')!
     expect(gate.severity).toBe('red')
     expect(fs.realpathSync(gate.workdir!)).toBe(fs.realpathSync(dir))
-    expect(p.ok).toBe(false)
   })
 
   it('base-site-dirty: base checked out with a dirty tree is a red gate', async () => {
@@ -221,7 +217,7 @@ describe('mergePreflight handler', () => {
     registerIpc(db, [], transport)
     expect(API_CHANNELS).toContain('mergePreflight')
     const p = await handlers.get('mergePreflight')!(sessionId) as MergePreflight
-    expect(p.ok).toBe(true)
+    expect(p.gates).toEqual([])
     expect(p.tipSha).toBe(shas.head)
   })
 })

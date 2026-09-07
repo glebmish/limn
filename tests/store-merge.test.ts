@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe('runMergeExecute (spec §4 / Seq C)', () => {
   it('preflight-changed: returns the fresh preflight, no reload', async () => {
-    const fresh = makePreflight({ ok: false })
+    const fresh = makePreflight({ gates: [{ id: 'base-moved', severity: 'amber', detail: 'main moved ahead.' }] })
     mergeExecute.mockResolvedValueOnce({ status: 'preflight-changed', preflight: fresh })
     const out = await runMergeExecute(3, req, false)
     expect(out).toBe(fresh)

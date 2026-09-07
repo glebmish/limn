@@ -3,7 +3,6 @@ import type { MergePreflight } from '../../src/shared/types'
 /** MergePreflight fixture — the design's board-1 numbers by default; override per board. */
 export function makePreflight(over: Partial<MergePreflight> = {}): MergePreflight {
   return {
-    ok: true,
     gates: [],
     strategies: { ff: true, squash: true, merge: true },
     commits: [
