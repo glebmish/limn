@@ -5,7 +5,7 @@ import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, 
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import { approvedShaList, commitBaselines, sinceBasis } from '../shared/sinceBasis.js'
 import {
-  attachBaseHunks, attachSinceHunks, branchCheckedOutAt, describeSide, diffRefs, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
+  attachBaseHunks, attachSinceHunks, branchCheckedOutAt, commitExists, describeSide, diffRefs, diffSince, diffSinceWorking, getDiff, hashObjects, headSha, isAncestor, isDirty, locateSide,
   log, markSince, mergedWorkingDiff, resolveRefInput, workingTreeDiff
 } from './git.js'
 import * as dao from './db/sessions.js'
@@ -161,14 +161,22 @@ export async function assembleReview(
   }
   let viewedDropped = false
   for (const [sha, paths] of byViewSha) {
+    // Dropping a file's Viewed tick is durable and silent (replaceUiState below is a
+    // DELETE-then-reinsert with no undo), so only a *proved* unreachable checkpoint —
+    // rebased away or GC'd, its marks now meaningless — may trigger it. A git call
+    // that merely failed (a huge diff, spawn EAGAIN, exec's 64 MB maxBuffer) says
+    // nothing about the sha: skip this load's decoration and keep the ticks, exactly
+    // as the baselines loop above does.
+    if (!(await commitExists(repo, sha))) {
+      for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
+      continue
+    }
     try {
       const since = await diffSince(repo, sha, compareEff)
       markSince(skeleton, since, 'sinceViewed', paths)
       attachSinceHunks(skeleton.files, since.files, 'sinceViewedHunks', paths)
       attachBaseHunks(skeleton.files, await diffRefs(repo, skeleton.mergeBase, sha), 'baseToViewedHunks', paths)
-    } catch {
-      for (const p of paths) { delete state.viewedAt[p]; viewedDropped = true }
-    }
+    } catch { /* decoration failed for this load — the marks stay */ }
   }
   if (viewedDropped && persist) dao.replaceUiState(db, session.id, { viewedAt: state.viewedAt })
   // Merged base→working-tree view (only when dirty): one diff per file with each

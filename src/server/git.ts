@@ -533,6 +533,18 @@ export async function isAncestor(dir: string, ancestor: string, descendant: stri
   }
 }
 
+/** True iff `sha` still names a commit object in `dir`'s store — the probe that tells
+ *  "this checkpoint was rebased away / GC'd" apart from a transient git failure, for
+ *  the callers whose only reaction to the former is destructive. */
+export async function commitExists(dir: string, sha: string): Promise<boolean> {
+  try {
+    await execGit(dir, ['cat-file', '-e', `${sha}^{commit}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Diff of the branch tip against an earlier sha on the branch (for "since approved"). */
 export async function diffSince(dir: string, sinceSha: string, branch: string): Promise<DiffSkeleton> {
   const tip = await headSha(dir, branch)
