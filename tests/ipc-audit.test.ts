@@ -119,6 +119,29 @@ describe('the one global branch watch survives unrelated sessions (finding 24)',
     expect(await waitForChange(h, watched.dir, 'feature')).toBeTruthy()
   })
 
+  it('opening a commit-kind review releases the branch watch instead of orphaning it', async () => {
+    const h = setup()
+    const fx = makeFixtureRepo()
+    const branchId = createSession(h.db, fx.dir, await pairFor(fx.dir, 'main', 'feature'), agent).id
+    const commitId = createSession(h.db, fx.dir, {
+      base: { kind: 'branch', symbol: 'main', anchorSha: fx.shas.base },
+      compare: { kind: 'commit', symbol: fx.shas.head.slice(0, 7), anchorSha: fx.shas.head }
+    }, agent).id
+    await h.handlers.get('loadSession')!(branchId) // arms the watch on feature
+
+    // nothing to watch for a commit-kind review: the armed watch must come down…
+    await h.handlers.get('loadSession')!(commitId)
+    expect(h.repoChanged.find((m) => m.branch === 'feature')?.watchStopped?.reason).toBeTruthy()
+
+    // …and stay down: no poll survives to broadcast the branch moving
+    const before = h.repoChanged.length
+    fixtureWrite(fx.dir, 'src/z.ts', 'export const z = 1\n')
+    fixtureGit(fx.dir, 'add', '-A')
+    fixtureGit(fx.dir, 'commit', '-m', 'outside hands')
+    await new Promise((r) => setTimeout(r, 1500)) // three poll cadences
+    expect(h.repoChanged.length).toBe(before)
+  })
+
   it('a second review displacing the watch tells the first one its watch stopped', async () => {
     const h = setup()
     const fx = makeFixtureRepo()

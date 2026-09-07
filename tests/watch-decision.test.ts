@@ -95,9 +95,9 @@ describe('createWatchEpoch (watcher lifecycle generation guard)', () => {
   })
 })
 
-// Models the ipc.ts wiring: the 500ms interval fires `poll` regardless of whether the
-// previous one finished, so the gate is what keeps one poll's git fan-out from
-// stacking on the last one's.
+// The primitive ipc.ts's poll loop runs every tick through: the 500ms interval fires
+// `poll` regardless of whether the previous one finished, so this gate is what keeps
+// one poll's git fan-out from stacking on the last one's.
 describe('createPollGate (one poll at a time)', () => {
   it('drops a tick that arrives while the previous poll is still in flight', async () => {
     const gate = createPollGate()

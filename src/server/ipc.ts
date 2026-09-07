@@ -242,6 +242,17 @@ function stopWatchFor(repo: string, branch: string): void {
   if (watcher && watcher.repo === repo && watcher.branch === branch) stopWatch()
 }
 
+/** Release the watch slot for a client that has nothing to watch (a merged or
+ *  commit-kind review, a missing ref). Silent when the armed watch is this review's
+ *  own; a watch on ANOTHER target is displaced exactly as `startWatch` displaces one,
+ *  so the poll always stops — leaving it armed would orphan a 500ms git poll nobody
+ *  reads — and the displaced tab is told rather than silently disarmed. */
+function releaseWatch(repo: string, branch: string): void {
+  if (!watcher) return
+  if (watcher.repo === repo && watcher.branch === branch) stopWatch()
+  else displaceWatch()
+}
+
 /** Call the armed watch down and tell whoever was reading it, by broadcasting a
  *  `watchStopped` keyed to ITS repo/branch (the bridge only reacts to a message that
  *  matches the review it has open). Used where a client takes the single watch slot
@@ -670,8 +681,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && !loaded.state.merged && session.pair.compare.kind === 'branch') {
       void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      // nothing to watch for THIS review — but the slot may hold another tab's watch
-      stopWatchFor(session.repo, session.pair.compare.symbol)
+      // nothing to watch for THIS review — release the slot, announcing the takeover
+      // when it holds another client's target
+      releaseWatch(session.repo, session.pair.compare.symbol)
     }
     return loaded
   })
@@ -684,7 +696,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && loaded.session.pair.compare.kind === 'branch') {
       void startWatch(repo, loaded.session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      stopWatchFor(repo, loaded.session.pair.compare.symbol)
+      releaseWatch(repo, loaded.session.pair.compare.symbol)
     }
     return loaded
   })
@@ -1228,7 +1240,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // The ids THIS turn marked 'sent'. Stays empty when the body never ran (a
     // ThreadBusy/RepoBusy rejection), so a rejected request can't roll back the
     // comments the batch that is actually in flight marked (finding 26).
-    let sentIds: string[] = []
+    const sentIds: string[] = []
     // Per-thread guard, as in sendChat: one in-flight turn per thread, fail fast.
     // `finally` retires the op whatever happens after the outcome (the rollback reads
     // and writes below can throw); `end` is idempotent / a no-op if never registered.
@@ -1246,8 +1258,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
               const state = dao.loadReviewState(db, sid)
               const comments = state.comments.filter((c) => commentIds.includes(c.id) && c.status !== 'resolved')
               if (comments.length === 0 && !steer) throw new Error('Nothing to send')
-              for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c) }
-              sentIds = comments.map((c) => c.id)
+              // record each id as it is marked, not after the loop: a throw partway
+              // through must still leave the already-marked ones rollback-able.
+              for (const c of comments) { c.status = 'sent'; dao.upsertComment(db, sid, c); sentIds.push(c.id) }
               dao.addChatMessage(db, threadId, {
                 role: 'user',
                 at: new Date().toISOString(),

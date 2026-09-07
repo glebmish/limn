@@ -181,7 +181,9 @@ describe('concurrent chat — sendBatch rollback', () => {
     // a second client re-sends the same comment: rejected by the per-thread guard
     // BEFORE the body ran, so it must leave op-1's 'sent' marks alone.
     await h.handlers.get('sendBatch')!(t, ['c1'], 'racing batch', 'op-2')
-    expect(h.results.find((r) => r.opId === 'op-2')!.status).toBe('failed')
+    const res2 = h.results.find((r) => r.opId === 'op-2')!
+    expect(res2.status).toBe('failed')
+    expect(res2.error).toContain('A turn is already running in this chat') // the ThreadBusy path
     expect(loadReviewState(h.db, h.sessionId).comments[0].status).toBe('sent')
 
     releaseFakeHolds()
