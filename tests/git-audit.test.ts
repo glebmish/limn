@@ -3,10 +3,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fixtureGit as git } from './helpers/fixtureRepo'
-import { catBlob, defaultBase, getDiff, hashObjects, hashObjectsWrite, listBranches, mergedWorkingDiff, pickDefaultBase, repoState, workingTreeDiff } from '../src/server/git'
+import { catBlob, defaultBase, diffSince, getDiff, hashObjects, hashObjectsWrite, listBranches, markSince, mergedWorkingDiff, pickDefaultBase, repoState, workingTreeDiff } from '../src/server/git'
 
-// A throwaway repo we can point hostile git config at. The app must read the same
-// diffs no matter what the end user's ~/.gitconfig (or the repo's own config) says.
+// A throwaway repo each case reshapes into the state it needs: hostile git config,
+// a detached HEAD, a path out of the worktree, an unreadable file, a merge conflict.
+// `main` holds the base commit; `feature` is checked out.
 let dir: string
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-audit-'))
@@ -181,5 +182,29 @@ describe('a conflicted working tree (git\'s combined `diff --cc` output)', () =>
     expect(originOf('src/a.ts', 'FEATURE')).toBe('committed')
     // and an ordinary dirty file in the same run is unaffected
     expect(originOf('mode.sh', 'dirty line')).toBe('unstaged')
+  })
+})
+
+describe('markSince deletions', () => {
+  it('tags a deleted line whose text was deleted after the since sha', async () => {
+    // main: one/two/three. feature: an unrelated commit, then the one that drops "two".
+    fs.writeFileSync(path.join(dir, 'src/a.ts'), 'one\ntwo\nthree\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'three lines')
+    git(dir, 'branch', '-f', 'main', 'HEAD')
+    fs.writeFileSync(path.join(dir, 'src/other.ts'), 'unrelated\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'unrelated')
+    const since = git(dir, 'rev-parse', 'HEAD')
+    fs.writeFileSync(path.join(dir, 'src/a.ts'), 'one\nthree\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'drop two')
+
+    const full = await getDiff(dir, 'main', 'feature')
+    markSince(full, await diffSince(dir, since, 'feature'))
+    const a = full.files.find((f) => f.path === 'src/a.ts')!
+    const del = a.hunks.flatMap((h) => h.lines).find((l) => l.kind === 'del')!
+    expect(del.text).toBe('two')
+    expect(del.since).toBe(true)
+    // a line deleted BEFORE the since sha is not tagged
+    const other = full.files.find((f) => f.path === 'src/other.ts')!
+    expect(other.hunks.flatMap((h) => h.lines).every((l) => !l.since)).toBe(true)
   })
 })

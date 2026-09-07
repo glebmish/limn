@@ -5,7 +5,7 @@ import { execGit, execGitDiff } from './exec.js'
 import { containedPath } from './fileEdits.js'
 import { tagOrigins } from './mergeDiff.js'
 import type { EditHunk } from './anchor.js'
-import type { CommitInfo, DiffLine, DiffSkeleton, DriftSummary, FileDiff, Hunk, MergeStrategy, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
+import type { CommitInfo, DiffSkeleton, DriftSummary, FileDiff, Hunk, MergeStrategy, RefKind, RefLoc, RefSide, WorktreeInfo } from '../shared/types.js'
 
 /** Local branch names, refname-sorted. `for-each-ref` rather than `git branch`: the
  *  latter also prints the `(HEAD detached at …)` pseudo-entry, which is not a branch
@@ -569,13 +569,19 @@ export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' 
     if (!sf) continue
     const changedNew = new Set<number>()
     const changedTexts = new Set<string>()
+    // deletions carry no new-line number, so they are tagged by text alone: the same
+    // text must appear as a deletion in the since diff (no locality is checked).
+    const changedDelTexts = new Set<string>()
     for (const h of sf.hunks) {
       for (const l of h.lines) {
         if (l.kind === 'add' && l.new != null) {
           changedNew.add(l.new)
           changedTexts.add(l.text)
         }
-        if (l.kind === 'del') changedTexts.add(l.text)
+        if (l.kind === 'del') {
+          changedTexts.add(l.text)
+          changedDelTexts.add(l.text)
+        }
       }
     }
     for (const h of file.hunks) {
@@ -583,16 +589,13 @@ export function markSince(full: DiffSkeleton, since: DiffSkeleton, key: 'since' 
       for (const l of h.lines) {
         const hit =
           (l.kind === 'add' && l.new != null && changedNew.has(l.new) && changedTexts.has(l.text)) ||
-          (l.kind === 'del' && changedTexts.has(l.text) && sf.hunks.length > 0 && lineNearSince(l, sf))
+          (l.kind === 'del' && changedDelTexts.has(l.text))
         if (hit) {
           l[key] = true
           any = true
         }
       }
       if (any) h[key] = true
-    }
-    if (file.hunks.length === 0 && (sf.binary || sf.hunks.length > 0)) {
-      // binary file changed since — nothing line-level to tag
     }
   }
 }
@@ -607,12 +610,6 @@ export function attachSinceHunks(target: FileDiff[], since: FileDiff[], key: 'si
     const sf = byPath.get(f.path)
     if (sf) f[key] = sf.hunks
   }
-}
-
-function lineNearSince(l: DiffLine, sf: FileDiff): boolean {
-  // deletions have no new-line number; consider them "since" when their text
-  // appears as a deletion in the since diff
-  return sf.hunks.some((h) => h.lines.some((x) => x.kind === 'del' && x.text === l.text))
 }
 
 export interface ResolvedRef { kind: RefKind; symbol: string; sha: string }
