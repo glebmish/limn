@@ -88,6 +88,11 @@ export type ApplyEditResult =
   | { ok: true; fileHash: string }
   /** the anchored lines changed on disk since render; `current` = the file's lines now */
   | { ok: false; reason: 'conflict'; current: string[] }
+  /** the file left the editable set between the frame opening and the save — it
+   *  outgrew the size cap, or stopped being UTF-8 text. Carries no `current`: the
+   *  server has no lines to hand back, and a frame re-seeded from an empty list
+   *  would tell the reviewer the file is now empty. */
+  | { ok: false; reason: 'too-large' | 'binary' }
 export type WorkingFile =
   | { ok: true; lines: string[]; trailingNewline: boolean }
   | { ok: false; reason: 'binary' | 'too-large' | 'missing' }

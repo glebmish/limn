@@ -157,6 +157,16 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     // frame the user just opened — or reopen this dead session on top of it.
     if (!alive.current) return
     if (!res) { setEditFrame(null); return } // transport error already surfaced
+    if (!res.ok && res.reason !== 'conflict') {
+      // The file left the editable set while the frame was open (it outgrew the cap,
+      // or stopped being text — a generation writing to it is exactly this feature's
+      // concurrency). There is no fresh content to re-anchor on, so close the frame
+      // with a word for the reviewer — the same verdict the frame's own open path
+      // reaches for these files, where it closes silently.
+      useStore.setState({ error: `${f.path} can no longer be edited here — it is ${res.reason === 'too-large' ? 'too large' : 'no longer text'}.` })
+      setEditFrame(null)
+      return
+    }
     if (res.ok) {
       // keyboard round trip: the save leaves a selection on the edited line —
       // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody). A deletion

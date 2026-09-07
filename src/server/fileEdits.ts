@@ -63,7 +63,13 @@ export function readWorkingFile(workdir: string, rel: string): WorkingFile {
  *  Writes are atomic (temp file + rename) and preserve the file mode. */
 export async function applyEditToFile(workdir: string, rel: string, edit: FileEdit): Promise<ApplyEditResult> {
   const current = readWorkingFile(workdir, rel)
-  if (!current.ok) return { ok: false, reason: 'conflict', current: [] }
+  // A file that vanished really does have no lines left, so 'missing' stays a
+  // conflict with an empty `current`. 'too-large'/'binary' say something else — the
+  // file left the editable set — and claiming `current: []` there would have the
+  // frame re-seed itself against a file it wrongly believes is empty.
+  if (!current.ok) {
+    return current.reason === 'missing' ? { ok: false, reason: 'conflict', current: [] } : { ok: false, reason: current.reason }
+  }
   const { lines, trailingNewline } = current
   const from = edit.start - 1
   const to = edit.end // slice end is exclusive → lines[from..to-1] = start..end inclusive

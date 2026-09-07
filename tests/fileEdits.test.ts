@@ -64,7 +64,7 @@ describe('applyEditToFile', () => {
       start: 2, end: 2, snapshot: ['  return 999 // stale render'], newLines: ['x']
     })
     expect(result).toMatchObject({ ok: false, reason: 'conflict' })
-    if (!result.ok) expect(result.current[1]).toBe('  return 2')
+    if (!result.ok && result.reason === 'conflict') expect(result.current[1]).toBe('  return 2')
     expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')).toBe(before) // untouched
   })
 
@@ -230,6 +230,27 @@ describe('applyEditToFile', () => {
     })
     expect(result.ok).toBe(false)
     expect(fs.readFileSync(p)).toEqual(bytes)
+  })
+
+  // A file that leaves the editable set between the frame opening and the save (a
+  // generation writing to it is exactly this feature's concurrency) is not a
+  // conflict: there is no fresh content to hand back, so the reason travels instead.
+  it('reports a file that outgrew the edit cap as too-large, not a conflict', async () => {
+    const fx = makeFixtureRepo()
+    fs.writeFileSync(path.join(fx.dir, 'big.txt'), `${'x'.repeat(2 * 1024 * 1024)}\n`)
+    const result = await applyEditToFile(fx.dir, 'big.txt', {
+      start: 1, end: 1, snapshot: ['x'], newLines: ['y']
+    })
+    expect(result).toEqual({ ok: false, reason: 'too-large' })
+  })
+
+  it('reports a file that stopped being UTF-8 text as binary, not a conflict', async () => {
+    const fx = makeFixtureRepo()
+    fs.writeFileSync(path.join(fx.dir, 'now-binary.txt'), Buffer.from([0x61, 0x0a, 0xff, 0x0a]))
+    const result = await applyEditToFile(fx.dir, 'now-binary.txt', {
+      start: 1, end: 1, snapshot: ['a'], newLines: ['b']
+    })
+    expect(result).toEqual({ ok: false, reason: 'binary' })
   })
 
   it('a missing file is a conflict with empty current', async () => {
