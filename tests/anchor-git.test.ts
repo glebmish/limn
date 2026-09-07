@@ -459,6 +459,48 @@ describe('reanchorComments — pipeline scenarios', () => {
     expect(anchorLine(c)).toBe(9) // STABLE — no compounding drift
   })
 
+  it('12a. revert to the stamped blob puts the comment back on its stamped line (stage 0)', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    const original = lines('a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'target-line', 'a8', 'a9')
+    fixtureWrite(repo, 'app.ts', original); commit(repo, 'add app')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'app.ts', line: 7, text: 'target-line' })
+    // an agent edit inserts two lines above → stage 1 drifts the comment to line 9…
+    fixtureWrite(repo, 'app.ts', lines('a1', 'INS-1', 'INS-2', 'a2', 'a3', 'a4', 'a5', 'a6', 'target-line', 'a8', 'a9')); commit(repo, 'insert above')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(anchorLine(c)).toBe(9) // …and review.ts persists that mutated line
+    // …then the edit is reverted: the file is byte-identical to the stamped blob again,
+    // so the ONLY correct line is the immutable stamp.origLine — not the drifted 9.
+    fixtureWrite(repo, 'app.ts', original); commit(repo, 'revert')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(c.status).not.toBe('outdated')
+    expect(anchorLine(c)).toBe(7)
+    expect(c.notInDiff).toBeFalsy()
+  })
+
+  it('12b. revert after a stage-2 move: the comment comes back on the surface instead of stranding off the end of the file', async () => {
+    const repo = mkRepo()
+    fixtureWrite(repo, 'README.md', 'root\n'); commit(repo, 'base')
+    fixtureGit(repo, 'checkout', '-q', '-b', 'feature')
+    const original = lines('function compute(x) {', '  const y = x + 1', '  return y * 2', '}')
+    fixtureWrite(repo, 'app.ts', original); commit(repo, 'add app')
+    const session = mkSession(repo)
+    const c = await stampedComment(repo, session, { file: 'app.ts', line: 3, text: '  return y * 2' })
+    // insert a header AND re-indent the body: stage 1 says EDITED, stage 2 re-places the
+    // comment on line 5 and overwrites the quote with the re-indented text
+    fixtureWrite(repo, 'app.ts', lines('// header a', '// header b', 'function compute(x) {', '    const y = x + 1', '    return y * 2', '}')); commit(repo, 'header + reindent')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(anchorLine(c)).toBe(5)
+    // revert: the 4-line original is back, byte-identical to the stamped blob. Left at
+    // line 5 the anchor sits past the end of a 4-line file — off every rendered hunk.
+    fixtureWrite(repo, 'app.ts', original); commit(repo, 'revert')
+    await reanchorComments(await buildCtx(repo, session), [c], [])
+    expect(anchorLine(c)).toBe(3)
+    expect(c.notInDiff).toBeFalsy()
+  })
+
   // ── #18: the agent's fix commit rewrites the commented lines ────────────────
   // Dogfood scenario, verbatim in shape: a comment on a function signature; the
   // agent commits a fix that BOTH inserts lines above it and reshapes the

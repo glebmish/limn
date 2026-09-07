@@ -1,5 +1,5 @@
 import type {
-  AnchorContext, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, FocusTarget, ReviewState, SessionMeta
+  AnchorContext, AnchorStamp, Artifact, Comment, CommentAnchor, DiffSkeleton, FileDiff, FocusTarget, ReviewState, SessionMeta
 } from '../shared/types.js'
 import { blobShaAt, catBlob, diffContents, hashObjects, renameMap, showFile } from './git.js'
 import { readOnDisk, splitLines, stampAnchor } from './anchorStamp.js'
@@ -341,16 +341,24 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
   }
   const placed = (a: PositionalAnchor, edited: boolean): AnchorVerdict =>
     ({ located: true, offSurface: renderPlace(a), edited })
+  /** The current content is byte-identical to the stamped blob, so the anchor belongs
+   *  exactly where it was stamped — undoing any move an earlier load persisted. */
+  const backToStamp = (a: PositionalAnchor, stamp: AnchorStamp): AnchorVerdict => {
+    setLine(a, stamp.origLine)
+    return placed(a, false)
+  }
 
   /** Stages 0→1→2 for a stamped anchor. Returns a verdict when it placed the anchor
    *  (any of stage 0/1/2 succeeded); `null` to fall through to stage 3, reporting
    *  through `out.edited` whether stage 1 saw the line rewritten. */
   async function tryStamped(a: PositionalAnchor, out: { edited: boolean }): Promise<AnchorVerdict | null> {
     const stamp = a.stamp!
-    // Stage 0 — identity short-circuit: byte-identical content ⇒ stored line is
-    // already correct in file space ⇒ NO diff call.
+    // Stage 0 — identity short-circuit: byte-identical content ⇒ NO diff call. The
+    // line that is correct in that content is the IMMUTABLE stamp.origLine, not the
+    // stored `a.line`: stage 1/2 may have moved the anchor on an earlier load and
+    // review.ts persisted the move, so a revert to the stamped blob must undo it.
     const curBlob = await currentBlob(a)
-    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) return placed(a, false)
+    if (stamp.blobSha && curBlob && curBlob === stamp.blobSha) return backToStamp(a, stamp)
 
     // Stage 1 prep — recover old content from the stamped blob.
     const oldContent = stamp.blobSha
@@ -375,7 +383,7 @@ export function createReanchorPass(ctx: ReanchorCtx, artifacts: Artifact[]): Rea
     // Stage 1 — deterministic diff mapping (needs a recoverable old blob).
     if (oldContent !== null) {
       const editList = await memoDiff(stamp.blobSha!, oldContent, newContent)
-      if (editList === null) return placed(a, false) // identical → line unchanged
+      if (editList === null) return backToStamp(a, stamp) // identical content → stamped line
       // Map the IMMUTABLE stamp.origLine (the line in stamp.blobSha's own space that this
       // edit list is built from), NOT the already-mutated a.line — else the shift delta
       // compounds on every reload once stage 0 stops short-circuiting.
