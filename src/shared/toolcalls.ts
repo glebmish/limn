@@ -1,4 +1,4 @@
-import type { EngineEvent, MessageSegment, ToolCall, ToolVerb } from './types.js'
+import type { AgentAction, EngineEvent, MessageSegment, ToolCall, ToolVerb } from './types.js'
 
 const VERB_TABLE: [RegExp, ToolVerb][] = [
   [/^(read|read_file|view|cat)$/i, 'read'],
@@ -18,6 +18,27 @@ export function deriveVerb(name: string): ToolVerb {
   if (/commit|focus|suggest/i.test(bare)) return 'bash'
   return 'other'
 }
+
+/** The limn MCP tools that emit an `AgentAction`, mapped to that action's `kind`
+ *  (bare tool name, `mcp__limn__` prefix already stripped). This is the ONLY place
+ *  the renderer states the pairing — it cannot import src/server/engines/tools.ts
+ *  (pulls node:sqlite/node:crypto), where each tool's `run` independently returns
+ *  its own `action: { kind: '...' }`. `satisfies` ties every value to a real
+ *  `AgentAction['kind']` at compile time; tests/chat-audit.test.ts ties the whole
+ *  table to the server's tools at test time, by driving every tool through
+ *  `createToolHost` and asserting the emitted action's `kind` against this map (it
+ *  already desynced once, silently, in e6688a6 — a hand-mirrored copy with no tie
+ *  gave no warning). Read-only tools (list_comments, get_review,
+ *  get_review_progress) emit no action and are deliberately absent. */
+export const ACTION_TOOL_KIND = {
+  point: 'point',
+  suggest_mark_viewed: 'suggest_viewed',
+  add_comment: 'comment_added',
+  reply_to_comment: 'comment_replied',
+  resolve_comment: 'comment_resolved',
+  edit_review: 'review_edited',
+  update_plan_status: 'plan_status_updated'
+} satisfies Record<string, AgentAction['kind']>
 
 /** Unwrap a Codex shell invocation (`/bin/zsh -lc '<script>'`, `bash -c "…"`, `sh -c …`)
  *  down to the meaningful command. Multi-line scripts collapse to the first real command

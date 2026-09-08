@@ -14,7 +14,7 @@ import { ModeSelector } from './ModeSelector'
 import { ApprovalCard } from './ApprovalCard'
 import { Markdown } from '../lib/markdown'
 import { queuedComments } from '../lib/comments'
-import { reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
+import { ACTION_TOOL_KIND, reduceToolCalls, reduceSegments } from '../../shared/toolcalls'
 import type { AgentAction } from '../../shared/types'
 import { dev } from '../dev'
 import { COMMENT_JUMP_TITLE, commentJumpReason, commentJumpTarget, focusAnchor } from '../lib/focus'
@@ -524,24 +524,16 @@ const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, thread
   )
 })
 
+/** Resolve a settled MCP tool call to the AgentAction.kind it produced, if any,
+ *  via the shared ACTION_TOOL_KIND table (see src/shared/toolcalls.ts). */
+function actionToolKind(call: ToolCall): AgentAction['kind'] | null {
+  const bare = call.name.replace(/^mcp__limn__/, '')
+  return (ACTION_TOOL_KIND as Record<string, AgentAction['kind']>)[bare] ?? null
+}
+
 /** Render an agent message's ordered segments inline: prose as markdown, each tool
  *  segment as a single-row ToolCallLog (its ToolCall resolved by id against `calls`;
  *  skipped if absent). Keeps tool rows at their true call site instead of grouping. */
-const ACTION_TOOL_KIND: Record<string, AgentAction['kind']> = {
-  point: 'point',
-  suggest_mark_viewed: 'suggest_viewed',
-  add_comment: 'comment_added',
-  reply_to_comment: 'comment_replied',
-  resolve_comment: 'comment_resolved',
-  edit_review: 'review_edited',
-  update_plan_status: 'plan_status_updated'
-}
-
-function actionToolKind(call: ToolCall): AgentAction['kind'] | null {
-  const bare = call.name.replace(/^mcp__limn__/, '')
-  return ACTION_TOOL_KIND[bare] ?? null
-}
-
 export function SegmentBody({ segments, calls, actions, engine, threadId }: {
   segments: MessageSegment[]
   calls: ToolCall[]
