@@ -60,11 +60,6 @@ export function agentLabel(agent: AgentRef): string {
   return `${engineLabel(agent.engine)} · ${model}${effort}`
 }
 
-export function sameAgent(a: AgentRef, b: AgentRef): boolean {
-  return a.engine === b.engine && (a.model ?? '') === (b.model ?? '') &&
-    (a.reasoningEffort ?? '') === (b.reasoningEffort ?? '')
-}
-
 export type AgentRefCheck = { ok: true; agent: AgentRef } | { ok: false; error: string }
 
 /** Validate an arbitrary value as an AgentRef against the catalog, returning a
