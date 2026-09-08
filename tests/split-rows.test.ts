@@ -70,4 +70,20 @@ describe('buildSplitRows', () => {
     expect(contextRows([{ old: 5, new: 5, kind: '', text: 'c' }], 'multi', null, [1])[0].cells.map((c) => [c.side, c.lineNo]))
       .toEqual([['old', 5], ['mid', 4], ['new', 5]])
   })
+
+  // the split rows used to be matched to their hunk by counting unified line rows and
+  // advancing on `runIdx === 0` — so a line the row model drops (one with neither
+  // side, which `lineRow` deliberately refuses to key) shifted every later hunk onto
+  // the wrong rows. Hunks are now walked directly.
+  it('keeps each hunk on its own rows even when a hunk opens with an unaddressable line', () => {
+    const first: Hunk = { range: '@@ -1,1 +1,1 @@', header: '', lines: [
+      { old: null, new: null, kind: '', text: 'nowhere' }, { old: 1, new: 1, kind: '', text: 'one' }
+    ] }
+    const second: Hunk = { range: '@@ -20,1 +20,1 @@', header: '', lines: [
+      { old: 20, new: 20, kind: '', text: 'twenty' }
+    ] }
+    const rows = aligned(buildSplitRows([first, second], hunkGaps([first, second]), null))
+    expect(rows.map((r) => r.key)).toEqual(['new:1', 'new:20'])
+    expect(rows.map((r) => r.hunkRange)).toEqual([first.range, second.range])
+  })
 })

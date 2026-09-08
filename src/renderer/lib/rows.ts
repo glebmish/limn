@@ -178,6 +178,40 @@ export function lineRow(
   }
 }
 
+/** Where a file's collapsed runs go: `before[i]` is the run to draw above hunk `i`
+ *  (null where nothing hides there), `tail` the run trailing off to EOF. The single
+ *  source of truth for gap placement, shared by `buildFileRows` and `buildSplitRows`
+ *  so the two can never disagree about where the file jumps.
+ *
+ *  The trailing run's length is unknown until the working file is read, so it is
+ *  offered even when the last hunk already reaches the end (expanding it then reveals
+ *  nothing and the fold stays closed). But "unknown" is not "unbounded": on a file
+ *  with no new side at all (every line deleted — the cursor never left 1) or one the
+ *  caller tells us is wholly new, there IS no file below, and asserting a run of
+ *  hidden lines under it is a plain lie the reader can't disprove. */
+function gapRowsFor(
+  hunks: Hunk[], gaps: Gap[], opts: { trailing?: boolean }
+): { before: (GapRow | null)[]; tail: GapRow | null } {
+  const byFrom = new Map(gaps.map((g) => [g.from, g]))
+  const before: (GapRow | null)[] = []
+  let cursor = 1
+  let anyNewSide = false
+  hunks.forEach((h, i) => {
+    const g = byFrom.get(cursor)
+    // a bounded run before this hunk; `hunkGaps` emits one only where there is
+    // hidden content, and the sole unbounded gap is the trailing one
+    before.push(g && g.to != null && g.to >= g.from
+      ? { type: 'gap', key: `gap:${g.key}`, gap: g, fn: fnLabel(h.header), where: i === 0 ? 'above' : '' }
+      : null)
+    let end = 0
+    for (const l of h.lines) if (l.new != null) end = l.new
+    if (end > 0) anyNewSide = true
+    cursor = end + 1
+  })
+  const tail = opts.trailing !== false && anyNewSide ? byFrom.get(cursor) : undefined
+  return { before, tail: tail && tail.to == null ? { type: 'gap', key: `gap:${tail.key}`, gap: tail, fn: '', where: 'below' } : null }
+}
+
 /** The file's rows in file order: each collapsed run (from `hunkGaps`) as one gap
  *  row, each hunk's lines as plain line rows, with no hunk boundary of any kind
  *  between them.
@@ -202,37 +236,19 @@ export function lineRow(
  *  `opts.trailing` is the caller's answer to "is there any file below the last shown
  *  row?" — false for a wholly-new file, whose single hunk *is* the file (an added
  *  file's `@@ -0,0 +1,N @@` covers every line there is). Defaults to true; the other
- *  no-tail case — a wholly-deleted file, where the new side is empty — is detected
- *  here, since it is visible in the hunks themselves. */
+ *  no-tail case — a wholly-deleted file, where the new side is empty — is detected by
+ *  `gapRowsFor`, since it is visible in the hunks themselves. */
 export function buildFileRows(
   hunks: Hunk[], gaps: Gap[], lang: string | null = null, opts: { trailing?: boolean } = {}
 ): FileRow[] {
+  const { before, tail } = gapRowsFor(hunks, gaps, opts)
   const rows: FileRow[] = []
-  const byFrom = new Map(gaps.map((g) => [g.from, g]))
-  let cursor = 1
-  let anyNewSide = false
   hunks.forEach((h, i) => {
-    const g = byFrom.get(cursor)
-    // a bounded run before this hunk; `hunkGaps` emits one only where there is
-    // hidden content, and the sole unbounded gap is the trailing one
-    if (g && g.to != null && g.to >= g.from) {
-      rows.push({ type: 'gap', key: `gap:${g.key}`, gap: g, fn: fnLabel(h.header), where: i === 0 ? 'above' : '' })
-    }
+    const g = before[i]
+    if (g) rows.push(g)
     rows.push(...linesForRun(h.lines, lang, { hunkRange: h.range, fromHunk: true, marks: runWordMarks(h.lines) }))
-    let end = 0
-    for (const l of h.lines) if (l.new != null) end = l.new
-    if (end > 0) anyNewSide = true
-    cursor = end + 1
   })
-  // The trailing run to EOF — its length is unknown until the working file is read, so
-  // it is offered even when the last hunk already reaches the end (expanding it then
-  // reveals nothing and the fold stays closed). But "unknown" is not "unbounded": on a
-  // file with no new side at all (every line deleted — the cursor never left 1) or one
-  // the caller tells us is wholly new, there IS no file below, and asserting a run of
-  // hidden lines under it is a plain lie the reader can't disprove.
-  const hasTail = opts.trailing !== false && anyNewSide
-  const tail = hasTail ? byFrom.get(cursor) : undefined
-  if (tail && tail.to == null) rows.push({ type: 'gap', key: `gap:${tail.key}`, gap: tail, fn: '', where: 'below' })
+  if (tail) rows.push(tail)
   return rows
 }
 
@@ -360,17 +376,18 @@ function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
   return out
 }
 
-/** The file as split rows: the same gap placement as `buildFileRows` (reused, so
- *  the two never disagree about where the file jumps), each hunk's lines paired. */
+/** The file as split rows: the same gap placement as `buildFileRows` (`gapRowsFor`,
+ *  shared so the two never disagree about where the file jumps), each hunk's lines
+ *  paired. */
 export function buildSplitRows(hunks: Hunk[], gaps: Gap[], lang: string | null = null, opts: { trailing?: boolean } = {}): ViewRow[] {
-  const uni = buildFileRows(hunks, gaps, null, opts)
+  const { before, tail } = gapRowsFor(hunks, gaps, opts)
   const out: ViewRow[] = []
-  let hi = 0
-  for (const r of uni) {
-    if (r.type === 'gap') { out.push(r); continue }
-    // the first line row of each hunk: emit that hunk's split rows once
-    if (r.runIdx === 0) out.push(...splitHunkRows(hunks[hi++], lang))
-  }
+  hunks.forEach((h, i) => {
+    const g = before[i]
+    if (g) out.push(g)
+    out.push(...splitHunkRows(h, lang))
+  })
+  if (tail) out.push(tail)
   return out
 }
 
