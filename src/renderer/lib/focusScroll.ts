@@ -234,8 +234,8 @@ export function badgeSpot(el: HTMLElement): { top: number; left: number } | null
 export interface FlashNode {
   classList: { add(c: string): void; remove(...c: string[]): void }
 }
-export interface FlashRoot {
-  querySelectorAll(selectors: string): Iterable<FlashNode>
+export interface FlashRoot<T extends FlashNode = FlashNode> {
+  querySelectorAll(selectors: string): Iterable<T>
   readonly offsetWidth: number
 }
 
@@ -243,8 +243,10 @@ export interface FlashRoot {
  *  is walked once instead of once per line) and flash them together: strip the class
  *  so the animation re-triggers even on an already-flashed row, force a single style
  *  flush, then add it to every node — one reflow for the whole range instead of one
- *  per line. Order doesn't matter to the caller (only used for later class removal). */
-export function flashSelectors(root: FlashRoot, selectors: string[], flashClass: string): FlashNode[] {
+ *  per line. Order doesn't matter to the caller (only used for later class removal).
+ *  Generic over the node type so a real `HTMLElement` root hands `land()` back
+ *  `HTMLElement[]` with no cast, while a test can still drive it with a plain fake. */
+export function flashSelectors<T extends FlashNode>(root: FlashRoot<T>, selectors: string[], flashClass: string): T[] {
   if (selectors.length === 0) return []
   const nodes = [...root.querySelectorAll(selectors.join(','))]
   for (const n of nodes) n.classList.remove('limn-flash')
@@ -323,7 +325,7 @@ export function startFocusJump(target: FocusTarget, opts: { quiet?: boolean } = 
     // a navigation jump (sidebar click) lands without the flash + FOCUS chip: the
     // reader asked to go there, nothing needs pointing out
     if (opts.quiet) { finish(); return }
-    flashed = flashSelectors(main, selectors, dev.holdFocus ? 'limn-flash-hold' : 'limn-flash') as HTMLElement[]
+    flashed = flashSelectors<HTMLElement>(main, selectors, dev.holdFocus ? 'limn-flash-hold' : 'limn-flash')
     badge = document.createElement('div')
     badge.className = 'limn-focus-badge'
     badge.textContent = 'focus'
