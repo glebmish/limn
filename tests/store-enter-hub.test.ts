@@ -49,7 +49,7 @@ describe('enterHub validates the repo path before landing on the hub', () => {
     expect(useStore.getState().error).toBe('/nope is not a git repository')
   })
 
-  it('skips validation entirely when the store already holds this repo\'s state (the openRepo→enterHub hot path)', async () => {
+  it('skips validation entirely when the store already holds this repo\'s state (e.g. jumping to the hub from a review already loaded for it)', async () => {
     useStore.setState({ repo: '/r', repoState: { current: 'main', defaultBase: 'main', branches: [], worktrees: [] } as never })
     await useStore.getState().enterHub('/r')
     expect(useStore.getState().screen).toBe('hub')

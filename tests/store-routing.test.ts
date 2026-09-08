@@ -72,9 +72,8 @@ describe('applyCliOpen dispatch table', () => {
 describe('openRepo hub-vs-transient choice', () => {
   beforeEach(() => {
     openRepoApi.mockClear(); repoState.mockClear(); listRepoSessions.mockClear()
-    useStore.setState({ repo: null, repoState: null })
+    useStore.setState({ repo: null, repoState: null, screen: 'dashboard' })
     useStore.setState({
-      enterHub: vi.fn(async () => {}) as never,
       resumeExisting: vi.fn(async () => {}) as never,
       openReview: vi.fn(async () => {}) as never,
     })
@@ -86,7 +85,8 @@ describe('openRepo hub-vs-transient choice', () => {
     ])
     await useStore.getState().openRepo('/r')
     await flush()
-    expect(useStore.getState().enterHub).toHaveBeenCalledWith('/r')
+    expect(useStore.getState().screen).toBe('hub')
+    expect(useStore.getState().repo).toBe('/r')
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
     expect(useStore.getState().openReview).not.toHaveBeenCalled()
   })
@@ -97,7 +97,7 @@ describe('openRepo hub-vs-transient choice', () => {
     ])
     await useStore.getState().openRepo('/r')
     await flush()
-    expect(useStore.getState().enterHub).toHaveBeenCalledWith('/r')
+    expect(useStore.getState().screen).toBe('hub')
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
   })
 
@@ -105,7 +105,7 @@ describe('openRepo hub-vs-transient choice', () => {
     listRepoSessions.mockResolvedValueOnce([])
     await useStore.getState().openRepo('/r')
     await flush()
-    expect(useStore.getState().enterHub).not.toHaveBeenCalled()
+    expect(useStore.getState().screen).not.toBe('hub')
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
     expect(useStore.getState().openReview).toHaveBeenCalledWith('/r')
   })
@@ -120,6 +120,21 @@ describe('openRepo hub-vs-transient choice', () => {
     expect(openRepoApi).toHaveBeenCalledWith('/r')
     expect(repoState).not.toHaveBeenCalled()
     expect(useStore.getState().repoState).toMatchObject({ current: 'feat', defaultBase: 'main' })
+  })
+
+  // #80: openRepo used to hand the hub-bound repo off to enterHub, whose
+  // unconditional loadRepoContext re-fetched repoState + listRepoSessions for the
+  // very repo openRepo had just fetched them for. It now lands on the hub screen
+  // directly with the context it already holds — one round trip, not two.
+  it('lands on the hub without a second repoState or listRepoSessions round trip', async () => {
+    listRepoSessions.mockResolvedValueOnce([
+      { id: 1, compareKind: 'branch', compareSymbol: 'other' },
+    ])
+    await useStore.getState().openRepo('/r')
+    await flush()
+    expect(useStore.getState().screen).toBe('hub')
+    expect(repoState).not.toHaveBeenCalled()
+    expect(listRepoSessions).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -16,6 +16,16 @@ export async function loadRepoContext(repo: string): Promise<void> {
   } catch { /* keep prior context */ }
 }
 
+/** State assignment for landing on the repo hub screen — shared by enterHub (after
+ *  validating/refreshing its context) and openRepo's hot path, which already holds
+ *  this repo's fresh repoState + repoSessions from its own fetch and would
+ *  otherwise pay for a second round trip through loadRepoContext for the same
+ *  data (finding 80). */
+function enterHubScreen(repo: string): void {
+  const hubReturn = useStore.getState().sessionId
+  useStore.setState({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn, error: null, pendingDrift: null, watchStopped: null })
+}
+
 /** Land on `branch`'s review: its latest live session, else the new-review setup.
  *  Called after checking a branch out from the picker so the action lands somewhere. */
 export async function openBranchReview(branch: string): Promise<void> {
@@ -92,16 +102,21 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
     set({ error: null })
     try {
       // openRepo returns the repo's live state, so this is the whole context: no
-      // second repoState round trip for the same three git reads.
+      // second repoState round trip for the same three git reads. showArchived
+      // matches loadRepoContext's own flag, so the hub branch below never needs
+      // a second, differently-filtered listRepoSessions call either.
       const [repoState, repoSessions] = await Promise.all([
         api().openRepo(repoPath),
-        api().listRepoSessions(repoPath)
+        api().listRepoSessions(repoPath, get().showArchived)
       ])
       set({ repo: repoPath, repoState, repoSessions })
       // a repo with saved sessions lands on the hub (the session list) — resuming
       // one unasked surprises more than it saves. Only a repo with no live
-      // sessions opens a fresh transient review for the current branch.
-      if (repoSessions.length > 0) { await get().enterHub(repoPath); return }
+      // sessions opens a fresh transient review for the current branch. This
+      // already holds fresh context from the fetch above, so it lands on the hub
+      // screen directly rather than through enterHub, which would otherwise
+      // re-fetch both via loadRepoContext for the same repo.
+      if (repoSessions.length > 0) { enterHubScreen(repoPath); return }
       await get().openReview(repoPath)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), screen: 'dashboard' })
@@ -111,10 +126,9 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
   async enterHub(repoPath) {
     const repo = repoPath ?? get().repo
     if (!repo) { void get().backToDashboard(); return }
-    // RepoSlice.openRepo already proved this exact repo (it just called api().openRepo
-    // for it) before landing here — skip re-validating so the openRepo→enterHub path,
-    // and any other caller that already holds this repo's live state, don't pay for a
-    // second round trip.
+    // Any caller that already holds this repo's live state (e.g. jumping to the hub
+    // from a review already loaded for it) skips re-validating — a second repoState
+    // round trip just to confirm what the store already proved.
     const alreadyProven = get().repo === repo && get().repoState != null
     if (!alreadyProven) {
       // validate before touching the screen — a dead `/hub?repo=` deep link (a repo
@@ -134,7 +148,7 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
       }
     }
     // remember the review we came from so the hub can offer a jump-back
-    set({ screen: 'hub', repo, loaded: null, sessionId: null, hubReturn: get().sessionId, error: null, pendingDrift: null, watchStopped: null })
+    enterHubScreen(repo)
     await loadRepoContext(repo)
   },
 
