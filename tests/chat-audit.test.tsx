@@ -47,7 +47,9 @@ describe('ACTION_TOOL_KIND ties to what the server tools actually emit (#107)', 
     upsertComment(db, s.id, userComment)
     const ctx: ToolHostCtx = {
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: '/repo',
-      agent: { engine: 'claude' }, emit: () => {}
+      agent: { engine: 'claude' }, emit: () => {},
+      // an action-run context, so add_finding (run-only) is exercised like the rest
+      run: { actionId: 'act-audit', runId: 'run-audit' }
     }
     return { ctx }
   }
@@ -60,7 +62,8 @@ describe('ACTION_TOOL_KIND ties to what the server tools actually emit (#107)', 
     reply_to_comment: { commentId: 'u1', text: 'reply' },
     resolve_comment: { commentId: 'u1', verdict: 'addressed', note: 'done' },
     edit_review: { field: 'summary', value: 'New summary' },
-    update_plan_status: { index: 0, met: true, note: 'verified' }
+    update_plan_status: { index: 0, met: true, note: 'verified' },
+    add_finding: { file: 'src/a.ts', line: 2, severity: 'note', body: 'finding' }
   }
   const READ_ONLY_CALLS: Record<string, unknown> = {
     list_comments: {}, get_review: {}, get_review_progress: {}
@@ -103,7 +106,7 @@ describe('ACTION_TOOL_KIND ties to what the server tools actually emit (#107)', 
 describe('GenPanel primary CTAs disable while another exclusive op runs (#108)', () => {
   const op = (over: Partial<OpState>): OpState => ({
     running: true, opId: 'op', kind: 'chat', threadId: 1, log: [], error: null,
-    startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over
+    startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, queued: null, ...over
   })
 
   type StoreState = ReturnType<typeof useStore.getState>

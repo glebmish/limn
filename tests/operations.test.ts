@@ -1,20 +1,76 @@
 import { describe, expect, it } from 'vitest'
-import { OperationCoordinator, RepoBusyError } from '../src/server/operations'
+import { OperationCoordinator } from '../src/server/operations'
 import { CancelledError } from '../src/server/engines/errors'
 
 describe('OperationCoordinator', () => {
-  it('serializes operations per repository and releases the lock', async () => {
+  it('serializes operations per repository through ONE FIFO queue — a second op waits, never fails busy', async () => {
     const ops = new OperationCoordinator()
     let release!: () => void
     const held = new Promise<void>((resolve) => { release = resolve })
-    const first = ops.run('one', '/repo', async () => { await held; return 1 })
-    const busy = await ops.run('two', '/repo', async () => 2)
-    expect(busy.status).toBe('failed')
-    if (busy.status !== 'succeeded') expect(busy.error).toBeInstanceOf(RepoBusyError)
+    const order: string[] = []
+    const first = ops.run('one', '/repo', async () => { await held; order.push('one'); return 1 }, { label: 'Generating the review' })
+    const second = ops.run('two', '/repo', async () => { order.push('two'); return 2 }, { label: 'Simplify' })
+    const third = ops.run('three', '/repo', async () => { order.push('three'); return 3 }, { label: 'Chat' })
+    await Promise.resolve()
+    expect(ops.repoBusy('/repo')).toBe(true)
+    expect(ops.holder('/repo')).toEqual({ opId: 'one', label: 'Generating the review' })
+    expect(ops.queued('/repo')).toEqual([{ opId: 'two', label: 'Simplify' }, { opId: 'three', label: 'Chat' }])
+    // another repo is its own queue
+    expect(await ops.run('elsewhere', '/other', async () => 'x')).toMatchObject({ status: 'succeeded', value: 'x' })
     release()
     expect(await first).toMatchObject({ status: 'succeeded', value: 1 })
-    expect(await ops.run('three', '/repo', async () => 3)).toMatchObject({ status: 'succeeded', value: 3 })
+    expect(await second).toMatchObject({ status: 'succeeded', value: 2 })
+    expect(await third).toMatchObject({ status: 'succeeded', value: 3 })
+    expect(order).toEqual(['one', 'two', 'three'])
+    expect(ops.repoBusy('/repo')).toBe(false)
+    expect(ops.holder('/repo')).toBeNull()
+    expect(ops.queued('/repo')).toEqual([])
   })
+
+  it('cancelling a QUEUED op removes it from the queue without running it; the rest keep their order', async () => {
+    const ops = new OperationCoordinator()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    let ran = false
+    const first = ops.run('one', '/repo', async () => { await held; return 1 })
+    const second = ops.run('two', '/repo', async () => { ran = true; return 2 })
+    const third = ops.run('three', '/repo', async () => 3)
+    await Promise.resolve()
+    ops.cancel('two')
+    expect((await second).status).toBe('cancelled')
+    expect(ops.queued('/repo')).toEqual([{ opId: 'three', label: 'three' }])
+    release()
+    await first
+    expect(await third).toMatchObject({ status: 'succeeded', value: 3 })
+    expect(ran).toBe(false)
+  })
+
+  it('notifies listeners on every queue change, with the repo', async () => {
+    const ops = new OperationCoordinator()
+    const seen: string[] = []
+    const off = ops.onQueueChange((repo) => { seen.push(`${repo}:${ops.holder(repo)?.opId ?? '-'}:${ops.queued(repo).map((q) => q.opId).join(',')}`) })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const first = ops.run('one', '/repo', async () => { await held; return 1 })
+    const second = ops.run('two', '/repo', async () => 2)
+    await Promise.resolve()
+    release()
+    await first; await second
+    expect(seen).toEqual(['/repo:one:', '/repo:one:two', '/repo:two:', '/repo:-:'])
+    off()
+    await ops.run('three', '/repo', async () => 3)
+    expect(seen).toHaveLength(4)
+  })
+
+  it('a failed or cancelled op releases the lane to the next in line', async () => {
+    const ops = new OperationCoordinator()
+    const first = ops.run('one', '/repo', async () => { throw new Error('boom') })
+    const second = ops.run('two', '/repo', async () => 2)
+    expect((await first).status).toBe('failed')
+    expect(await second).toMatchObject({ status: 'succeeded', value: 2 })
+  })
+})
+
 
   it('classifies pre-start and active cancellation without parsing in callers', async () => {
     const ops = new OperationCoordinator()
@@ -43,83 +99,3 @@ describe('OperationCoordinator', () => {
     expect((await ops.run('f2', '/a', async () => { throw new Error('upstream job was cancelled by the scheduler') })).status).toBe('failed')
   })
 
-  it('runs a shared op alongside an exclusive one, but caps the shared lane at one', async () => {
-    const ops = new OperationCoordinator()
-    let releaseExcl!: () => void
-    const exclHeld = new Promise<void>((r) => { releaseExcl = r })
-    let releaseShared!: () => void
-    const sharedHeld = new Promise<void>((r) => { releaseShared = r })
-
-    const excl = ops.run('gen', '/repo', async () => { await exclHeld; return 'gen' })
-    // shared coexists with the running exclusive op
-    const shared = ops.runShared('chat', '/repo', async () => { await sharedHeld; return 'chat' })
-    // a second shared op is rejected as a shared-lane busy
-    const shared2 = await ops.runShared('chat2', '/repo', async () => 'chat2')
-    expect(shared2.status).toBe('failed')
-    if (shared2.status !== 'succeeded') {
-      expect(shared2.error).toBeInstanceOf(RepoBusyError)
-      expect((shared2.error as RepoBusyError).lane).toBe('shared')
-    }
-
-    releaseShared(); releaseExcl()
-    expect(await shared).toMatchObject({ status: 'succeeded', value: 'chat' })
-    expect(await excl).toMatchObject({ status: 'succeeded', value: 'gen' })
-  })
-
-  it('lets an exclusive op start while only a shared op is running (OQ3)', async () => {
-    const ops = new OperationCoordinator()
-    let releaseShared!: () => void
-    const sharedHeld = new Promise<void>((r) => { releaseShared = r })
-    const shared = ops.runShared('chat', '/repo', async () => { await sharedHeld; return 'chat' })
-    // exclusive lane is free even though a shared op holds the repo
-    const excl = await ops.run('gen', '/repo', async () => 'gen')
-    expect(excl).toMatchObject({ status: 'succeeded', value: 'gen' })
-    releaseShared()
-    expect(await shared).toMatchObject({ status: 'succeeded', value: 'chat' })
-  })
-
-  it('repoBusy tracks the exclusive lane only; lanes release independently', async () => {
-    const ops = new OperationCoordinator()
-    let releaseShared!: () => void
-    const sharedHeld = new Promise<void>((r) => { releaseShared = r })
-    const shared = ops.runShared('chat', '/repo', async () => { await sharedHeld; return 'chat' })
-    await Promise.resolve()
-    expect(ops.repoBusy('/repo')).toBe(false) // shared op does not mark the repo busy
-
-    let releaseExcl!: () => void
-    const exclHeld = new Promise<void>((r) => { releaseExcl = r })
-    const excl = ops.run('gen', '/repo', async () => { await exclHeld; return 'gen' })
-    await Promise.resolve()
-    expect(ops.repoBusy('/repo')).toBe(true)
-
-    releaseExcl()
-    await excl
-    expect(ops.repoBusy('/repo')).toBe(false) // exclusive released; shared still running
-    releaseShared()
-    await shared
-  })
-
-  it('cancels one lane without touching the other', async () => {
-    const ops = new OperationCoordinator()
-    let exclCancelled = false
-    let sharedCancelled = false
-    const excl = ops.run('gen', '/repo', async () => {
-      ops.registerCancel('gen', () => { exclCancelled = true })
-      await new Promise((r) => setTimeout(r, 20))
-      ops.throwIfCancelled('gen')
-      return 'gen'
-    })
-    const shared = ops.runShared('chat', '/repo', async () => {
-      ops.registerCancel('chat', () => { sharedCancelled = true })
-      await new Promise((r) => setTimeout(r, 20))
-      ops.throwIfCancelled('chat')
-      return 'chat'
-    })
-    await Promise.resolve()
-    ops.cancel('chat')
-    expect((await shared).status).toBe('cancelled')
-    expect(sharedCancelled).toBe(true)
-    expect(exclCancelled).toBe(false)
-    expect((await excl).status).toBe('succeeded')
-  })
-})

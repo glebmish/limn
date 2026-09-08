@@ -192,12 +192,15 @@ export interface GenState {
    *  truth so every approval surface (drawer card, nudge, strip, badge) agrees.
    *  Reset per op in startOp; a request is "pending" until its id lands here. */
   answeredApprovals: Set<string>
-  /** Whether this op holds/needs the EXCLUSIVE lane (generate, batch, or a chat that
-   *  started on an idle repo). A read-only shared chat is `false`. Drives the "disable
-   *  Generate/batch" gates and the watcher. Predicted at `startOp` from
-   *  `anyExclusiveRunning`, then corrected by main's authoritative `exclusive` flag on
-   *  op:event / op:result envelopes via `setOpLane` (concurrent-chat §4 / OQ7). */
+  /** Whether this op holds/needs the repo's lane. Every agent-shaped task does (one
+   *  task queue per repo — design board 14 v3), so this is `true` for any op main
+   *  runs; the field survives as the wire contract main announces on op:event /
+   *  op:result envelopes (`setOpLane`). */
   exclusive: boolean
+  /** Set while the op waits its turn in the repo's task queue (from the `lane`
+   *  events main streams): its 1-based place and what it is behind. Null once it
+   *  holds the lane — or for an op that never had to wait. */
+  queued: { position: number; behind: string } | null
   /** The seq the next accepted `op:event` for this op must carry (see OpEventMsg.seq).
    *  Set when the op is ADOPTED from a load snapshot — the snapshot replays events the
    *  live subscription may also deliver, so anything below this was already logged and
@@ -256,38 +259,29 @@ export function reviewOp(ops: Record<string, OpState>, loaded: LoadedReview | nu
   return best ?? IDLE_GEN
 }
 
-/** True while any EXCLUSIVE op is running (generate / batch / an exclusive chat) — the
- *  gate for "can a new generate/batch start" and the watcher-suppression meaning. A
- *  read-only shared chat does not count. */
+/** True while any op holds or waits for the repo's lane (generate / batch / a chat
+ *  turn / an action run) — the gate for "is something running" and the
+ *  watcher-suppression meaning. Kept under its historical name: every op is
+ *  exclusive now (one task queue per repo). */
 export function anyExclusiveRunning(ops: Record<string, OpState>): boolean {
   return Object.values(ops).some((op) => op.running && op.exclusive)
 }
 
-/** True while any op at all is running (either lane). */
+/** True while any op at all is running. */
 export function anyRunning(ops: Record<string, OpState>): boolean {
   return Object.values(ops).some((op) => op.running)
 }
 
-/** True while a read-only SHARED chat op is running (the shared lane, capacity one). */
-export function anySharedRunning(ops: Record<string, OpState>): boolean {
-  return Object.values(ops).some((op) => op.running && !op.exclusive)
+/** The running ops that are actually WAITING in the repo's task queue, in queue order. */
+export function queuedOps(ops: Record<string, OpState>): OpState[] {
+  return Object.values(ops).filter((op) => op.running && op.queued).sort((a, b) => a.queued!.position - b.queued!.position)
 }
 
-/** Whether a chat turn to `threadId` can be sent right now (concurrent-chat guards):
- *  the target thread must be idle, and if the exclusive lane is busy the shared lane
- *  (capacity one) must be free. A send on an idle repo takes the exclusive lane. */
+/** Whether a chat turn to `threadId` can be sent right now: only the target thread
+ *  being mid-turn blocks it. Anything else running on the repo just means the turn
+ *  queues behind it server-side (one task queue per repo). */
 export function chatSendBlocked(ops: Record<string, OpState>, threadId: number | null | undefined): boolean {
-  if (opForThread(ops, threadId).running) return true      // the target thread is already streaming
-  if (!anyExclusiveRunning(ops)) return false              // exclusive lane free → this turn takes it
-  return anySharedRunning(ops)                             // else it must fit the (single) shared lane
-}
-
-/** Whether a chat send to `threadId` would be lane-coerced to READ-ONLY right now: the
- *  send isn't blocked, but an exclusive op (generate/batch) holds the repo, so main
- *  routes the turn through the shared lane with a forced read-only profile
- *  (concurrent-chat §2 / OQ4). Drives the composer badge + tier-selector disable. */
-export function willRunReadOnly(ops: Record<string, OpState>, threadId: number | null | undefined): boolean {
-  return !chatSendBlocked(ops, threadId) && anyExclusiveRunning(ops)
+  return opForThread(ops, threadId).running
 }
 
 /** Approval requests still awaiting the reviewer: derived from the running op's log,

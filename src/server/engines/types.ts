@@ -70,10 +70,6 @@ export interface ChatTurn {
    *  selector mid-turn takes effect from the next request on; falls back to
    *  `executionMode` when absent. */
   currentMode?: () => ExecutionMode
-  /** force a read-only turn regardless of tier (concurrent-chat shared lane): the
-   *  engine runs in read-only mode and every non-Limn tool request is denied, never
-   *  parked. Set by ipc.ts when this turn runs alongside an exclusive op. */
-  readOnly?: boolean
   /** Action runs (design board 14 N2): called once the session is open and its
    *  `available_commands_update` has arrived — or `commandsWaitMs` passed without one
    *  (`null`: a resumed Codex session may never send it) — BEFORE the prompt goes

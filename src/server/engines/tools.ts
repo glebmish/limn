@@ -29,10 +29,6 @@ export interface ToolHostCtx {
   /** Set on an ACTION RUN turn (design board 14): `add_finding` sources its proposals
    *  to this action + run, and a re-run of the same action sweeps them. */
   run?: { actionId: string; runId: string }
-  /** Restrict this turn to a subset of the tool set (SHARED_LANE_TOOL_NAMES for a
-   *  read-only turn sharing the repo with a generation). A tool outside it answers
-   *  with an error the agent can act on — never a silent no-op. Omitted: all tools. */
-  allowedTools?: ReadonlySet<string>
   /** push a live engine event to the renderer (an `action` event, here). */
   emit: (event: EngineEvent) => void
 }
@@ -528,20 +524,6 @@ export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'update_plan_status'
 ])
 
-/** The tools a SHARED-lane (read-only) turn may call — everything except the two
- *  that read the whole `annotations` blob, mutate it, and write it back. The shared
- *  lane is taken while ANOTHER op holds the repo exclusively; when that op is a
- *  generation it persists the annotations snapshot it took BEFORE this turn started,
- *  so such an edit is silently overwritten and the reviewer is left with an "edited
- *  the review" chip and no edit. Withheld rather than raced: a refine turn that
- *  genuinely needs them runs on the exclusive lane. Hand-maintained, like
- *  AUTO_ACCEPT_TOOL_NAMES — a new tool must be classified (tests/tools.test.ts pins
- *  the complement), so it can't ride onto the shared lane unexamined. */
-export const SHARED_LANE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment', 'add_finding',
-  'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress'
-])
-
 /** Fail loudly if any tool isn't cleared for the engines' blanket auto-accept
  *  (Codex elicitations auto-ACCEPT every registered tool; Claude auto-allows
  *  allowlist members). Called at turn registration; unit-tested directly. */
@@ -556,12 +538,6 @@ export function createToolHost(ctx: ToolHostCtx): AgentToolHost {
     async call(name, args) {
       const impl = TOOL_IMPLS.find((t) => t.name === name)
       if (!impl) return { result: `Unknown tool: ${name}`, isError: true }
-      if (ctx.allowedTools && !ctx.allowedTools.has(name)) {
-        return {
-          result: `${name} is unavailable on this turn: another review operation holds this repo and may overwrite the review it started from, so an edit made now could be lost. Say so, and let the reviewer re-ask once that operation has finished.`,
-          isError: true
-        }
-      }
       const parsed = z.object(impl.input).safeParse(args)
       if (!parsed.success) return { result: `Invalid arguments for ${name}: ${parsed.error.message}`, isError: true }
       try {

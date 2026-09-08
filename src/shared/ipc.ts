@@ -56,6 +56,10 @@ export interface ActiveOpSnapshot {
   threadId: number | null
   /** the lane main chose for this op — see OpEventMsg.exclusive */
   exclusive: boolean
+  /** what the task is called in the queue ("Generating the review", "Simplify") */
+  label: string
+  /** set while the op waits its turn in the repo's task queue */
+  queued?: { position: number; behind: string }
   startedAt: string
   /** events emitted so far, for a joining tab to replay before it starts consuming
    *  the live stream */

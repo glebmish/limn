@@ -6,7 +6,7 @@ import { resolveRefInput } from '../src/server/git'
 import { releaseFakeHolds } from '../src/server/engines/fake'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 import type { AgentRef, RefPair, ReviewAnnotations } from '../src/shared/types'
-import type { OpEventMsg, OpResultMsg } from '../src/shared/ipc'
+import type { LoadedReview, OpEventMsg, OpResultMsg } from '../src/shared/ipc'
 import type { Transport } from '../src/server/transport'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -61,103 +61,103 @@ async function waitForHold(h: Harness, opId: string): Promise<void> {
   }
 }
 
-describe('concurrent chat — two-lane routing', () => {
-  it('runs a chat read-only on the shared lane while another op holds the exclusive lane', async () => {
+describe('one task queue per repo — a turn behind a busy repo waits, then runs', () => {
+  it('queues a chat while another op holds the lane, announces its place, and runs it after', async () => {
     const h = await setup()
-    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
-    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'First' }).id
+    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'Second' }).id
 
-    // op-1 takes the exclusive lane (repo idle) and parks holding it.
+    // op-1 takes the lane (repo idle) and parks holding it.
     const holding = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-1')
-    // op-2, fired while op-1 holds the exclusive lane, must route to the shared lane
-    // forced read-only — and complete without waiting for op-1.
-    await h.handlers.get('sendChat')!(asker, 'what does this touch?', 'op-2')
-
-    const res2 = h.results.find((r) => r.opId === 'op-2')!
-    expect(res2.status).toBe('succeeded')
-    const op2Events = h.events.filter((e) => e.opId === 'op-2').map((e) => e.event)
-    expect(op2Events).toContainEqual({ type: 'status', text: 'Read-only turn — a review is generating' })
-
-    // op-1 is still holding — it has not produced a result yet.
-    expect(h.results.some((r) => r.opId === 'op-1')).toBe(false)
+    await waitForHold(h, 'op-1')
+    // op-2, fired while op-1 holds the lane, waits its turn — it must NOT complete
+    // (or run read-only) while op-1 is still holding.
+    const waiting = h.handlers.get('sendChat')!(asker, 'what does this touch?', 'op-2')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(h.results.some((r) => r.opId === 'op-2')).toBe(false)
+    const queuedEv = h.events.filter((e) => e.opId === 'op-2').map((e) => e.event)
+    expect(queuedEv).toContainEqual({ type: 'lane', state: 'queued', position: 1, behind: 'First' })
+    // …and it is visible as queued in a (re)joining tab's snapshot
+    const loaded = await h.handlers.get('loadSession')!(h.sessionId) as LoadedReview
+    expect(loaded.activeOps.find((o) => o.opId === 'op-2')).toMatchObject({ label: 'Second', queued: { position: 1, behind: 'First' } })
+    expect(loaded.activeOps.find((o) => o.opId === 'op-1')).toMatchObject({ label: 'First' })
+    expect(loaded.activeOps.find((o) => o.opId === 'op-1')!.queued).toBeUndefined()
 
     releaseFakeHolds()
     await holding
+    await waiting
     expect(h.results.find((r) => r.opId === 'op-1')!.status).toBe('succeeded')
+    expect(h.results.find((r) => r.opId === 'op-2')!.status).toBe('succeeded')
+    const op2 = h.events.filter((e) => e.opId === 'op-2').map((e) => e.event)
+    expect(op2).toContainEqual({ type: 'lane', state: 'running' })
+    // no read-only coercion anywhere — the turn ran at its own tier on the lane
+    expect(op2.some((e) => e.type === 'status' && /read-only/i.test(e.text))).toBe(false)
+    expect(h.events.filter((e) => e.opId === 'op-2').every((e) => e.exclusive === true)).toBe(true)
   })
 
-  it('a plain chat on an idle repo takes the exclusive lane at full tier (no read-only coercion)', async () => {
+  it('a plain chat on an idle repo takes the lane at once (no lane events, no waiting)', async () => {
     const h = await setup()
     const t = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
     await h.handlers.get('sendChat')!(t, 'ordinary question', 'op-solo')
     const res = h.results.find((r) => r.opId === 'op-solo')!
     expect(res.status).toBe('succeeded')
     const evs = h.events.filter((e) => e.opId === 'op-solo').map((e) => e.event)
-    expect(evs).not.toContainEqual({ type: 'status', text: 'Read-only turn — a review is generating' })
+    expect(evs.some((e) => e.type === 'lane')).toBe(false)
   })
 
-  it('announces the lane main actually chose on op:event envelopes and the op:result (OQ7)', async () => {
+  it('cancelling a queued turn removes it from the queue; the turn behind it moves up', async () => {
     const h = await setup()
-    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
-    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
-
-    const holding = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-x')
-    await waitForHold(h, 'op-x')
-    await h.handlers.get('sendChat')!(asker, 'what does this touch?', 'op-s')
-
-    // the shared turn is announced exclusive:false on every event + the result…
-    const sharedEvents = h.events.filter((e) => e.opId === 'op-s')
-    expect(sharedEvents.length).toBeGreaterThan(0)
-    expect(sharedEvents.every((e) => e.exclusive === false)).toBe(true)
-    expect(h.results.find((r) => r.opId === 'op-s')!.exclusive).toBe(false)
-
+    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'First' }).id
+    const a = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'A' }).id
+    const b = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'B' }).id
+    const holding = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-1')
+    await waitForHold(h, 'op-1')
+    const pa = h.handlers.get('sendChat')!(a, 'a', 'op-a')
+    const pb = h.handlers.get('sendChat')!(b, 'b', 'op-b')
+    await new Promise((r) => setTimeout(r, 30))
+    expect(h.events.filter((e) => e.opId === 'op-b').map((e) => e.event)).toContainEqual({ type: 'lane', state: 'queued', position: 2, behind: 'First' })
+    await h.handlers.get('cancel')!('op-a')
+    await pa
+    expect(h.results.find((r) => r.opId === 'op-a')!.status).toBe('cancelled')
+    expect(h.events.filter((e) => e.opId === 'op-b').map((e) => e.event)).toContainEqual({ type: 'lane', state: 'queued', position: 1, behind: 'First' })
     releaseFakeHolds()
     await holding
-    // …and the exclusive-lane turn is announced exclusive:true.
-    const heldEvents = h.events.filter((e) => e.opId === 'op-x')
-    expect(heldEvents.length).toBeGreaterThan(0)
-    expect(heldEvents.every((e) => e.exclusive === true)).toBe(true)
-    expect(h.results.find((r) => r.opId === 'op-x')!.exclusive).toBe(true)
+    await pb
+    expect(h.results.find((r) => r.opId === 'op-b')!.status).toBe('succeeded')
   })
 })
 
-describe('concurrent chat — the shared lane never rewrites the review', () => {
+describe('one task queue per repo — a chat turn behind a generation edits the review only after it', () => {
   const annotations: ReviewAnnotations = {
     title: 'Generated title', summary: 'Generated summary', sections: [], questions: []
   }
 
-  it('withholds edit_review from a shared-lane turn while a generation holds the exclusive lane', async () => {
+  it('waits for the generation, then edits the review it produced (nothing is silently lost)', async () => {
     const h = await setup()
     updateSessionMeta(h.db, h.sessionId, { annotations })
     const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
 
-    // a generation takes the exclusive lane and parks mid-pass, holding the
-    // annotations snapshot it will persist when it finishes.
     const reviewThread = await h.handlers.get('beginReview')!(h.sessionId, agent, false, '[hold]') as number
     const gen = h.handlers.get('generate')!(h.sessionId, agent, 'op-gen', reviewThread, '[hold]', false)
     await waitForHold(h, 'op-gen')
 
-    // a chat turn routed to the shared lane asks the agent to amend the review
-    await h.handlers.get('sendChat')!(asker, '[edit-review] tighten the summary', 'op-chat')
-    expect(h.results.find((r) => r.opId === 'op-chat')!.status).toBe('succeeded')
-
-    // the edit never reached the blob the generation is about to overwrite…
-    expect(loadReviewState(h.db, h.sessionId).annotations!.summary).toBe('Generated summary')
-    // …the agent was told why (refused with an explanation, not silently dropped)…
-    const chatEvents = h.events.filter((e) => e.opId === 'op-chat').map((e) => e.event)
-    expect(chatEvents.some((e) =>
-      e.type === 'status' && e.text.includes('edit_review is unavailable on this turn: another review operation holds this repo')
-    )).toBe(true)
-    // …and the turn shows no "edited the review" chip for an edit that did not happen
-    const turn = getChatThread(h.db, asker)!.messages.at(-1)!
-    expect((turn.actions ?? []).some((a) => a.kind === 'review_edited')).toBe(false)
+    const chat = h.handlers.get('sendChat')!(asker, '[edit-review] tighten the summary', 'op-chat')
+    await new Promise((r) => setTimeout(r, 30))
+    expect(h.results.some((r) => r.opId === 'op-chat')).toBe(false)
+    expect(h.events.filter((e) => e.opId === 'op-chat').map((e) => e.event)).toContainEqual({ type: 'lane', state: 'queued', position: 1, behind: 'Generating the review' })
 
     releaseFakeHolds()
     await gen
+    await chat
     expect(h.results.find((r) => r.opId === 'op-gen')!.status).toBe('succeeded')
+    expect(h.results.find((r) => r.opId === 'op-chat')!.status).toBe('succeeded')
+    // the edit landed on the generation's output, and the turn shows its chip
+    expect(loadReviewState(h.db, h.sessionId).annotations!.summary).toBe('Edited by the chat turn.')
+    const turn = getChatThread(h.db, asker)!.messages.at(-1)!
+    expect((turn.actions ?? []).some((a) => a.kind === 'review_edited')).toBe(true)
   })
 
-  it('the same turn on the exclusive lane (idle repo) still edits the review', async () => {
+  it('the same turn on an idle repo edits the review at once', async () => {
     const h = await setup()
     updateSessionMeta(h.db, h.sessionId, { annotations })
     const t = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id

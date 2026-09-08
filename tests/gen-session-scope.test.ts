@@ -6,7 +6,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 // reviewOp scopes the review-generation op to the review you're viewing so an op
 // started on another session can't paint its progress/cancel state here.
 function gen(over: Partial<GenState>): OpState {
-  return { running: false, opId: 'op-1', kind: 'review', threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over }
+  return { running: false, opId: 'op-1', kind: 'review', threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, queued: null, ...over }
 }
 const opsOf = (op: OpState): Record<string, OpState> => ({ [op.opId ?? 'x']: op })
 // minimal LoadedReview: reviewOp only reads state.chats[].id.

@@ -11,6 +11,10 @@ interface LiveOp {
   kind: 'review' | 'chat'
   threadId: number | null
   exclusive: boolean
+  label: string
+  /** 1-based place in the repo's task queue while waiting for the lane; null once running */
+  position: number | null
+  behind: string | null
   startedAt: string
   events: EngineEvent[]
 }
@@ -29,16 +33,34 @@ export class LiveOpRegistry {
 
   start(op: {
     opId: string; sessionId: number; kind: 'review' | 'chat'
-    threadId: number | null; exclusive: boolean
+    threadId: number | null; exclusive: boolean; label?: string
   }): void {
     this.ops.set(op.opId, {
       sessionId: op.sessionId,
       kind: op.kind,
       threadId: op.threadId,
       exclusive: op.exclusive,
+      label: op.label ?? op.opId,
+      position: null,
+      behind: null,
       startedAt: new Date().toISOString(),
       events: []
     })
+  }
+
+  /** The op's place in its repo's task queue (null = holds the lane / not queued),
+   *  and what it is waiting behind — so a (re)joining tab renders the same "Queued ·
+   *  2nd, behind …" the live stream announced. No-op for an unknown op. */
+  setQueue(opId: string, position: number | null, behind: string | null): void {
+    const op = this.ops.get(opId)
+    if (op) { op.position = position; op.behind = behind }
+  }
+
+  /** ops of a repo's session set — used by the queue broadcaster to find which live
+   *  op an opId belongs to. */
+  get(opId: string): { sessionId: number; kind: 'review' | 'chat'; threadId: number | null; label: string; position: number | null } | null {
+    const op = this.ops.get(opId)
+    return op ? { sessionId: op.sessionId, kind: op.kind, threadId: op.threadId, label: op.label, position: op.position } : null
   }
 
   /** Append an event to the op's stream; returns the 0-based seq it was assigned —
@@ -96,6 +118,8 @@ export class LiveOpRegistry {
         kind: op.kind,
         threadId: op.threadId,
         exclusive: op.exclusive,
+        label: op.label,
+        ...(op.position != null ? { queued: { position: op.position, behind: op.behind ?? '' } } : {}),
         startedAt: op.startedAt,
         events: [...carried, ...op.events.slice(cut).filter(replayable)],
         nextSeq: op.events.length

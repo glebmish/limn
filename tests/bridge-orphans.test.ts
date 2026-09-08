@@ -16,7 +16,7 @@ const flush = () => new Promise((r) => setTimeout(r))
 const ev = (n: number): EngineEvent => ({ type: 'token', text: `t${n}` } as unknown as EngineEvent)
 const op = (id: string) => useStore.getState().ops[id]
 const snap = (over: Partial<ActiveOpSnapshot> & { opId: string }): ActiveOpSnapshot => ({
-  kind: 'chat', threadId: 7, exclusive: false, startedAt: new Date().toISOString(), events: [], nextSeq: 0, ...over
+  kind: 'chat', threadId: 7, exclusive: false, label: 'Chat', startedAt: new Date().toISOString(), events: [], nextSeq: 0, ...over
 })
 
 describe('bridge orphan buffer (events that beat the load snapshot)', () => {

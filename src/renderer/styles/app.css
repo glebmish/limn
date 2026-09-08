@@ -706,3 +706,6 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
    suppress selection and keep the resize cursor for the whole document. */
 body.is-resizing { user-select: none; cursor: col-resize; }
 body.is-resizing * { cursor: col-resize !important; }
+/* a turn waiting in the repo's task queue (one lane per repo, design board 14 v3) */
+.chat-gate.chat-queued-lane { color: var(--ink-2); background: var(--panel-2); }
+.chat-gate.chat-queued-lane svg { color: var(--accent); }

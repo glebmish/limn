@@ -71,11 +71,16 @@ describe('op lifecycle', () => {
     expect(op('op-review').running).toBe(true) // the new generation is untouched
   })
 
-  it('startOp defaults exclusive from whether an exclusive op is already running', () => {
-    useStore.getState().startOp('review', 'op-excl', 1) // no exclusive running → exclusive
-    expect(op('op-excl').exclusive).toBe(true)
-    useStore.getState().startOp('chat', 'op-shared', 2) // an exclusive op runs → shared
-    expect(op('op-shared').exclusive).toBe(false)
+  it('startOp marks every op exclusive — one task queue per repo — and tracks the queue from lane events', () => {
+    useStore.getState().startOp('review', 'op-gen', 1)
+    expect(op('op-gen').exclusive).toBe(true)
+    useStore.getState().startOp('chat', 'op-next', 2) // a generation runs → this one queues behind it
+    expect(op('op-next').exclusive).toBe(true)
+    expect(op('op-next').queued).toBeNull()
+    useStore.getState().pushOpEvent('op-next', { type: 'lane', state: 'queued', position: 1, behind: 'Generating the review' })
+    expect(op('op-next').queued).toEqual({ position: 1, behind: 'Generating the review' })
+    useStore.getState().pushOpEvent('op-next', { type: 'lane', state: 'running' })
+    expect(op('op-next').queued).toBeNull()
   })
 
   it('pushOpEvent is a no-op for an unknown / finished op', () => {

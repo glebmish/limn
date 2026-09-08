@@ -234,25 +234,6 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('allow')
   })
 
-  it('4c. readOnly turn denies a command WITHOUT parking, even at the full tier', async () => {
-    const { engine, readRecords } = fakeEngine({
-      sessionId: 'ch-4c',
-      turns: [{
-        permission: { toolCallId: 'cmd4c', title: 'run', kind: 'execute', rawInput: { command: 'ls' } },
-        text: 'done',
-        rejectedText: 'refused'
-      }]
-    })
-    // full tier would normally allow commands; readOnly overrides to deny-all-non-limn.
-    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4c', message: 'go', opId: 'op4c', executionMode: 'full', readOnly: true })
-    const events = await drain(run.events)
-    expect(events.some((e) => e.type === 'approval_request')).toBe(false) // never parked
-    const { value } = await run.result
-    expect(value).toBe('refused') // reject branch taken
-    const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
-    expect((outcome?.outcome as { optionId?: string })?.optionId).toBe('reject')
-  })
-
   it('4g. a deny picks reject_always when the adapter offers no reject_once — never the leading allow', async () => {
     // Adapters list their allow options FIRST, so a positional fallback would turn a
     // deny into an allow on any adapter that spells rejection `reject_always`.
@@ -273,8 +254,8 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
         rejectedText: 'refused'
       }]
     })
-    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4g', message: 'go', opId: 'op4g', executionMode: 'full', readOnly: true })
-    await drain(run.events)
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4g', message: 'go', opId: 'op4g', executionMode: 'ask' })
+    for await (const e of run.events) if (e.type === 'approval_request') resolveDecision('op4g', e.request.id, 'deny')
     const { value } = await run.result
     expect(value).toBe('refused') // reject branch taken
     const outcome = readRecords().find((r) => r.event === 'permissionOutcome')
@@ -296,8 +277,8 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
         rejectedText: 'refused'
       }]
     })
-    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4h', message: 'go', opId: 'op4h', executionMode: 'full', readOnly: true })
-    await drain(run.events)
+    const run = engine.chat({ repo: '/r', engineSessionId: 'ch-4h', message: 'go', opId: 'op4h', executionMode: 'ask' })
+    for await (const e of run.events) if (e.type === 'approval_request') resolveDecision('op4h', e.request.id, 'deny')
     // the fake stops the turn on a cancelled outcome → the engine's quiet cancel settle
     await expect(run.result).rejects.toBeInstanceOf(CancelledError)
     const outcome = readRecords().find((r) => r.event === 'permissionOutcome')

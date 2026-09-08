@@ -80,14 +80,15 @@ describe('SubmittedCommentRefs — comments the re-anchor pass could not place',
 // the pure decision behind the textarea/button wiring and the queued chip.
 describe('composerMode — send / queue / blocked', () => {
   const op = (threadId: number, over: Partial<OpState> = {}): OpState =>
-    ({ running: true, opId: `op-${threadId}`, kind: 'chat', threadId, log: [], error: null, startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(), exclusive: true, ...over }) as OpState
+    ({ running: true, opId: `op-${threadId}`, kind: 'chat', threadId, log: [], error: null, startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(), exclusive: true, queued: null, ...over }) as OpState
   const ops = (...list: OpState[]): Record<string, OpState> =>
     Object.fromEntries(list.map((o) => [o.opId as string, o]))
 
   it('sends on an idle thread with the branch checked out', () => {
     expect(composerMode({}, 1, false)).toBe('send')
-    // an exclusive generation elsewhere still leaves the shared lane → a read-only send
+    // a turn elsewhere just means this one queues behind it server-side → still a send
     expect(composerMode(ops(op(2)), 1, false)).toBe('send')
+    expect(composerMode(ops(op(2), op(3, { queued: { position: 1, behind: 'Chat' } })), 1, false)).toBe('send')
   })
 
   it('queues while THIS thread is mid-turn', () => {
@@ -96,12 +97,9 @@ describe('composerMode — send / queue / blocked', () => {
     expect(composerMode(ops(op(1)), 1, true)).toBe('blocked')
   })
 
-  it('blocks with no thread, under the checkout gate, or when the lanes are full', () => {
+  it('blocks with no thread or under the checkout gate', () => {
     expect(composerMode({}, null, false)).toBe('blocked')
     expect(composerMode({}, 1, true)).toBe('blocked')
-    // exclusive lane taken by thread 2 + the single shared lane taken by thread 3:
-    // this idle thread has nowhere to run — and nothing of its own to queue behind.
-    expect(composerMode(ops(op(2), op(3, { exclusive: false })), 1, false)).toBe('blocked')
   })
 })
 

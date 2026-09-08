@@ -157,4 +157,21 @@ describe('LiveOpRegistry', () => {
     reg.forSession(1, (opId, requestId) => { seen.push([opId, requestId]); return true })
     expect(seen).toEqual([['op-1', 'req-1']])
   })
+
+  it('carries the label and the queue place into the snapshot, and clears the place when the op takes the lane', () => {
+    const reg = new LiveOpRegistry()
+    reg.start({ opId: 'op-1', sessionId: 1, kind: 'chat', threadId: 2, exclusive: true, label: 'Simplify' })
+    expect(reg.forSession(1, nonePending)[0]).toMatchObject({ label: 'Simplify' })
+    expect(reg.forSession(1, nonePending)[0].queued).toBeUndefined()
+    reg.setQueue('op-1', 2, 'Generating the review')
+    expect(reg.forSession(1, nonePending)[0].queued).toEqual({ position: 2, behind: 'Generating the review' })
+    expect(reg.get('op-1')).toMatchObject({ label: 'Simplify', position: 2 })
+    reg.setQueue('op-1', null, null)
+    expect(reg.forSession(1, nonePending)[0].queued).toBeUndefined()
+    reg.setQueue('ghost', 1, 'x') // no-op
+    expect(reg.get('ghost')).toBeNull()
+    // an unlabelled start falls back to the op id
+    reg.start({ opId: 'op-2', sessionId: 1, kind: 'review', threadId: null, exclusive: true })
+    expect(reg.forSession(1, nonePending).find((s) => s.opId === 'op-2')!.label).toBe('op-2')
+  })
 })

@@ -90,7 +90,7 @@ describe('materialize persist chain', () => {
     loadSession.mockResolvedValueOnce({
       ...abandonedShell,
       state: { ...abandonedShell.state, loadWarnings: ['a blob of the abandoned review'] },
-      activeOps: [{ opId: 'op-abandoned', kind: 'chat', threadId: 7, exclusive: false, startedAt: new Date().toISOString(), events: [], nextSeq: 0 }]
+      activeOps: [{ opId: 'op-abandoned', kind: 'chat', threadId: 7, exclusive: false, label: 'Chat', startedAt: new Date().toISOString(), events: [], nextSeq: 0 }]
     } as unknown as LoadedReview)
     release({ sessionId: 42 })
     // the caller still gets the id it needs to persist its write…

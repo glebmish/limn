@@ -102,23 +102,26 @@ describe('sendRebase — the agent rebase turn (merge §6)', () => {
     expect(h.results.find((r) => r.opId === 'op-r2')!.status).toBe('succeeded')
   })
 
-  it('fails fast while another op holds the exclusive lane (S11 — no queueing)', async () => {
+  it('waits its turn while another op holds the lane, then rebases (one task queue per repo)', async () => {
     const h = await setup()
-    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'Holder' }).id
     const t = createChatThread(h.db, h.sessionId, { kind: 'review', agent }).id
     const holding = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-1')
     await waitForHold(h, 'op-1')
 
-    await h.handlers.get('sendRebase')!(t, 'op-r')
-    const res = h.results.find((r) => r.opId === 'op-r')!
-    expect(res.status).toBe('failed')
-    expect(res.error).toContain('Another agent operation is running')
-    // the lane refused before any work — no user turn was persisted
+    const rebasing = h.handlers.get('sendRebase')!(t, 'op-r')
+    await new Promise((r) => setTimeout(r, 30))
+    // queued behind the holder: announced, not refused, and no turn persisted yet
+    expect(h.results.some((r) => r.opId === 'op-r')).toBe(false)
+    expect(h.events.filter((e) => e.opId === 'op-r').map((e) => e.event)).toContainEqual({ type: 'lane', state: 'queued', position: 1, behind: 'Holder' })
     expect(getChatThread(h.db, t)!.messages.filter((m) => m.role === 'user')).toHaveLength(0)
 
     releaseFakeHolds()
     await holding
+    await rebasing
     expect(h.results.find((r) => r.opId === 'op-1')!.status).toBe('succeeded')
+    expect(h.results.find((r) => r.opId === 'op-r')!.status).toBe('succeeded')
+    expect(getChatThread(h.db, t)!.messages.map((m) => m.role)).toEqual(['user', 'agent'])
   })
 
   it('a second send into the same thread mid-turn fails fast (per-thread guard)', async () => {

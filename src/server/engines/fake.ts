@@ -298,7 +298,7 @@ export class FakeEngine implements ReviewEngine {
       if (turn.message.includes('[hold]')) {
         // park holding this turn's lane until releaseFakeHolds() fires (concurrency
         // tests) — or cancel releases it directly, so Stop always ends the op.
-        q.push({ type: 'status', text: turn.readOnly ? 'holding (read-only)…' : 'holding…' })
+        q.push({ type: 'status', text: 'holding…' })
         await new Promise<void>((resolve) => {
           releaseChatHold = resolve
           fakeHoldResolvers.push(resolve)

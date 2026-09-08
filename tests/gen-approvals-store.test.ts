@@ -18,6 +18,7 @@ const gen = (over: Partial<GenState> = {}): GenState => ({
   running: true, opId: 'op1', kind: 'chat', threadId: 1, log: [], error: null,
   startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set<string>(),
   exclusive: false,
+  queued: null,
   ...over,
 })
 

@@ -6,26 +6,10 @@ export type OperationOutcome<T> =
   | { status: 'succeeded'; value: T }
   | { status: Exclude<OperationStatus, 'succeeded'>; error: unknown }
 
-/** Two lanes per repo (spec: concurrent-chat). `exclusive` = generate / batch / any
- *  write-capable turn (at most one, exactly today's lock). `shared` = a chat turn
- *  forced read-only, allowed to coexist with an exclusive op (at most one). */
-export type Lane = 'exclusive' | 'shared'
-
-export class RepoBusyError extends Error {
-  readonly lane: Lane
-  constructor(lane: Lane = 'exclusive') {
-    super(lane === 'shared'
-      ? 'Another chat turn is already running for this repository'
-      : 'Another agent operation is running for this repository')
-    this.name = 'RepoBusyError'
-    this.lane = lane
-  }
-}
-
 /** A send targeted a chat thread that already has a turn in flight (a second client —
  *  web serve / second window — racing the first). Rejected fast, per thread, so two
  *  turns can never interleave persisted messages or race the thread's engine-session
- *  binding. Distinct from RepoBusyError: no shared-lane retry applies. */
+ *  binding. */
 export class ThreadBusyError extends Error {
   constructor() {
     super('A turn is already running in this chat — wait for it to finish')
@@ -33,37 +17,57 @@ export class ThreadBusyError extends Error {
   }
 }
 
-interface RepoLanes { exclusive?: string; shared?: string }
+/** A task's public identity while it holds the lane or waits for it. */
+export interface QueuedOp { opId: string; label: string }
 
 interface ActiveOperation {
   repo: string
   cancel?: () => void
 }
 
-/** Owns operation locking, pre-start cancellation, engine cancellation, and cleanup. */
+interface Waiter extends QueuedOp {
+  /** resolves true when the lane is granted, false when cancelled while waiting */
+  grant: (ok: boolean) => void
+}
+
+/** Owns the per-repo task queue, pre-start cancellation, engine cancellation, and
+ *  cleanup. ONE lane per repo (design board 14 v3, "a single queue of tasks"): a
+ *  generation, an action run, a chat turn, a batch, a merge — every agent-shaped
+ *  task takes the repo in the order it was asked for, and the ones behind it wait
+ *  visibly (`queued`/`holder` feed the run bar and the Chat pill) instead of being
+ *  refused or coerced read-only. */
 export class OperationCoordinator {
   private active = new Map<string, ActiveOperation>()
-  private repoOwners = new Map<string, RepoLanes>()
+  private holders = new Map<string, QueuedOp>()
+  private queues = new Map<string, Waiter[]>()
+  private listeners = new Set<(repo: string) => void>()
   private cancelled = new Set<string>()
   private reviewThreads = new Set<number>()
 
-  /** True only while the EXCLUSIVE lane is held — the watcher-suppression and
-   *  write-guard meaning. A read-only shared chat turn does not mark the repo busy. */
+  /** True while some task holds the repo's lane — the watcher-suppression and
+   *  write-guard meaning. A waiting task does not mark the repo busy. */
   repoBusy(repo: string): boolean {
-    return this.repoOwners.get(repo)?.exclusive !== undefined
+    return this.holders.has(repo)
   }
 
-  private lanesFor(repo: string): RepoLanes {
-    let lanes = this.repoOwners.get(repo)
-    if (!lanes) { lanes = {}; this.repoOwners.set(repo, lanes) }
-    return lanes
+  /** The task holding the lane right now, if any. */
+  holder(repo: string): QueuedOp | null {
+    return this.holders.get(repo) ?? null
   }
 
-  private releaseLane(repo: string, lane: Lane): void {
-    const lanes = this.repoOwners.get(repo)
-    if (!lanes) return
-    delete lanes[lane]
-    if (lanes.exclusive === undefined && lanes.shared === undefined) this.repoOwners.delete(repo)
+  /** The tasks waiting for the lane, first in line first. */
+  queued(repo: string): QueuedOp[] {
+    return (this.queues.get(repo) ?? []).map(({ opId, label }) => ({ opId, label }))
+  }
+
+  /** Fires after every change to a repo's holder or queue. Returns the unsubscribe. */
+  onQueueChange(cb: (repo: string) => void): () => void {
+    this.listeners.add(cb)
+    return () => { this.listeners.delete(cb) }
+  }
+
+  private notify(repo: string): void {
+    for (const cb of this.listeners) cb(repo)
   }
 
   markReviewThread(threadId: number): void {
@@ -89,28 +93,49 @@ export class OperationCoordinator {
     if (this.cancelled.has(opId)) cancel()
   }
 
+  /** Cancel a task wherever it is: still waiting (it leaves the queue and settles
+   *  `cancelled` without running), running (its engine cancel fires), or not started
+   *  yet (it settles `cancelled` the moment `run` is called). */
   cancel(opId: string): void {
     this.cancelled.add(opId)
+    for (const [repo, waiters] of this.queues) {
+      const i = waiters.findIndex((w) => w.opId === opId)
+      if (i === -1) continue
+      const [w] = waiters.splice(i, 1)
+      if (waiters.length === 0) this.queues.delete(repo)
+      w.grant(false)
+      this.notify(repo)
+    }
     this.active.get(opId)?.cancel?.()
     clearPending(opId)
   }
 
-  /** Exclusive lane: fails iff another exclusive op holds the repo. A running shared
-   *  (read-only) op does not block it — there is no working-tree conflict (OQ3). */
-  async run<T>(opId: string, repo: string, work: () => Promise<T>): Promise<OperationOutcome<T>> {
-    return this.runLane('exclusive', opId, repo, work)
-  }
-
-  /** Shared lane: a read-only chat turn that may coexist with an exclusive op.
-   *  Fails iff another shared op already holds the repo (cap: one). */
-  async runShared<T>(opId: string, repo: string, work: () => Promise<T>): Promise<OperationOutcome<T>> {
-    return this.runLane('shared', opId, repo, work)
-  }
-
-  private async runLane<T>(lane: Lane, opId: string, repo: string, work: () => Promise<T>): Promise<OperationOutcome<T>> {
-    const lanes = this.lanesFor(repo)
-    if (lanes[lane] !== undefined) return { status: 'failed', error: new RepoBusyError(lane) }
-    lanes[lane] = opId
+  /** Take the repo's lane — waiting in line if another task holds it — run `work`,
+   *  and hand the lane to the next in line. `label` is what the tasks behind this one
+   *  are told they are waiting for. */
+  async run<T>(opId: string, repo: string, work: () => Promise<T>, meta: { label?: string } = {}): Promise<OperationOutcome<T>> {
+    const label = meta.label ?? opId
+    if (this.cancelled.has(opId)) {
+      this.cancelled.delete(opId)
+      clearPending(opId)
+      return { status: 'cancelled', error: new DOMException('cancelled', 'AbortError') }
+    }
+    if (this.holders.has(repo)) {
+      const granted = await new Promise<boolean>((grant) => {
+        const waiters = this.queues.get(repo) ?? []
+        waiters.push({ opId, label, grant })
+        this.queues.set(repo, waiters)
+        this.notify(repo)
+      })
+      if (!granted) {
+        this.cancelled.delete(opId)
+        clearPending(opId)
+        return { status: 'cancelled', error: new DOMException('cancelled', 'AbortError') }
+      }
+    } else {
+      this.holders.set(repo, { opId, label })
+      this.notify(repo)
+    }
     this.active.set(opId, { repo })
     try {
       this.throwIfCancelled(opId)
@@ -118,10 +143,26 @@ export class OperationCoordinator {
     } catch (error) {
       return { status: this.cancelled.has(opId) || isCancellation(error) ? 'cancelled' : 'failed', error }
     } finally {
-      this.releaseLane(repo, lane)
       this.active.delete(opId)
       this.cancelled.delete(opId)
       clearPending(opId)
+      this.release(repo)
+    }
+  }
+
+  /** Hand the lane to the first waiter, or free it. The waiter becomes the holder
+   *  BEFORE its promise resumes, so no gap exists in which the lane reads as free. */
+  private release(repo: string): void {
+    const waiters = this.queues.get(repo)
+    const next = waiters?.shift()
+    if (waiters && waiters.length === 0) this.queues.delete(repo)
+    if (next) {
+      this.holders.set(repo, { opId: next.opId, label: next.label })
+      this.notify(repo)
+      next.grant(true)
+    } else {
+      this.holders.delete(repo)
+      this.notify(repo)
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ladderPolicy, readOnlyLadder, generationLadder, isLimnTool } from '../src/shared/approvalPolicy.js'
+import { ladderPolicy, generationLadder, isLimnTool } from '../src/shared/approvalPolicy.js'
 import type { ApprovalRequest, ExecutionMode } from '../src/shared/types.js'
 
 function req(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
@@ -12,20 +12,6 @@ function req(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
     ...overrides,
   }
 }
-
-describe('readOnlyLadder (shared-lane read-only turn)', () => {
-  it('allows Limn tools', () => {
-    expect(readOnlyLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp__limn__focus' } }))).toBe('allow')
-  })
-  it('denies (never asks) a command regardless of content', () => {
-    expect(readOnlyLadder(req({ kind: 'command', detail: { command: 'ls' } }))).toBe('deny')
-    expect(readOnlyLadder(req({ kind: 'command', detail: { command: 'rm -rf /' } }))).toBe('deny')
-  })
-  it('denies file_change and non-Limn tool_use', () => {
-    expect(readOnlyLadder(req({ kind: 'file_change', detail: {} }))).toBe('deny')
-    expect(readOnlyLadder(req({ kind: 'tool_use', detail: { toolName: 'Bash' } }))).toBe('deny')
-  })
-})
 
 describe('generationLadder (structured generation turn)', () => {
   it('allows Limn tools', () => {
@@ -71,7 +57,6 @@ describe('isLimnTool', () => {
   it('a look-alike server name is parked on the reviewer, not auto-allowed', () => {
     const r = req({ kind: 'tool_use', detail: { toolName: 'limn-writer' } })
     expect(ladderPolicy('ask', r, true)).toBe('ask')
-    expect(readOnlyLadder(r)).toBe('deny')
     expect(generationLadder(r)).toBe('deny')
   })
   it('rejects non-limn tool names', () => {

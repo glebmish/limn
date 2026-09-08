@@ -91,12 +91,12 @@ describe('flushQueuedTurn (the turn ended)', () => {
     })
   }
 
-  it('leaves the text queued when the lane is full (another chat is still running)', () => {
+  it('flushes even while other turns run elsewhere — the send queues behind them server-side', () => {
     useStore.getState().queueTurn(1, 'later')
-    useStore.setState({ ops: { ...runningOp(2, true), ...runningOp(3, false) } as never })
+    useStore.setState({ ops: { ...runningOp(2, true), ...runningOp(3, true) } as never })
     useStore.getState().flushQueuedTurn(1, 'succeeded')
-    expect(sendChat).not.toHaveBeenCalled()
-    expect(queuedOf(1)).toBe('later')
+    expect(sendChat).toHaveBeenCalledTimes(1)
+    expect(queuedOf(1)).toBeUndefined()
   })
 
   it('is a no-op for a thread with nothing queued', () => {

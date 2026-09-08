@@ -42,9 +42,8 @@ export {
   reviewOp,
   anyExclusiveRunning,
   anyRunning,
-  anySharedRunning,
+  queuedOps,
   chatSendBlocked,
-  willRunReadOnly,
   pendingApprovals,
   activeChat,
   chatsWithDraft

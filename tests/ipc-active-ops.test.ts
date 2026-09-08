@@ -162,32 +162,36 @@ describe('loadSession — activeOps', () => {
 })
 
 describe('loadSession — activeOps for chat turns', () => {
-  it('reports each chat turn with its thread and the lane main actually chose', async () => {
+  it('reports each chat turn with its thread, its label, and its place in the repo queue', async () => {
     const h = await setup()
-    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
-    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent }).id
+    const held = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'Holder' }).id
+    const asker = createChatThread(h.db, h.sessionId, { kind: 'user', agent, title: 'Waiter' }).id
 
-    // op-excl takes the exclusive lane (repo idle) and parks holding it.
-    const first = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-excl')
-    await waitForHold(h, 'op-excl')
-    // op-shared, fired while the exclusive lane is held, is coerced read-only onto the
-    // shared lane — recorder.exclusive = false, which must reach the snapshot.
-    const second = h.handlers.get('sendChat')!(asker, '[hold] me too', 'op-shared')
-    await waitForHold(h, 'op-shared')
+    // op-first takes the lane (repo idle) and parks holding it.
+    const first = h.handlers.get('sendChat')!(held, '[hold] keep the repo busy', 'op-first')
+    await waitForHold(h, 'op-first')
+    // op-second, fired while the lane is held, waits in the queue — the snapshot must
+    // say so, with the same place the live lane event announced.
+    const second = h.handlers.get('sendChat')!(asker, '[hold] me too', 'op-second')
+    await new Promise((r) => setTimeout(r, 30))
 
     const loaded = await h.handlers.get('loadSession')!(h.sessionId) as LoadedReview
-    expect(loaded.activeOps.map((o) => o.opId).sort()).toEqual(['op-excl', 'op-shared'])
-    expect(loaded.activeOps.find((o) => o.opId === 'op-excl')).toMatchObject({
-      kind: 'chat', threadId: held, exclusive: true
+    expect(loaded.activeOps.map((o) => o.opId).sort()).toEqual(['op-first', 'op-second'])
+    expect(loaded.activeOps.find((o) => o.opId === 'op-first')).toMatchObject({
+      kind: 'chat', threadId: held, exclusive: true, label: 'Holder'
     })
-    expect(loaded.activeOps.find((o) => o.opId === 'op-shared')).toMatchObject({
-      kind: 'chat', threadId: asker, exclusive: false
+    expect(loaded.activeOps.find((o) => o.opId === 'op-second')).toMatchObject({
+      kind: 'chat', threadId: asker, exclusive: true, label: 'Waiter', queued: { position: 1, behind: 'Holder' }
     })
-    // the same lane the coerced turn's own event envelopes announce (recorder.exclusive)
-    expect(h.events.filter((e) => e.opId === 'op-shared').map((e) => e.exclusive)).not.toContain(true)
 
     releaseFakeHolds()
-    await Promise.all([first, second])
+    await first
+    await waitForHold(h, 'op-second')
+    // once it holds the lane the snapshot drops the queue mark
+    const later = await h.handlers.get('loadSession')!(h.sessionId) as LoadedReview
+    expect(later.activeOps.find((o) => o.opId === 'op-second')!.queued).toBeUndefined()
+    releaseFakeHolds()
+    await second
     expect((await h.handlers.get('loadSession')!(h.sessionId) as LoadedReview).activeOps).toEqual([])
   })
 

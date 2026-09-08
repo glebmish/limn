@@ -25,6 +25,7 @@ const snap = (over: Partial<ActiveOpSnapshot> & { opId: string }): ActiveOpSnaps
   kind: 'chat',
   threadId: 7,
   exclusive: false,
+  label: 'Chat',
   startedAt: new Date(1_700_000_000_000).toISOString(),
   events: [],
   nextSeq: 0,

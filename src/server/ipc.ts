@@ -26,7 +26,7 @@ import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.
 import { resolveStampTree, stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
-import { createToolHost, SHARED_LANE_TOOL_NAMES } from './engines/tools.js'
+import { createToolHost } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { isPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
@@ -39,7 +39,7 @@ import { spliceScopedUpdate, SpliceError } from './engines/splice.js'
 import type { ScopedReviewPatch } from './engines/schema.js'
 import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './engines/binaries.js'
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
-import { OperationCoordinator, RepoBusyError, ThreadBusyError, type OperationOutcome } from './operations.js'
+import { OperationCoordinator, ThreadBusyError, type OperationOutcome } from './operations.js'
 import { LiveOpRegistry } from './liveOps.js'
 import { EngineSessionLostError, isCancellation } from './engines/errors.js'
 import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../shared/prefs.js'
@@ -416,6 +416,37 @@ async function pumpEvents(events: AsyncIterable<EngineEvent>, emit: (event: Engi
  *  the outcome afterwards. NOT used by sendChat: that turn has no capability
  *  precheck, resolves its workdir differently, and can be re-run read-only on the
  *  shared lane. */
+/** What a thread's turn is called in the repo's task queue — the action for an
+ *  action thread, else the thread's title, else a generic "Chat". */
+function threadLabel(thread: ChatThread): string {
+  return thread.action?.name ?? thread.title ?? (thread.kind === 'review' ? 'Review chat' : 'Chat')
+}
+
+/** Announce the repo's queue state to every waiting op (design board 14 R2/R3): a
+ *  `lane` event with the op's 1-based place and the label of the task holding the
+ *  lane, then `running` the moment it takes over. Mirrored into liveOps so a
+ *  (re)joining tab's snapshot says the same. */
+function broadcastQueue(repo: string): void {
+  const holder = operations.holder(repo)
+  operations.queued(repo).forEach((q, i) => {
+    const live = liveOps.get(q.opId)
+    if (!live) return
+    const position = i + 1
+    const behind = holder?.label ?? ''
+    if (live.position === position) return
+    liveOps.setQueue(q.opId, position, behind)
+    emitOpEvent(q.opId, { type: 'lane', state: 'queued', position, behind }, true)
+  })
+  if (holder) {
+    const live = liveOps.get(holder.opId)
+    if (live && live.position != null) {
+      liveOps.setQueue(holder.opId, null, null)
+      emitOpEvent(holder.opId, { type: 'lane', state: 'running' }, true)
+    }
+  }
+}
+operations.onQueueChange(broadcastQueue)
+
 async function runThreadTurn(opts: {
   db: DatabaseSync
   thread: ChatThread
@@ -746,7 +777,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const repo = session.repo
       // register before the lane is taken: a generation always holds the exclusive lane,
       // and its events must be recorded from the very first one.
-      liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true })
+      const genLabel = update ? 'Updating the review' : 'Generating the review'
+      liveOps.start({ opId, sessionId, kind: 'review', threadId: reviewThreadId, exclusive: true, label: genLabel })
       // from here on the op is registered: ALWAYS retire it, even if a post-outcome
       // DB write throws — a stranded entry would show as a phantom running op in
       // every tab's loadSession forever (end is idempotent).
@@ -1005,7 +1037,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
           }
         })
         return { sections: annotations.sections.length, scope, agentTurnText }
-      })
+      }, { label: genLabel })
 
       if (outcome.status === 'succeeded') {
         sendOpResult(opId, 'review', 'succeeded', undefined, true, undefined, true)
@@ -1091,24 +1123,16 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // hoisted above doTurn so the second (shared-lane retry) invocation reuses it and
     // the persisted ChatMessage folds in every event either attempt streamed.
     const recorder = opRecorder(opId)
-    // A read-only turn runs on the SHARED lane, alongside a generation/batch holding
-    // the exclusive lane. `readOnly` forces the engine read-only regardless of tier.
-    const doTurn = async (readOnly: boolean): Promise<void> => {
-      recorder.exclusive = !readOnly // announce the lane main actually chose (OQ7)
-      // leading status so the stream (and persisted history) explains the coercion.
-      if (readOnly) recorder.emit({ type: 'status', text: 'Read-only turn — a review is generating' })
+    recorder.exclusive = true // one lane per repo: every turn takes it, in queue order
+    const doTurn = async (): Promise<void> => {
       const workdir = await resolveWorkdir(repo, session.pair)
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
       // on code in interactive chat); actions emit straight to the renderer.
-      // On the shared lane the annotation-rewriting tools are withheld: another op
-      // holds the repo exclusively, and a generation among them persists the
-      // annotations it snapshotted before this turn — an edit made here would vanish.
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        emit: recorder.emit,
-        ...(readOnly ? { allowedTools: SHARED_LANE_TOOL_NAMES } : {})
+        emit: recorder.emit
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
@@ -1130,14 +1154,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // re-read per permission request: moving the mode selector mid-turn takes
         // effect from the next approval on (the row is the live source of truth).
         currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode,
-        readOnly,
         context: thread.engineSessionId
           ? undefined
           : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
       })
-      // persist the user turn up front so a failed/cancelled run doesn't silently
-      // drop what the reviewer typed (mirrors the generate path).
-      dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
       operations.registerCancel(opId, run.cancel)
       const pump = pumpEvents(run.events, recorder.emit)
       const { value, sessionId: engineSession } = await run.result
@@ -1162,23 +1182,17 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // `finally` retires the op whatever happens after the outcome (a post-outcome DB
     // write can throw); `end` is idempotent and a no-op for a never-registered op.
     try {
-      const outcome = await withBusyThread(threadId, async () => {
+      const outcome = await withBusyThread(threadId, () => {
         // registered only once the per-thread guard is OURS — a ThreadBusy rejection
-        // must never publish a second live op on this thread. The lane here is main's
-        // current best guess; doTurn's `recorder.exclusive` corrects it (setLane) the
-        // moment the lane is actually chosen.
-        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: !operations.repoBusy(repo) })
-        // Lane choice: if a generation/batch holds the exclusive lane, run the chat on the
-        // shared lane forced read-only; otherwise take the exclusive lane at full tier.
-        // TOCTOU: if a generation starts between the repoBusy check and `run` acquiring the
-        // lane, `run` returns RepoBusyError — retry once on the shared lane (spec §2).
-        const first = operations.repoBusy(repo)
-          ? await operations.runShared(opId, repo, () => doTurn(true))
-          : await operations.run(opId, repo, () => doTurn(false))
-        if (first.status === 'failed' && first.error instanceof RepoBusyError && first.error.lane === 'exclusive') {
-          return operations.runShared(opId, repo, () => doTurn(true))
-        }
-        return first
+        // must never publish a second live op on this thread.
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true, label: threadLabel(thread) })
+        // persist the user turn up front — BEFORE the queue wait — so a failed /
+        // cancelled run doesn't silently drop what the reviewer typed, the thread shows
+        // the turn while it waits its place, and a loadSession's empty-chat prune
+        // can't delete the thread out from under a queued turn.
+        dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
+        // the repo's single task queue: waits its turn behind whatever holds the lane
+        return operations.run(opId, repo, doTurn, { label: threadLabel(thread) })
       })
       if (outcome.status === 'succeeded') {
         sendOpResult(opId, 'chat', 'succeeded', undefined, undefined, undefined, recorder.exclusive)
@@ -1247,7 +1261,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const outcome = await withBusyThread(threadId, () => {
         // registered only once the guard is ours — a ThreadBusy rejection must never
         // publish a second live op on this thread.
-        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true, label: 'Sending comments' })
         return operations.run(opId, repo, async () => {
           // A refine turn (answering an intent question) stays read-only.
           await runThreadTurn({
@@ -1278,7 +1292,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
             if (sentIds.includes(c.id) && c.status === 'sent') { c.status = 'queued'; dao.upsertComment(db, sid, c) }
           }
           return after.comments.filter((c) => commentIds.includes(c.id) && c.status === 'resolved').length
-        })
+        }, { label: 'Sending comments' })
       })
       if (outcome.status === 'succeeded') {
         sendOpResult(opId, 'chat', 'succeeded', undefined, true, undefined, true)
@@ -1317,7 +1331,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const outcome = await withBusyThread(threadId, () => {
         // registered only once the guard is ours — a ThreadBusy rejection must never
         // publish a second live op on this thread.
-        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true })
+        liveOps.start({ opId, sessionId: sid, kind: 'chat', threadId, exclusive: true, label: 'Rebase' })
         // Same envelope as sendBatch, always write-enabled: the agent can only rebase
         // where it can write — the compare branch checked out somewhere with a clean
         // tree (spec §6 / branch-dirty gate) — and with none of the comment bookkeeping.
@@ -1332,7 +1346,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
             })
             return buildRebasePrompt(state.base, state.branch, conflictFiles)
           }
-        }))
+        }), { label: 'Rebase' })
       })
       if (outcome.status === 'succeeded') {
         // reload:true — the rebase rewrote the branch under the review; folding it in
@@ -1399,14 +1413,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('mergeExecute', async (sessionId: number, req: MergeExecuteRequest) => {
     const session = mustGetSession(db, sessionId)
-    // exclusive lane, same as generate/batch (S11): cannot interleave with an agent
-    // iteration; the watcher's poll skips while it holds the lane. A busy lane
-    // rejects with RepoBusyError — the renderer's CTA is already disabled while
-    // anyExclusiveRunning, so that rejection is the backstop, not the UX.
-    // Internal opId: the merge is fast + native, a plain request/response call —
-    // no renderer OpState, no streamed events (spec §4).
+    // the repo's task queue, same as generate/batch (S11): cannot interleave with an
+    // agent iteration; the watcher's poll skips while it holds the lane. The
+    // renderer's CTA is already disabled while anything runs, so waiting in line is
+    // the backstop, not the UX. Internal opId: the merge is fast + native, a plain
+    // request/response call — no renderer OpState, no streamed events (spec §4).
     const opId = `merge-${sessionId}-${Date.now()}`
-    const outcome = await operations.run(opId, session.repo, () => executeMerge(db, sessionId, req))
+    const outcome = await operations.run(opId, session.repo, () => executeMerge(db, sessionId, req), { label: 'Merge' })
     if (outcome.status !== 'succeeded') throw outcome.error
     if (outcome.value.status === 'merged') {
       // settle: the session is a terminal record — nothing left to drift against.
@@ -1528,14 +1541,14 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       if (applied.note) notes.push(applied.note)
     }
 
-    // An agent iteration already holds the repo's exclusive lane: this open cannot
-    // generate, so it must not mint anything either — `--new` on a busy repo would
-    // otherwise leave an empty session nobody ever generates into. Read the lane ONCE,
-    // up front, so the fresh decision and the kick decision can't disagree.
-    // TOCTOU: if a generation starts between this check and `run` acquiring the lane,
-    // `run` returns RepoBusyError and the pass fails after beginReviewFor persisted its
-    // user turn — accepted: two kicks racing inside one tick is unreachable from a
-    // human at a terminal, and the failed turn is visible in the review thread.
+    // An agent iteration already holds the repo's lane: this open does not kick a
+    // second generation behind it (the CLI's contract is "open the review that is
+    // being generated"), so it must not mint anything either — `--new` on a busy repo
+    // would otherwise leave an empty session nobody ever generates into. Read the lane
+    // ONCE, up front, so the fresh decision and the kick decision can't disagree.
+    // TOCTOU: a generation starting between this check and `run` taking the lane just
+    // queues this pass behind it — accepted: two kicks racing inside one tick is
+    // unreachable from a human at a terminal.
     const busy = operations.repoBusy(repo)
     const { sessionId } = await startSessionFor(repo, baseInput, compareInput, agent, fresh && !busy)
     // everything that can refuse this generation outright (no such session, a merged

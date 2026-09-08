@@ -57,7 +57,7 @@ export function fakeGenState(): GenState {
     tool('b1', 'bash', 'npm test -- limiter', 'run'),
     tool('r5', 'read', 'src/queue.ts', 'run'),
   ]
-  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true }
+  return { running: true, opId: 'dev-fake', kind: 'review', threadId: null, log, error: null, startedAt: Date.now() - 48000, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, queued: null }
 }
 
 /** The dev/screenshot one-shot effects that used to live inline in Review: the scripted

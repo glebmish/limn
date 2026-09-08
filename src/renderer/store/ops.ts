@@ -14,7 +14,7 @@ export function newOpId(): string {
 }
 
 /** A neutral op state — the effective op for a thread/review that owns no in-flight op. */
-export const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: false }
+export const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: false, queued: null }
 
 /** The op-surface state every review entry point drops before showing another review:
  *  a previous session's running/errored op must not bleed its strip, its error banner,
@@ -49,12 +49,11 @@ function appendCapped(log: EngineEvent[], ev: EngineEvent, answered: Set<string>
  *  Actions take an explicit opId so two live streams never cross-contaminate. */
 export interface OpsSlice {
   ops: Record<string, OpState>
-  /** start an op. `exclusive` defaults to a PREDICTION — whether the exclusive lane is
-   *  currently free (a chat started on an idle repo takes the exclusive lane; one
-   *  started under a running exclusive op is the shared read-only lane). Main
-   *  announces the lane it actually chose on every op:event / op:result envelope,
-   *  and `setOpLane` applies the correction. Evicts any prior FINISHED op on
-   *  `threadId`; a still-running one is kept so its stream/result keep landing. */
+  /** start an op. Every op takes the repo's single lane (queueing server-side when
+   *  another holds it), so `exclusive` defaults to true; main still announces the
+   *  lane on every op:event / op:result envelope and `setOpLane` applies it. Evicts
+   *  any prior FINISHED op on `threadId`; a still-running one is kept so its
+   *  stream/result keep landing. */
   startOp(kind: 'review' | 'chat', opId: string, threadId?: number, exclusive?: boolean): void
   /** Rejoin the ops a load snapshot reports as still running (another tab's turn, or
    *  a CLI-kicked generation). Registers only ops this tab does NOT already know —
@@ -79,7 +78,7 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
   ops: {},
 
   startOp(kind, opId, threadId, exclusive) {
-    const isExclusive = exclusive ?? !anyExclusiveRunning(get().ops)
+    const isExclusive = exclusive ?? true
     // per-thread cleanup: drop any prior FINISHED op streaming into this thread. A
     // still-RUNNING op must survive — evicting it would freeze its stream and strand its
     // terminal result (the bridge only parks unknown opIds, and nothing re-adopts an op
@@ -88,7 +87,7 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     // it. Per-thread selectors (opForThread) prefer the running op to disambiguate.
     const next: Record<string, OpState> = {}
     for (const [id, op] of Object.entries(get().ops)) if (op.running || op.threadId !== (threadId ?? null)) next[id] = op
-    next[opId] = { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: isExclusive }
+    next[opId] = { running: true, opId, kind, threadId: threadId ?? null, log: [], error: null, startedAt: Date.now(), outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: isExclusive, queued: null }
     set({ ops: next })
   },
 
@@ -107,7 +106,7 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
       let log: EngineEvent[] = []
       for (const ev of s.events) log = appendCapped(log, ev, op.answeredApprovals)
       const startedAt = Date.parse(s.startedAt)
-      set({ ops: { ...get().ops, [s.opId]: { ...op, log, nextSeq: s.nextSeq, startedAt: Number.isNaN(startedAt) ? op.startedAt : startedAt } } })
+      set({ ops: { ...get().ops, [s.opId]: { ...op, log, nextSeq: s.nextSeq, startedAt: Number.isNaN(startedAt) ? op.startedAt : startedAt, queued: s.queued ?? null } } })
       // now that the op exists, replay whatever raced ahead of this load
       drainOrphans(s.opId)
     }
@@ -121,7 +120,9 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     // exceed the window (carried approvals), so `nextSeq` is the only safe watermark.
     if (seq !== undefined && op.nextSeq !== undefined && seq < op.nextSeq) return
     const nextSeq = seq !== undefined ? seq + 1 : op.nextSeq
-    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals), nextSeq } } })
+    // a lane event moves the op between "waiting in the queue" and "holding the lane"
+    const queued = ev.type === 'lane' ? (ev.state === 'queued' ? { position: ev.position ?? 1, behind: ev.behind ?? '' } : null) : op.queued
+    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals), nextSeq, queued } } })
   },
 
   setOpLane(opId, exclusive) {

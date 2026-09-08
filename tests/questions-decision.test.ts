@@ -8,7 +8,7 @@ import { decisionThreadId, decisionTurn } from '../src/renderer/components/Quest
 
 const op = (over: Partial<OpState>): OpState => ({
   running: true, opId: 'op', kind: 'chat', threadId: 5, log: [], error: null,
-  startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over
+  startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, queued: null, ...over
 })
 const opsOf = (...list: OpState[]): Record<string, OpState> => Object.fromEntries(list.map((o, i) => [o.opId ?? `op${i}`, o]))
 

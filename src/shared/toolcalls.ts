@@ -34,6 +34,7 @@ export const ACTION_TOOL_KIND = {
   point: 'point',
   suggest_mark_viewed: 'suggest_viewed',
   add_comment: 'comment_added',
+  add_finding: 'finding_added',
   reply_to_comment: 'comment_replied',
   resolve_comment: 'comment_resolved',
   edit_review: 'review_edited',

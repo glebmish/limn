@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, willRunReadOnly, genSessionLost, pendingApprovals, useStore } from '../store'
+import { activeChat, chatsWithDraft, checkoutGate, opForThread, chatSendBlocked, genSessionLost, pendingApprovals, useStore } from '../store'
 import type { OpState } from '../store'
 import type { OperationStatus } from '../../shared/ipc'
 import { I, Ava, EngineGlyph } from '../kit'
@@ -44,6 +44,13 @@ export function composerMode(
   if (gateBlocked || threadId == null) return 'blocked'
   if (opForThread(ops, threadId).running) return 'queue'
   return chatSendBlocked(ops, threadId) ? 'blocked' : 'send'
+}
+
+/** "1st" / "2nd" / "3rd" / "4th" — a queue place in words. */
+export function ordinal(n: number): string {
+  const rem100 = n % 100
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`
 }
 
 /** Idle-queued-chip headline: says what actually happened to the turn the parked
@@ -168,15 +175,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   // deep-link nudge instead (concurrent-chat §5).
   const pending = pendingApprovals(op)
   const otherApprovalThread = chats.find((c) => c.id !== active?.id && pendingApprovals(opForThread(ops, c.id)).length > 0)?.id ?? null
-  // Composer feedback (concurrent-chat §UI copy / OQ4/OQ8): never a silent no-op.
-  // `sendBlocked` covers "this thread is already streaming" OR "the single shared lane
-  // is full". `readOnlyTurn` (store selector willRunReadOnly) is the coerce case — a send
-  // lands read-only alongside a running generation. `sharedFull` distinguishes the
-  // disabled-because-another-chat case.
-  const sendBlocked = chatSendBlocked(ops, active?.id)
-  const readOnlyTurn = willRunReadOnly(ops, active?.id)
-  const sharedFull = sendBlocked && !streaming
-  // …and what the composer does with the text right now. While THIS thread is
+  // …what the composer does with the text right now. While THIS thread is
   // mid-turn the composer stays live and parks the text instead (the server rejects a
   // second send into a busy thread), so a follow-up can be written as it occurs to you.
   const mode = composerMode(ops, active?.id ?? null, gate.blocked)
@@ -384,18 +383,12 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
-          {/* a review is generating: replies to an idle thread run read-only (coerced,
-              no confirm — OQ4); the shared lane being full disables the send (OQ8). */}
-          {active && readOnlyTurn && (
-            <div className="chat-gate chat-readonly-badge" role="status">
+          {/* this thread's turn is waiting its turn in the repo's task queue (one lane
+              per repo): say where it stands and what it is behind. */}
+          {active && op.running && op.queued && (
+            <div className="chat-gate chat-queued-lane" role="status">
               <I.info style={{ width: 12, height: 12 }} />
-              <span>Review is generating — replies run read-only until it finishes.</span>
-            </div>
-          )}
-          {active && sharedFull && (
-            <div className="chat-gate warn" role="status">
-              <I.warn style={{ width: 12, height: 12 }} />
-              <span>Another chat turn is running — this will be sendable when it finishes.</span>
+              <span>Queued · {ordinal(op.queued.position)}{op.queued.behind ? `, behind ${op.queued.behind}` : ''}</span>
             </div>
           )}
 
@@ -453,8 +446,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <button
               className="btn btn-primary btn-sm"
               disabled={mode === 'blocked' || !draft.trim()}
-              title={mode === 'queue' ? 'Queue — sends when this turn ends'
-                : sharedFull ? 'Another chat turn is running — it’ll be sendable when it finishes' : undefined}
+              title={mode === 'queue' ? 'Queue — sends when this turn ends' : undefined}
               onClick={send}
             >
               <I.send style={{ width: 12, height: 12 }} />
@@ -463,14 +455,12 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
           {/* agent + mode live at the bottom (per the mockup): pick who answers and
               how much leash, directly under the composer. The tier stays changeable
-              WHILE a turn streams — it is re-read at every permission request — so
-              only a read-only coerced turn disables it (its tier is overridden). */}
+              WHILE a turn streams — it is re-read at every permission request. */}
           {active && (
             <div className="chat-botbar">
               <AgentPicker value={active.agent} disabled={streaming} onChange={(a) => void store.setActiveChatAgent(a)} />
               <ModeSelector
                 mode={active.executionMode}
-                disabled={readOnlyTurn}
                 title={streaming ? 'Applies from the next approval request' : undefined}
                 onChange={(m) => void store.setChatMode(active.id, m)}
               />

@@ -19,15 +19,6 @@ export function isLimnTool(name?: string): boolean {
 
 type LadderDecision = 'allow' | 'deny' | 'ask'
 
-/** Shared-lane read-only turn (concurrent-chat): allow only Limn's own tools; DENY
- *  every working-tree / shell / other tool request outright — never park on the
- *  reviewer — regardless of the thread's tier. Strictly stronger than `!writeEnabled`
- *  (which only denies `file_change`): a read-only turn running alongside a generation
- *  must never edit, run a command, or block waiting for an approval. */
-export function readOnlyLadder(req: ApprovalRequest): 'allow' | 'deny' {
-  return req.kind === 'tool_use' && isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
-}
-
 /** Structured-generation turn (review / scoped update): its own explicit policy,
  *  NOT a chat tier — a generation turn has no opId, so an 'ask' could never park
  *  and would silently degrade to deny. Commands are allowed unconditionally (parity

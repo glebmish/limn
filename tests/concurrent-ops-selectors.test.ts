@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { opForThread, reviewOp, anyExclusiveRunning, anyRunning, anySharedRunning, chatSendBlocked, willRunReadOnly } from '../src/renderer/store'
+import { opForThread, reviewOp, anyExclusiveRunning, anyRunning, queuedOps, chatSendBlocked } from '../src/renderer/store'
 import type { OpState } from '../src/renderer/store'
 import type { LoadedReview } from '../src/shared/ipc'
 
 const op = (over: Partial<OpState>): OpState => ({
   running: true, opId: 'op', kind: 'chat', threadId: 1, log: [], error: null,
-  startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over,
+  startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, queued: null, ...over,
 })
 const opsOf = (...list: OpState[]): Record<string, OpState> => Object.fromEntries(list.map((o, i) => [o.opId ?? `op${i}`, o]))
 const loaded = (ids: number[]): LoadedReview => ({ state: { chats: ids.map((id) => ({ id })) } } as unknown as LoadedReview)
@@ -55,42 +55,34 @@ describe('concurrent-chat selectors', () => {
     expect(reviewOp(opsOf(older, newer), loaded([3, 5])).opId).toBe('new')
   })
 
-  it('anyExclusiveRunning / anySharedRunning / anyRunning split by lane', () => {
-    const gen = op({ opId: 'g', kind: 'review', threadId: 3, exclusive: true })
-    const shared = op({ opId: 's', threadId: 4, exclusive: false })
-    expect(anyExclusiveRunning(opsOf(gen, shared))).toBe(true)
-    expect(anySharedRunning(opsOf(gen, shared))).toBe(true)
-    expect(anyExclusiveRunning(opsOf(shared))).toBe(false) // only a shared op runs
-    expect(anySharedRunning(opsOf(gen))).toBe(false)
+  it('anyExclusiveRunning / anyRunning: every running op holds or waits for the one lane', () => {
+    const gen = op({ opId: 'g', kind: 'review', threadId: 3 })
+    const waiting = op({ opId: 'w', threadId: 4, queued: { position: 1, behind: 'Generating the review' } })
+    expect(anyExclusiveRunning(opsOf(gen, waiting))).toBe(true)
+    expect(anyRunning(opsOf(waiting))).toBe(true)
     expect(anyRunning({})).toBe(false)
     // finished ops don't count as running
     expect(anyExclusiveRunning(opsOf(op({ running: false })))).toBe(false)
   })
 
-  it('chatSendBlocked: target-thread busy → blocked; idle repo → allowed; shared full → blocked', () => {
-    // target thread already streaming
-    expect(chatSendBlocked(opsOf(op({ opId: 'a', threadId: 5 })), 5)).toBe(true)
-    // repo idle → a new chat takes the exclusive lane, allowed
-    expect(chatSendBlocked({}, 9)).toBe(false)
-    // exclusive op runs + shared lane free → the new chat routes shared, allowed
-    expect(chatSendBlocked(opsOf(op({ opId: 'g', kind: 'review', threadId: 3, exclusive: true })), 9)).toBe(false)
-    // exclusive op runs + shared lane already occupied → blocked (cap one)
-    const full = opsOf(op({ opId: 'g', kind: 'review', threadId: 3, exclusive: true }), op({ opId: 's', threadId: 4, exclusive: false }))
-    expect(chatSendBlocked(full, 9)).toBe(true)
+  it('queuedOps lists the waiting ops in queue order, never the holder or a finished op', () => {
+    const holder = op({ opId: 'g', kind: 'review', threadId: 3 })
+    const second = op({ opId: 's', threadId: 5, queued: { position: 2, behind: 'Generating the review' } })
+    const first = op({ opId: 'f', threadId: 4, queued: { position: 1, behind: 'Generating the review' } })
+    const done = op({ opId: 'd', threadId: 6, running: false, queued: { position: 1, behind: 'x' } })
+    expect(queuedOps(opsOf(holder, second, first, done)).map((o) => o.opId)).toEqual(['f', 's'])
+    expect(queuedOps({})).toEqual([])
   })
 
-  it('willRunReadOnly: sendable turn under a running exclusive op → coerced read-only', () => {
-    const gen = op({ opId: 'g', kind: 'review', threadId: 3, exclusive: true })
-    // idle repo → the turn takes the exclusive lane with its own tier
-    expect(willRunReadOnly({}, 9)).toBe(false)
-    // exclusive op runs + shared lane free → the send would be coerced read-only
-    expect(willRunReadOnly(opsOf(gen), 9)).toBe(true)
-    // the target thread is itself streaming → blocked, not coerced
-    expect(willRunReadOnly(opsOf(gen), 3)).toBe(false)
-    // shared lane already occupied → blocked (sharedFull), not coerced
-    const full = opsOf(gen, op({ opId: 's', threadId: 4, exclusive: false }))
-    expect(willRunReadOnly(full, 9)).toBe(false)
-    // only a shared chat runs (no exclusive) → a new send takes the exclusive lane
-    expect(willRunReadOnly(opsOf(op({ opId: 's', threadId: 4, exclusive: false })), 9)).toBe(false)
+  it('chatSendBlocked: only the target thread being mid-turn blocks; anything else running just queues', () => {
+    // target thread already streaming
+    expect(chatSendBlocked(opsOf(op({ opId: 'a', threadId: 5 })), 5)).toBe(true)
+    // repo idle → allowed
+    expect(chatSendBlocked({}, 9)).toBe(false)
+    // a generation runs → the new chat queues behind it server-side, still allowed
+    expect(chatSendBlocked(opsOf(op({ opId: 'g', kind: 'review', threadId: 3 })), 9)).toBe(false)
+    // several things running and waiting → still allowed for an idle thread
+    const busy = opsOf(op({ opId: 'g', kind: 'review', threadId: 3 }), op({ opId: 's', threadId: 4, queued: { position: 1, behind: 'Generating the review' } }))
+    expect(chatSendBlocked(busy, 9)).toBe(false)
   })
 })

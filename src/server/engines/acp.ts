@@ -14,7 +14,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { ZodError } from 'zod'
 import type { ReasoningEffort, ExecutionMode, ApprovalDiff } from '../../shared/types.js'
-import { generationLadder, ladderPolicy, readOnlyLadder } from '../../shared/approvalPolicy.js'
+import { generationLadder, ladderPolicy } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest, diffBlocks, toApprovalDiffs } from './acpEvents.js'
 import { CancelledError, EngineSessionLostError } from './errors.js'
 import { awaitDecision, clearPending } from './approvals.js'
@@ -87,8 +87,6 @@ interface AcpTurnOptions<T> {
   executionMode?: ExecutionMode
   /** re-read the tier at each permission request (mid-turn mode changes). */
   currentMode?: () => ExecutionMode
-  /** force read-only mode + deny-all-non-limn permissions regardless of tier. */
-  readOnly?: boolean
   /** structured generation turn (review / scoped update): suppress streamed text
    *  AND route permissions through `generationLadder` — its own explicit policy
    *  (commands allowed, file changes denied), not a chat tier. The session mode is
@@ -156,7 +154,6 @@ export class AcpEngine implements ReviewEngine {
       opId: turn.opId,
       executionMode: turn.executionMode,
       currentMode: turn.currentMode,
-      readOnly: turn.readOnly,
       beforePrompt: turn.beforePrompt,
       commandsWaitMs: turn.commandsWaitMs,
       parse: (t) => t
@@ -171,13 +168,11 @@ export class AcpEngine implements ReviewEngine {
     const q = new EventQueue()
     if (opts.status) q.push({ type: 'status', text: opts.status })
     const mode: ExecutionMode = opts.executionMode ?? 'ask'
-    // A read-only shared-lane turn is never write-capable, whatever the tier says.
-    // Generation turns pass no writeEnabled either: their session mode must be the
+    // Generation turns pass no writeEnabled: their session mode must be the
     // non-write one so file edits ASK (and generationLadder denies them) rather
     // than being auto-accepted engine-side.
-    const readOnly = Boolean(opts.readOnly)
     const generation = Boolean(opts.generation)
-    const write = Boolean(opts.writeEnabled) && !readOnly
+    const write = Boolean(opts.writeEnabled)
 
     let child: ChildProcessWithoutNullStreams | null = null
     let conn: ClientSideConnection | null = null
@@ -284,7 +279,7 @@ export class AcpEngine implements ReviewEngine {
             // start auto-allowing them (whatever the session mode auto-accepts
             // engine-side never reaches us to be re-tiered either way).
             const tier = opts.currentMode?.() ?? mode
-            const policy = generation ? generationLadder(req) : readOnly ? readOnlyLadder(req) : ladderPolicy(tier, req, write)
+            const policy = generation ? generationLadder(req) : ladderPolicy(tier, req, write)
             // 'ask' parks on the reviewer's decision, racing cancel so a pending
             // request gets the ACP-required `cancelled` outcome. A turn with no opId
             // has no approval surface to park on, so its 'ask' degrades to deny.
