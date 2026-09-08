@@ -22,8 +22,6 @@ export interface Floating<A extends HTMLElement, F extends HTMLElement> {
   style: CSSProperties
   /** the side actually used after flipping — drive the arrow direction off this */
   side: Side
-  /** force a re-measure (e.g. after async content changes the overlay's size) */
-  reposition: () => void
 }
 
 /** Position a floating overlay (popover, menu, tooltip) against a trigger so it
@@ -89,5 +87,5 @@ export function useFloating<A extends HTMLElement = HTMLElement, F extends HTMLE
     ? { position: 'fixed', top: pos.top, left: pos.left, maxHeight: pos.maxHeight, ...(pos.width != null ? { width: pos.width } : {}) }
     : { position: 'fixed', top: 0, left: 0, visibility: 'hidden' }
 
-  return { anchorRef, floatingRef, style, side: pos?.side ?? prefSide, reposition: place }
+  return { anchorRef, floatingRef, style, side: pos?.side ?? prefSide }
 }
