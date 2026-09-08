@@ -13,11 +13,28 @@ export function parseShow(text: string): { active: boolean; pid: number | null }
   return { active, pid: pid > 0 ? pid : null }
 }
 
-/** systemd's quoted `Environment=` form: an unquoted value is split on whitespace and
- *  `%` starts a specifier, so quote it, escape `\` and `"`, and double the `%`. */
+/** An unquoted systemd value is split on whitespace and `%` starts a specifier, so
+ *  quote it, escape `\` and `"`, and double the `%` — shared by `Environment=` values
+ *  and `ExecStart=` argv tokens (nodePath/entryPath). */
+function systemdEscape(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')
+}
+
 function envLine(key: string, value: string): string {
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')
-  return `Environment="${key}=${escaped}"\n`
+  return `Environment="${key}=${systemdEscape(value)}"\n`
+}
+
+/** One `ExecStart=` argv token, quoted so a path with a space (or a literal `%`)
+ *  survives systemd's whitespace-splitting/specifier-expansion. */
+function quoteArg(value: string): string {
+  return `"${systemdEscape(value)}"`
+}
+
+/** Reverses `quoteArg` — used to recover nodePath from an installed unit's
+ *  ExecStart= line (see `activation` below). */
+function unquoteArg(token: string): string {
+  if (token.length < 2 || !token.startsWith('"') || !token.endsWith('"')) return token
+  return token.slice(1, -1).replace(/%%/g, '%').replace(/\\"/g, '"').replace(/\\\\/g, '\\')
 }
 
 function renderUnit(spec: UnitSpec): string {
@@ -30,7 +47,7 @@ Description=Limn — agentic local branch review
 After=network.target
 
 [Service]
-ExecStart=${spec.nodePath} ${spec.entryPath} service serve${spec.port80 ? ' --port-80' : ''}
+ExecStart=${quoteArg(spec.nodePath)} ${quoteArg(spec.entryPath)} service serve${spec.port80 ? ' --port-80' : ''}
 Restart=always
 RestartSec=2
 ${envLine('PATH', spec.pathEnv)}${envLine('HOME', spec.home)}${extraEnv}StandardOutput=append:${spec.logFile}
@@ -70,7 +87,11 @@ export const systemd: ServiceBackend = {
     if (!fs.existsSync(file)) return { kind: 'service', loaded: false, unitPath: file }
     const res = await run('systemctl', ['--user', 'show', UNIT, '-p', 'ActiveState', '-p', 'MainPID'])
     const { active, pid } = parseShow(res.stdout)
-    const nodePath = /^ExecStart=(\S+)/m.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? ''
+    // ExecStart's first token is now a quoted argv entry (see quoteArg) that may
+    // itself contain spaces, so match a balanced "…" run before falling back to a
+    // bare non-whitespace token (an unquoted unit from an older install).
+    const execStartToken = /^ExecStart=("(?:\\.|[^"\\])*"|\S+)/m.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? ''
+    const nodePath = unquoteArg(execStartToken)
     let nodeOk = false
     try { fs.accessSync(nodePath, fs.constants.X_OK); nodeOk = true } catch { /* missing */ }
     return { kind: 'service', loaded: true, running: active, pid, unitPath: file, nodePath, nodeOk, restartCmd: `systemctl --user restart ${UNIT}`, stopCmd: `systemctl --user stop ${UNIT}` }
