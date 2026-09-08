@@ -231,13 +231,21 @@ export interface RendererApi extends Api {
   onRepoChanged(cb: (msg: RepoChangedMsg) => void): () => void
 }
 
-export const API_CHANNELS: (keyof Api)[] = [
-  'pickRepo', 'recentRepos', 'openRepo', 'repoState', 'listRepoSessions', 'unarchiveSession', 'forgetRepo', 'switchBranch',
-  'checkoutInto', 'addWorktreeFor',
-  'startSession', 'findSession', 'previewReview', 'loadSession', 'archiveSession',
-  'beginReview', 'generate', 'cancel', 'copyReviewFrom', 'respondApproval', 'saveUiState', 'upsertComment', 'deleteComment',
-  'sendChat', 'createChat', 'setChatAgent', 'setChatMode', 'dismissSuggestion', 'deleteChat',
-  'sendBatch', 'sendRebase', 'readWorkingFile', 'readFileAt', 'applyEdit', 'approve', 'unapprove', 'mergePreflight', 'mergeExecute', 'markMerged', 'approveArtifact', 'unapproveArtifact', 'authStatus', 'getPrefs', 'setPref',
-  'dashboard',
-  'refOptions', 'retargetSession', 'takeCliOpen'
-]
+/** Every `Api` method as a key. `satisfies Record<keyof Api, true>` makes the list
+ *  exhaustive: adding a method to `Api` and forgetting it here is a compile error.
+ *  A bare `(keyof Api)[]` only checks that each entry IS a key, never that every
+ *  key IS an entry — and a forgotten entry stays invisible until the browser says
+ *  `api().newMethod is not a function`, because this list is the only thing that
+ *  materializes `window.api` (renderer/api-client.ts). */
+const API_CHANNEL_KEYS = {
+  pickRepo: true, recentRepos: true, openRepo: true, repoState: true, listRepoSessions: true, unarchiveSession: true, forgetRepo: true, switchBranch: true,
+  checkoutInto: true, addWorktreeFor: true,
+  startSession: true, findSession: true, previewReview: true, loadSession: true, archiveSession: true,
+  beginReview: true, generate: true, cancel: true, copyReviewFrom: true, respondApproval: true, saveUiState: true, upsertComment: true, deleteComment: true,
+  sendChat: true, createChat: true, setChatAgent: true, setChatMode: true, dismissSuggestion: true, deleteChat: true,
+  sendBatch: true, sendRebase: true, readWorkingFile: true, readFileAt: true, applyEdit: true, approve: true, unapprove: true, mergePreflight: true, mergeExecute: true, markMerged: true, approveArtifact: true, unapproveArtifact: true, authStatus: true, getPrefs: true, setPref: true,
+  dashboard: true,
+  refOptions: true, retargetSession: true, takeCliOpen: true
+} satisfies Record<keyof Api, true>
+
+export const API_CHANNELS = Object.keys(API_CHANNEL_KEYS) as (keyof Api)[]
