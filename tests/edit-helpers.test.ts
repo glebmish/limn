@@ -526,6 +526,16 @@ describe('discardSpansForRun', () => {
     expect(discardSpansForRun(delOnly)).toEqual([null, null, null])
   })
 
+  it('short-circuits a run with nothing to discard, and still reads as no-span at every index', () => {
+    // the common case by far — a committed hunk with no working-tree lines in it —
+    // used to allocate a full array of nulls per run, per render, to say "nothing here"
+    const clean = [ctx(9, 9), add(10, 'committed'), del(10, 'gone'), ctx(11, 11)]
+    const spans = discardSpansForRun(clean)
+    expect(clean.map((_, i) => spans[i] ?? null)).toEqual(clean.map((_, i) => discardSpanAt(clean, i)))
+    // one shared empty result, not a fresh array per run
+    expect(discardSpansForRun([ctx(1, 1), add(2, 'other')])).toBe(spans)
+  })
+
   it('agrees with discardSpanAt at every index', () => {
     const lines = [
       ctx(9, 9), add(10, 'stg', 'staged'), ctx(10, 11),

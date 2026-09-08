@@ -161,7 +161,7 @@ export function linesForRun(
     const row = lineRow(run, j, { hunkRange: opts.hunkRange, fromHunk: opts.fromHunk, marks: opts.marks?.get(j) })
     if (!row) return
     row.html = row.side === 'new' ? html.new[newIdx] : html.old[oldIdx]
-    row.discard = discard[j]
+    row.discard = discard[j] ?? null
     out.push(row)
   })
   return out
@@ -369,7 +369,7 @@ function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
       anchor: nowL?.new != null ? { side: 'new', lineNo: nowL.new } : { side: 'old', lineNo: oldL!.old! },
       hunkRange: h.range, fromHunk: true,
       run: { lines: run, idx: k ?? j! },
-      discard: discard[k ?? j!]
+      discard: discard[k ?? j!] ?? null
     }
   }
   const out: AlignedRow[] = []

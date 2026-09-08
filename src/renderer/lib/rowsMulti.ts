@@ -164,8 +164,8 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
   }
   /** the current-diff hunk's discard spans, resolved once per hunk (rows.ts does the
    *  same per run) — only current's own hunks carry uncommitted lines */
-  const spanCache = new Map<Hunk, (DiscardSpan | null)[]>()
-  const discardSpans = (h: Hunk): (DiscardSpan | null)[] => {
+  const spanCache = new Map<Hunk, readonly (DiscardSpan | null)[]>()
+  const discardSpans = (h: Hunk): readonly (DiscardSpan | null)[] => {
     let s = spanCache.get(h)
     if (!s) { s = discardSpansForRun(h.lines); spanCache.set(h, s) }
     return s
@@ -208,7 +208,7 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
         hunkRange: n ? n.hunk.range : '',
         fromHunk: n != null,
         run: n ? { lines: n.hunk.lines, idx: n.idx } : null,
-        discard: n ? discardSpans(n.hunk)[n.idx] : null
+        discard: n ? discardSpans(n.hunk)[n.idx] ?? null : null
       })
     }
   }
@@ -254,7 +254,7 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
       hunkRange: nowAt?.hunk.range ?? '',
       fromHunk: nowAt != null,
       run: nowAt ? { lines: nowAt.hunk.lines, idx: nowAt.idx } : null,
-      discard: nowAt ? discardSpans(nowAt.hunk)[nowAt.idx] : null
+      discard: nowAt ? discardSpans(nowAt.hunk)[nowAt.idx] ?? null : null
     })
   }
   // The trailing run to EOF, under `buildFileRows`'s rule: a file with no new side at

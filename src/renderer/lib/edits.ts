@@ -326,12 +326,23 @@ export function discardSpanAt(lines: DiffLine[], idx: number): DiscardSpan | nul
   }
 }
 
+/** The "nothing in this run is discardable" result: shared, frozen, and SHORT — a
+ *  run with no unstaged line reads as no-span at every index because every index is
+ *  past its end. Callers must therefore read it as `spans[i] ?? null`. */
+const NO_DISCARDS: readonly (DiscardSpan | null)[] = Object.freeze([])
+
 /** `discardSpanAt` for every index of a run, in one pass: each maximal unstaged
  *  block is resolved once and the resulting span (or null) is shared by every row
  *  in it. The row model hangs this on its rows (`lib/rows.ts`) so the body can ask
  *  "is this row discardable?" by reading a field instead of re-walking the run —
- *  which it did per unstaged row, per render, purely as a `!= null` test. */
-export function discardSpansForRun(lines: DiffLine[]): (DiscardSpan | null)[] {
+ *  which it did per unstaged row, per render, purely as a `!= null` test.
+ *
+ *  A run with no unstaged line at all — the common case, since most hunks are
+ *  committed — short-circuits to the shared `NO_DISCARDS` instead of allocating a
+ *  full array of nulls per run, per render, to say nothing. Read the result with
+ *  `?? null`, never by length. */
+export function discardSpansForRun(lines: DiffLine[]): readonly (DiscardSpan | null)[] {
+  if (!lines.some((l) => l.origin === 'unstaged')) return NO_DISCARDS
   const out: (DiscardSpan | null)[] = lines.map(() => null)
   let i = 0
   while (i < lines.length) {
