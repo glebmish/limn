@@ -423,9 +423,18 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   // transparent strip sits over it carrying the explanation. Asking "what is this
   // mark?" where the mark is beats walking up to the header's key. In Multi the
   // attribution mark replaces the drift rail on the side columns.
-  const railTipFor = (c: Cell): string | null =>
-    c.attribution ? attributionExplanation(c.attribution, since)
-    : c.l ? railExplanation(c.l, driftBasis) : null
+  //
+  // `drift` is the caller's copy of the gate `originCls` paints the drift rail
+  // behind, and the tip is asked for under it: without that, a base column in Split
+  // (and every column in Multi, where attribution replaces the rail) offered
+  // "Changed since your approval" over a mark that was never drawn. The working-tree
+  // rails are ungated in `originCls`, so their explanation is ungated here too.
+  const railTipFor = (c: Cell, drift: boolean): string | null => {
+    if (c.attribution) return attributionExplanation(c.attribution, since)
+    if (!c.l) return null
+    const painted = c.l.origin === 'staged' || c.l.origin === 'unstaged' || drift
+    return painted ? railExplanation(c.l, driftBasis) : null
+  }
   const driftRails = layout !== 'multi'
 
   const commentButton = (anchor: NonNullable<AlignedRow['anchor']>): React.ReactNode => (
@@ -500,7 +509,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     // Fragment keyed by this row's own position) — see the comment on mountFrame.
     if (coveredBy(l)) return mountFrame()
     const sliver = frame != null && l.new == null && (coveredBy(nowLine(view[i - 1])) || coveredBy(nowLine(view[i + 1])))
-    const railTip = railTipFor(c)
+    const railTip = railTipFor(c, driftRails)
     const kindCls = l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : ''
     return (
       <Fragment key={r.key}>
@@ -567,7 +576,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
         <div className="dline split">
           {r.cells.map((c, ci) => {
             const isNow = c === nowCell && c.side === 'new'
-            const railTip = railTipFor(c)
+            const railTip = railTipFor(c, driftRails && isNow)
             const kindCls = c.deleted ? 'del-slot' : c.kind
             const cls = 'dcell ' + kindCls + originCls(c.l, driftRails && isNow)
               + (c.attribution ? ' attr-' + c.attribution : '')

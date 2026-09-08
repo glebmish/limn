@@ -25,6 +25,10 @@ const file: FileDiff = {
   ] }]
 }
 
+/** the rows only — the caption row above them has a markers key of its own whose
+ *  legend swatches carry the same words the rails do */
+const diffBody = (html: string): string => html.slice(html.indexOf('class="gfile-diff'))
+
 function seed(stack: Stack, f: FileDiff = file): void {
   const init = initial()
   ;(init as { loaded: LoadedReview | null }).loaded = makeLoaded({ files: [f] })
@@ -125,5 +129,53 @@ describe('the header\'s fold label after a refresh (#99)', () => {
   it('starts closed, offering Expand all', () => {
     seed(UNIFIED)
     expect(renderToStaticMarkup(<DiffView f={file} />)).toContain('aria-label="Expand all folds"')
+  })
+})
+
+describe('the drift-rail hover strip (#100)', () => {
+  // both sides of the replacement drifted since the checkpoint
+  const drifted: FileDiff = { ...file, hunks: [{ ...file.hunks[0], lines: [
+    { old: 1, new: 1, kind: '', text: 'ctx' },
+    { old: 2, new: null, kind: 'del', text: 'old line', since: true },
+    { old: null, new: 2, kind: 'add', text: 'new line', since: true },
+    { old: 3, new: 3, kind: '', text: 'end' }
+  ] }] }
+
+  it('sits only on the cell that draws the rail — Split paints it on current, not on base', () => {
+    seed({ out: ['base'], against: 'base' }, drifted)
+    const body = diffBody(renderToStaticMarkup(<DiffView f={drifted} />))
+    // the now cell carries the mark, and with it the explanation
+    expect(body).toMatch(/class="dcell add since"[^>]*><span class="rail-hit"/)
+    // the base cell draws no rail (`originCls` gates it on the now column) — so it
+    // must offer nothing to hover either
+    expect(body).toMatch(/class="dcell del" data-limn-line="src\/a\.ts:old:2"><span class="gut"/)
+    expect((body.match(/rail-hit/g) ?? []).length).toBe(1)
+  })
+
+  it('offers none in Multi, where the drift rail is not drawn at all', () => {
+    const withMid: FileDiff = { ...drifted, sinceHunks: drifted.hunks, baseToApprovedHunks: [{
+      range: '@@ -1,3 +1,3 @@', header: '', lines: [
+        { old: 1, new: 1, kind: '', text: 'ctx' },
+        { old: 2, new: null, kind: 'del', text: 'old line' },
+        { old: null, new: 2, kind: 'add', text: 'new line' },
+        { old: 3, new: 3, kind: '', text: 'end' }
+      ]
+    }] }
+    seed({ out: ['approved', 'base'], against: 'base' }, withMid)
+    const body = diffBody(renderToStaticMarkup(<DiffView f={withMid} />))
+    expect(body).toContain('layout-multi')
+    expect(body).not.toContain('since')  // no drift rail is painted in Multi…
+    expect(body).not.toContain('attr-')  // …and nothing here drifted from the checkpoint
+    expect(body).not.toContain('rail-hit')
+  })
+
+  it('keeps the working-tree rails explained on every cell — those are painted there', () => {
+    const dirty: FileDiff = { ...file, hunks: [{ ...file.hunks[0], lines: [
+      { old: 2, new: null, kind: 'del', text: 'old line', origin: 'unstaged' },
+      { old: null, new: 2, kind: 'add', text: 'new line', origin: 'unstaged' }
+    ] }] }
+    seed({ out: ['base'], against: 'base' }, dirty)
+    const body = diffBody(renderToStaticMarkup(<DiffView f={dirty} />))
+    expect((body.match(/rail-hit/g) ?? []).length).toBe(2)
   })
 })
