@@ -2,8 +2,8 @@ import { API_CHANNELS } from '../shared/ipc'
 import type { OpEventMsg, OpResultMsg, RepoChangedMsg, RendererApi } from '../shared/ipc'
 // The reconnect resync reaches back into the store (see `ensureStream`'s onopen): a
 // gap in the push stream is only recoverable by refetching what the page is showing,
-// and the store owns that path. Imported lazily-in-effect (getState inside the
-// handler), never at install time, so this stays a one-way dependency on the module.
+// and the store owns that path. A static import — only the `getState()` CALL is
+// deferred to the handler, so nothing is read from the store at install time.
 import { useStore } from './store'
 
 // The only `window.api` backing: RendererApi carried over HTTP (request/response
@@ -62,12 +62,12 @@ function ensureStream(): void {
     if (subs) for (const cb of subs) cb(parsed.msg)
   }
   es.onopen = () => {
-    // The first open is the page's own connection — the screen was fetched over the
-    // same round trip, so there is nothing to catch up on. Every later one closed a
-    // gap, and nothing replays what the server pushed during it: the frames carry no
-    // `id:`, so there is no Last-Event-ID replay. Refetching what is on screen is the
-    // resync (it re-adopts the session's live ops), and it is a no-op when the page
-    // has nothing loaded yet.
+    // Only ONE open needs no catch-up: the page's own first connection, made over the
+    // same round trip that fetched the screen. Every other one — after a drop, or
+    // after a failed stream was replaced — sits at the end of a gap, and nothing
+    // replays what the server pushed during it: the frames carry no `id:`, so there
+    // is no Last-Event-ID replay. Refetching what is on screen is the resync (it
+    // re-adopts the session's live ops), and it is a no-op when nothing is loaded.
     if (everOpened) void useStore.getState().refreshLoaded()
     everOpened = true
   }
@@ -81,6 +81,10 @@ function ensureStream(): void {
     if (es.readyState !== EventSource.CLOSED || source !== es) return
     es.close()
     source = null
+    // A stream that failed before it ever opened still leaves a gap behind it (this
+    // one starts at the RPC load), so the replacement's open must resync even though
+    // it is the first open the page ever gets.
+    everOpened = true
     setTimeout(ensureStream, REBUILD_DELAY_MS)
   }
 }

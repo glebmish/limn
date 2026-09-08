@@ -96,6 +96,19 @@ describe('SSE stream recovery (finding 111)', () => {
     expect(refreshLoaded).toHaveBeenCalledTimes(1)
   })
 
+  it('resyncs after a stream that failed before it ever opened', async () => {
+    const { refreshLoaded } = await boot()
+
+    // the 401 / proxy case: the very first connection never reaches OPEN, so its
+    // replacement's open is the page's first — but a gap still ran from the RPC load
+    // to that open, and whatever the server pushed in it is gone.
+    streams[0].fail()
+    vi.advanceTimersByTime(2000)
+    streams[1].open()
+
+    expect(refreshLoaded).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps delivering events to subscribers over the rebuilt stream', async () => {
     await boot()
     const seen: unknown[] = []
