@@ -228,6 +228,31 @@ export function badgeSpot(el: HTMLElement): { top: number; left: number } | null
   }
 }
 
+/** The minimal query-root/node surface `flashSelectors` needs — kept separate from
+ *  `HTMLElement` so it can be pinned with a plain fake (this suite runs without a
+ *  DOM), while a real `HTMLElement` satisfies it as-is. */
+export interface FlashNode {
+  classList: { add(c: string): void; remove(...c: string[]): void }
+}
+export interface FlashRoot {
+  querySelectorAll(selectors: string): Iterable<FlashNode>
+  readonly offsetWidth: number
+}
+
+/** Resolve every selector in ONE query (attribute selectors aren't indexed, so `root`
+ *  is walked once instead of once per line) and flash them together: strip the class
+ *  so the animation re-triggers even on an already-flashed row, force a single style
+ *  flush, then add it to every node — one reflow for the whole range instead of one
+ *  per line. Order doesn't matter to the caller (only used for later class removal). */
+export function flashSelectors(root: FlashRoot, selectors: string[], flashClass: string): FlashNode[] {
+  if (selectors.length === 0) return []
+  const nodes = [...root.querySelectorAll(selectors.join(','))]
+  for (const n of nodes) n.classList.remove('limn-flash')
+  void root.offsetWidth
+  for (const n of nodes) n.classList.add(flashClass)
+  return nodes
+}
+
 let cancelActive: (() => void) | null = null
 
 /** Drop the jump in flight: stop its loop, remove its FOCUS chip and every highlight
@@ -298,15 +323,7 @@ export function startFocusJump(target: FocusTarget, opts: { quiet?: boolean } = 
     // a navigation jump (sidebar click) lands without the flash + FOCUS chip: the
     // reader asked to go there, nothing needs pointing out
     if (opts.quiet) { finish(); return }
-    for (const sel of selectors) {
-      const node = main.querySelector<HTMLElement>(sel)
-      if (!node) continue
-      // re-trigger the CSS animation even if the row is already flashed
-      node.classList.remove('limn-flash')
-      void node.offsetWidth
-      node.classList.add(dev.holdFocus ? 'limn-flash-hold' : 'limn-flash')
-      flashed.push(node)
-    }
+    flashed = flashSelectors(main, selectors, dev.holdFocus ? 'limn-flash-hold' : 'limn-flash') as HTMLElement[]
     badge = document.createElement('div')
     badge.className = 'limn-focus-badge'
     badge.textContent = 'focus'

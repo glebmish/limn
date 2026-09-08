@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_FOCUS_LINES, SETTLE_MAX_FRAMES, SETTLE_MISSING_FRAMES, SETTLE_STABLE_FRAMES, SETTLE_TOL,
-  JUMP_GAP, focusSelectors, jumpGoal, settleStart, settleStep, type SettleAction, type SettleState
+  JUMP_GAP, flashSelectors, focusSelectors, jumpGoal, settleStart, settleStep,
+  type FlashNode, type FlashRoot, type SettleAction, type SettleState
 } from '../src/renderer/lib/focusScroll'
 import type { FocusTarget } from '../src/shared/types'
 
@@ -52,6 +53,72 @@ describe('focusSelectors', () => {
       '[data-limn-line="src/sessions.ts:old:30"]',
       '[data-limn-line="src/sessions.ts:old:31"]'
     ])
+  })
+})
+
+// #91: `land()` used to resolve each of up to MAX_FOCUS_LINES selectors with its
+// own `querySelector` (a fresh unindexed subtree walk each time) plus its own
+// forced reflow. flashSelectors is the single-query, single-reflow replacement —
+// pinned here (against a fake root, since this suite has no DOM) so the rewrite is
+// provably the same landing: every selector's node gets `limn-flash` removed then
+// the flash class added, a selector nothing resolves to is silently skipped, and
+// an empty range queries nothing.
+describe('flashSelectors', () => {
+  function fakeNode(): FlashNode & { added: string[]; removed: string[] } {
+    const added: string[] = []
+    const removed: string[] = []
+    return { added, removed, classList: { add: (c) => added.push(c), remove: (...c) => removed.push(...c) } }
+  }
+  function fakeRoot(nodes: Record<string, FlashNode>): FlashRoot & { queries: string[] } {
+    const queries: string[] = []
+    return {
+      queries,
+      offsetWidth: 0,
+      querySelectorAll: (sel) => {
+        queries.push(sel)
+        return sel.split(',').map((s) => nodes[s]).filter((n): n is FlashNode => Boolean(n))
+      }
+    }
+  }
+
+  it('resolves every selector in ONE query and flashes them all', () => {
+    const [a, b, c] = [fakeNode(), fakeNode(), fakeNode()]
+    const selectors = ['[data-limn-line="f:new:1"]', '[data-limn-line="f:new:2"]', '[data-limn-line="f:new:3"]']
+    const root = fakeRoot({ [selectors[0]]: a, [selectors[1]]: b, [selectors[2]]: c })
+
+    const flashed = flashSelectors(root, selectors, 'limn-flash')
+
+    expect(root.queries).toEqual([selectors.join(',')]) // one query, not one per line
+    expect(flashed).toEqual([a, b, c])
+    for (const n of [a, b, c]) {
+      expect(n.removed).toContain('limn-flash') // re-triggers the animation
+      expect(n.added).toEqual(['limn-flash'])
+    }
+  })
+
+  it('passes through the hold-vs-flash class the caller chose', () => {
+    const a = fakeNode()
+    const root = fakeRoot({ '[data-limn-line="f:new:1"]': a })
+
+    flashSelectors(root, ['[data-limn-line="f:new:1"]'], 'limn-flash-hold')
+
+    expect(a.added).toEqual(['limn-flash-hold'])
+  })
+
+  it('skips a selector nothing resolves to', () => {
+    const a = fakeNode()
+    const root = fakeRoot({ '[data-limn-line="f:new:1"]': a })
+
+    const flashed = flashSelectors(root, ['[data-limn-line="f:new:1"]', '[data-limn-line="f:new:2"]'], 'limn-flash')
+
+    expect(flashed).toEqual([a])
+  })
+
+  it('queries nothing and flashes nothing for an empty range', () => {
+    const root = fakeRoot({})
+
+    expect(flashSelectors(root, [], 'limn-flash')).toEqual([])
+    expect(root.queries).toEqual([])
   })
 })
 
