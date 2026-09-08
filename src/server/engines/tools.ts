@@ -364,7 +364,7 @@ const TOOL_IMPLS: ToolImpl[] = [
         // A tick is only live while the file still matches the sha AND content hash it
         // was taken at (fileViewed, renderer/store/derive.ts) — a drifted file reads as
         // changed-since-viewed in the UI. That check needs the loaded diff, which this
-        // synchronous tool doesn't have, so report the mark's own sha rather than a bare
+        // read-only tool doesn't have, so report the mark's own sha rather than a bare
         // key that would imply every entry is currently viewed.
         viewed_files: Object.entries(state.viewedAt).map(([file, m]) => ({ file, sha: m.sha })),
         // …and the head those per-mark shas mean something against. Without it the
@@ -373,9 +373,10 @@ const TOOL_IMPLS: ToolImpl[] = [
         // best-effort — an unreadable ref reports null rather than failing the call.
         compare_head_sha: await compareHead(ctx),
         comments,
-        // Live commit/file drift requires shelling out to git (async); this tool stays
-        // synchronous + read-only, so it surfaces only the cheap, already-loaded anchor —
-        // not a computed delta. Callers wanting the real drift use the fetch-pill path.
+        // Computing real file drift means diffing every viewed file against the working
+        // tree; this read-only tool affords one `rev-parse` (compare_head_sha above) and
+        // otherwise surfaces only the already-loaded anchor, not a computed delta.
+        // Callers wanting the real drift use the fetch-pill path.
         drift: { since_sha: state.reviewedAtSha ?? null, note: 'counts only — live git drift not computed here' }
       }
       return { result: JSON.stringify(slim) }
