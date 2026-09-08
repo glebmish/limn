@@ -129,7 +129,20 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     // record the id in the single source of truth BEFORE the IPC call, so every
     // approval surface drops this request from `pendingApprovals` immediately.
     set({ ops: { ...get().ops, [opId]: { ...op, answeredApprovals: new Set(op.answeredApprovals).add(requestId) } } })
-    void api().respondApproval(opId, requestId, decision)
+    // …and reconcile the optimism if the call never lands. The approval registry has
+    // no timeout, so a dropped decision parks the agent forever with no card left to
+    // click: put the request back and say why, so the reviewer can answer again.
+    // Promise.resolve wraps the call because respondApproval is fire-and-forget at
+    // several stubs/call sites and need not return a promise.
+    Promise.resolve(api().respondApproval(opId, requestId, decision)).catch((err: unknown) => {
+      const current = get().ops[opId]
+      const answered = new Set(current?.answeredApprovals ?? [])
+      answered.delete(requestId)
+      set({
+        error: err instanceof Error ? err.message : String(err),
+        ...(current ? { ops: { ...get().ops, [opId]: { ...current, answeredApprovals: answered } } } : {})
+      })
+    })
   },
 
   cancelOp(opId) {

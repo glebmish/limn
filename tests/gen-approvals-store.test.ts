@@ -44,10 +44,12 @@ describe('pendingApprovals derivation', () => {
   })
 })
 
+const flush = () => new Promise((r) => setTimeout(r))
+
 describe('ops slice answered-approval tracking', () => {
   beforeEach(() => {
-    respondApproval.mockClear()
-    useStore.setState({ ops: { op1: gen({ answeredApprovals: new Set(['stale']) }) } })
+    respondApproval.mockReset()
+    useStore.setState({ ops: { op1: gen({ answeredApprovals: new Set(['stale']) }) }, error: null })
   })
 
   it('startOp resets answeredApprovals to an empty set', () => {
@@ -64,5 +66,26 @@ describe('ops slice answered-approval tracking', () => {
     expect(recordedBeforeIpc).toBe(true)
     expect(useStore.getState().ops.op1.answeredApprovals.has('a')).toBe(true)
     expect(respondApproval).toHaveBeenCalledWith('op1', 'a', 'allow')
+  })
+
+  it('a rejected respondApproval puts the request back and reports why', async () => {
+    // the agent parks with no timeout, so a decision that never reached the server
+    // must return the card — otherwise the turn hangs with nothing left to click.
+    respondApproval.mockRejectedValueOnce(new Error('limn-token expired'))
+    useStore.setState({ ops: { op1: gen({ log: [approvalEvent('a')] }) } })
+    useStore.getState().respondApproval('op1', 'a', 'allow')
+    await flush()
+    expect(useStore.getState().ops.op1.answeredApprovals.has('a')).toBe(false)
+    expect(pendingApprovals(useStore.getState().ops.op1).map((r) => r.id)).toEqual(['a'])
+    expect(useStore.getState().error).toBe('limn-token expired')
+  })
+
+  it('keeps the request answered when the call resolves', async () => {
+    respondApproval.mockResolvedValueOnce(undefined)
+    useStore.setState({ ops: { op1: gen({ log: [approvalEvent('a')] }) } })
+    useStore.getState().respondApproval('op1', 'a', 'allow')
+    await flush()
+    expect(pendingApprovals(useStore.getState().ops.op1)).toEqual([])
+    expect(useStore.getState().error).toBeNull()
   })
 })
