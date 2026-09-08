@@ -181,7 +181,11 @@ export const useStore = create<AppStore>()((...a) => {
     async backToDashboard() {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
-        repoState: null, repoSessions: [], pendingDrift: null, watchStopped: null
+        repoState: null, repoSessions: [], pendingDrift: null, watchStopped: null,
+        // drop the review surface's op state too (as resumeExisting and openReview do),
+        // so the session we just left can't disable the next review's Generate button
+        // or flush its parked turn into whatever is opened next.
+        ops: {}, queuedTurnByThread: {}
       })
       await get().loadDashboard()
     },

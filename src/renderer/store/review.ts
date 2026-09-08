@@ -120,6 +120,12 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       set({
         screen: 'review', sessionId: null, loaded, repo: repoPath,
         branch: loaded.state.branch, base: loaded.state.base,
+        // same reset resumeExisting does: a previous session's running/errored op must
+        // not bleed onto the review being opened. Its strip can't even render here (it
+        // is scoped to `loaded`'s chats), so a running one would only disable
+        // Generate/Copy and suppress the drift pill with nothing to explain why — and
+        // its late op:result would flush the OLD thread's parked turn into this review.
+        ops: {}, queuedTurnByThread: {},
         viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
         diffStack: loaded.state.diffStack ?? UNIFIED, fileStack: {},
         activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: loadWarningStrip(loaded), pendingDrift: null, watchStopped: null
@@ -197,7 +203,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
         // rejoins whatever is live on THIS session. Switching sessions orphans the old
         // session's stream (main keeps running; its events park unclaimed in the bridge
         // buffer) — acceptable per the concurrent-chat cancellation matrix.
-        ops: {},
+        ops: {}, queuedTurnByThread: {},
         repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: loaded.state.viewedAt,
         collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
