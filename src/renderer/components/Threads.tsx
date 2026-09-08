@@ -233,37 +233,26 @@ function ReplyButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-/** Inline composer. Defaults describe a *queued* comment (folded into the next
- *  batch). `sendNow` flips the labels for the decision flow, where submitting sends
- *  to the agent immediately and resolves the question. */
-export function Composer({ placeholder, onSubmit, onCancel, sendNow = false, kicker, submitLabel: submitOverride, hint: hintOverride }: {
+/** Inline composer. Every comment it writes is a *queued* one, folded into the next
+ *  batch — `kicker`/`submitLabel`/`hint` name the turn it is being written on. */
+export function Composer({ placeholder, onSubmit, onCancel, kicker, submitLabel: submitOverride, hint: hintOverride }: {
   placeholder: string
   onSubmit: (text: string) => void
   onCancel: () => void
-  sendNow?: boolean
-  /** the header's role word ('new comment' / 'your decision' by default) */
+  /** the header's role word ('new comment' by default) */
   kicker?: string
   submitLabel?: string
   hint?: string
 }) {
   const [text, setText] = useState('')
-  // send-now composers name the agent they go straight to (no queue)
-  const agent = useStore((s) => s.loaded?.state.agent)
-  const submitLabel = submitOverride ?? (sendNow ? 'Send now' : 'Add comment')
-  // send-now needs no hint — the "→ agent" destination chip already says it all
-  const hint = hintOverride ?? (sendNow ? '' : 'queues for the agent — nothing is sent yet')
+  const submitLabel = submitOverride ?? 'Add comment'
+  const hint = hintOverride ?? 'queues for the agent — nothing is sent yet'
   return (
     <div className="dthread">
       <div className="box">
         <div className="bh">
           <Ava>me</Ava><b>You</b>
-          {sendNow && agent && (
-            <>
-              <span className="dim" style={{ margin: '0 1px' }}>→</span>
-              <span className="limn-dest" title="answering goes straight to this agent"><EngineGlyph engine={agent.engine} style={{ width: 11, height: 11 }} />{agentLabel(agent)}</span>
-            </>
-          )}
-          <span className="dim" style={sendNow ? { marginLeft: 'auto' } : undefined}>{kicker ?? (sendNow ? 'your decision' : 'new comment')}</span>
+          <span className="dim">{kicker ?? 'new comment'}</span>
         </div>
         <div style={{ padding: '10px 12px' }}>
           <textarea
@@ -281,7 +270,7 @@ export function Composer({ placeholder, onSubmit, onCancel, sendNow = false, kic
           />
           <div style={{ display: 'flex', gap: 7, marginTop: 8, alignItems: 'center' }}>
             <button className="btn btn-sm btn-primary" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
-              {sendNow ? <I.send style={{ width: 12, height: 12 }} /> : <I.bubble style={{ width: 12, height: 12 }} />}{submitLabel}
+              <I.bubble style={{ width: 12, height: 12 }} />{submitLabel}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>
             {hint && <span className="dim" style={{ fontSize: 10.5 }}>{hint}</span>}
