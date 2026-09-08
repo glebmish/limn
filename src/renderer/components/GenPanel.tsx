@@ -195,7 +195,7 @@ export function GenPanel() {
         <div className="gs-head">
           <I.flag style={{ width: 13, height: 13, color: 'var(--red)' }} />
           <span className="gs-title">Agent run failed: {gen.error}</span>
-          <button className="btn btn-sm" onClick={() => startGenerateNow(steer)}>Retry</button>
+          <button className="btn btn-sm" disabled={gate.blocked || busy} onClick={() => startGenerateNow(steer)}>Retry</button>
         </div>
       </div>
     )
@@ -211,9 +211,9 @@ export function GenPanel() {
           <I.flag style={{ width: 13, height: 13, color: 'var(--muted)' }} />
           <b>Generation cancelled.</b> Pick an agent and run again, or steer the next pass.
         </span>
-        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
+        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked || busy} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
-        <button className="btn btn-primary" disabled={gate.blocked} onClick={() => startGenerateNow(steer)}>
+        <button className="btn btn-primary" disabled={gate.blocked || busy} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Retry generation
         </button>
         {gate.blocked && <GateNote branch={gate.branch} />}
@@ -243,7 +243,7 @@ export function GenPanel() {
             </button>
           </span>
         )}
-        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked} />
+        <SteerInput value={steer} onChange={setSteer} onSubmit={() => startGenerateNow(steer)} disabled={gate.blocked || busy} />
         <AgentPicker value={reviewAgent} onChange={(a) => useStore.getState().setAgent(a)} align="left" />
         <button className="btn btn-primary" disabled={gate.blocked || busy} onClick={() => startGenerateNow(steer)}>
           <EngineGlyph engine={reviewAgent.engine} style={{ width: 13, height: 13 }} />Generate guided review
