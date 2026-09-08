@@ -383,7 +383,12 @@ export interface ChatThread {
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
 }
-export interface Iteration { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; annotations: ReviewAnnotations; /** provenance of this iteration: 'full' = fresh/replacement generation, 'scoped' = diff-scoped update spliced onto the prior. */ scope: 'full' | 'scoped' }
+/** What a generation pass was, minus what it produced — the shape `ReviewState`
+ *  ships. The narration itself travels once, as `ReviewState.annotations`; nothing
+ *  reads an iteration's own copy, so the history stays metadata on the wire. */
+export interface IterationMeta { n: number; engine: EngineId; sessionId: string; endSha: string; at: string; summary?: string; title: string; /** provenance of this iteration: 'full' = fresh/replacement generation, 'scoped' = diff-scoped update spliced onto the prior. */ scope: 'full' | 'scoped' }
+/** A stored iteration: its metadata plus the narration that pass produced. */
+export interface Iteration extends IterationMeta { annotations: ReviewAnnotations }
 export interface ReviewCopyCandidate {
   sessionId: number
   iteration: number
@@ -421,8 +426,8 @@ export interface ReviewState {
   approvedHashes?: string[];
   /** per-artifact plan/spec approval: path → SHA at approval time */
   artifactApprovals: Record<string, string>;
-  latestIteration?: Iteration;
-  iterations: Iteration[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
+  latestIteration?: IterationMeta;
+  iterations: IterationMeta[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
   /** Non-fatal load degradations: blobs that failed to parse and were skipped. */
   loadWarnings?: string[];
   /** Terminal merged record — set once the branch landed (or was marked merged).

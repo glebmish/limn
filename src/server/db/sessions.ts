@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration,
+  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration, IterationMeta,
   MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
@@ -562,6 +562,12 @@ function rowToIteration(r: IterationRow, warnings?: LoadWarningKind[]): Iteratio
   }
 }
 
+/** Drop the narration blob: `ReviewState` carries the current one once, in
+ *  `annotations`, so the iteration history travels as metadata. */
+function toIterationMeta({ annotations: _annotations, ...meta }: Iteration): IterationMeta {
+  return meta
+}
+
 export function latestIteration(db: DatabaseSync, sessionId: number): Iteration | null {
   const row = db.prepare(
     'SELECT n, engine, engine_session_id, end_sha, summary, at, title, annotations_json, scope FROM iterations WHERE session_id = ? ORDER BY n DESC LIMIT 1'
@@ -789,7 +795,9 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     approvedShas: approvals.shas,
     approvedHashes: approvals.hashes,
     reviewedAtSha: row.reviewed_at_sha ?? undefined,
-    artifactApprovals, latestIteration: latest ?? undefined, iterations, artifacts,
+    artifactApprovals,
+    latestIteration: latest ? toIterationMeta(latest) : undefined,
+    iterations: iterations.map(toIterationMeta), artifacts,
     // a malformed stored stack reads as Unified — parseStack never throws
     ...(row.diff_stack ? { diffStack: parseStack(row.diff_stack) } : {}),
     ...(merged ? { merged } : {}),

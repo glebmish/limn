@@ -45,6 +45,11 @@ const iter = (n: number, engine: 'claude' | 'codex', sessionId: string, endSha: 
   const annotations = ann(title)
   return { n, engine, sessionId, endSha, at, title: annotations.title, summary: annotations.summary, annotations, scope: 'full' as const }
 }
+/** the same iteration as ReviewState ships it: metadata, no narration blob */
+const iterMeta = (...args: Parameters<typeof iter>) => {
+  const { annotations: _annotations, ...meta } = iter(...args)
+  return meta
+}
 
 describe('sessions DAO', () => {
   it('creates and finds a session by pair identity', () => {
@@ -99,11 +104,29 @@ describe('sessions DAO', () => {
     expect(st.comments[0].id).toBe('c1')
     expect(st.chats).toHaveLength(1)
     expect(st.chats[0].messages).toEqual([{ role: 'user', text: 'q', at: 'T1' }])
-    expect(st.iterations).toEqual([iter(1, 'claude', 'es-1', 'd'.repeat(40), 'T2')])
+    expect(st.iterations).toEqual([iterMeta(1, 'claude', 'es-1', 'd'.repeat(40), 'T2')])
     expect(st.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
     expect(st.artifactApprovals).toEqual({ 'docs/spec.md': 'd'.repeat(40) })
     expect(st.viewedAt).toEqual({ 'a.ts': { sha: 'd'.repeat(40), hash: 'blob1' } })
     expect(st.agent).toEqual({ engine: 'claude' })
+  })
+
+  // The narration is already on `state.annotations`. Shipping a second copy inside
+  // latestIteration — and one per past iteration — re-sent tens of KB of prose on
+  // every state-returning call (loadSession, but also every comment write), and no
+  // reader ever reached for it.
+  it('assembled state carries iteration metadata without the narration payload', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    addIteration(db, s.id, iter(1, 'claude', 'es-1', 'a'.repeat(40), 'T1'))
+    addIteration(db, s.id, iter(2, 'claude', 'es-2', 'b'.repeat(40), 'T2'))
+
+    const st = loadReviewState(db, s.id)
+    expect(st.latestIteration?.n).toBe(2)
+    expect(st.latestIteration?.endSha).toBe('b'.repeat(40))
+    expect(st.latestIteration).not.toHaveProperty('annotations')
+    expect(st.iterations.some((i) => 'annotations' in i)).toBe(false)
+    // the annotations the renderer does read are untouched
+    expect(latestIteration(db, s.id)?.annotations.title).toBe('Review 2')
   })
 
   it('comment upsert updates in place; delete removes; unresolvedCount counts queued+sent', () => {
