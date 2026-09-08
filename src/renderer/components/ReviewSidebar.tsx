@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { Artifact, Comment, FileDiff, ReviewAnnotations, Section, ViewMark } from '../../shared/types'
 import { narrationText } from '../../shared/types'
@@ -6,15 +6,9 @@ import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import { focusAnchor } from '../lib/focus'
-import { sectionIndex } from '../lib/fileOrder'
 import { FileTree } from './FileTree'
 import { Composer, InlineThread } from './Threads'
 
-/** Tree mode lists every file outside its section, so a click can land on a file whose
- *  section is collapsed or done — and a closed section renders no file nodes at all, so
- *  a raw jump would poll for a `[data-limn-file]` that isn't there and quietly give up.
- *  Route sectioned paths through `jumpToFile`, which force-opens the section first; only
- *  paths no section claims (working-tree extras) jump raw. */
 /** Arrow keys that move the Sections/Tree radiogroup selection — a 2-option group, so
  *  any of the four counts as "move to the other one" (there's no other direction to go). */
 const VIEW_TOGGLE_ARROW_KEYS = new Set(['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'])
@@ -22,18 +16,6 @@ const VIEW_TOGGLE_ARROW_KEYS = new Set(['ArrowLeft', 'ArrowUp', 'ArrowRight', 'A
 /** The other radio in the Sections/Tree toggle — what ArrowLeft/Up/Right/Down moves to. */
 export function otherSidebarView(view: 'sections' | 'tree'): 'sections' | 'tree' {
   return view === 'sections' ? 'tree' : 'sections'
-}
-
-export function makeTreeFileJump(
-  sectionOfPath: Map<string, string>,
-  jumpToFile: (sectionId: string, path: string) => void,
-  jumpToRawFile: (path: string) => void
-): (path: string) => void {
-  return (path) => {
-    const sectionId = sectionOfPath.get(path)
-    if (sectionId) jumpToFile(sectionId, path)
-    else jumpToRawFile(path)
-  }
 }
 
 /** The left review spine (`<nav className="gside">`): the artifact groups + their peek
@@ -110,8 +92,6 @@ export function ReviewSidebar({
     setSidebarView(next)
     ;(next === 'sections' ? sectionsBtnRef : treeBtnRef).current?.focus()
   }
-  const sectionOfPath = useMemo(() => sectionIndex(sections), [sections])
-  const jumpToTreeFile = makeTreeFileJump(sectionOfPath, jumpToFile, jumpToRawFile)
   const [commentStep, setCommentStep] = useState<number | null>(null)
   const [commentCriterion, setCommentCriterion] = useState<number | null>(null)
   const stepComments = (n: number) => comments.filter((c) => c.anchor.kind === 'plan-step' && c.anchor.stepN === n)
@@ -263,8 +243,9 @@ export function ReviewSidebar({
             viewedAt={viewedAt}
             headSha={loaded.skeleton.headSha}
             currentFile={curFile}
-            // an unannotated review has no sections to open, so its clicks jump raw
-            onFileClick={annotations ? jumpToTreeFile : jumpToRawFile}
+            // focusAnchor resolves a file's owning section itself (and force-opens
+            // it) for any file target, so a tree click always jumps raw.
+            onFileClick={jumpToRawFile}
             order="tree"
             className="gnav-tree-flat"
           />
