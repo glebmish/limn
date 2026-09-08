@@ -90,7 +90,10 @@ export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlic
   booting: boolean
 
   boot(): Promise<void>
-  applyCliOpen(msg: CliOpenMsg): void
+  /** Redeem a `limn open` ticket onto a screen. Returns the navigation it started so
+   *  boot() can hold `booting` until it lands (the URL-route and dev-hook branches are
+   *  awaited the same way) — the dispatch itself still happens synchronously. */
+  applyCliOpen(msg: CliOpenMsg): Promise<void>
   backToDashboard(): Promise<void>
   /** mark the branch watcher stopped (carrying its reason) or live (null). */
   setWatchStopped(v: { reason: string } | null): void
@@ -146,7 +149,7 @@ export const useStore = create<AppStore>()((...a) => {
             // only a REDEEMED ticket claims the boot. A spent or unknown one (null) and a
             // failed redeem fall through, so `/review/12?open=<expired>` still opens the
             // review the URL names instead of stranding the address bar on a dead link.
-            if (cli) { get().applyCliOpen(cli); return }
+            if (cli) { await get().applyCliOpen(cli); return }
           } catch { /* server gone — fall through to whatever the URL says */ }
         }
         // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
@@ -166,16 +169,16 @@ export const useStore = create<AppStore>()((...a) => {
       }
     },
 
-    applyCliOpen(msg) {
+    async applyCliOpen(msg) {
       if (msg.error) { set({ error: msg.error }); return }
       const repo = msg.repo
       if (!repo) return
-      if (msg.hub) { void get().enterHub(repo); return }              // `limn --hub` → session list
-      if (msg.fresh) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }, { fresh: true }); return }
-      if (msg.baseInput || msg.compareInput) { void get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }); return }
+      if (msg.hub) return get().enterHub(repo)                        // `limn --hub` → session list
+      if (msg.fresh) return get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput }, { fresh: true })
+      if (msg.baseInput || msg.compareInput) return get().openReview(repo, { base: msg.baseInput, compare: msg.compareInput })
       // bare `limn` → behave like opening from the dashboard (the session hub if the
       // repo has sessions, else a transient review of the current branch)
-      void get().openRepo(repo)
+      return get().openRepo(repo)
     },
 
     async backToDashboard() {

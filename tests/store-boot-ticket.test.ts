@@ -90,6 +90,32 @@ describe('boot() with a cli:open ticket in the URL', () => {
     expect(replaceState).toHaveBeenCalledWith(null, '', '/review/12')
   })
 
+  it('keeps `booting` set until the ticket’s navigation lands (no dashboard flash)', async () => {
+    // `limn open` redeems its ticket on `/`, with the dashboard already mounted — so
+    // clearing `booting` before enterHub/openReview finishes paints the repo index
+    // for the length of the navigation's round trips, which is what the flag exists
+    // to prevent.
+    let arrive!: () => void
+    const navigation = new Promise<void>((r) => { arrive = r })
+    let bootingDuringNavigation: boolean | null = null
+    useStore.setState({
+      booting: true,
+      enterHub: vi.fn(async () => {
+        bootingDuringNavigation = useStore.getState().booting
+        await navigation
+      }) as never
+    })
+    let settled = false
+    const booted = useStore.getState().boot().then(() => { settled = true })
+    await new Promise((r) => setTimeout(r))
+    expect(bootingDuringNavigation).toBe(true)
+    expect(settled).toBe(false)
+    expect(useStore.getState().booting).toBe(true)
+    arrive()
+    await booted
+    expect(useStore.getState().booting).toBe(false)
+  })
+
   it('a failed redeem also falls through to the URL route', async () => {
     win.location.pathname = '/review/12'
     takeCliOpen.mockRejectedValueOnce(new Error('fetch failed'))
