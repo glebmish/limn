@@ -42,16 +42,6 @@ export function hunkGaps(hunks: Hunk[]): Gap[] {
   return gaps
 }
 
-/** Materialize a gap as plain context DiffLines from the fetched working file. */
-export function gapLines(fileLines: string[], gap: Gap): DiffLine[] {
-  const to = Math.min(gap.to ?? fileLines.length, fileLines.length)
-  const rows: DiffLine[] = []
-  for (let n = gap.from; n <= to; n++) {
-    rows.push({ old: n - gap.oldOffset, new: n, kind: '', text: fileLines[n - 1] })
-  }
-  return rows
-}
-
 // ── stepped folds (GitHub's): STEP lines from either edge at a time ────────────
 
 export const STEP = 20

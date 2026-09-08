@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Hunk } from '../src/shared/types'
-import { gapLines, hunkGaps } from '../src/renderer/lib/expand'
+import { hunkGaps } from '../src/renderer/lib/expand'
 
 // @@ -12,4 +12,5 @@ : one add at new 14 (old runs 12..15, new runs 12..16)
 const h1: Hunk = {
@@ -41,26 +41,5 @@ describe('hunkGaps', () => {
 
   it('returns a single EOF gap for an empty hunk list', () => {
     expect(hunkGaps([])).toEqual([{ key: 'g1', from: 1, to: null, oldOffset: 0 }])
-  })
-})
-
-describe('gapLines', () => {
-  const file = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`)
-
-  it('synthesizes numbered context rows for a bounded gap', () => {
-    const rows = gapLines(file, { key: 'g17', from: 17, to: 30, oldOffset: 1 })
-    expect(rows).toHaveLength(14)
-    expect(rows[0]).toEqual({ old: 16, new: 17, kind: '', text: 'line 17' })
-    expect(rows[13]).toEqual({ old: 29, new: 30, kind: '', text: 'line 30' })
-  })
-
-  it('clamps an EOF gap to the file length', () => {
-    const rows = gapLines(file, { key: 'g34', from: 34, to: null, oldOffset: 1 })
-    expect(rows).toHaveLength(7)
-    expect(rows[6]).toEqual({ old: 39, new: 40, kind: '', text: 'line 40' })
-  })
-
-  it('returns nothing when the gap starts past EOF', () => {
-    expect(gapLines(['only'], { key: 'g2', from: 2, to: null, oldOffset: 0 })).toEqual([])
   })
 })

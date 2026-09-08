@@ -236,44 +236,6 @@ export function buildFileRows(
   return rows
 }
 
-/** The rows as they actually render: a revealed run replaces its collapsed-run row
- *  with plain context rows, in the same file-line key space as everything else.
- *
- *  `canExpand` gates BOTH halves, and that is the point rather than an optimization.
- *  `expandedGaps` is DiffBody's own state, keyed by the gap's `g<from>` — and `g1` is
- *  the leading gap's key in *every* diff mode, while the rows either side of it differ
- *  wildly between "Full diff" and "Since approved". Splicing branch-mode lines into a
- *  since-mode view produced duplicate React keys (or a silent hole in the file's line
- *  numbering) on a tab switch. Folds can only be *opened* in branch mode, so a
- *  revealed run that survives into any other mode is by definition stale and is
- *  ignored here; DiffBody additionally drops the state when the mode changes.
- *
- *  The trailing run's inert marker is dropped for the same "say only true things"
- *  reason as `buildFileRows`'s tail guard: it marks no discontinuity *between shown
- *  rows* (nothing follows it), and with no worktree to read, its length is unknowable
- *  — so it can only ever read "there is more file", forever. Where it can be opened
- *  (branch mode, writable) it stays exactly as it was. */
-export function viewRows(
-  rows: FileRow[], expandedGaps: Record<string, DiffLine[]>, canExpand: boolean, lang: string | null = null
-): FileRow[] {
-  const view: FileRow[] = []
-  for (const r of rows) {
-    if (r.type === 'gap') {
-      const revealed = canExpand ? expandedGaps[r.gap.key] : undefined
-      if (revealed?.length) {
-        // same cross-line highlight treatment as a hunk's own lines (#7) — a revealed
-        // run is real, contiguous file content and can itself contain a block comment
-        // or template literal spanning its lines
-        view.push(...linesForRun(revealed, lang, { hunkRange: '', fromHunk: false }))
-        continue
-      }
-      if (!canExpand && r.where === 'below') continue
-    }
-    view.push(r)
-  }
-  return view
-}
-
 // ── aligned rows: one cell per column, for every layout ─────────────────────────
 //
 // Unified is the one-cell case (`asAligned` wraps a LineRow byte-for-byte); Split

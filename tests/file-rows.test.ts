@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { DiffLine, Hunk } from '../src/shared/types'
+import type { Hunk } from '../src/shared/types'
 import { hunkGaps } from '../src/renderer/lib/expand'
-import { buildFileRows, fnLabel, lineRow, rowKey, viewRows } from '../src/renderer/lib/rows'
+import { buildFileRows, fnLabel, lineRow, rowKey } from '../src/renderer/lib/rows'
 
 // @@ -12,4 +12,5 @@ : one add at new 14
 const h1: Hunk = {
@@ -176,48 +176,6 @@ describe('buildFileRows trailing run', () => {
     const rows = buildFileRows([h1, h2], hunkGaps([h1, h2]))
     const last = rows[rows.length - 1]
     expect(last.type === 'gap' && last.where).toBe('below')
-  })
-})
-
-// final review, finding 1: `expandedGaps` is component state keyed by `g<from>`, and
-// the leading gap is `g1` in every diff mode — so a fold opened in branch mode used to
-// splice its (branch-mode) lines into an "Since approved" view, whose rows start
-// somewhere else entirely: duplicate React keys, or a silent hole. The splice is now
-// gated on the same `canExpand` that decides whether a fold can be opened at all
-// (DiffBody additionally drops the state on a mode switch).
-describe('viewRows', () => {
-  const rows = buildFileRows([h1, h2], hunkGaps([h1, h2]))
-  const revealed: DiffLine[] = [
-    { old: 10, new: 10, kind: '', text: 'x' },
-    { old: 11, new: 11, kind: '', text: 'y' }
-  ]
-
-  it('splices a revealed run in place of its gap row when folds can be opened', () => {
-    const view = viewRows(rows, { g1: revealed }, true)
-    expect(view.map((r) => r.key).slice(0, 3)).toEqual(['new:10', 'new:11', 'new:12'])
-    expect(view.some((r) => r.key === 'gap:g1')).toBe(false)
-    // a revealed row is real file content, not diff content
-    const first = view[0]
-    expect(first.type === 'line' && first.fromHunk).toBe(false)
-  })
-
-  it('ignores stale revealed lines when folds cannot be opened, and keeps the marker', () => {
-    const view = viewRows(rows, { g1: revealed }, false)
-    expect(view.some((r) => r.key === 'new:10')).toBe(false)
-    expect(view[0].key).toBe('gap:g1')
-    expect(new Set(view.map((r) => r.key)).size).toBe(view.length)
-  })
-
-  it('drops the inert trailing marker but keeps the inert above/between ones', () => {
-    const view = viewRows(rows, {}, false)
-    const gaps = view.filter((r) => r.type === 'gap')
-    expect(gaps.map((g) => (g.type === 'gap' ? g.where : ''))).toEqual(['above', ''])
-  })
-
-  it('keeps the trailing run where it can be opened', () => {
-    const view = viewRows(rows, {}, true)
-    const gaps = view.filter((r) => r.type === 'gap')
-    expect(gaps.map((g) => (g.type === 'gap' ? g.where : ''))).toEqual(['above', '', 'below'])
   })
 })
 
