@@ -181,15 +181,23 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
     const nowNo = nowDel ? null : inow.kept.get(b) ?? b + offsetAt(inow, b)
     const nowAt = inow.lineAt.get(b)
     const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, lang) }
+    // A checkpoint's empty slot is never `gone` ("the checkpoint had this — current
+    // does not"): the checkpoint is precisely the column that does NOT have the line.
+    // Where current kept a base line the nearest checkpoint dropped, that is the
+    // documented `since` case — "a current line the checkpoint beside it never had" —
+    // and the mark goes on the current cell, which is the one that has the line.
     const midCells: Cell[] = ims.map((im) => {
-      if (im.del.has(b)) return { l: null, side: 'mid', lineNo: null, kind: '', deleted: true, attribution: nowDel ? undefined : 'gone' }
+      if (im.del.has(b)) return { l: null, side: 'mid', lineNo: null, kind: '', deleted: true }
       const no = im.kept.get(b) ?? b + offsetAt(im, b)
       const l = im.lineAt.get(b)?.l ?? { old: b, new: no, kind: '' as const, text }
       return { l, side: 'mid', lineNo: no, kind: '', html: html(l, lang) }
     })
     const nowCell: Cell = nowDel
       ? { l: null, side: 'new', lineNo: null, kind: '', deleted: true, attribution: nearDel ? undefined : 'since' }
-      : (() => { const l = nowAt?.l ?? { old: b, new: nowNo, kind: '' as const, text }; return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, lang) } })()
+      : (() => {
+          const l = nowAt?.l ?? { old: b, new: nowNo, kind: '' as const, text }
+          return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, lang), attribution: nearDel ? ('since' as const) : undefined }
+        })()
     out.push({
       type: 'aligned', key: `old:${b}`,
       cells: [baseCell, ...midCells, nowCell],

@@ -86,7 +86,7 @@ describe('multi layout', () => {
     expect(out).toContain('del-slot')
   })
 
-  it('a base line the checkpoint deleted but the tree restored is marked gone on the checkpoint cell', () => {
+  it('a base line the checkpoint deleted but the tree restored is marked since on the current cell', () => {
     const restored: FileDiff = { ...file, sinceHunks: [], hunks: [{ range: '@@ -1,3 +1,3 @@', header: '', lines: [
       { old: 1, new: 1, kind: '', text: 'ctx' }, { old: 2, new: 2, kind: '', text: 'old line' }, { old: 3, new: 3, kind: '', text: 'end' }
     ] }], baseToApprovedHunks: [{ range: '@@ -1,3 +1,2 @@', header: '', lines: [
@@ -94,7 +94,11 @@ describe('multi layout', () => {
     ] }] }
     seed(multi, restored)
     const out = renderToStaticMarkup(<DiffView f={restored} />)
-    expect(out).toContain('class="dcell del-slot attr-gone"')
+    // the checkpoint's empty slot carries no mark — it never had the line, so the only
+    // true thing to say sits on the current cell, which does
+    expect(out).toContain('class="dcell del-slot"')
+    expect(out).not.toContain('attr-gone')
+    expect(out).toMatch(/dcell\s+attr-since[^>]*src\/a\.ts:new:2/)
     expect(out).toContain('rail-hit') // the strip that carries the explanation on hover
     expect(attributionExplanation('gone', 'approved')).toBe('Your approval had this — current does not')
     expect(attributionExplanation('since', 'review')).toBe('Current differs from the agent review')

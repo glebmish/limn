@@ -79,8 +79,12 @@ describe('buildMultiRows', () => {
     ] }]
     const rows = aligned(buildMultiRows([midB], nowB, null))
     const r = rows.find((x) => x.key === 'old:20')!
-    expect(r.cells[1]).toMatchObject({ deleted: true, attribution: 'gone' })
-    expect(r.cells[2]).toMatchObject({ lineNo: 21, kind: '', l: { text: 'r', new: 21 } })
+    // the checkpoint's EMPTY slot says nothing — it is current that diverged, and the
+    // mark belongs on the line that actually has it ("a current line the checkpoint
+    // beside it never had" = `since`)
+    expect(r.cells[1]).toMatchObject({ deleted: true })
+    expect(r.cells[1].attribution).toBeUndefined()
+    expect(r.cells[2]).toMatchObject({ lineNo: 21, kind: '', l: { text: 'r', new: 21 }, attribution: 'since' })
     // not inside a now hunk: real content, but no anchor payload to hand the pipeline
     expect(r.anchor).toBeNull()
     expect(r.run).toBeNull()
@@ -160,9 +164,10 @@ describe('buildMultiRows with several checkpoint columns', () => {
     const rows = aligned(buildMultiRows([review, approval], current, null))
     const three = rows.find((r) => r.key === 'old:3')!
     expect(three.cells[1]).toMatchObject({ side: 'mid', lineNo: 4, l: { text: 'l3' } })
-    expect(three.cells[2]).toMatchObject({ deleted: true, attribution: 'gone' })
-    expect(three.cells[3]).toMatchObject({ lineNo: 4, kind: '' })
-    expect(three.cells[3].attribution).toBeUndefined()
+    expect(three.cells[2]).toMatchObject({ deleted: true })
+    expect(three.cells[2].attribution).toBeUndefined()
+    // the nearest checkpoint (the approval) dropped the line current still has: `since`
+    expect(three.cells[3]).toMatchObject({ lineNo: 4, kind: '', attribution: 'since' })
   })
 
   it('keys a checkpoint-only insertion by its column so two checkpoints never collide', () => {
