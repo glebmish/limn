@@ -22,7 +22,7 @@ function nav(over: Partial<Parameters<typeof useReviewScroll>[0]> = {}): Nav {
       loaded: null,
       docPath: null,
       sections: [],
-      filesFor: () => [],
+      doneSectionIds: new Set<string>(),
       openDoc: () => {},
       closeDoc: () => {},
       ...over

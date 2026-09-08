@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
-import type { FileDiff, Section } from '../../shared/types'
-import { sectionViewState, useStore } from '../store'
+import type { Section } from '../../shared/types'
+import { useStore } from '../store'
 import { cancelFocusJump, pinnedTop } from './focusScroll'
 import { focusAnchor } from './focus'
 import { dev } from '../dev'
@@ -20,14 +20,18 @@ export function useReviewScroll({
   loaded,
   docPath,
   sections,
-  filesFor,
+  doneSectionIds,
   openDoc,
   closeDoc
 }: {
   loaded: LoadedReview | null
   docPath: string | null
   sections: Section[]
-  filesFor: (s: Section) => FileDiff[]
+  /** ids of sections whose files are all viewed — computed once in Review.tsx (the
+   *  same predicate ActionChips/reviewedCount use), not per scroll frame. Read via a
+   *  ref inside the scroll listener so it stays current without retriggering the
+   *  effect that attaches it. */
+  doneSectionIds: Set<string>
   openDoc: (path: string) => void
   closeDoc: () => void
 }): {
@@ -50,6 +54,11 @@ export function useReviewScroll({
   const reviewScrollRef = useRef(0)
   const docScrollRef = useRef<Record<string, number>>({})
   const [peek, setPeek] = useState<string | null>(dev.openPeek ?? null)
+  // mirrored into a ref so the scroll listener (attached once per `sections` change,
+  // not per render) always reads the latest done-set without retriggering the effect
+  // that attaches it — a plain closure over the prop would go stale between renders.
+  const doneSectionIdsRef = useRef(doneSectionIds)
+  useEffect(() => { doneSectionIdsRef.current = doneSectionIds }, [doneSectionIds])
 
   // publish the pinned header's live height as a CSS var on the scroll container so
   // the (also-sticky) file headers stick *below* it instead of behind it. Measured,
@@ -70,27 +79,24 @@ export function useReviewScroll({
     const box = scrollRef.current
     if (!box) return
     const onScroll = (): void => {
+      const st = useStore.getState()
       // the doc view shares this scroll container; scrolling a spec/plan must
       // not re-track the (unmounted) changes sections in the sidebar
-      if (useStore.getState().docPath) return
+      if (st.docPath) return
       // the fold line: just under the pinned page header (measured — it wraps with
       // the title), so the file whose header sits right below it is the current one
       const baseTop = box.getBoundingClientRect().top + pinnedTop(box) + FOLD_GAP
-      const va = useStore.getState().viewedAt
-      const vaHead = useStore.getState().loaded?.skeleton.headSha
-      // same rule Review.tsx's isSectionDone reads for reviewedCount — one owner
-      // (sectionViewState), not a second hand-rolled predicate here.
-      const sectionDone = (s: Section): boolean => sectionViewState(filesFor(s), va, vaHead) === 'all'
+      const done = doneSectionIdsRef.current
       let active: string | undefined
       if (sections.length > 0) {
-        const firstOpen = sections.find((s) => !sectionDone(s))
+        const firstOpen = sections.find((s) => !done.has(s.id))
         active = firstOpen ? firstOpen.id : sections[0]?.id
         for (const s of sections) {
-          if (sectionDone(s)) continue
+          if (done.has(s.id)) continue
           const el = secRefs.current[s.id]
           if (el && el.getBoundingClientRect().top <= baseTop) active = s.id
         }
-        if (active) useStore.getState().setCur(active)
+        if (active) st.setCur(active)
       }
       // current file: within the active section, the last file header at or above
       // the fold line; if none is above it yet (we're still in the section's
@@ -111,11 +117,10 @@ export function useReviewScroll({
       }
       // fall back to the section's first file only once its header has reached the
       // fold (so reading the top summary doesn't pre-light section 1's first file)
-      useStore.getState().setCurFile(activeFile ?? (secTop <= baseTop ? firstInSec : null))
+      st.setCurFile(activeFile ?? (secTop <= baseTop ? firstInSec : null))
     }
     box.addEventListener('scroll', onScroll, { passive: true })
     return () => box.removeEventListener('scroll', onScroll)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections])
 
   // Every sidebar navigation is a focus jump with the flash turned off. One pipeline

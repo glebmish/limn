@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, sectionViewState, useStore } from '../store'
-import { renderedFiles } from '../store/derive'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
+import { doneSectionIds as computeDoneSectionIds, renderedFiles } from '../store/derive'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
@@ -129,15 +129,24 @@ export default function Review() {
   // excluded (untracked, hidden) files leave their section/band for the Excluded group
   const filesFor = (s: Section): FileDiff[] => orderFilesForReview(rendered, s.files).filter((f) => !isExcluded(f))
   // a section is done when all its files are viewed (derived — no separate flag;
-  // sectionViewState is the one place that rule lives, ActionChips reads it too)
-  const isSectionDone = (s: Section): boolean => sectionViewState(filesFor(s), viewedAt, loaded?.skeleton.headSha) === 'all'
+  // sectionViewState, which doneSectionIds wraps, is the one place that rule lives —
+  // ActionChips reads sectionViewState directly for the same predicate). Computed
+  // once here, not per scroll frame: useReviewScroll's scroll-sync used to recompute
+  // this per section (up to 2N times per scroll event) via its own copy of the
+  // predicate; it now reads this same memo through a ref. isSectionDone is a thin
+  // lookup into it, not a second computation.
+  const doneSectionIds = useMemo(
+    () => computeDoneSectionIds(sections, filesFor, viewedAt, loaded?.skeleton.headSha),
+    [sections, viewedAt, loaded]
+  )
+  const isSectionDone = (s: Section): boolean => doneSectionIds.has(s.id)
 
   // all review scroll wiring: refs, header-height + scroll-sync effects, the section/
   // file jump helpers, and the doc scroll-memory (peek + goToDoc/closeDocBack/toggleDoc)
   const {
     scrollRef, headRef, secRefs, peek, setPeek,
     jumpTo, jumpToFile, closeDocBack, toggleDoc
-  } = useReviewScroll({ loaded, docPath, sections, filesFor, openDoc, closeDoc })
+  } = useReviewScroll({ loaded, docPath, sections, doneSectionIds, openDoc, closeDoc })
 
   // dev/screenshot one-shots (flow/scroll/focus/batch/fake-gen/fake-drift/open-doc)
   useDevReviewHooks({ loaded, gen, scrollRef, setPendingDrift: store.setPendingDrift, openDoc })

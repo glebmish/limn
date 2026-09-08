@@ -94,6 +94,16 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
 }
 
+/** Every section whose files are all viewed, as a Set of ids — the same predicate
+ *  `sectionViewState` owns, just collected once over the whole list instead of
+ *  recomputed per section per caller. Review.tsx memoises this on
+ *  `[sections, viewedAt, loaded]` and both `isSectionDone` (reviewedCount) and the
+ *  scroll-sync handler in `useReviewScroll` read the resulting Set — the section-done
+ *  rule keeps one owner even though the callers used to duplicate the predicate. */
+export function doneSectionIds(sections: readonly Section[], filesFor: (s: Section) => FileDiff[], viewedAt: Record<string, ViewMark>, headSha?: string): Set<string> {
+  return new Set(sections.filter((s) => sectionViewState(filesFor(s), viewedAt, headSha) === 'all').map((s) => s.id))
+}
+
 export interface SectionDisclosureState {
   viewState: 'none' | 'some' | 'all'
   done: boolean
