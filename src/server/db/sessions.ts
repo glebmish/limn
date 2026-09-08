@@ -643,21 +643,15 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
       annotations,
       scope: 'full'
     })
-    // the two child tables this copies, read directly: assembling the source's whole
+    // the child table this copies, read directly: assembling the source's whole
     // ReviewState here re-parsed every comment, iteration and chat message of a
-    // session only to reach two two-column tables. Both are read before the target's
+    // session only to reach one two-column table. It is read before the target's
     // rows are cleared, so a self-copy still sees its own rows.
     const sourceArtifacts = db.prepare('SELECT role, path FROM artifacts WHERE session_id = ?')
       .all(sourceSessionId) as { role: 'spec' | 'plan'; path: string }[]
-    const sourceSections = (db.prepare('SELECT section_id FROM reviewed_sections WHERE session_id = ?')
-      .all(sourceSessionId) as { section_id: string }[]).map((r) => r.section_id)
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(targetSessionId)
     for (const artifact of sourceArtifacts) {
       db.prepare('INSERT INTO artifacts (session_id, role, path) VALUES (?, ?, ?)').run(targetSessionId, artifact.role, artifact.path)
-    }
-    db.prepare('DELETE FROM reviewed_sections WHERE session_id = ?').run(targetSessionId)
-    for (const section of sourceSections) {
-      db.prepare('INSERT INTO reviewed_sections (session_id, section_id) VALUES (?, ?)').run(targetSessionId, section)
     }
 
     // one read of the source's threads, not one per branch of the ??
@@ -723,12 +717,6 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
         db.prepare('INSERT INTO viewed_files (session_id, file, sha, hash) VALUES (?, ?, ?, ?)').run(sessionId, file, mark.sha, mark.hash)
       }
     }
-    if (patch.reviewedSections !== undefined) {
-      db.prepare('DELETE FROM reviewed_sections WHERE session_id = ?').run(sessionId)
-      for (const s of patch.reviewedSections) {
-        db.prepare('INSERT INTO reviewed_sections (session_id, section_id) VALUES (?, ?)').run(sessionId, s)
-      }
-    }
     if (patch.fileExcluded !== undefined) {
       db.prepare('DELETE FROM excluded_files WHERE session_id = ?').run(sessionId)
       for (const [file, excluded] of Object.entries(patch.fileExcluded)) {
@@ -773,9 +761,6 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     viewedAt[r.file] = { sha: r.sha, hash: r.hash }
   }
 
-  const reviewedSections = (db.prepare('SELECT section_id FROM reviewed_sections WHERE session_id = ?')
-    .all(sessionId) as { section_id: string }[]).map((r) => r.section_id)
-
   const fileExcluded: Record<string, boolean> = {}
   for (const r of db.prepare('SELECT file, excluded FROM excluded_files WHERE session_id = ?').all(sessionId) as { file: string; excluded: number }[]) {
     fileExcluded[r.file] = r.excluded === 1
@@ -799,7 +784,7 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     base: effectiveRef(meta.pair.base),
     agent: meta.agent,
     annotations,
-    comments, chats, viewedAt, reviewedSections, fileExcluded,
+    comments, chats, viewedAt, fileExcluded,
     approvedSha: row.approved_sha ?? undefined,
     approvedShas: approvals.shas,
     approvedHashes: approvals.hashes,

@@ -44,7 +44,7 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 ## Schema
 
-Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it — v2 `sessions.diff_stack`, v3 strips the dropped per-section `verify` key out of every stored annotations blob, v4 drops the dead `sessions.base_ident` generated column, v5 adds `idx_chat_messages_thread`. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
+Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it — v2 `sessions.diff_stack`, v3 strips the dropped per-section `verify` key out of every stored annotations blob, v4 drops the dead `sessions.base_ident` generated column, v5 adds `idx_chat_messages_thread`, v6 drops the writer-less `reviewed_sections` table. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
 
 ### Core entity graph
 
@@ -53,14 +53,13 @@ repos ──1:N──> sessions ──1:N──> comments
                         ├──1:N──> chat_threads ──1:N──> chat_messages
                         ├──1:N──> iterations
                         ├──1:N──> viewed_files
-                        ├──1:N──> reviewed_sections
                         ├──1:N──> artifacts
                         ├──1:N──> artifact_approvals
                         ├──1:N──> session_approvals
                         └──1:N──> excluded_files
 ```
 
-Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat_threads (and their chat_messages), iterations, viewed_files, reviewed_sections, artifacts, artifact_approvals, session_approvals, excluded_files — in one statement.
+Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of its children — comments, chat_threads (and their chat_messages), iterations, viewed_files, artifacts, artifact_approvals, session_approvals, excluded_files — in one statement.
 
 ### Tables
 
@@ -75,7 +74,6 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 | `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v2 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v5), `actions_json`, `tools_json`. |
 | `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`, `scope` (v7 — `full` \| `scoped`). |
 | `viewed_files` | PK `(session_id, file)`; per-file "viewed at SHA" markers. |
-| `reviewed_sections` | PK `(session_id, section_id)`; set membership. |
 | `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
 | `session_approvals` | PK `(session_id, hash)`; every branch surface explicitly approved for the session. Clean surfaces use `hash = sha`; dirty surfaces use a hash of the commit plus uncommitted working-tree content/status. |

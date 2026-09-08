@@ -198,5 +198,16 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('CREATE INDEX idx_chat_messages_thread ON chat_messages(thread_id, id)')
     }
+  },
+  {
+    // reviewed_sections lost its last writer when section completeness became derived
+    // from the section's per-file view marks (a section is done when all its files are
+    // ticked). The table only ever emptied out after that, so every read of it — the
+    // review-copy loop, the ReviewState field, and the agent's get_review_progress —
+    // reported "no sections read" no matter how far the reviewer had got.
+    version: 6,
+    up(db) {
+      db.exec('DROP TABLE reviewed_sections')
+    }
   }
 ]

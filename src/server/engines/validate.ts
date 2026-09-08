@@ -38,8 +38,8 @@ export function mergeAnnotations(skeleton: DiffSkeleton, parsed: ReviewAnnotatio
     surviving.push({ section: s, files })
   }
 
-  // A section id is a primary key downstream: the persisted `reviewed_sections` row,
-  // the React list key, the scroll ref and every planMap jump target. The schema only
+  // A section id is a key downstream: the section-anchored comment, the React list
+  // key, the scroll ref and every planMap jump target. The schema only
   // asks the agent for a "short stable id", so uniqueness is minted here — the scoped
   // path already does the same for new sections (splice.ts step 4). Every id a
   // surviving section actually cites is RESERVED before any minting, so an empty or

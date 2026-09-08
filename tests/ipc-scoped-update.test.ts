@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openDb } from '../src/server/db/db'
 import * as dao from '../src/server/db/sessions'
-import { createSession, loadReviewState, latestIteration, addIteration, upsertComment, replaceUiState } from '../src/server/db/sessions'
+import { createSession, loadReviewState, latestIteration, addIteration, upsertComment } from '../src/server/db/sessions'
 import { registerIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { makeFixtureRepo, fixtureGit, fixtureWrite } from './helpers/fixtureRepo'
@@ -83,10 +83,9 @@ describe('generate — scoped update path (IPC integration)', () => {
     const idsBefore = sectionIds(h)
     expect(it1.scope).toBe('full')
 
-    // a reviewed-section mark + a section-anchored comment on the untouched sections —
-    // they must still resolve after the scoped update (their ids survive by construction).
+    // a section-anchored comment on an untouched section — it must still resolve
+    // after the scoped update (its section id survives by construction).
     const keptSectionId = idsBefore[idsBefore.length - 1] // the '(root)' section, untouched by an src drift
-    replaceUiState(h.db, h.sessionId, { reviewedSections: [keptSectionId] })
     const comment: Comment = {
       id: 'c1', text: 'still relevant?', status: 'queued', author: 'user',
       anchor: { kind: 'section', sectionId: keptSectionId }, createdAt: new Date().toISOString(),
@@ -108,9 +107,8 @@ describe('generate — scoped update path (IPC integration)', () => {
     expect(it2.endSha).toBe(newHead)
     // untouched section ids identical across iterations
     expect(sectionIds(h)).toEqual(idsBefore)
-    // the reviewed-section mark + section comment still resolve to live section ids
+    // the section comment still resolves to a live section id
     const st = loadReviewState(h.db, h.sessionId)
-    expect(st.reviewedSections).toEqual([keptSectionId])
     expect(st.annotations!.sections.some((s) => s.id === keptSectionId)).toBe(true)
     expect(st.reviewedAtSha).toBe(newHead)
     // the live status log carried the scoped note

@@ -19,7 +19,7 @@ describe('openDb', () => {
     const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[])
       .map((r) => r.name)
     for (const t of ['repos', 'sessions', 'comments', 'chat_messages', 'iterations',
-      'viewed_files', 'reviewed_sections', 'artifacts', 'artifact_approvals',
+      'viewed_files', 'artifacts', 'artifact_approvals',
       'session_approvals',
       'prefs', 'meta']) {
       expect(tables).toContain(t)

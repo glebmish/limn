@@ -405,7 +405,6 @@ export interface ReviewState {
    *  dirty-becoming-commits); `hash` is the file's content hash at view time
    *  (catches uncommitted edits with no commit movement). */
   viewedAt: Record<string, ViewMark>;
-  reviewedSections: string[];
   /** Per-file exclude override for untracked working-tree files (path → excluded?).
    *  An explicit entry wins; absent paths fall back to the auto default (an orphan
    *  untracked file in a narrated review is excluded). Tracked files are never here.

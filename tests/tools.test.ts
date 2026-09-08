@@ -591,8 +591,7 @@ describe('get_review_progress (real temp DB)', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     replaceUiState(db, s.id, {
-      viewedAt: { 'src/a.ts': { sha: 'c'.repeat(40), hash: 'hash1' } },
-      reviewedSections: ['s1']
+      viewedAt: { 'src/a.ts': { sha: 'c'.repeat(40), hash: 'hash1' } }
     })
     upsertComment(db, s.id, comment('c1', 'queued'))
     upsertComment(db, s.id, comment('c2', 'sent'))
@@ -605,17 +604,25 @@ describe('get_review_progress (real temp DB)', () => {
     return { db, ctx, sessionId: s.id }
   }
 
-  it('reports viewed files, reviewed sections, and comment counts by status', async () => {
+  it('reports viewed files and comment counts by status', async () => {
     const { ctx } = setup()
     const { result, isError } = await createToolHost(ctx).call('get_review_progress', {})
     expect(isError).toBeFalsy()
     const parsed = JSON.parse(result) as {
-      viewed_files: { file: string; sha: string }[]; reviewed_sections: string[]
+      viewed_files: { file: string; sha: string }[]
       comments: { queued: number; sent: number; resolved: number; outdated: number }
     }
     expect(parsed.viewed_files).toEqual([{ file: 'src/a.ts', sha: 'c'.repeat(40) }])
-    expect(parsed.reviewed_sections).toEqual(['s1'])
     expect(parsed.comments).toEqual({ queued: 1, sent: 1, resolved: 1, outdated: 1 })
+  })
+
+  // Section progress is derived from per-file view marks in the UI and was never
+  // written back, so the old `reviewed_sections` key told the agent "no sections
+  // read" for every session — worse than saying nothing. It must stay gone.
+  it('does not tell the agent about reviewed sections', async () => {
+    const { ctx } = setup()
+    const { result } = await createToolHost(ctx).call('get_review_progress', {})
+    expect(Object.keys(JSON.parse(result) as object)).not.toContain('reviewed_sections')
   })
 
   // A view mark is only a live tick while the file still matches the sha (and

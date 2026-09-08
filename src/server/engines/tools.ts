@@ -334,8 +334,8 @@ const TOOL_IMPLS: ToolImpl[] = [
   {
     name: 'get_review_progress',
     description:
-      'Get a compact snapshot of review progress: which files/sections the reviewer has ' +
-      'marked viewed, and comment counts by status (queued/sent/resolved/outdated). Call this ' +
+      'Get a compact snapshot of review progress: which files the reviewer has marked ' +
+      'viewed, and comment counts by status (queued/sent/resolved/outdated). Call this ' +
       'to calibrate what to suggest next — e.g. don\'t re-suggest a file already viewed, and ' +
       'check for queued comments before wrapping up. Each `viewed_files` entry names the ' +
       'commit sha the tick was taken at: a file whose content changed since then reads as ' +
@@ -352,7 +352,6 @@ const TOOL_IMPLS: ToolImpl[] = [
         // synchronous tool doesn't have, so report the mark's own sha rather than a bare
         // key that would imply every entry is currently viewed.
         viewed_files: Object.entries(state.viewedAt).map(([file, m]) => ({ file, sha: m.sha })),
-        reviewed_sections: state.reviewedSections,
         comments,
         // Live commit/file drift requires shelling out to git (async); this tool stays
         // synchronous + read-only, so it surfaces only the cheap, already-loaded anchor —

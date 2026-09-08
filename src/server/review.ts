@@ -339,7 +339,7 @@ function emptyReviewState(repo: string, pair: RefPair, agent: AgentRef): ReviewS
     agent,
     annotations: undefined,
     comments: [], chats: [],
-    viewedAt: {}, reviewedSections: [], fileExcluded: {},
+    viewedAt: {}, fileExcluded: {},
     artifactApprovals: {}, iterations: [], artifacts: []
   }
 }
