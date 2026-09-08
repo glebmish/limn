@@ -613,7 +613,7 @@ describe('get_review_progress (real temp DB)', () => {
       comments: { queued: number; sent: number; resolved: number; outdated: number }
     }
     expect(parsed.viewed_files).toEqual([{ file: 'src/a.ts', sha: 'c'.repeat(40) }])
-    expect(parsed.comments).toEqual({ queued: 1, sent: 1, resolved: 1, outdated: 1 })
+    expect(parsed.comments).toEqual({ queued: 1, sent: 1, resolved: 1, outdated: 1, proposed: 0, dismissed: 0 })
   })
 
   // Section progress is derived from per-file view marks in the UI and was never

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { effectiveRef, type AgentAction, type AgentRef, type Comment, type CommentAnchor, type CommentReply, type EngineEvent, type FocusTarget, type ReviewAnnotations, type SessionMeta } from '../../shared/types.js'
+import { effectiveRef, type AgentAction, type AgentRef, type Comment, type CommentAnchor, type CommentReply, type CommentStatus, type EngineEvent, type FocusTarget, type ReviewAnnotations, type SessionMeta } from '../../shared/types.js'
 import { getSession, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
 import { resolveStampTree, stampAnchor, type StampTree } from '../anchorStamp.js'
 import { headSha } from '../git.js'
@@ -358,7 +358,7 @@ const TOOL_IMPLS: ToolImpl[] = [
     input: GET_PROGRESS_INPUT,
     run: async (ctx) => {
       const state = loadReviewState(ctx.db, ctx.sessionId)
-      const comments = { queued: 0, sent: 0, resolved: 0, outdated: 0 }
+      const comments: Record<CommentStatus, number> = { queued: 0, sent: 0, resolved: 0, outdated: 0, proposed: 0, dismissed: 0 }
       for (const c of state.comments) comments[c.status]++
       const slim = {
         // A tick is only live while the file still matches the sha AND content hash it

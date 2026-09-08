@@ -213,6 +213,11 @@ export interface CommentReply {
    *  answered, and resolved again — every verdict stays readable in order). */
   verdict?: 'addressed' | 'reworked' | 'skipped'
 }
+/** `proposed` = an agent finding the reviewer has not taken yet (never unresolved,
+ *  never in the batch); `dismissed` = a proposal hidden by the reviewer, restorable
+ *  until a re-run sweeps it. */
+export type CommentStatus = 'queued' | 'sent' | 'resolved' | 'outdated' | 'proposed' | 'dismissed'
+export interface CommentSource { actionId: string; runId: string; threadId?: number }
 export interface Comment {
   id: string; anchor: CommentAnchor; author: 'user' | 'agent'; text: string;
   /** agent-authored comments/replies carry which agent + which chat thread, for
@@ -221,7 +226,13 @@ export interface Comment {
   /** Set on hotspot cards (agent-flagged risk/note comments) — absent on ordinary
    *  comments. */
   severity?: HotspotSeverity;
-  status: 'queued' | 'sent' | 'resolved' | 'outdated';
+  status: CommentStatus;
+  /** Set on comments an action run (or the review generation's hotspot pass) minted
+   *  as PROPOSALS — agent findings the reviewer has not taken yet. `actionId` is the
+   *  pinned action (`'review'` for generation hotspots), `runId` the run/turn that
+   *  produced it, `threadId` the chat thread it ran in. A re-run of the same action
+   *  sweeps untouched proposals sharing its actionId. */
+  source?: CommentSource;
   /** Set by the re-anchor pipeline when a positional comment maps to a line that
    *  is valid in the file but not present in any rendered hunk at the current
    *  baseline (reverted nearby change / -U3 eviction / pure rename). The comment
@@ -258,6 +269,8 @@ export type AgentAction =
   // marks on reload, so it is never persisted here.
   | { kind: 'suggest_viewed'; id?: string; files?: string[]; sectionIds?: string[]; note?: string; resolution?: 'dismissed' }
   | { kind: 'comment_added'; comment: Comment }
+  /** an `add_finding` call inside an action run — the comment is a proposal */
+  | { kind: 'finding_added'; comment: Comment }
   | { kind: 'comment_replied'; commentId: string; anchor: CommentAnchor; reply: CommentReply }
   | { kind: 'comment_resolved'; commentId: string; anchor: CommentAnchor; verdict: 'addressed' | 'reworked' | 'skipped'; note: string }
   | { kind: 'review_edited'; field: 'title' | 'summary' | 'section.block' | 'section.contrast'; sectionId?: string }
@@ -351,6 +364,9 @@ export type EngineEvent =
   | { type: 'text'; text: string }            // streamed assistant text (chat)
   | { type: 'action'; action: AgentAction }   // agent tool call (point, suggest_mark_viewed, comment, …)
   | { type: 'approval_request'; request: ApprovalRequest }  // needs reviewer go-ahead
+  /** the repo's single task queue: this op is waiting its turn (`position` is 1-based,
+   *  `behind` names the running task) or has just taken the lane */
+  | { type: 'lane'; state: 'queued' | 'running'; position?: number; behind?: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
 
@@ -367,7 +383,34 @@ export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactForma
  *  not grouped. Built by `reduceSegments` for chat turns; review-generation turns
  *  persist `text` + `tools` with no `segments` and render via the tools-then-text path. */
 export type MessageSegment = { kind: 'text'; text: string } | { kind: 'tool'; id: string } | { kind: 'action'; index: number }
-export interface ChatMessage { role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[]; commentRefs?: string[] }
+export interface ChatMessage {
+  role: 'user' | 'agent'; text: string; at: string; anchor?: CommentAnchor; actions?: AgentAction[]; tools?: ToolCall[]; segments?: MessageSegment[]; commentRefs?: string[]
+  /** on the USER message that launched an action run: which action, which run */
+  run?: ActionRunRef
+  /** on the AGENT message that ended an action run: how it ended */
+  runResult?: ActionRunResult
+}
+
+// ── agent actions (design board 14) ───────────────────────────
+export type ActionKind = 'skill' | 'prompt'
+/** A pinned action (global config, prefs key `actions`). `body` is the bare skill
+ *  name for a skill (`simplify`, `pr-review-toolkit:review-pr` — no `/` or `$`) or
+ *  the verbatim prompt text for a prompt. */
+export interface ActionDef { id: string; kind: ActionKind; name: string; body: string }
+/** One run of an action: the launching user message carries it. `n` is the run's
+ *  ordinal within its thread ("Simplify · run 2"). */
+export interface ActionRunRef { actionId: string; runId: string; n: number; name: string; kind: ActionKind }
+export type ActionRunOutcome = 'finished' | 'refused' | 'cancelled' | 'failed'
+export interface ActionRunResult {
+  runId: string
+  outcome: ActionRunOutcome
+  error?: string
+  /** the reviewer pressed "Keep as prose" on a report-only run */
+  keepProse?: boolean
+  /** ISO time of the cached availability a skill run trusted because the resumed
+   *  session sent no fresh command list */
+  availabilityFrom?: string
+}
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are
  *  started by the reviewer and may target any agent. */
@@ -382,6 +425,9 @@ export interface ChatThread {
   createdAt: string
   /** the autonomy tier for this chat's turns; defaults to 'ask'. */
   executionMode: ExecutionMode
+  /** set on an ACTION thread — the one thread a pinned action runs in (one turn per
+   *  run). A 'user' thread in every other respect. */
+  action?: { actionId: string; name: string; kind: ActionKind }
 }
 /** What a generation pass was, minus what it produced — the shape `ReviewState`
  *  ships. The narration itself travels once, as `ReviewState.annotations`; nothing
