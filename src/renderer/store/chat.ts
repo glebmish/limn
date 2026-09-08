@@ -90,7 +90,15 @@ function sendChatToThread(threadId: number, body: string, anchor?: CommentAnchor
   }
   const opId = newOpId()
   useStore.getState().startOp('chat', opId, threadId)
-  void api().sendChat(threadId, text, opId, anchor)
+  // Fire-and-forget, but never silently (the shape sendBatch uses): the server can
+  // reject ('chat thread not found', a merged review) before it registers the op, so
+  // no op:result will ever arrive and the turn would spin forever with nothing on
+  // screen to explain it. Retire the op and say why.
+  Promise.resolve(api().sendChat(threadId, text, opId, anchor)).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    useStore.getState().finishOp(opId, 'failed', message)
+    useStore.setState({ error: message })
+  })
 }
 
 /** Drop one thread's entry from the queued-turn map (a copy — the map is state). */
@@ -355,7 +363,14 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       // any parked git-rebase ApprovalCard under the ask tier) are visible as they run
       get().openChat(targetId)
       get().startOp('chat', opId, targetId, true) // rebase turn is write-capable → exclusive lane
-      void api().sendRebase(targetId, opId, conflictFiles)
+      // Fire-and-forget, but never silently (the shape sendBatch uses): the server
+      // rejects before it registers the op, and this op holds the EXCLUSIVE lane —
+      // left running it gates every later generate/batch/rebase with no explanation.
+      Promise.resolve(api().sendRebase(targetId, opId, conflictFiles)).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        get().finishOp(opId, 'failed', message)
+        set({ error: message })
+      })
     })()
   },
 

@@ -50,6 +50,22 @@ describe('sendChat', () => {
     expect(useStore.getState().activeChatId).toBe(77)
     expect(useStore.getState().draftChat).toBeNull()
   })
+
+  it('a rejecting send retires the op and says why, instead of leaving the turn spinning', async () => {
+    // the server can reject ('chat thread not found', a merged review) before it
+    // registers the op, so no op:result ever arrives — the turn would spin forever
+    // with nothing on screen to explain it.
+    useStore.setState({ loaded: makeLoaded({ chats: [chat(1, 'user')] }), activeChatId: 1, error: null })
+    sendChat.mockRejectedValueOnce(new Error('chat thread not found'))
+    useStore.getState().sendChat('hi')
+    await flush()
+    const op = Object.values(useStore.getState().ops)[0]
+    expect(op.running).toBe(false)
+    expect(op.outcome).toBe('failed')
+    expect(op.error).toBe('chat thread not found')
+    expect(anyOpRunning()).toBe(false)
+    expect(useStore.getState().error).toBe('chat thread not found')
+  })
 })
 
 describe('followUp', () => {
@@ -164,5 +180,20 @@ describe('sendRebase', () => {
     expect(createChat).toHaveBeenCalledWith(1, { engine: 'claude' })
     expect(sendRebase).toHaveBeenCalledWith(99, expect.any(String), undefined)
     expect(chatsOf().find((c) => c.id === 99)?.messages.at(-1)).toMatchObject({ role: 'user', text: 'Rebase feature onto main.' })
+  })
+
+  it('a rejecting rebase retires the op and says why, instead of holding the exclusive lane forever', async () => {
+    // sendRebase owns the exclusive lane: a rejection the store never hears about
+    // gates every later generate/batch/rebase with no explanation on screen.
+    useStore.setState({ loaded: makeLoaded({ base: 'main', compare: 'feature', chats: [chat(3, 'review')] }), error: null })
+    sendRebase.mockRejectedValueOnce(new Error('this review is merged'))
+    useStore.getState().sendRebase()
+    await flush()
+    const op = Object.values(useStore.getState().ops)[0]
+    expect(op.running).toBe(false)
+    expect(op.outcome).toBe('failed')
+    expect(op.error).toBe('this review is merged')
+    expect(anyOpRunning()).toBe(false)
+    expect(useStore.getState().error).toBe('this review is merged')
   })
 })
