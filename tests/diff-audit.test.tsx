@@ -6,11 +6,13 @@ import type { LoadedReview } from '../src/shared/ipc'
 ;(globalThis as unknown as { window: unknown }).window = { api: {} }
 
 import { useStore } from '../src/renderer/store'
-import { DiffView, foldsStillOpen } from '../src/renderer/components/DiffView'
+import { DiffView, diffViewSlice, foldsStillOpen } from '../src/renderer/components/DiffView'
 import { latchFileRead } from '../src/renderer/components/DiffBody'
 import { makeLoaded } from './helpers/loaded'
 import { UNIFIED, type Stack } from '../src/shared/diffStack'
-import type { FileAt } from '../src/shared/types'
+import type { EngineEvent, FileAt } from '../src/shared/types'
+import { sliceFor } from '../src/renderer/lib/stack'
+import { hunkGaps } from '../src/renderer/lib/expand'
 
 type State = ReturnType<typeof useStore.getState>
 const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
@@ -177,5 +179,57 @@ describe('the drift-rail hover strip (#100)', () => {
     seed({ out: ['base'], against: 'base' }, dirty)
     const body = diffBody(renderToStaticMarkup(<DiffView f={dirty} />))
     expect((body.match(/rail-hit/g) ?? []).length).toBe(2)
+  })
+})
+
+describe('what a store write costs the diff subtree (#97)', () => {
+  it('is a memo boundary — its parents re-render on every write in the app', () => {
+    expect((DiffView as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'))
+  })
+
+  it('reads nothing a streamed agent event or a scroll boundary writes', () => {
+    seed(UNIFIED)
+    const before = diffViewSlice(useStore.getState(), 'src/a.ts')
+    const state = useStore.getState()
+    state.setCur('sec-1')            // useReviewScroll, per section crossed
+    state.setCurFile('src/b.ts')     // …and per file
+    state.startOp('review', 'op-1')
+    state.pushOpEvent('op-1', { type: 'token', text: 'thinking…' } as unknown as EngineEvent)
+    // the writes really landed — zustand minted a new top-level state object for each
+    expect(useStore.getState()).not.toBe(state)
+    expect(useStore.getState().cur).toBe('sec-1')
+    expect(useStore.getState().ops['op-1'].log.length).toBe(1)
+    // …and every field the file reads came through untouched, by identity
+    const after = diffViewSlice(useStore.getState(), 'src/a.ts')
+    expect(after).toEqual(before)
+    for (const k of Object.keys(before) as (keyof typeof before)[]) expect(after[k]).toBe(before[k])
+  })
+
+  it('reads this file\'s own stack override and focus, not the whole map', () => {
+    seed(UNIFIED)
+    const mine = (): ReturnType<typeof diffViewSlice> => diffViewSlice(useStore.getState(), 'src/a.ts')
+    const before = mine()
+    useStore.getState().setFileStack('src/b.ts', { out: ['base'], against: 'base' })
+    useStore.getState().setFocusTarget({ file: 'src/b.ts' })
+    expect(mine()).toEqual(before)
+    // its own, on the other hand, it must see
+    useStore.getState().setFileStack('src/a.ts', { out: ['base'], against: 'base' })
+    expect(mine().override).toEqual({ out: ['base'], against: 'base' })
+    useStore.getState().setFocusTarget({ file: 'src/a.ts' })
+    expect(mine().focused).toBe(true)
+  })
+
+  it('renders the same markup twice over — the memo hides no state churn', () => {
+    seed(UNIFIED)
+    expect(renderToStaticMarkup(<DiffView f={file} />)).toBe(renderToStaticMarkup(<DiffView f={file} />))
+  })
+
+  it('keeps the fold reveals keyed to the same gaps across a re-render', () => {
+    // reveals live in DiffBody state under `gap.key`, and the gaps memo is keyed on
+    // the hunks: both must survive a render that changed nothing about the file
+    const hunks = sliceFor(file, 'base')
+    expect(sliceFor(file, 'base')).toBe(hunks)
+    expect(hunkGaps(sliceFor(file, 'base')).map((g) => g.key))
+      .toEqual(hunkGaps(hunks).map((g) => g.key))
   })
 })

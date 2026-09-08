@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { FileDiff } from '../../shared/types'
 import { CmtPlus } from '../kit'
-import { fileViewed, fileIsExcluded, useStore } from '../store'
+import { fileViewed, fileIsExcluded, useStore, type AppStore } from '../store'
 import { renderedFiles } from '../store/derive'
 import { effectiveStack, sameStack } from '../lib/stack'
 import { holdPlace } from '../lib/focusScroll'
@@ -23,23 +24,53 @@ export function foldsStillOpen(
   return open != null && open.f === f && open.stackKey === stackKey
 }
 
-export function DiffView({ f }: {
+/** Everything DiffView reads out of the store, for ONE file. Everything else the
+ *  store holds — `ops` (one write per streamed agent event), `cur`/`curFile` (one
+ *  per section/file boundary the reader scrolls past), chat, dashboard, prefs — is
+ *  deliberately absent: a selector-less `useStore()` here re-ran the whole row tree
+ *  of every open file on each of those writes, since zustand mints a new top-level
+ *  state object per `set()`. Shallow-compared, so a slice whose fields are all
+ *  unchanged does not re-render the file at all.
+ *
+ *  Actions are not in it: they are stable for the store's lifetime and are read off
+ *  `useStore.getState()` where they are called, so subscribing to them would buy
+ *  nothing. */
+export function diffViewSlice(s: AppStore, path: string) {
+  return {
+    loaded: s.loaded,
+    viewedAt: s.viewedAt,
+    diffStack: s.diffStack,
+    /** this file's own stack override, not the whole per-file map */
+    override: s.fileStack[path],
+    /** whether the focus hold is on THIS file, not which file it is on */
+    focused: s.focusTarget?.file === path
+  }
+}
+
+/** Memoized on `f`: `renderedFiles` hands back `loaded.skeleton.files` (or `merged`),
+ *  so a file object is referentially stable between refreshes — and its parents
+ *  (`SectionView`, `Review`) are selector-less store subscribers that re-render on
+ *  every write in the app. Without the boundary each of those writes repainted every
+ *  row of every open file. */
+export const DiffView = memo(function DiffView({ f }: {
   f: FileDiff
 }) {
-  const { viewedAt, toggleViewed, toggleExcluded, loaded, focusTarget, setFocusTarget, diffStack, fileStack, setFileStack, spreadStack } = useStore()
+  const { loaded, viewedAt, diffStack, override, focused } = useStore(useShallow((s) => diffViewSlice(s, f.path)))
   // this file's stack: its override, else the review's default — narrowed to the
   // sheets the file has. The ✓ shows while the override differs from the default.
-  const override = fileStack[f.path]
   const requested = override ?? diffStack
   const stack = effectiveStack(requested, f)
   const differs = override != null && !sameStack(override, diffStack)
   const stackKey = JSON.stringify(stack)
-  const excluded = fileIsExcluded(loaded, f)
-  const comments = loaded?.state.comments ?? []
+  // `fileIsExcluded` rebuilds a Set of every sectioned path, so it is worth keeping
+  // off the render path of a review with many files
+  const excluded = useMemo(() => fileIsExcluded(loaded, f), [loaded, f])
+  // stable while the review is: the `?? []` fallback would otherwise mint a fresh
+  // array every render and defeat the two memos below
+  const comments = useMemo(() => loaded?.state.comments ?? [], [loaded])
   const { name } = splitPath(f.path)
   // recognized spec/plan: this same file is reviewable rendered at the top
   const artifact = loaded?.artifacts.find((a) => a.path === f.path)
-  const focused = focusTarget?.file === f.path
   // an unambiguous file-line identity for the per-line composer — two identical
   // lines can no longer open the composer together (was content-matched, then
   // hunk-indexed; #11 re-keyed it onto the file line the reader sees).
@@ -79,8 +110,12 @@ export function DiffView({ f }: {
     return () => restore(section)
   }
 
-  const fileComments = comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path)
-  const fileLevelComments = comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path)
+  // two passes over every comment in the review, per file — memoized on the list they
+  // read (and stable, so DiffBody's own props stop churning with them)
+  const fileComments = useMemo(
+    () => comments.filter((c) => c.anchor.kind === 'diff' && c.anchor.file === f.path), [comments, f.path])
+  const fileLevelComments = useMemo(
+    () => comments.filter((c) => c.anchor.kind === 'file' && c.anchor.file === f.path), [comments, f.path])
   const viewMark = viewedAt[f.path]
   // single source of truth (matches section counts); ignores stale `sinceViewed`
   // once the mark sits at head, so re-viewing a drifted file sticks immediately.
@@ -113,9 +148,9 @@ export function DiffView({ f }: {
           onToggleFolds={() => setFoldsOpenOn(foldsOpen ? null : { f, stackKey })}
           // a header click on the focused file collapses it too: the focus hold
           // (which force-shows the body) ends, and the toggle goes off what is SHOWN
-          onToggleOpen={() => { const restore = holdFold(); if (focused) setFocusTarget(null); setManualOpen(!showBody); restore() }}
-          onToggleViewed={() => { const restore = holdFold(); toggleViewed(f.path, isViewed); setManualOpen(null); restore() }}
-          onToggleExcluded={() => toggleExcluded(f)}
+          onToggleOpen={() => { const restore = holdFold(); if (focused) useStore.getState().setFocusTarget(null); setManualOpen(!showBody); restore() }}
+          onToggleViewed={() => { const restore = holdFold(); useStore.getState().toggleViewed(f.path, isViewed); setManualOpen(null); restore() }}
+          onToggleExcluded={() => useStore.getState().toggleExcluded(f)}
         />
 
         {(fileLevelComments.length > 0 || fileCommenting) && (
@@ -149,8 +184,11 @@ export function DiffView({ f }: {
               viewed: viewMark?.sha
             }}
             since={loaded ? sinceBasis(loaded.state, loaded.skeleton.headSha)?.basis ?? null : null}
-            onChange={(next, spread) => { setFileStack(f.path, next); if (spread) spreadStack(f.path) }}
-            onSpread={() => spreadStack(f.path)}
+            onChange={(next, spread) => {
+              useStore.getState().setFileStack(f.path, next)
+              if (spread) useStore.getState().spreadStack(f.path)
+            }}
+            onSpread={() => useStore.getState().spreadStack(f.path)}
           >
             <DiffBody
               f={f}
@@ -166,4 +204,4 @@ export function DiffView({ f }: {
       </div>
     </div>
   )
-}
+})

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { FileDiff } from '../../shared/types'
 import type { Sheet, Stack } from '../../shared/diffStack'
 import {
@@ -129,8 +129,11 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
   const cls = ['stk', `lay-${layout === 'unified' ? 'uni' : layout}`, out ? 'has-pop' : '', differs ? 'has-ok' : '', peel ? 'peel' : '']
     .filter(Boolean).join(' ')
   const nCols = layout === 'unified' ? 1 : cols.length + 1
-  // the key describes THIS file: its own uncommitted lines, its own sheets
-  const dirty = f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged'))
+  // the key describes THIS file: its own uncommitted lines, its own sheets. Memoized
+  // on the file: it is a scan of every line of the diff, and a clean file scans in
+  // full — no business re-running because the strip opened a picker.
+  const dirty = useMemo(
+    () => f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged')), [f])
   const spreadTitle = `Use for all ${fileCount} files — every other file shows ${describeStack(defaultStack)}`
   const resetTitle = `Back to the review's default — ${describeStack(defaultStack)}`
   return (
