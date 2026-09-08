@@ -81,26 +81,33 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
           <span className="cl">{sheetCaption(sheet, { unified })}</span>
           <svg className="cpv" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4" /></svg>
         </button>
-        <span className="fb-menu" role="listbox">
-          {opts.map((o) => (
-            <button
-              type="button"
-              key={o.sheet}
-              role="option"
-              aria-selected={o.sheet === sheet}
-              className={'fh-dd-item' + (o.sheet === sheet ? ' sel' : '')}
-              disabled={o.disabled}
-              title={o.disabled ? 'already out as its own sheet' : undefined}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (o.sheet === sheet) { setOpenFor(null); return }
-                change(unified ? setAgainst(stack, o.sheet) : replace(stack, sheet, o.sheet))
-              }}
-            >
-              <span className="fh-dd-check">✓</span>{sinceLabel(o.sheet)}
-            </button>
-          ))}
-        </span>
+        {/* mounted only while open (the house pattern — AgentPicker, ChatDropdown,
+            RefPicker…): a menu kept in the DOM behind `opacity:0` stays in the tab
+            order and the a11y tree, so a keyboard reader would walk through one
+            invisible option per sheet, per caption, per file — and activating one
+            silently re-bases the diff. The entry fade is a mount animation now. */}
+        {isOpen && (
+          <span className="fb-menu" role="listbox">
+            {opts.map((o) => (
+              <button
+                type="button"
+                key={o.sheet}
+                role="option"
+                aria-selected={o.sheet === sheet}
+                className={'fh-dd-item' + (o.sheet === sheet ? ' sel' : '')}
+                disabled={o.disabled}
+                title={o.disabled ? 'already out as its own sheet' : undefined}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (o.sheet === sheet) { setOpenFor(null); return }
+                  change(unified ? setAgainst(stack, o.sheet) : replace(stack, sheet, o.sheet))
+                }}
+              >
+                <span className="fh-dd-check">✓</span>{sinceLabel(o.sheet)}
+              </button>
+            ))}
+          </span>
+        )}
       </span>
     )
   }

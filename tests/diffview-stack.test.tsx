@@ -8,6 +8,7 @@ import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded, makeFile } from './helpers/loaded'
 import type { FileDiff } from '../src/shared/types'
 import { UNIFIED, type Stack } from '../src/shared/diffStack'
+import { pickerOptions, sheetsFor, sinceLabel } from '../src/renderer/lib/stack'
 
 // zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
 // review-sidebar.test.tsx) — seed both that object and the live state so the
@@ -75,11 +76,15 @@ describe('a file is read against its own stack', () => {
     expect(html.indexOf('stk-ok')).toBeLessThan(html.indexOf('stk-reset'))
   })
 
+  // The menu itself only exists while the picker is open (#96), and a static render
+  // can't open one — so the trigger is asserted on the markup and the options it
+  // would list on the pure helper the trigger hands its state to.
   it("Unified's caption picker offers everything the file has, naming the checkpoint's commit", () => {
     const html = captions(renderToStaticMarkup(<DiffView f={f} />))
     expect(html).toContain('aria-label="Diff baseline for src/a.ts"')
-    const opts = [...html.matchAll(/role="option"[^>]*>(?:<[^>]*>|✓)*([^<]+)</g)].map((m) => m[1])
-    expect(opts).toEqual(['Full diff', 'Since file view'])
+    expect(html).not.toContain('role="option"')
+    expect(pickerOptions(UNIFIED, sheetsFor(f), 'base').map((o) => sinceLabel(o.sheet)))
+      .toEqual(['Full diff', 'Since file view'])
     seed({ fileStack: { 'src/a.ts': st([], 'viewed') } })
     expect(captions(renderToStaticMarkup(<DiffView f={f} />))).toContain('title="Since file view · abc1234"')
   })
@@ -87,9 +92,10 @@ describe('a file is read against its own stack', () => {
   it('offers only the review window on a review nobody approved', () => {
     const unapproved = makeFile({ path: 'src/c.ts', hunks: [hunk('x')], sinceReviewHunks: [hunk('r')] } as never)
     seed({ loaded: makeLoaded({ files: [unapproved], headSha: 'head' }) })
-    const html = captions(renderToStaticMarkup(<DiffView f={unapproved} />))
-    expect(html).toContain('Since agent review')
-    expect(html).not.toContain('Since approval')
+    expect(captions(renderToStaticMarkup(<DiffView f={unapproved} />))).toContain('aria-label="Diff baseline for src/c.ts"')
+    const labels = pickerOptions(UNIFIED, sheetsFor(unapproved), 'base').map((o) => sinceLabel(o.sheet))
+    expect(labels).toContain('Since agent review')
+    expect(labels).not.toContain('Since approval')
   })
 })
 
@@ -132,9 +138,13 @@ describe('the strip', () => {
     const caps = captions(renderToStaticMarkup(<DiffView f={two} />))
     expect(caps).toMatch(/^class="dcols"[^>]*><span class="stk-col"><span class="cl">base · main<\/span><\/span>/)
     expect((caps.match(/class="cx"/g) ?? []).length).toBe(2)
-    // a checkpoint already out is offered but disabled in the other picker
-    expect(caps).toMatch(/<button[^>]*role="option"[^>]*disabled=""[^>]*title="already out as its own sheet"[^>]*>(?:<[^>]*>|✓)*Since approval</)
-    expect(caps).not.toContain('>Full diff<')
+    // a checkpoint already out is offered but disabled in the other picker, and base
+    // is not offered at all (the options list is the helper's — see the note above)
+    expect(pickerOptions(st(['approved', 'base', 'review']), sheetsFor(two), 'review')).toContainEqual(
+      { sheet: 'approved', disabled: true }
+    )
+    expect(pickerOptions(st(['approved', 'base', 'review']), sheetsFor(two), 'review').map((o) => o.sheet))
+      .not.toContain('base')
   })
 
   it('carries the key at the end of its caption row, describing this file', () => {

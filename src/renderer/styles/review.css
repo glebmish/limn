@@ -220,10 +220,12 @@
 .fh-dd-item.sel .fh-dd-check{opacity:1}
 /* ── the caption pickers' menu (design fb-dd/fb-menu; the trigger is .cp below) ── */
 .fb-dd{position:relative;display:inline-flex;flex:0 0 auto}
+/* the menu only exists while it is open (DiffStack), so the entry fade is an
+   animation on mount rather than a transition out of a hidden resting state */
 .fb-menu{position:absolute;top:calc(100% + 5px);right:0;z-index:30;display:flex;flex-direction:column;min-width:172px;
   background:var(--panel);border:1px solid var(--line-2);border-radius:9px;padding:5px;text-align:left;
-  box-shadow:0 14px 36px -14px rgba(40,38,32,.4);opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .12s,transform .12s}
-.fb-dd.open .fb-menu{opacity:1;transform:none;pointer-events:auto}
+  box-shadow:0 14px 36px -14px rgba(40,38,32,.4);animation:fb-menu-in .12s ease}
+@keyframes fb-menu-in{from{opacity:0;transform:translateY(-4px)}}
 /* every file header is `position:sticky; z-index:7`, so each one is its own stacking
    context and the menu inside it cannot paint over the NEXT file's header (equal
    z-index, later in the DOM = on top). Lift the header that owns the open menu. */
