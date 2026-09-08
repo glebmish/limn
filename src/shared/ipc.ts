@@ -1,6 +1,7 @@
 import type { Stack } from './diffStack.js'
+import type { CommandAvailability } from './actions.js'
 import type {
-  AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
+  ActionRunTarget, AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
   ExecutionMode, FileAt, FileCheckpoint, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
 } from './types.js'
 
@@ -163,6 +164,26 @@ export interface Api {
    *  turn on the given thread. `conflictFiles` is the merge probe's conflict list,
    *  passed through to the prompt so the agent knows what it will hit. */
   sendRebase(threadId: number, opId: string, conflictFiles?: string[]): Promise<void>
+  // ── agent actions (design board 14) ──
+  /** Launch a pinned action: a turn in the action's own thread (`new` — created on
+   *  the first run with `agent`, mode auto) or inside an existing thread. Returns as
+   *  soon as the run is queued — the turn streams as op `opId` like any chat turn.
+   *  Untouched proposals of the same action are swept at launch. */
+  runAction(sessionId: number, actionId: string, target: ActionRunTarget, opId: string): Promise<{ threadId: number; runId: string }>
+  /** One more turn in the same thread, under the same run, asking the agent to
+   *  anchor the findings its report only described (board 14 N3). Streams as `opId`. */
+  attachFindings(threadId: number, runId: string, opId: string): Promise<void>
+  /** "Keep as prose": remember the reviewer dismissed the report-only card for a run. */
+  setRunFlag(threadId: number, runId: string, flag: 'keepProse'): Promise<ChatThread[]>
+  /** Triage proposals: accept → queued (joins the batch), keep → resolved agent note,
+   *  dismiss → hidden, restore → proposed again. Non-proposals are left alone. */
+  triageFindings(sessionId: number, ids: string[], verdict: 'accept' | 'keep' | 'dismiss' | 'restore'): Promise<ReviewState>
+  /** Cached command availability per engine for this repo (no probe). */
+  commandAvailability(repo: string): Promise<CommandAvailability[]>
+  /** Probe the given engines (default: every spawnable one) and return the fresh records. */
+  probeCommands(repo: string, engines?: EngineId[]): Promise<CommandAvailability[]>
+  /** Every skill name any probe has seen, per engine, across repos. */
+  seenCommands(): Promise<{ engine: EngineId; names: string[] }[]>
   approve(sessionId: number): Promise<ReviewState>
   unapprove(sessionId: number): Promise<ReviewState>
   /** Read-only merge preflight (spec §3): gates, strategy matrix, commit list, draft
@@ -204,7 +225,7 @@ export interface OpEventMsg {
 export type OperationStatus = 'succeeded' | 'cancelled' | 'failed'
 /** Stable, engine-agnostic classification of an op failure. Set when the failure has
  *  a distinct, actionable remedy the renderer surfaces specially (vs. a generic error). */
-export type OpErrorCode = 'ENGINE_SESSION_LOST'
+export type OpErrorCode = 'ENGINE_SESSION_LOST' | 'SKILL_UNAVAILABLE'
 export interface OpResultMsg {
   opId: string
   kind: 'review' | 'chat'
@@ -248,7 +269,7 @@ const API_CHANNEL_KEYS = {
   startSession: true, findSession: true, previewReview: true, loadSession: true, archiveSession: true,
   beginReview: true, generate: true, cancel: true, copyReviewFrom: true, respondApproval: true, saveUiState: true, upsertComment: true, deleteComment: true,
   sendChat: true, createChat: true, setChatAgent: true, setChatMode: true, dismissSuggestion: true, deleteChat: true,
-  sendBatch: true, sendRebase: true, readWorkingFile: true, readFileAt: true, applyEdit: true, approve: true, unapprove: true, mergePreflight: true, mergeExecute: true, markMerged: true, approveArtifact: true, unapproveArtifact: true, authStatus: true, getPrefs: true, setPref: true,
+  sendBatch: true, sendRebase: true, runAction: true, attachFindings: true, setRunFlag: true, triageFindings: true, commandAvailability: true, probeCommands: true, seenCommands: true, readWorkingFile: true, readFileAt: true, applyEdit: true, approve: true, unapprove: true, mergePreflight: true, mergeExecute: true, markMerged: true, approveArtifact: true, unapproveArtifact: true, authStatus: true, getPrefs: true, setPref: true,
   dashboard: true,
   refOptions: true, retargetSession: true, takeCliOpen: true
 } satisfies Record<keyof Api, true>

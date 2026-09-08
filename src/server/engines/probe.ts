@@ -2,7 +2,7 @@ import { Readable, Writable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, type Client, type SessionNotification } from '@agentclientprotocol/sdk'
 import type { EngineId } from '../../shared/types.js'
-import { bareSkillName } from '../../shared/actions.js'
+import { bareSkillName, type CommandAvailability, type ProbeState } from '../../shared/actions.js'
 import { spawnAdapter, type AcpEngineConfig } from './adapters.js'
 import { engineBinaryStatus } from './binaries.js'
 import { killTree } from './acp.js'
@@ -18,18 +18,7 @@ import { killTree } from './acp.js'
 // ("compact", "init", …) ~5 ms after session/new; codex-acp lists skills as
 // "$name" and its built-ins bare ("review", "compact") within ~300 ms.
 
-export type ProbeState = 'ok' | 'empty' | 'checking' | 'failed' | 'unknown'
-
-export interface CommandAvailability {
-  engine: EngineId
-  repo: string
-  /** the names exactly as the engine reported them */
-  names: string[]
-  /** ISO time of the probe that produced `names` ('' when never probed) */
-  checkedAt: string
-  state: ProbeState
-  error?: string
-}
+export type { CommandAvailability, ProbeState }
 
 /** The skill names in an engine's announcement, bare. Claude cannot tell a skill from
  *  a built-in, so every name counts; Codex marks skills with `$`. */

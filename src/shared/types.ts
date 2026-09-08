@@ -401,6 +401,9 @@ export interface ActionDef { id: string; kind: ActionKind; name: string; body: s
  *  ordinal within its thread ("Simplify · run 2"). */
 export interface ActionRunRef { actionId: string; runId: string; n: number; name: string; kind: ActionKind }
 export type ActionRunOutcome = 'finished' | 'refused' | 'cancelled' | 'failed'
+/** Where a run goes: the action's own thread with this agent (created on the first
+ *  run, execution mode auto), or an existing thread with its own agent and mode. */
+export type ActionRunTarget = { kind: 'new'; agent: AgentRef } | { kind: 'thread'; threadId: number }
 export interface ActionRunResult {
   runId: string
   outcome: ActionRunOutcome

@@ -16,7 +16,7 @@ import { ZodError } from 'zod'
 import type { ReasoningEffort, ExecutionMode, ApprovalDiff } from '../../shared/types.js'
 import { generationLadder, ladderPolicy } from '../../shared/approvalPolicy.js'
 import { acpToEvents, acpPermissionToRequest, diffBlocks, toApprovalDiffs } from './acpEvents.js'
-import { CancelledError, EngineSessionLostError } from './errors.js'
+import { CancelledError, EngineSessionLostError, SkillUnavailableError } from './errors.js'
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
 import { engineBinaryStatus } from './binaries.js'
@@ -431,7 +431,7 @@ export class AcpEngine implements ReviewEngine {
         if (isStructuredParse(err)) throw err
         // A lost session must keep its type across this boundary — surface the error
         // event for the live log but re-throw the error itself (no stderr-tail wrap).
-        if (err instanceof EngineSessionLostError) {
+        if (err instanceof EngineSessionLostError || err instanceof SkillUnavailableError) {
           q.push({ type: 'error', message: err.message })
           throw err
         }

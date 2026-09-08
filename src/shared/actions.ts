@@ -3,6 +3,28 @@ import type { ActionDef, Comment, EngineId } from './types.js'
 /** Prefs key holding the reviewer's pinned actions (global — design board 14 S1). */
 export const ACTIONS_PREF_KEY = 'actions'
 
+/** One engine's command list for one repo, as the off-band probe last saw it (board
+ *  14 N2). `unknown` = never probed; `checking` = a probe is in flight (in-memory
+ *  only); `empty` = the engine answered with no skills; `failed` = it could not be
+ *  reached (`error` says why). */
+export type ProbeState = 'ok' | 'empty' | 'checking' | 'failed' | 'unknown'
+export interface CommandAvailability {
+  engine: EngineId
+  repo: string
+  /** the names exactly as the engine reported them */
+  names: string[]
+  /** ISO time of the probe that produced `names` ('' when never probed) */
+  checkedAt: string
+  state: ProbeState
+  error?: string
+}
+
+/** The follow-up turn "Attach findings" sends (board 14 N3): the run ended in prose
+ *  and called nothing, so ask the agent to anchor what it already reported. */
+export const ATTACH_FINDINGS_PROMPT =
+  'Attach each finding from your report above with the `add_finding` tool — file, line, severity, ' +
+  'a short body. Do not add new findings and do not edit files.'
+
 /** `source.actionId` of the proposals a review generation mints (its hotspots). */
 export const REVIEW_ACTION_ID = 'review'
 

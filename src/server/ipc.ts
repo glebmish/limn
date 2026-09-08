@@ -11,7 +11,7 @@ import type {
   Api, DashboardData, OpEventMsg, OpErrorCode, OpResultMsg, OperationStatus, RefOptions,
   RepoChangedMsg, UiStatePatch
 } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileCheckpoint, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
+import type { ActionRunRef, ActionRunResult, ActionRunTarget, AgentRef, AgentWriteCapability, ApprovalDecision, ChatThread, Comment, CommentAnchor, DriftSummary, EngineEvent, EngineId, ExecutionMode, FileCheckpoint, FileDiff, FileEdit, Hotspot, MergeCleanupRequest, MergeExecuteRequest, RefPair, RefSide, RepoIndexEntry, ReviewAnnotations, SessionMeta } from '../shared/types.js'
 import { driftHasChanges, effectiveRef } from '../shared/types.js'
 import {
   addWorktree, branchCheckedOutAt, checkoutBranch, currentBranch, defaultBase, diffSince, diffSinceWorking, driftSummary,
@@ -41,7 +41,11 @@ import { engineBinaryStatus, probeEngineVersion, setEngineBinaryPrefs } from './
 import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktrees.js'
 import { OperationCoordinator, ThreadBusyError, type OperationOutcome } from './operations.js'
 import { LiveOpRegistry } from './liveOps.js'
-import { EngineSessionLostError, isCancellation } from './engines/errors.js'
+import { EngineSessionLostError, SkillUnavailableError, isCancellation } from './engines/errors.js'
+import { ACTIONS_PREF_KEY, ATTACH_FINDINGS_PROMPT, actionPrompt, isProposal, parseActions, runFindings, skillPrompt, touched, type CommandAvailability } from '../shared/actions.js'
+import { CommandCache, CommandProber, hasSkill, skillNames } from './engines/probe.js'
+import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from './engines/adapters.js'
+import { engineLabel } from '../shared/agents.js'
 import { DEFAULT_AGENT_PREF_KEY, ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../shared/prefs.js'
 import { applyConfigChange } from '../shared/agentConfig.js'
 import { createPollGate, createWatchEpoch, decideWatch, initialWatchDecision, LIVE_INTERVAL_MS, type PollResult } from './watch-decision.js'
@@ -348,13 +352,18 @@ function reportTurnFailure(opts: {
   opId: string
   outcome: { status: 'cancelled' | 'failed'; error: unknown }
   /** the persisted note's prefix ("Turn failed:" / "Batch failed:" / "Rebase failed:"). */
-  label: 'Turn' | 'Batch' | 'Rebase'
+  label: 'Turn' | 'Batch' | 'Rebase' | 'Run'
   /** the lane the op actually ran on, when one was taken (see OpRecorder.exclusive). */
   exclusive?: boolean
   /** batch turns notify on genuine failure; plain chat turns don't. */
   notify?: boolean
+  /** an action run: the ending note carries the run's outcome so the run bar can
+   *  render it after a reload (refused / failed / cancelled). */
+  run?: ActionRunRef
+  /** a cancelled action run that removed its own thread — nothing to note. */
+  threadGone?: boolean
 }): void {
-  const { db, threadId, opId, outcome, label, exclusive } = opts
+  const { db, threadId, opId, outcome, label, exclusive, run } = opts
   const cancelled = outcome.status === 'cancelled'
   const msg = errorMessage(outcome.error)
   if (!cancelled && outcome.error instanceof EngineSessionLostError) {
@@ -365,11 +374,22 @@ function reportTurnFailure(opts: {
     sendOpResult(opId, 'chat', 'failed', msg)
     return
   }
+  const refused = !cancelled && outcome.error instanceof SkillUnavailableError
   // the user turn is already persisted; on a genuine failure record an agent note so
-  // the thread shows what happened (a user cancel stays quiet), and reload so the
-  // user message (and any note) surface in the drawer.
-  if (!cancelled) dao.addChatMessage(db, threadId, { role: 'agent', text: `${label} failed: ${msg}`, at: new Date().toISOString() })
-  sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true, undefined, exclusive)
+  // the thread shows what happened (a user cancel stays quiet — except an action run,
+  // whose run bar must still be able to say "cancelled" after a reload), and reload so
+  // the user message (and any note) surface in the drawer.
+  if (!opts.threadGone && (!cancelled || run)) {
+    const runResult: ActionRunResult | undefined = run
+      ? { runId: run.runId, outcome: cancelled ? 'cancelled' : refused ? 'refused' : 'failed', ...(cancelled ? {} : { error: msg }) }
+      : undefined
+    dao.addChatMessage(db, threadId, {
+      role: 'agent', at: new Date().toISOString(),
+      text: cancelled ? 'Run cancelled.' : refused ? msg : `${label} failed: ${msg}`,
+      ...(runResult ? { runResult } : {})
+    })
+  }
+  sendOpResult(opId, 'chat', outcome.status, cancelled ? undefined : msg, true, refused ? 'SKILL_UNAVAILABLE' : undefined, exclusive)
   if (!cancelled && opts.notify) notifyIfUnfocused(`Agent ${label.toLowerCase()} run failed`, msg.slice(0, 120))
 }
 
@@ -699,6 +719,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     // hand a (re)joining tab the ops running against this session right now, so it can
     // rejoin their live streams instead of rendering a stale idle surface.
     loaded.activeOps = liveOps.forSession(sessionId, isPending)
+    probeInBackground(session.repo)
     // merged sessions are terminal read-only records: nothing to watch, no drift to
     // compute — and post-merge the compare is commit-kind anyway; this gate is the
     // backstop for records whose retarget didn't land (spec §7).
@@ -1114,14 +1135,30 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     return dao.loadReviewState(db, sessionId)
   })
 
-  handle('sendChat', async (threadId: number, message: string, opId: string, anchor?: CommentAnchor) => {
+  /** The one chat-turn lifecycle every "send a message to a thread" path shares —
+   *  the composer's sendChat, a pinned action's run, and the Attach findings follow-up.
+   *  Persists the user turn before the queue wait, runs the engine on the repo's
+   *  lane, persists the agent turn (with the run's outcome when `run` is set), and
+   *  reports the result. Never throws for a turn that ran: failures reach the
+   *  renderer as op:result. */
+  const chatTurn = async (opts: {
+    threadId: number
+    message: string
+    opId: string
+    anchor?: CommentAnchor
+    /** an action run: tags the launching/ending messages and the findings' source */
+    run?: ActionRunRef
+    /** a skill run's pre-prompt check (board 14 R3) */
+    beforePrompt?: (commands: string[] | null) => Promise<void> | void
+    /** set by beforePrompt when it trusted the cache instead of a fresh list */
+    availabilityFrom?: () => string | undefined
+  }): Promise<void> => {
+    const { threadId, message, opId, anchor, run } = opts
     const sid = dao.chatThreadSessionId(db, threadId)
     const thread = dao.getChatThread(db, threadId)
     if (sid == null || !thread) throw new Error('chat thread not found')
     const session = mustGetSession(db, sid)
     const repo = session.repo
-    // hoisted above doTurn so the second (shared-lane retry) invocation reuses it and
-    // the persisted ChatMessage folds in every event either attempt streamed.
     const recorder = opRecorder(opId)
     recorder.exclusive = true // one lane per repo: every turn takes it, in queue order
     const doTurn = async (): Promise<void> => {
@@ -1132,7 +1169,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // on code in interactive chat); actions emit straight to the renderer.
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
-        emit: recorder.emit
+        emit: recorder.emit,
+        ...(run ? { run: { actionId: run.actionId, runId: run.runId } } : {})
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.
@@ -1141,7 +1179,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       // session with review context (a chat agent that didn't write the review
       // has nothing to resume). A pruned session rejects this run with the typed
       // EngineSessionLostError (see reportTurnFailure).
-      const run = engine.chat({
+      const engineRun = engine.chat({
         repo: workdir,
         engineSessionId: thread.engineSessionId,
         model: thread.agent.model,
@@ -1156,11 +1194,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode,
         context: thread.engineSessionId
           ? undefined
-          : { base: state.base, branch: state.branch, summary: state.annotations?.summary }
+          : { base: state.base, branch: state.branch, summary: state.annotations?.summary },
+        beforePrompt: opts.beforePrompt
       })
-      operations.registerCancel(opId, run.cancel)
-      const pump = pumpEvents(run.events, recorder.emit)
-      const { value, sessionId: engineSession } = await run.result
+      operations.registerCancel(opId, engineRun.cancel)
+      const pump = pumpEvents(engineRun.events, recorder.emit)
+      const { value, sessionId: engineSession } = await engineRun.result
       await pump
       const at = new Date().toISOString()
       const actions = tools.collected()
@@ -1174,7 +1213,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         const current = dao.getChatThread(db, threadId)
         if (current && current.messages.length === 1) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
       }
-      dao.addChatMessage(db, threadId, { role: 'agent', text: value, at, ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}) })
+      const from = opts.availabilityFrom?.()
+      const runResult: ActionRunResult | undefined = run ? { runId: run.runId, outcome: 'finished', ...(from ? { availabilityFrom: from } : {}) } : undefined
+      dao.addChatMessage(db, threadId, {
+        role: 'agent', text: value, at,
+        ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}),
+        ...(runResult ? { runResult } : {})
+      })
       if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
     }
     // Per-thread guard: a thread can host at most one in-flight turn, whatever lane it
@@ -1190,18 +1235,136 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // cancelled run doesn't silently drop what the reviewer typed, the thread shows
         // the turn while it waits its place, and a loadSession's empty-chat prune
         // can't delete the thread out from under a queued turn.
-        dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor })
+        dao.addChatMessage(db, threadId, { role: 'user', text: message, at: new Date().toISOString(), anchor, ...(run ? { run } : {}) })
         // the repo's single task queue: waits its turn behind whatever holds the lane
         return operations.run(opId, repo, doTurn, { label: threadLabel(thread) })
       })
       if (outcome.status === 'succeeded') {
-        sendOpResult(opId, 'chat', 'succeeded', undefined, undefined, undefined, recorder.exclusive)
+        // an action run's findings changed the review's comments: reload so the gutter,
+        // counts and result card pick them up
+        sendOpResult(opId, 'chat', 'succeeded', undefined, run ? true : undefined, undefined, recorder.exclusive)
       } else {
-        reportTurnFailure({ db, threadId, opId, outcome, label: 'Turn', exclusive: recorder.exclusive })
+        // a cancelled FIRST run that attached nothing takes its thread with it (a
+        // misclick costs nothing) — only an action thread, only when this was its one run
+        let threadGone = false
+        if (run && outcome.status === 'cancelled' && thread.action && run.n === 1
+          && runFindings(dao.loadReviewState(db, sid).comments, run.runId).length === 0
+          && dao.nextRunNumber(db, threadId) === 2) {
+          dao.deleteChatThread(db, threadId)
+          threadGone = true
+        }
+        reportTurnFailure({ db, threadId, opId, outcome, label: run ? 'Run' : 'Turn', exclusive: recorder.exclusive, run, threadGone })
       }
     } finally {
       liveOps.end(opId)
     }
+  }
+
+  handle('sendChat', (threadId: number, message: string, opId: string, anchor?: CommentAnchor) =>
+    chatTurn({ threadId, message, opId, anchor }))
+
+  // ── agent actions (design board 14) ─────────────────────────────────────────
+  const commandCache = new CommandCache(db)
+  const prober = new CommandProber(commandCache, { claude: CLAUDE_ACP_CONFIG, codex: CODEX_ACP_CONFIG })
+  /** Demo/test mode: no adapter is spawned — the "engine" reports LIMN_FAKE_COMMANDS
+   *  (the same script the FakeEngine's pre-prompt check reads). */
+  const demoProbe = async (repo: string, engines: EngineId[]): Promise<CommandAvailability[]> => {
+    const env = process.env.LIMN_FAKE_COMMANDS
+    const base = env === undefined || env === '' ? [] : env.split(',')
+    return engines.map((engine) => {
+      const names = engine === 'codex' ? base.map((n) => `$${n}`) : base
+      const record: CommandAvailability = { engine, repo, names, checkedAt: new Date().toISOString(), state: names.length ? 'ok' : 'empty' }
+      commandCache.set(record)
+      return record
+    })
+  }
+  const runProbe = (repo: string, engines: EngineId[]): Promise<CommandAvailability[]> =>
+    process.env.LIMN_DEMO === '1' ? demoProbe(repo, engines) : prober.run(repo, engines)
+  const probeEngines = (): EngineId[] => (process.env.LIMN_DEMO === '1' ? ['claude', 'codex'] : prober.spawnable())
+  const pinnedActions = () => parseActions(readPrefs()[ACTIONS_PREF_KEY])
+  /** Background probe on review open (board 14 N2) — only worth the spawn when a skill
+   *  action is pinned; prompt actions never need the list. */
+  const probeInBackground = (repo: string): void => {
+    if (!pinnedActions().some((a) => a.kind === 'skill')) return
+    void runProbe(repo, probeEngines()).catch((err) => console.error('[probe] failed:', err))
+  }
+
+  handle('commandAvailability', async (repo: string) => commandCache.get(repo, probeEngines()))
+  handle('probeCommands', async (repo: string, engines?: EngineId[]) => runProbe(repo, engines ?? probeEngines()))
+  handle('seenCommands', async () => commandCache.seen())
+
+  handle('runAction', async (sessionId: number, actionId: string, target: ActionRunTarget, opId: string) => {
+    const session = mustGetSession(db, sessionId)
+    assertNotMerged(db, sessionId)
+    const action = pinnedActions().find((a) => a.id === actionId)
+    if (!action) throw new Error(`Unknown action ${actionId} — it may have been removed from Settings`)
+    let thread: ChatThread
+    if (target.kind === 'new') {
+      thread = dao.findActionThread(db, sessionId, actionId)
+        ?? dao.createChatThread(db, sessionId, { kind: 'user', agent: target.agent, title: action.name, action: { actionId, name: action.name, kind: action.kind } })
+    } else {
+      const t = dao.getChatThread(db, target.threadId)
+      if (!t || dao.chatThreadSessionId(db, target.threadId) !== sessionId) throw new Error('chat thread not found in this review')
+      thread = t
+    }
+    const n = dao.nextRunNumber(db, thread.id)
+    const run: ActionRunRef = { actionId, runId: `run-${thread.id}-${n}`, n, name: action.name, kind: action.kind }
+    // a re-run replaces the previous run's UNTOUCHED proposals (shown or dismissed);
+    // accepted, kept and replied-to ones are the reviewer's now and stay
+    for (const c of dao.loadReviewState(db, sessionId).comments) {
+      if (c.source?.actionId === actionId && isProposal(c) && !touched(c)) dao.deleteComment(db, sessionId, c.id)
+    }
+    const engine = thread.agent.engine
+    let availabilityFrom: string | undefined
+    // a skill run checks the skill against the session's own command list before the
+    // prompt goes out; a session that sends none (a resumed Codex thread) falls back to
+    // the cached probe and says so on the run bar
+    const beforePrompt = action.kind === 'skill'
+      ? async (commands: string[] | null): Promise<void> => {
+          const spelled = skillPrompt(engine, action.body)
+          if (commands) {
+            const record: CommandAvailability = { engine, repo: session.repo, names: commands, checkedAt: new Date().toISOString(), state: skillNames(engine, commands).length ? 'ok' : 'empty' }
+            commandCache.set(record)
+            if (!hasSkill(record, action.body)) throw new SkillUnavailableError(action.name, engineLabel(engine), spelled)
+            return
+          }
+          const [cached] = commandCache.get(session.repo, [engine])
+          if (cached.state === 'ok' || cached.state === 'empty') {
+            if (!hasSkill(cached, action.body)) throw new SkillUnavailableError(action.name, engineLabel(engine), spelled, cached.checkedAt)
+            availabilityFrom = cached.checkedAt
+          }
+        }
+      : undefined
+    // fire and forget: the run streams as `opId`; the caller gets the thread at once
+    void chatTurn({ threadId: thread.id, message: actionPrompt(action, engine), opId, run, beforePrompt, availabilityFrom: () => availabilityFrom })
+      .catch((err) => { console.error('[runAction] failed:', err); sendOpResult(opId, 'chat', 'failed', errorMessage(err), true) })
+    return { threadId: thread.id, runId: run.runId }
+  })
+
+  handle('attachFindings', async (threadId: number, runId: string, opId: string) => {
+    const thread = dao.getChatThread(db, threadId)
+    if (!thread) throw new Error('chat thread not found')
+    const launch = thread.messages.find((m) => m.run?.runId === runId)?.run
+    if (!launch) throw new Error(`run ${runId} is not in this thread`)
+    await chatTurn({ threadId, message: ATTACH_FINDINGS_PROMPT, opId, run: launch })
+  })
+
+  handle('setRunFlag', async (threadId: number, runId: string, flag: 'keepProse') => {
+    const sid = dao.chatThreadSessionId(db, threadId)
+    if (sid == null) throw new Error('chat thread not found')
+    if (flag === 'keepProse') dao.setRunResult(db, threadId, runId, { keepProse: true })
+    return dao.listChatThreads(db, sid)
+  })
+
+  handle('triageFindings', async (sessionId: number, ids: string[], verdict: 'accept' | 'keep' | 'dismiss' | 'restore') => {
+    assertNotMerged(db, sessionId)
+    const state = dao.loadReviewState(db, sessionId)
+    const next = { accept: 'queued', keep: 'resolved', dismiss: 'dismissed', restore: 'proposed' } as const
+    for (const c of state.comments) {
+      if (!ids.includes(c.id) || !isProposal(c)) continue
+      dao.upsertComment(db, sessionId, { ...c, status: next[verdict] })
+    }
+    return dao.loadReviewState(db, sessionId)
   })
 
   handle('createChat', async (sessionId: number, agent: AgentRef, executionMode?: ExecutionMode) => {

@@ -34,6 +34,22 @@ export class EngineSessionLostError extends Error {
   }
 }
 
+/** An action run refused BEFORE its prompt went out (design board 14 R3): the skill
+ *  it would invoke is not among the commands the engine's own session reported (or
+ *  the trusted cache says so). Nothing was sent, no tokens were spent. */
+export class SkillUnavailableError extends Error {
+  constructor(readonly actionName: string, readonly engineLabel: string, readonly spelled: string, readonly fromCache?: string) {
+    super(
+      `${actionName} is not installed for ${engineLabel} in this repo — ` +
+      (fromCache
+        ? `the last check (${fromCache}) did not list ${spelled}, and the resumed session sent no fresh list. `
+        : `the session opened, reported its commands, and ${spelled} was not among them. `) +
+      'Nothing was sent.'
+    )
+    this.name = 'SkillUnavailableError'
+  }
+}
+
 /** A cancellation surfaced as a thrown error: the typed `CancelledError`, or a genuine
  *  AbortController-style abort (`throwIfCancelled` throws a DOMException named
  *  `AbortError`). Deliberately NO message matching. */

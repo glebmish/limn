@@ -274,6 +274,14 @@ export class FakeEngine implements ReviewEngine {
     const refineText = 'Recorded your decision, updated the guided review narration, and resolved the open question.'
     const text = refine ? refineText : batch ? batchText : chatText
     const result = (async () => {
+      // an action run's pre-prompt skill check (board 14 R3): the session's command
+      // list is scripted by LIMN_FAKE_COMMANDS (unset → no announcement, i.e. null;
+      // '' → an empty list; else comma-separated names, `$`-spelled for Codex).
+      if (turn.beforePrompt) {
+        const env = process.env.LIMN_FAKE_COMMANDS
+        const names = env === undefined ? null : env === '' ? [] : env.split(',').map((n) => (this.id === 'codex' ? `$${n}` : n))
+        await turn.beforePrompt(names)
+      }
       // test/demo affordances for the typed lost-session/cancel classification (item
       // 7): force a controlled failure of each class. A resume failure is the typed
       // EngineSessionLostError, exactly (and only) when there is a session to resume.
@@ -350,6 +358,13 @@ export class FakeEngine implements ReviewEngine {
           await turn.tools.call('resolve_comment', { commentId: id, verdict: 'addressed', note: 'Done (demo).' })
         }
       } else if (turn.tools) {
+        // an action run (the prompt carries the finding harness): report two findings
+        // through add_finding, unless the scripted prompt says `[no-findings]` — the
+        // report-only case the Attach findings card is for.
+        if (turn.message.includes('add_finding') && !turn.message.includes('[no-findings]')) {
+          await turn.tools.call('add_finding', { file: 'src/a.ts', line: 2, severity: 'risk', body: 'round() is skipped on this path.' })
+          await turn.tools.call('add_finding', { file: 'src/a.ts', line: 3, severity: 'note', body: 'rows.reduce duplicates gross() — call it once.' })
+        }
         // `[edit-review]` — a chat turn that amends the review through the tool host,
         // so a test can drive the tool from whichever lane the turn landed on.
         if (turn.message.includes('[edit-review]')) {
