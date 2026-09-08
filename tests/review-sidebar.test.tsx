@@ -59,7 +59,6 @@ function baseProps(overrides: Partial<Props> = {}): Props {
     onToggleSection: () => {},
     jumpTo: () => {},
     jumpToFile: () => {},
-    jumpToRawFile: () => {},
     toggleDoc: () => {},
     closeDocBack: () => {},
     ...overrides

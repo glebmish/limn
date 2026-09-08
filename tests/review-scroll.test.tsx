@@ -52,18 +52,13 @@ describe('sidebar jumps are quiet focus jumps', () => {
   })
 
   it('jumpToFile focuses the file (the pipeline opens its section itself)', () => {
-    nav().jumpToFile('s1', 'src/a.ts')
-    expect(focused).toHaveBeenCalledWith({ kind: 'file', file: 'src/a.ts' }, { quiet: true })
-  })
-
-  it('jumpToRawFile focuses the file', () => {
-    nav().jumpToRawFile('src/a.ts')
+    nav().jumpToFile('src/a.ts')
     expect(focused).toHaveBeenCalledWith({ kind: 'file', file: 'src/a.ts' }, { quiet: true })
   })
 
   it('never lands with the flash + FOCUS chip — the reader asked to go there', () => {
     const n = nav()
-    n.jumpTo('s1'); n.jumpToFile('s1', 'src/a.ts'); n.jumpToRawFile('src/b.ts')
+    n.jumpTo('s1'); n.jumpToFile('src/a.ts')
     for (const call of focused.mock.calls) expect(call[1]).toEqual({ quiet: true })
   })
 })

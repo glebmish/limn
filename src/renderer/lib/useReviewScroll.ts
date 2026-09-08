@@ -37,8 +37,7 @@ export function useReviewScroll({
   peek: string | null
   setPeek: (v: string | null) => void
   jumpTo: (id: string) => void
-  jumpToFile: (sectionId: string, path: string) => void
-  jumpToRawFile: (path: string) => void
+  jumpToFile: (path: string) => void
   goToDoc: (path: string) => void
   closeDocBack: () => void
   toggleDoc: (path: string) => void
@@ -137,13 +136,10 @@ export function useReviewScroll({
     focusAnchor({ kind: 'section', sectionId: id }, { quiet: true })
   }
 
-  // jump straight to a file's diff (not just its section)
-  const jumpToFile = (_sectionId: string, path: string): void => {
-    leaveDoc()
-    focusAnchor({ kind: 'file', file: path }, { quiet: true })
-  }
-
-  const jumpToRawFile = (path: string): void => {
+  // jump straight to a file's diff (not just its section) — focusAnchor resolves
+  // and force-opens the file's owning section itself, so there is nothing left for
+  // a caller to pass in.
+  const jumpToFile = (path: string): void => {
     leaveDoc()
     focusAnchor({ kind: 'file', file: path }, { quiet: true })
   }
@@ -188,5 +184,5 @@ export function useReviewScroll({
     else goToDoc(path)
   }
 
-  return { scrollRef, headRef, secRefs, peek, setPeek, jumpTo, jumpToFile, jumpToRawFile, goToDoc, closeDocBack, toggleDoc }
+  return { scrollRef, headRef, secRefs, peek, setPeek, jumpTo, jumpToFile, goToDoc, closeDocBack, toggleDoc }
 }

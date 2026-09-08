@@ -48,7 +48,6 @@ export function ReviewSidebar({
   onToggleSection,
   jumpTo,
   jumpToFile,
-  jumpToRawFile,
   toggleDoc,
   closeDocBack
 }: {
@@ -75,8 +74,7 @@ export function ReviewSidebar({
   focusSectionId: string | undefined
   onToggleSection: (id: string, currentlyOpen: boolean) => void
   jumpTo: (id: string) => void
-  jumpToFile: (sectionId: string, path: string) => void
-  jumpToRawFile: (path: string) => void
+  jumpToFile: (path: string) => void
   toggleDoc: (path: string) => void
   closeDocBack: () => void
 }) {
@@ -243,9 +241,7 @@ export function ReviewSidebar({
             viewedAt={viewedAt}
             headSha={loaded.skeleton.headSha}
             currentFile={curFile}
-            // focusAnchor resolves a file's owning section itself (and force-opens
-            // it) for any file target, so a tree click always jumps raw.
-            onFileClick={jumpToRawFile}
+            onFileClick={jumpToFile}
             order="tree"
             className="gnav-tree-flat"
           />
@@ -281,7 +277,7 @@ export function ReviewSidebar({
                     viewedAt={viewedAt}
                     headSha={loaded.skeleton.headSha}
                     currentFile={curFile}
-                    onFileClick={(path) => jumpToFile(s.id, path)}
+                    onFileClick={jumpToFile}
                     order="grouped"
                   />
                 </div>
@@ -298,7 +294,7 @@ export function ReviewSidebar({
                   viewedAt={viewedAt}
                   headSha={loaded.skeleton.headSha}
                   currentFile={curFile}
-                  onFileClick={(path) => jumpToRawFile(path)}
+                  onFileClick={jumpToFile}
                   order="grouped"
                 />
               </div>
