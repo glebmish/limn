@@ -307,7 +307,7 @@ export default function Review() {
           <I.bubble style={{ width: 13, height: 13 }} />Chat
           {hasPendingApproval && <span className="pill pill-amber">approval</span>}
         </button>
-        <button className="wf-iconbtn" onClick={store.openSettings} title="Settings" aria-label="Settings">
+        <button className="wf-iconbtn" onClick={() => store.openSettings()} title="Settings" aria-label="Settings">
           <I.gear style={{ width: 13, height: 13 }} />
         </button>
       </div>

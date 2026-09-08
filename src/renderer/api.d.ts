@@ -45,6 +45,11 @@ declare global {
       fakeDriftOpen?: boolean
       /** dev-only: open Settings once the app mounts */
       openSettings?: boolean
+      /** open Settings on a tab ('agents' | 'actions') */
+      settingsTab?: string
+      /** open the chat drawer's action launcher; `launcherPane` picks the pane */
+      openLauncher?: boolean
+      launcherPane?: string
       /** dev-only: open a spec/plan artifact doc by path once the review mounts */
       openDoc?: string | null
       /** JSON {file,start,end} — open the in-place flow frame for a static capture */

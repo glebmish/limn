@@ -2,7 +2,7 @@ import { Readable, Writable } from 'node:stream'
 import type { DatabaseSync } from 'node:sqlite'
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, type Client, type SessionNotification } from '@agentclientprotocol/sdk'
 import type { EngineId } from '../../shared/types.js'
-import { bareSkillName, type CommandAvailability, type ProbeState } from '../../shared/actions.js'
+import { hasSkill, skillNames, type CommandAvailability, type ProbeState } from '../../shared/actions.js'
 import { spawnAdapter, type AcpEngineConfig } from './adapters.js'
 import { engineBinaryStatus } from './binaries.js'
 import { killTree } from './acp.js'
@@ -19,20 +19,7 @@ import { killTree } from './acp.js'
 // "$name" and its built-ins bare ("review", "compact") within ~300 ms.
 
 export type { CommandAvailability, ProbeState }
-
-/** The skill names in an engine's announcement, bare. Claude cannot tell a skill from
- *  a built-in, so every name counts; Codex marks skills with `$`. */
-export function skillNames(engine: EngineId, names: readonly string[]): string[] {
-  if (engine === 'codex') return names.filter((n) => n.startsWith('$')).map((n) => n.slice(1))
-  return [...names]
-}
-
-/** True when the engine's last probe reported the skill. Anything but an `ok`/`empty`
- *  record answers no — a skill action is runnable only where its name appears. */
-export function hasSkill(avail: CommandAvailability | undefined, name: string): boolean {
-  if (!avail || (avail.state !== 'ok' && avail.state !== 'empty')) return false
-  return skillNames(avail.engine, avail.names).includes(bareSkillName(name))
-}
+export { hasSkill, skillNames }
 
 /** True when this engine can be spawned at all (mirrors acp.ts's spawn gate): an
  *  adapter that must have a native binary, or a configured-but-broken path, is out. */

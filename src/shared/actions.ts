@@ -19,6 +19,20 @@ export interface CommandAvailability {
   error?: string
 }
 
+/** The skill names in an engine's announcement, bare. Claude cannot tell a skill from
+ *  a built-in, so every name counts; Codex marks skills with `$`. */
+export function skillNames(engine: EngineId, names: readonly string[]): string[] {
+  if (engine === 'codex') return names.filter((n) => n.startsWith('$')).map((n) => n.slice(1))
+  return [...names]
+}
+
+/** True when the engine's last probe reported the skill. Anything but an `ok`/`empty`
+ *  record answers no — a skill action is runnable only where its name appears. */
+export function hasSkill(avail: CommandAvailability | undefined, name: string): boolean {
+  if (!avail || (avail.state !== 'ok' && avail.state !== 'empty')) return false
+  return skillNames(avail.engine, avail.names).includes(bareSkillName(name))
+}
+
 /** The follow-up turn "Attach findings" sends (board 14 N3): the run ended in prose
  *  and called nothing, so ask the agent to anchor what it already reported. */
 export const ATTACH_FINDINGS_PROMPT =

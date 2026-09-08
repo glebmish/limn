@@ -709,3 +709,52 @@ body.is-resizing * { cursor: col-resize !important; }
 /* a turn waiting in the repo's task queue (one lane per repo, design board 14 v3) */
 .chat-gate.chat-queued-lane { color: var(--ink-2); background: var(--panel-2); }
 .chat-gate.chat-queued-lane svg { color: var(--accent); }
+
+/* ── agent actions (design board 14) — settings, marks, kind glyphs ── */
+.settings-head .settings-tabs { align-self: flex-end; margin-left: 8px; }
+.settings-tabs button { padding: 6px 10px 8px; }
+.ax-kind { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 700 12px/1 var(--mono); flex: 0 0 auto; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--ink-2); }
+.ax-kind.skill { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+.ax-kind.sm { width: 15px; height: 15px; font-size: 10.5px; border-radius: 4px; }
+.ax-eng { position: relative; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; color: var(--accent); }
+.ax-eng svg { width: 13px; height: 13px; display: block; }
+.ax-eng.no, .ax-eng.unk { color: var(--line-3); }
+.ax-eng.no::after { content: ""; position: absolute; left: 1px; right: 1px; top: 50%; height: 1.5px; background: var(--red); transform: rotate(-40deg); opacity: .75; }
+.ax-eng.chk { color: var(--amber); animation: ax-pulse 1.1s ease-in-out infinite; }
+.ax-eng.bad { color: var(--red); }
+@keyframes ax-pulse { 50% { opacity: .35; } }
+.ax-engs { display: inline-flex; gap: 3px; align-items: center; }
+.ax-rn { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ax-rn b { font-size: 12px; font-weight: 600; color: var(--ink); }
+.ax-rn i { font-style: normal; font: 500 10.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-empty { font-size: 12px; color: var(--muted); line-height: 1.5; padding: 10px 12px; border: 1px dashed var(--line-2); border-radius: var(--r-md); }
+.ax-slist { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.ax-srow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; background: var(--panel); }
+.ax-srow:last-child { border-bottom: none; }
+.ax-srow.dragging { opacity: .45; }
+.ax-srow .grip { color: var(--faint); font: 700 12px/1 var(--mono); letter-spacing: -2px; cursor: grab; flex: 0 0 auto; }
+.ax-srow .ax-rn i { max-width: 260px; }
+.ax-srow .ax-avail { display: inline-flex; align-items: center; gap: 5px; font: 500 10.5px var(--mono); color: var(--muted); }
+.ax-srow .ax-acts { display: inline-flex; gap: 2px; margin-left: 4px; align-items: center; }
+.ax-srow .ax-acts button { border: none; background: none; color: var(--muted); cursor: pointer; padding: 3px; display: inline-flex; border-radius: 4px; font: 600 11px var(--sans); }
+.ax-srow .ax-acts button:hover { color: var(--ink); background: var(--panel-2); }
+.ax-srow .ax-acts button.del-confirm { color: var(--red); }
+.ax-srow .ax-acts svg { width: 12px; height: 12px; }
+.ax-editor { border: 1px solid var(--accent-line); border-radius: var(--r-md); background: var(--accent-soft-2, rgba(58,125,84,.05)); padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 11px; }
+.ax-editor .settings-field label { font-size: 10px; }
+.ax-editor input[type=text], .ax-editor textarea { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 7px 9px; resize: vertical; }
+.ax-editor input.sans { font-family: var(--sans); }
+.ax-editor-foot { display: flex; align-items: center; gap: 8px; }
+.ax-seen { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); overflow: hidden; font-size: 11.5px; max-height: 220px; overflow-y: auto; }
+.ax-seen .g { font: 700 9.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 6px 9px 3px; background: var(--panel-2); display: flex; align-items: center; gap: 6px; }
+.ax-seen .o { display: flex; align-items: center; gap: 8px; padding: 5px 9px; font-family: var(--mono); color: var(--ink); cursor: pointer; }
+.ax-seen .o:hover, .ax-seen .o.on { background: var(--accent-soft); }
+.ax-seen .o .d, .ax-seen .o.d { margin-left: auto; font-size: 10px; color: var(--muted); font-family: var(--sans); cursor: default; }
+.ax-probe { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.ax-probe span { display: inline-flex; align-items: center; gap: 5px; }
+.ax-probe .ax-eng { width: 14px; height: 14px; }
+.ax-probe button { margin-left: auto; font: 600 11px var(--sans); color: var(--accent-ink); border: none; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.ax-probe button svg { width: 11px; height: 11px; }
+.ax-probe button.spin svg { animation: limn-spin .8s linear infinite; }
+.ax-probe button:disabled { cursor: default; }
+.ax-skill-status .ax-eng { width: 13px; height: 13px; margin-right: 3px; vertical-align: middle; }

@@ -1,7 +1,8 @@
 import type { StateCreator } from 'zustand'
-import type { AgentRef } from '../../shared/types'
+import type { ActionDef, AgentRef, EngineId } from '../../shared/types'
 import { defaultAgent as defaultAgentFor } from '../../shared/agents'
 import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../../shared/prefs'
+import { ACTIONS_PREF_KEY, parseActions, serializeActions, type CommandAvailability } from '../../shared/actions'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import type { PanelKind } from '../lib/panelWidths'
@@ -34,6 +35,12 @@ export interface PrefsSlice {
   sidebarWidth: number
   /** the chat drawer's PREFERRED width in px — see `sidebarWidth` */
   chatWidth: number
+  /** the reviewer's pinned actions (design board 14), global, in launcher order */
+  actions: ActionDef[]
+  /** command availability per repo path, as last read/probed (board 14 N2) */
+  commands: Record<string, CommandAvailability[]>
+  /** every skill name any probe has seen, per engine — the editor's "seen on" list */
+  seenCommands: { engine: EngineId; names: string[] }[]
   /** Hydrate persisted prefs into the store (called by boot). Parses each stored
    *  value, falling back to the visual default when it's missing or unparseable. */
   loadPrefs(): Promise<void>
@@ -45,6 +52,14 @@ export interface PrefsSlice {
    *  left unchanged) when the server rejects the value. */
   setDefaultAgent(a: AgentRef): Promise<void>
   setSidebarView(v: SidebarView): void
+  /** Replace the pinned actions (add / edit / delete / reorder) and persist them. */
+  setActions(actions: ActionDef[]): Promise<void>
+  /** Read the cached availability for a repo (no probe). */
+  loadCommands(repo: string): Promise<void>
+  /** Probe the engines for a repo (all spawnable ones, or the given subset), showing
+   *  `checking` locally while it runs, then store the fresh records. */
+  refreshCommands(repo: string, engines?: EngineId[]): Promise<void>
+  loadSeenCommands(): Promise<void>
   /** Update a panel's preferred width and persist it. A pointer drag paints the CSS
    *  var imperatively and only reaches the store once, at gesture end, so there's no
    *  write storm to guard against. The caller range-clamps (`clampPanelRange`); the
@@ -52,13 +67,16 @@ export interface PrefsSlice {
   setPanelWidth(kind: PanelKind, width: number): void
 }
 
-export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
+export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set, get) => ({
   defaultAgent: defaultAgentFor('claude'),
   agent: defaultAgentFor('claude'),
   agentSeeded: false,
   sidebarView: 'sections',
   sidebarWidth: PANELS.sidebar.default,
   chatWidth: PANELS.chat.default,
+  actions: [],
+  commands: {},
+  seenCommands: [],
 
   async loadPrefs() {
     try {
@@ -77,7 +95,8 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
         agentSeeded: true,
         sidebarView: sidebarView === 'tree' ? 'tree' : 'sections',
         sidebarWidth: parseStoredWidth('sidebar', prefs.sidebarWidth),
-        chatWidth: parseStoredWidth('chat', prefs.chatWidth)
+        chatWidth: parseStoredWidth('chat', prefs.chatWidth),
+        actions: parseActions(prefs[ACTIONS_PREF_KEY])
       }))
     } catch { /* prefs unavailable — visual defaults stand */ }
   },
@@ -107,6 +126,40 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   setSidebarView(v) {
     void api().setPref('sidebarView', JSON.stringify(v))
     set({ sidebarView: v })
+  },
+
+  async setActions(actions) {
+    set({ actions })
+    await api().setPref(ACTIONS_PREF_KEY, serializeActions(actions))
+  },
+
+  async loadCommands(repo) {
+    const list = await api().commandAvailability(repo)
+    set((s) => ({ commands: { ...s.commands, [repo]: list } }))
+  },
+
+  async refreshCommands(repo, engines) {
+    // show the pulse at once — the probe takes a few seconds per engine
+    set((s) => ({
+      commands: {
+        ...s.commands,
+        [repo]: (s.commands[repo] ?? []).map((a) => (!engines || engines.includes(a.engine) ? { ...a, state: 'checking' } : a))
+      }
+    }))
+    const fresh = await api().probeCommands(repo, engines)
+    set((s) => {
+      const prior = s.commands[repo] ?? []
+      const merged = prior.length
+        ? prior.map((a) => fresh.find((f) => f.engine === a.engine) ?? a)
+        : fresh
+      for (const f of fresh) if (!merged.some((m) => m.engine === f.engine)) merged.push(f)
+      return { commands: { ...s.commands, [repo]: merged } }
+    })
+    void get().loadSeenCommands()
+  },
+
+  async loadSeenCommands() {
+    set({ seenCommands: await api().seenCommands() })
   },
 
   setPanelWidth(kind, width) {

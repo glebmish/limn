@@ -16,7 +16,7 @@ export default function App() {
     const offEvent = api().onOpEvent(handleOpEvent)
     const offResult = api().onOpResult(handleOpResult)
     const offChanged = api().onRepoChanged(handleRepoChanged)
-    if (dev.openSettings) useStore.getState().openSettings()
+    if (dev.openSettings) useStore.getState().openSettings(dev.settingsTab === 'actions' ? 'actions' : undefined)
     return () => {
       offEvent()
       offResult()

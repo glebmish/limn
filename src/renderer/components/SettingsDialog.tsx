@@ -4,6 +4,7 @@ import { ENGINE_PATH_PREF_KEYS, resolveDefaultAgent } from '../../shared/prefs'
 import type { AgentRef } from '../../shared/types'
 import { api } from '../lib/api'
 import { AgentPicker } from './AgentPicker'
+import { ActionsSettings } from './ActionsSettings'
 import { useStore } from '../store'
 
 type EngineStatus = { ok: boolean; hint: string }
@@ -60,6 +61,11 @@ function PathField({ engine, label, value, status, onChange }: {
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
+  // two tabs (design board 14 S1): Agents (the default agent + binaries, saved
+  // together) and Actions (the pinned list, saved as it changes)
+  const tab = useStore((s) => s.settingsTab)
+  const openSettings = useStore((s) => s.openSettings)
+  const repo = useStore((s) => s.loaded?.state.repo ?? null)
   const [draftAgent, setDraftAgent] = useState<AgentRef>(() => useStore.getState().defaultAgent)
   const [claudePath, setClaudePath] = useState('')
   const [codexPath, setCodexPath] = useState('')
@@ -179,31 +185,50 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         <div className="settings-head">
           <div>
             <div className="eyebrow">Settings</div>
-            <h2 id="settings-title">Agents</h2>
+            <h2 id="settings-title">{tab === 'actions' ? 'Actions' : 'Agents'}</h2>
+          </div>
+          <div className="tabs settings-tabs" role="tablist">
+            <button role="tab" aria-selected={tab === 'agents'} className={tab === 'agents' ? 'on' : undefined} onClick={() => openSettings('agents')}>Agents</button>
+            <button role="tab" aria-selected={tab === 'actions'} className={tab === 'actions' ? 'on' : undefined} onClick={() => openSettings('actions')}>Actions</button>
           </div>
           <button className="btn btn-sm btn-ghost settings-close" onClick={onClose} title="Close settings">
             <I.x style={{ width: 13, height: 13 }} />
           </button>
         </div>
 
-        <div className="settings-body">
-          <div className="settings-field">
-            <label id="settings-default-agent-label">Default review agent</label>
-            <AgentPicker value={draftAgent} onChange={(a) => { setDraftAgent(a); setSaved(false) }} align="left" labelledBy="settings-default-agent-label" />
-          </div>
-          <PathField engine="claude" label="Claude executable" value={claudePath} status={claudeStatus} onChange={(v) => { setClaudePath(v); setSaved(false) }} />
-          <PathField engine="codex" label="Codex executable" value={codexPath} status={codexStatus} onChange={(v) => { setCodexPath(v); setSaved(false) }} />
-          {error && <div className="limn-error settings-error">{error}</div>}
-        </div>
+        {tab === 'actions' ? (
+          <>
+            <div className="settings-body">
+              <ActionsSettings repo={repo} />
+            </div>
+            <div className="settings-foot">
+              <span className="settings-note">Actions are global · skills stay in Claude Code and Codex</span>
+              <span className="grow" />
+              <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="settings-body">
+              <div className="settings-field">
+                <label id="settings-default-agent-label">Default review agent</label>
+                <AgentPicker value={draftAgent} onChange={(a) => { setDraftAgent(a); setSaved(false) }} align="left" labelledBy="settings-default-agent-label" />
+              </div>
+              <PathField engine="claude" label="Claude executable" value={claudePath} status={claudeStatus} onChange={(v) => { setClaudePath(v); setSaved(false) }} />
+              <PathField engine="codex" label="Codex executable" value={codexPath} status={codexStatus} onChange={(v) => { setCodexPath(v); setSaved(false) }} />
+              {error && <div className="limn-error settings-error">{error}</div>}
+            </div>
 
-        <div className="settings-foot">
-          <span className="settings-note">{saved ? 'Saved' : 'Blank fields use PATH'}</span>
-          <span className="grow" />
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => void save()}>
-            <I.check style={{ width: 12, height: 12 }} />{saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+            <div className="settings-foot">
+              <span className="settings-note">{saved ? 'Saved' : 'Blank fields use PATH'}</span>
+              <span className="grow" />
+              <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
+              <button className="btn btn-sm btn-primary" disabled={saving} onClick={() => void save()}>
+                <I.check style={{ width: 12, height: 12 }} />{saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

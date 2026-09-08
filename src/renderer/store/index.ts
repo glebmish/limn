@@ -75,6 +75,8 @@ export { handleOpEvent, handleOpResult, handleRepoChanged } from './bridge'
 export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlice, ChatSlice, ReviewSlice, ProgressSlice, EditsSlice {
   screen: 'dashboard' | 'hub' | 'review'
   settingsOpen: boolean
+  /** which Settings tab is showing (design board 14 S1 adds Actions) */
+  settingsTab: 'agents' | 'actions'
   error: string | null
 
   /** set by the watcher (onRepoChanged) when the branch poller can no longer read
@@ -96,7 +98,7 @@ export interface AppStore extends OpsSlice, DashboardSlice, PrefsSlice, RepoSlic
   backToDashboard(): Promise<void>
   /** mark the branch watcher stopped (carrying its reason) or live (null). */
   setWatchStopped(v: { reason: string } | null): void
-  openSettings(): void
+  openSettings(tab?: 'agents' | 'actions'): void
   closeSettings(): void
 }
 
@@ -121,6 +123,7 @@ export const useStore = create<AppStore>()((...a) => {
     ...createEditsSlice(...a),
     screen: 'dashboard',
     settingsOpen: false,
+    settingsTab: 'agents',
     error: null,
     watchStopped: null,
     booting: true,
@@ -197,8 +200,8 @@ export const useStore = create<AppStore>()((...a) => {
       set({ watchStopped: v })
     },
 
-    openSettings() {
-      set({ settingsOpen: true })
+    openSettings(tab) {
+      set({ settingsOpen: true, ...(tab ? { settingsTab: tab } : {}) })
     },
 
     closeSettings() {

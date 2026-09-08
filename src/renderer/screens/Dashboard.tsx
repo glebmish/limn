@@ -165,7 +165,7 @@ export default function Dashboard() {
       <div className="wf-titlebar">
         <span className="wf-title"><span className="wf-mark"><I.mark style={{ width: 15, height: 15 }} /></span><b>Limn</b></span>
         <span className="grow" />
-        <button className="wf-iconbtn" onClick={openSettings} title="Settings" aria-label="Settings">
+        <button className="wf-iconbtn" onClick={() => openSettings()} title="Settings" aria-label="Settings">
           <I.gear style={{ width: 13, height: 13 }} />
         </button>
       </div>
