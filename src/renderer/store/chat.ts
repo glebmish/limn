@@ -320,7 +320,16 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     // so the turn + its tool calls are visible as they run
     get().openChat(threadId)
     get().startOp('chat', opId, threadId, true) // batch is write-capable → exclusive lane
-    void api().sendBatch(threadId, commentIds, trimmed, opId, refine)
+    // Fire-and-forget, but never silently (the shape startGenerate uses): the server
+    // rejects before it registers the op, so no op:result will ever arrive. Left
+    // running, the turn holds the exclusive lane forever and every affordance that
+    // waits on it — the decision card's submit above all — stays disabled with
+    // nothing on screen to explain it. Retire the op and say why.
+    Promise.resolve(api().sendBatch(threadId, commentIds, trimmed, opId, refine)).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err)
+      get().finishOp(opId, 'failed', message)
+      set({ error: message })
+    })
   },
 
   sendRebase(conflictFiles) {

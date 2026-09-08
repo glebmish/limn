@@ -109,6 +109,25 @@ describe('sendBatch', () => {
     useStore.getState().sendBatch(5, [])
     expect(sendBatch).not.toHaveBeenCalled()
   })
+
+  it('a rejecting send retires the op and says why, instead of stranding every send affordance', async () => {
+    // the server rejects before it registers the op, so no op:result ever arrives —
+    // the turn would spin forever, hold the exclusive lane, and keep every gate that
+    // waits on it (the decision card's submit above all) disabled with no explanation
+    useStore.setState({
+      loaded: makeLoaded({ chats: [chat(5, 'user')], comments: [{ id: 'c1', status: 'queued', anchor: { kind: 'summary' } }] }),
+      error: null,
+    })
+    sendBatch.mockRejectedValueOnce(new Error('sendBatch: 500'))
+    useStore.getState().sendBatch(5, ['c1'])
+    await flush()
+    const op = Object.values(useStore.getState().ops)[0]
+    expect(op.running).toBe(false)
+    expect(op.outcome).toBe('failed')
+    expect(op.error).toBe('sendBatch: 500')
+    expect(anyOpRunning()).toBe(false)
+    expect(useStore.getState().error).toBe('sendBatch: 500')
+  })
 })
 
 describe('sendRebase', () => {
