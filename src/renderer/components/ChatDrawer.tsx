@@ -196,6 +196,10 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
     stickRef.current = true
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [activeChatId, open])
+  // the thread on screen is "seen" — as it changes, and again when its turn ends, so a
+  // run that finishes while you watch it never counts as unseen on the Chat pill
+  const shownId = open && active && active.id >= 0 ? active.id : null
+  useEffect(() => { if (shownId != null) store.markThreadSeen(shownId) }, [shownId, streaming]) // eslint-disable-line react-hooks/exhaustive-deps
   const onBodyScroll = () => {
     const el = scrollRef.current
     if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 24

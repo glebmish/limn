@@ -24,9 +24,10 @@ export const IDLE_GEN: GenState = { running: false, opId: null, kind: null, thre
  *  Safe to share: nothing ever mutates either map in place — every write builds a new
  *  object. `resumeExisting` re-adopts whatever is live on the session it opened AFTER
  *  spreading this. */
-export const RESET_REVIEW_SURFACE: Pick<AppStore, 'ops' | 'queuedTurnByThread'> = Object.freeze({
+export const RESET_REVIEW_SURFACE: Pick<AppStore, 'ops' | 'queuedTurnByThread' | 'seenThreadAt'> = Object.freeze({
   ops: Object.freeze({}) as Record<string, OpState>,
-  queuedTurnByThread: Object.freeze({}) as Record<number, string>
+  queuedTurnByThread: Object.freeze({}) as Record<number, string>,
+  seenThreadAt: Object.freeze({}) as Record<number, string>
 })
 
 /** How many trailing events an op's log retains — bounds per-event re-render cost. */

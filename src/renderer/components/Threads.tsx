@@ -4,6 +4,7 @@ import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import { activeChat, useStore } from '../store'
 import { currentReviewChat, sendComments } from '../lib/comments'
+import { triageKey } from '../lib/proposals'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
 
@@ -129,7 +130,18 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
 
   return (
     <div className="dthread" data-comment-id={c.id} data-proposed={proposed || undefined}>
-      <div className={'box' + (isAgent ? ' agent' : '') + (proposed ? ' proposed' : '')} tabIndex={proposed ? 0 : undefined}>
+      <div className={'box' + (isAgent ? ' agent' : '') + (proposed ? ' proposed' : '')} tabIndex={proposed ? 0 : undefined}
+        onKeyDown={proposed ? (e) => {
+          // a / k / d / r on the focused box (board 14 N4) — never while typing in it
+          if (e.metaKey || e.ctrlKey || e.altKey) return
+          const t = e.target as HTMLElement
+          if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') return
+          const verdict = triageKey(e.key)
+          if (!verdict) return
+          e.preventDefault()
+          if (verdict === 'reply') setReplying(true)
+          else void triage([c.id], verdict)
+        } : undefined}>
         <div className="bh">
           {isAgent ? <AgentId agentRef={c.agentRef} threadId={c.threadId} /> : <><Ava>me</Ava><b>You</b></>}
           {proposed && <span className="pill pill-prop">proposed</span>}

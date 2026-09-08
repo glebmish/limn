@@ -859,3 +859,26 @@ button.limn-act.ax-finding:hover { border-color: var(--accent-line); background:
 .ax-rnote { margin-top: 7px; font-size: 10.5px; line-height: 1.45; color: var(--muted); }
 .ax-result.plain { border-color: var(--line-2); background: var(--panel-2); }
 .ax-result.plain .ax-rh { color: var(--ink-2); }
+
+/* ── agent actions — the Chat pill and its list (board 14 R2) ── */
+.ax-act { position: relative; display: inline-flex; }
+.ax-act .btn .pill { margin-left: 4px; }
+.pill-run { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-line); }
+.pill-run .gen-spinner { width: 9px; height: 9px; border-width: 1.5px; }
+.pill-new { background: var(--panel); color: var(--accent-ink); border: 1px dashed var(--accent-line); }
+.ax-actpop { z-index: 45; width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 8px 24px rgba(40,40,40,.14); overflow: hidden; }
+.ax-actpop .g { font: 700 9.5px var(--mono); letter-spacing: .11em; text-transform: uppercase; color: var(--muted); padding: 8px 11px 4px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.ax-op { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+.ax-op:last-child { border-bottom: none; }
+.ax-op:hover { background: var(--accent-soft); }
+.ax-op .st { width: 14px; display: inline-flex; justify-content: center; flex: 0 0 auto; order: -1; }
+.ax-op .st svg { width: 12px; height: 12px; }
+.ax-op .st.ok { color: var(--accent); }
+.ax-op .nm { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ax-op .nm b { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ax-op .nm i { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.ax-op .t { font: 500 10.5px var(--mono); color: var(--muted); flex: 0 0 auto; }
+.ax-op.done .nm i { color: var(--accent-ink); }
+.ax-op-x { border: none; background: none; color: var(--muted); cursor: pointer; padding: 2px; display: inline-flex; border-radius: 4px; }
+.ax-op-x:hover { color: var(--red); background: var(--panel-2); }
+.ax-op-x svg { width: 11px; height: 11px; }

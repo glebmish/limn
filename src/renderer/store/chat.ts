@@ -119,6 +119,9 @@ export interface ChatSlice {
   /** whether the chat drawer is open (lifted here so an agent-identity click in
    *  the review can open a specific chat). */
   chatOpen: boolean
+  /** ISO time the reviewer last had each thread showing in the drawer — what the
+   *  Chat pill's "finished · unseen" is measured against (board 14 R2). Client-only. */
+  seenThreadAt: Record<number, string>
   /** Follow-ups typed while a thread's turn was still running, keyed by thread id.
    *  CLIENT-ONLY and deliberately NOT on ChatThread: `reload()` replaces the whole
    *  chat list, which would clobber it. Not persisted — a reload of the app drops
@@ -126,6 +129,9 @@ export interface ChatSlice {
   queuedTurnByThread: Record<number, string>
 
   switchChat(id: number): void
+  /** the drawer is showing this thread now (called by the drawer as its active
+   *  thread changes while open) */
+  markThreadSeen(threadId: number): void
   openChat(threadId?: number): void
   closeChat(): void
   newChat(): Promise<void>
@@ -173,15 +179,22 @@ export interface ChatSlice {
 export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, get) => ({
   activeChatId: null,
   draftChat: null,
+  seenThreadAt: {},
   chatOpen: dev.flow === 'chat',
   queuedTurnByThread: {},
 
   switchChat(id) {
-    set({ activeChatId: id })
+    set((s) => ({ activeChatId: id, seenThreadAt: { ...s.seenThreadAt, [id]: new Date().toISOString() } }))
+  },
+
+  markThreadSeen(threadId) {
+    set((s) => ({ seenThreadAt: { ...s.seenThreadAt, [threadId]: new Date().toISOString() } }))
   },
 
   openChat(threadId) {
-    set(threadId != null ? { chatOpen: true, activeChatId: threadId } : { chatOpen: true })
+    set((s) => threadId != null
+      ? { chatOpen: true, activeChatId: threadId, seenThreadAt: { ...s.seenThreadAt, [threadId]: new Date().toISOString() } }
+      : { chatOpen: true })
   },
 
   closeChat() {

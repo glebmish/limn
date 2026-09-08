@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, useStore } from '../store'
 import { doneSectionIds as computeDoneSectionIds, renderedFiles } from '../store/derive'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
@@ -21,6 +21,8 @@ import { RefPicker } from '../components/RefPicker'
 import { SplitHandle } from '../components/SplitHandle'
 import { api } from '../lib/api'
 import { commentCounts } from '../lib/comments'
+import { ProposalStrip } from '../components/ProposalStrip'
+import { RunsPill } from '../components/RunsPill'
 import { agentLabel } from '../../shared/agents'
 import { orderFilesForReview } from '../lib/fileOrder'
 import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
@@ -158,9 +160,6 @@ export default function Review() {
 
   if (!loaded) return null
   const { skeleton, state, artifacts, commits } = loaded
-  // a parked approval is answerable from the drawer — badge the Chat button
-  // unconditionally so it's discoverable even when the drawer is already open.
-  const hasPendingApproval = pendingApprovals(gen).length > 0
   const annotations = state.annotations
   const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
@@ -307,10 +306,7 @@ export default function Review() {
         <button className="btn btn-sm btn-ghost rv-sessions" onClick={() => void store.enterHub(state.repo)} title="All sessions for this repo">
           <I.list style={{ width: 13, height: 13 }} />Sessions
         </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => (chatOpen ? store.closeChat() : store.openChat())} title={hasPendingApproval ? 'Chat with the agent — waiting on your approval' : 'Chat with the agent'}>
-          <I.bubble style={{ width: 13, height: 13 }} />Chat
-          {hasPendingApproval && <span className="pill pill-amber">approval</span>}
-        </button>
+        <RunsPill chatOpen={chatOpen} onToggle={() => (chatOpen ? store.closeChat() : store.openChat())} />
         <button className="wf-iconbtn" onClick={() => store.openSettings()} title="Settings" aria-label="Settings">
           <I.gear style={{ width: 13, height: 13 }} />
         </button>
@@ -377,6 +373,7 @@ export default function Review() {
 
               {/* no follow-up / steer / regenerate on a terminal merged record (§7) */}
               {!merged && <GenPanel />}
+              {!merged && <ProposalStrip />}
 
               <ReviewSummary
                 annotations={annotations}
