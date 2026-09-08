@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentAction, AgentQuestion, ChatThread, Comment, EngineEvent } from '../../shared/types'
+import type { LoadedReview } from '../../shared/ipc'
 import { agentLabel } from '../../shared/agents'
-import { reviewOp, useStore } from '../store'
+import type { OpState } from '../store'
+import { anyRunning, opForThread, useStore } from '../store'
 import { I, EngineGlyph } from '../kit'
 import { currentReviewChat, sendAnswers } from '../lib/comments'
 
@@ -50,12 +52,47 @@ function progressStep(log: EngineEvent[]): number {
   return 0
 }
 
+export interface DecisionTurn {
+  /** whether the answer turn (or anything else) is streaming into the review thread */
+  running: boolean
+  /** that op's event log — what the progress card steps through */
+  log: EngineEvent[]
+  runningThisTurn: boolean
+  ready: boolean
+}
+
+/** The decision card's in-flight state.
+ *
+ *  The op it watches is the one on the REVIEW THREAD, whatever its kind: answering
+ *  goes `sendAnswers` → `sendBatch`, which registers a **chat** op (store/chat.ts),
+ *  so watching only `review`-kind ops left the progress card unreachable and the
+ *  submit button live for the whole turn. `ready` additionally clears while ANY op
+ *  runs, because `sendBatch` needs the exclusive lane and early-returns otherwise —
+ *  a clickable button there is a silent no-op. */
+export function decisionTurn(input: {
+  ops: Record<string, OpState>
+  loaded: LoadedReview | null
+  adding: boolean
+  activeCount: number
+  openCount: number
+  answeredCount: number
+}): DecisionTurn {
+  const threadId = currentReviewChat(input.loaded?.state.chats ?? [])?.id
+  const gen = opForThread(input.ops, threadId)
+  return {
+    running: gen.running,
+    log: gen.log,
+    runningThisTurn: (input.adding || gen.running) && input.activeCount > 0,
+    ready: input.openCount > 0 && input.answeredCount === input.openCount
+      && !input.adding && !anyRunning(input.ops) && threadId != null
+  }
+}
+
 /** "Agent needs decisions" block — open intent questions from the review, answered as one refine turn. */
 export function Questions() {
   const loaded = useStore((s) => s.loaded)
   const ops = useStore((s) => s.ops)
   const openChat = useStore((s) => s.openChat)
-  const gen = reviewOp(ops, loaded)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [activeCommentIds, setActiveCommentIds] = useState<string[]>([])
@@ -78,11 +115,12 @@ export function Questions() {
   const openRows = rows.filter((row) => !row.resolved)
   const resolvedRows = rows.filter((row) => row.resolved)
   const allDone = rows.length > 0 && rows.every((row) => row.resolved)
-  const runningThisTurn = (adding || gen.running) && activeCommentIds.length > 0
-  const step = progressStep(gen.log)
-  const progress = step === 0 ? '22%' : step === 1 ? '64%' : '100%'
   const answeredCount = openRows.filter((row) => answers[row.question.id]?.trim()).length
-  const ready = openRows.length > 0 && answeredCount === openRows.length && !adding && !gen.running && Boolean(reviewChat)
+  const turn = decisionTurn({ ops, loaded, adding, activeCount: activeCommentIds.length, openCount: openRows.length, answeredCount })
+  const runningThisTurn = turn.runningThisTurn
+  const step = progressStep(turn.log)
+  const progress = step === 0 ? '22%' : step === 1 ? '64%' : '100%'
+  const ready = turn.ready
   const updatedTargets = loaded ? reviewEditTargetCount(loaded.state.chats) : 0
 
   const answerSignature = rows.map((row) => `${row.question.id}:${row.latest?.id ?? ''}:${row.latest?.text ?? ''}:${row.resolved?.id ?? ''}`).join('|')
@@ -98,8 +136,8 @@ export function Questions() {
   }, [answerSignature])
 
   useEffect(() => {
-    if (!gen.running && !adding && activeCommentIds.length > 0) setActiveCommentIds([])
-  }, [activeCommentIds.length, adding, gen.running])
+    if (!turn.running && !adding && activeCommentIds.length > 0) setActiveCommentIds([])
+  }, [activeCommentIds.length, adding, turn.running])
 
   if (questions.length === 0) return null
 
