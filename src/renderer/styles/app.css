@@ -782,6 +782,8 @@ body.is-resizing * { cursor: col-resize !important; }
 .ax-row[aria-disabled="true"] { cursor: default; }
 .ax-row.blocked .ax-rn b { color: var(--muted); }
 .ax-row.blocked .ax-rn i::after { content: " · not on " attr(data-cur); color: var(--amber); }
+.ax-row.checking .ax-rn b { color: var(--muted); }
+.ax-row.checking .ax-rn i::after { content: " · checking " attr(data-cur) "…"; color: var(--amber); }
 .ax-row.busy { background: var(--accent-soft); }
 .ax-row.busy .ax-rn b { color: var(--accent-ink); }
 .ax-more { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity .12s; padding: 0; }

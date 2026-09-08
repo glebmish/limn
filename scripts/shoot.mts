@@ -267,6 +267,51 @@ upsertComment(db, session.id, {
   status: 'queued', replies: [], createdAt: 'now', iteration: 1
 })
 
+// LIMN_SEED_ACTIONS=1 (design board 14): pinned actions, each engine's last probe for
+// this repo, and a "Simplify" action thread whose run 1 finished with two proposed
+// findings — the launcher, the run bar / result card, the proposed boxes, the strip
+// and the Chat pill all have something to show.
+let simplifyChat: number | null = null
+if (process.env.LIMN_SEED_ACTIONS === '1') {
+  const prefs = (k: string, v: string): void => { db.prepare('INSERT INTO prefs (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v) }
+  prefs('actions', JSON.stringify([
+    { id: 'act-simplify', kind: 'skill', name: 'Simplify', body: 'simplify' },
+    { id: 'act-security', kind: 'skill', name: 'Security review', body: 'security-review' },
+    { id: 'act-prtk', kind: 'skill', name: 'PR review toolkit', body: 'pr-review-toolkit:review-pr' },
+    { id: 'act-rebase', kind: 'prompt', name: 'Rebase onto main', body: 'Rebase this branch onto main and resolve conflicts. Keep both sides when in doubt.' },
+    { id: 'act-churn', kind: 'prompt', name: 'Explain test churn', body: 'List every test whose assertions changed and say why.' }
+  ]))
+  const twoMin = new Date(Date.now() - 2 * 60_000).toISOString()
+  prefs(`commands:claude:${fx.dir}`, JSON.stringify({ names: ['simplify', 'security-review', 'pr-review-toolkit:review-pr', 'compact', 'init'], checkedAt: twoMin, state: 'ok' }))
+  prefs(`commands:codex:${fx.dir}`, JSON.stringify({ names: ['review', 'compact', '$security-review'], checkedAt: twoMin, state: 'ok' }))
+  const t = createChatThread(db, session.id, { kind: 'user', agent: { engine: 'claude', model: 'opus' }, title: 'Simplify', action: { actionId: 'act-simplify', name: 'Simplify', kind: 'skill' } })
+  simplifyChat = t.id
+  const run = { actionId: 'act-simplify', runId: `run-${t.id}-1`, n: 1, name: 'Simplify', kind: 'skill' as const }
+  const startedAt = new Date(Date.now() - 4 * 60_000).toISOString()
+  const endedAt = new Date(Date.now() - 3 * 60_000 + 48_000).toISOString()
+  const f1 = {
+    id: 'af-seed-1', anchor: { kind: 'diff' as const, file: 'src/a.ts', side: 'new' as const, line: 3, hunkRange: '@@ -1,4 +1,5 @@', lineContent: '' },
+    author: 'agent' as const, agentRef: { engine: 'claude' as const, model: 'opus' }, threadId: t.id,
+    text: '`rows.reduce((a, r) => a + r.total, 0)` is `gross()` from totals.ts. Call it once and drop the local.',
+    severity: 'note' as const, status: 'proposed' as const, source: { actionId: 'act-simplify', runId: run.runId, threadId: t.id },
+    replies: [], createdAt: endedAt, iteration: 1
+  }
+  const f2 = {
+    ...f1, id: 'af-seed-2', anchor: { ...f1.anchor, line: 4 }, severity: 'risk' as const,
+    text: '`round()` is no longer applied on this path — `applyProration` returns fractional cents. Either round here or inside it.'
+  }
+  upsertComment(db, session.id, f1)
+  upsertComment(db, session.id, f2)
+  addChatMessage(db, t.id, { role: 'user', text: '/simplify\n\nLimn: for each finding you report, also call the `add_finding` tool (file, line, severity, body) so it lands on the code as a proposed comment the reviewer can accept or dismiss. Anchor each one to the exact line in the repository file; use severity "risk" for bugs and security problems, "note" for everything else.', at: startedAt, run })
+  addChatMessage(db, t.id, {
+    role: 'agent', at: endedAt,
+    text: 'Two simplifications, none behavioural. The webhook dedupe key can also drop its `JSON.stringify`; I left that out as it changes the stored key.',
+    actions: [{ kind: 'finding_added', comment: f1 }, { kind: 'finding_added', comment: f2 }],
+    runResult: { runId: run.runId, outcome: 'finished' }
+  })
+  setThreadEngineSession(db, t.id, 'claude-simplify-1')
+}
+
 // extra sessions so the repo hub list + the review's session dropdown have content
 // (multiple reviews of the same branch, latest on top)
 const s2 = createSession(db, fx.dir, {
@@ -280,4 +325,4 @@ const s3 = createSession(db, fx.dir, {
 }, { engine: 'claude', model: 'sonnet' })
 updateSessionMeta(db, s3.id, { annotations: { title: 'First look', summary: '', sections: [], questions: [] } })
 
-console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id, reviewChat: reviewChat.id, userChat: userChat.id }))
+console.log(JSON.stringify({ repo: fx.dir, db: dbFile, sessionId: session.id, reviewChat: reviewChat.id, userChat: userChat.id, ...(simplifyChat != null ? { simplifyChat } : {}) }))

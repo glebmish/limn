@@ -21,7 +21,7 @@ const EMPTY_DRAFT: Draft = { id: null, kind: 'skill', name: '', body: '' }
 export function ActionsSettings({ repo }: { repo: string | null }) {
   const actions = useStore((s) => s.actions)
   const setActions = useStore((s) => s.setActions)
-  const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? [])
+  const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? NO_AVAIL)
   const seen = useStore((s) => s.seenCommands)
   const loadCommands = useStore((s) => s.loadCommands)
   const refreshCommands = useStore((s) => s.refreshCommands)
@@ -209,3 +209,6 @@ function SkillStatus({ name, avail }: { name: string; avail: readonly CommandAva
     </div>
   )
 }
+
+/** stable empty list — a selector must not mint a new array per render */
+const NO_AVAIL: CommandAvailability[] = []

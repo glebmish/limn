@@ -195,6 +195,53 @@ code 1.
 `limn config` talks to the running service over the same connection the app uses;
 if none is running, it reads and writes the SQLite database file directly.
 
+## Actions
+
+An action pins agent work to a button. There are two kinds: a **skill** the agent
+already has installed (`/simplify`, `/security-review`, a Codex `$skill`) and a
+**prompt** in your own words ("Rebase this branch onto main and resolve conflicts").
+Limn never installs or ships skills; it only asks each engine what it has.
+
+Pin actions from **Settings → Actions**. A skill action takes the bare skill name
+(`simplify`, `pr-review-toolkit:review-pr`); the editor offers the names Limn has
+seen on any engine. A prompt action takes the text verbatim. Actions are global and
+listed in the order you drag them into.
+
+Run one from the **bolt** beside the chat selector in the chat drawer (it is there
+before the first thread too). A click runs the action at once on a new thread with
+your default agent, execution mode auto. The `›` at a row's edge opens a second
+pane: another engine or model, or an existing thread to run inside. A skill row
+shows a mark per engine when two engines are installed — solid when the engine's
+last session reported the skill, struck when it did not, pulsing while a check is
+open — and a row your default agent cannot run opens the pane at the reason, with
+Refresh.
+
+Each action runs in its own thread, one turn per run ("Simplify · run 2"). The run
+bar under the drawer head says what is running, and Cancel lives there. Limn
+appends one paragraph to the prompt telling the agent about the `add_finding`
+tool; nothing else is added. A skill run checks the skill against the session's
+own command list before the prompt goes out and refuses, with the engine's words,
+when it is missing.
+
+Findings land on the code as **proposed** comments: a dashed box with a
+`proposed` pill and the severity the agent assigned, a dashed ring in the gutter,
+and their own count in the header (`3 comments · 4 proposed`). Proposals never
+count as unresolved and never enter your batch on their own. Each one offers
+**Accept** (it becomes a queued comment for the agent's next batch), **Keep** (an
+agent note you handle yourself), **Dismiss** (hidden, restorable) and **Reply**
+(stays proposed). With a proposal's box focused, `a`, `k`, `d` and `r` do the
+same. A strip above the diff steps through the newest run's proposals and carries
+Accept all / Dismiss all. Re-running an action replaces the proposals you have not
+touched; accepted, kept or replied-to ones stay. The hotspots a review generation
+finds are proposals too, from the review run.
+
+Every agent task on a repository — a generation, an action run, a chat turn, a
+batch — takes one lane, in the order it was asked for. A task behind a busy repo
+waits and says so (`Queued · 2nd, behind Generating the review`). The **Chat**
+button's pill reports everything running with the drawer closed: `N running · M
+queued`, amber when an approval waits on you, dashed `N proposed` when a run
+finished with results you have not looked at; hover it for the list.
+
 ## Review loop from your agent
 
 `limn --generate` opens a review and starts generation immediately, instead of

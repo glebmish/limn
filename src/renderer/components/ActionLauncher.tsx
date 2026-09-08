@@ -21,7 +21,7 @@ export function ActionLauncher() {
   const actions = useStore((s) => s.actions)
   const defaultAgent = useStore((s) => s.defaultAgent)
   const repo = useStore((s) => s.loaded?.state.repo ?? null)
-  const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? [])
+  const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? NO_AVAIL)
   const chats = useStore((s) => s.loaded?.state.chats ?? EMPTY_CHATS)
   const ops = useStore((s) => s.ops)
   const loadCommands = useStore((s) => s.loadCommands)
@@ -84,12 +84,13 @@ export function ActionLauncher() {
                   {actions.map((a) => {
                     const mark = markOn(a, defaultAgent.engine)
                     const blocked = a.kind === 'skill' && mark !== 'ok'
+                    const checking = a.kind === 'skill' && mark === 'chk'
                     const busy = busyThreadFor(a)
                     const title = busy ? `${a.name} is running — open its thread from the chat selector`
                       : blocked ? (mark === 'chk' ? `Checking ${engineLabel(defaultAgent.engine)}…` : `Not on ${engineLabel(defaultAgent.engine)} — click for options`)
                       : `Run now with ${engineLabel(defaultAgent.engine)}`
                     return (
-                      <div key={a.id} className={'ax-row' + (busy ? ' busy' : blocked ? ' blocked' : '')} role="button" tabIndex={0} title={title} aria-disabled={busy || launching}
+                      <div key={a.id} className={'ax-row' + (busy ? ' busy' : checking ? ' checking' : blocked ? ' blocked' : '')} role="button" tabIndex={0} title={title} aria-disabled={busy || launching}
                         onClick={() => { if (busy || launching) return; if (blocked) openTarget(a); else void launch(a, { kind: 'new', agent: defaultAgent }) }}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (e.currentTarget as HTMLDivElement).click() } }}>
                         <KindGlyph kind={a.kind} />
@@ -249,3 +250,5 @@ function threadDisplayName(c: ChatThread, all: ChatThread[]): string {
   return c.title ?? 'Chat'
 }
 
+/** stable empty list — a selector must not mint a new array per render */
+const NO_AVAIL: CommandAvailability[] = []

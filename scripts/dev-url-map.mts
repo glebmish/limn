@@ -25,7 +25,8 @@ export const BOOL_KEYS: Record<string, HookKey> = {
   LIMN_FAKE_DRIFT: 'fakeDrift',
   LIMN_FAKE_DRIFT_OPEN: 'fakeDriftOpen',
   LIMN_OPEN_SETTINGS: 'openSettings',
-  LIMN_SHOW_AFFORDANCES: 'showAffordances'
+  LIMN_SHOW_AFFORDANCES: 'showAffordances',
+  LIMN_OPEN_LAUNCHER: 'openLauncher'
 }
 
 /** `LIMN_X=<str>` → `{ [hookKey]: <str> }`. */
@@ -41,7 +42,9 @@ export const STR_KEYS: Record<string, HookKey> = {
   LIMN_EDIT_FRAME: 'editFrame',
   LIMN_RUN_EDIT: 'runEdit',
   LIMN_SCENARIO: 'scenario',
-  LIMN_OPEN_PEEK: 'openPeek'
+  LIMN_OPEN_PEEK: 'openPeek',
+  LIMN_LAUNCHER_PANE: 'launcherPane',
+  LIMN_SETTINGS_TAB: 'settingsTab'
 }
 
 /** `LIMN_ACTIVE_CHAT=<n>` → `{ activeChat: Number(<n>) }` — the one numeric hook. */

@@ -24,7 +24,7 @@ describe('buildDevHooks', () => {
     // field (src/renderer/api.d.ts) — a typo or a stale/renamed hook can't compile.
     type LimnDevHook = keyof NonNullable<Window['limnDev']>
     const values = Object.values(HOOK_KEYS)
-    expect(values.length).toBe(27)
+    expect(values.length).toBe(30)
     for (const v of values) {
       const k: LimnDevHook = v
       expect(typeof k).toBe('string')
