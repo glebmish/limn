@@ -44,10 +44,10 @@ export function commentJumpTarget(c: CommentJump): FocusTarget | null {
 }
 
 /** Scroll the review to a target and briefly highlight it. Ensures the target is
- *  rendered first (a collapsed/viewed file or a reviewed section is force-shown via
- *  a transient `focusTarget`, without touching `viewedAt`), then
- *  hands off to `startFocusJump`, which resolves the `data-limn-*` node, scrolls
- *  until the layout around it stops moving, and flashes it. Reused by focus chips. */
+ *  rendered first (a collapsed/viewed file or a reviewed section is force-shown via a
+ *  transient `focusTarget`, without touching `viewedAt`), then hands off to
+ *  `startFocusJump`, which resolves the `data-limn-*` node, scrolls until the layout
+ *  around it stops moving, and flashes it. Reused by focus chips. */
 export function focusAnchor(target: FocusTarget, opts: { quiet?: boolean } = {}): void {
   const anchor = jumpTarget(target)
   const st = useStore.getState()

@@ -105,12 +105,9 @@ button.rsw-item:disabled { opacity: .5; cursor: not-allowed; }
   border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); cursor: pointer;
 }
 .limn-sess:hover { border-color: var(--line-3); background: var(--panel-2); }
-.limn-sess.active { border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-sess.sel { border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-sess.archived { opacity: .62; background: var(--panel-2); border-style: dashed; }
 .limn-sess.archived:hover { opacity: 1; }
-.limn-sess-repo { background: none; border: none; padding: 0; cursor: pointer; flex: 0 0 auto; font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.limn-sess-repo:hover { color: var(--accent-ink); text-decoration: underline; }
 .limn-hub-bar .btn.on { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
 .limn-sess-refs { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; flex: 0 0 auto; }
 .limn-sess-refs .b-src { color: var(--accent-ink); font-weight: 600; }
