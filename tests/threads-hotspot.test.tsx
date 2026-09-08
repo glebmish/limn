@@ -144,7 +144,9 @@ describe('InlineThread — a re-queued agent hotspot keeps its affordances', () 
     expect(out).not.toContain('>Reply<')
   })
 
-  it('a hotspot sent with the batch says so and can still be continued', () => {
+  // no status chip on this one by design: the card header already renders the agent
+  // identity, so the sent/resolved chip stays reviewer-turn-only
+  it('a hotspot sent with the batch can still be continued — Reply and Re-queue', () => {
     const out = html(hotspotComment({ status: 'sent', resolution: undefined }))
     expect(out).toContain('>Reply<')
     expect(out).toContain('Re-queue')
@@ -194,6 +196,21 @@ describe('InlineThread — status chips sit on the latest turn', () => {
   it('a reviewer reply on an agent hotspot gets the queued chip too (the turn is the reviewer\'s)', () => {
     const out = html(hotspotComment({ status: 'queued', replies: [{ author: 'user', text: 'agree, fix it', at: 't1' }] }))
     expect(out.indexOf('queued for agent')).toBeGreaterThan(out.indexOf('This branch is unreachable'))
+  })
+
+  it('an agent reply as the latest turn still carries the queued chip — it is the COMMENT that is queued', () => {
+    const out = html(hotspotComment({
+      author: 'user', severity: undefined, status: 'queued', resolution: undefined,
+      text: 'this needs a guard',
+      replies: [{ author: 'agent', text: 'Reworked it without one.', at: 't1' }]
+    }))
+    const body = out.indexOf('this needs a guard')
+    const reply = out.indexOf('Reworked it without one.')
+    // between the card body and the reply's text = in the reply's own header row
+    expect(out.indexOf('queued for agent')).toBeGreaterThan(body)
+    expect(out.indexOf('queued for agent')).toBeLessThan(reply)
+    expect(out.indexOf('Send now')).toBeGreaterThan(body)
+    expect(out.indexOf('Send now')).toBeLessThan(reply)
   })
 
   it('the verdict chip sits on the resolution entry when there is one', () => {
