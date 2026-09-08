@@ -251,7 +251,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     // an added file's hunks ARE the whole file, so there is no run trailing off below
     // its last line to offer (lib/rows.ts spots the wholly-deleted case itself)
     const trailing = f.status !== 'added'
-    if (layout === 'multi') return buildMultiRows(mids, hunks, lang, { trailing })
+    if (layout === 'multi') return buildMultiRows(mids, hunks, gaps, lang, { trailing })
     if (layout === 'split') return buildSplitRows(hunks, gaps, lang, { trailing })
     return buildFileRows(hunks, gaps, lang, { trailing }).map((r) => (r.type === 'line' ? asAligned(r) : r))
   }, [f.binary, f.status, layout, mids, hunks, gaps, lang])

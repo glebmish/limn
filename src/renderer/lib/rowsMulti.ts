@@ -140,11 +140,16 @@ function gapRow(gap: Gap, where: GapRow['where'], header: string): GapRow {
 /** Rows in base order — insertions before each base line first (side by side,
  *  padded), then the base line with its state in each column — with a gap row
  *  between covered segments. `opts.trailing` as in `buildFileRows`: false for a
- *  wholly-new file, which has nothing below its last row. */
-export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null, opts: { trailing?: boolean } = {}): ViewRow[] {
+ *  wholly-new file, which has nothing below its last row.
+ *
+ *  `gaps` come from `multiGaps(mids, now)` and are passed in, the same shape as
+ *  `buildFileRows`/`buildSplitRows`: the caller already holds that array as the key
+ *  space its reveals live in, so recomputing it here would put two structurally
+ *  identical `Gap[]`s in play whose only guarantee of agreement is that both were
+ *  built from the same input. */
+export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: string | null, opts: { trailing?: boolean } = {}): ViewRow[] {
   const ims = mids.map(indexSide), inow = indexSide(now)
   const near = ims.length - 1
-  const gaps = multiGaps(mids, now)
   const htmls = [runHtml(now, lang), ...mids.map((m) => runHtml(m, lang))]
   /** `l`'s run-level HTML on `side`. A line no column's hunks show — the placeholder a
    *  column gets for a base line its own diff never touched — has no run to sit in, so
@@ -242,6 +247,6 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
     })
   }
   const tail = gaps[gaps.length - 1]
-  if (opts.trailing !== false && bases.length) out.push(gapRow(tail, 'below', ''))
+  if (tail && opts.trailing !== false && bases.length) out.push(gapRow(tail, 'below', ''))
   return out
 }
