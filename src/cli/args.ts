@@ -39,7 +39,9 @@ function takeValue(argv: string[], i: number, name: string): [string, number] {
   return [next, i + 1]
 }
 
-function parsePort(raw: string): number {
+/** Also used to validate LIMN_PORT (target.ts's `resolvePort`), so a typo'd env var
+ *  gets the same friendly error a bad `--port` does, instead of silently falling back. */
+export function parsePort(raw: string): number {
   const n = Number(raw)
   if (!Number.isInteger(n) || n < 0 || n > 65535) throw new CliUsageError(`--port must be an integer 0-65535, got "${raw}"`)
   return n

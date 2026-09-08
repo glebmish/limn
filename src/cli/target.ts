@@ -1,11 +1,15 @@
 import { DEFAULT_PORT } from '../server/http.js'
 import { CANONICAL_HOST, hostForUrl, isLoopbackName } from '../server/guard.js'
+import { parsePort } from './args.js'
 
-/** The port this shell means: an explicit `--port`, else LIMN_PORT, else 5466. */
+/** The port this shell means: an explicit `--port`, else LIMN_PORT, else 5466. An
+ *  out-of-range/non-numeric LIMN_PORT is a usage error, not a silent fallback — it
+ *  gets the same CliUsageError `--port` itself would raise, via the same validator. */
 export function resolvePort(explicit?: number): number {
   if (explicit !== undefined) return explicit
-  const env = Number(process.env.LIMN_PORT)
-  return Number.isInteger(env) && env > 0 && env <= 65535 ? env : DEFAULT_PORT
+  const env = process.env.LIMN_PORT
+  if (env === undefined || env === '') return DEFAULT_PORT
+  return parsePort(env)
 }
 
 /** Where *this shell* thinks the Limn service is. Every CLI surface that talks to the

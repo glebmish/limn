@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { serviceTarget } from '../src/cli/target'
+import { CliUsageError } from '../src/cli/args'
 
 const KEYS = ['LIMN_WEB_HOST', 'LIMN_WEB_TOKEN', 'LIMN_PORT'] as const
 let saved: Record<string, string | undefined>
@@ -27,14 +28,25 @@ describe('serviceTarget', () => {
     expect(serviceTarget(6000).url).toBe('http://limn.localhost:6000')
   })
 
-  it('falls back to the default port when LIMN_PORT is out of the 0-65535 range, same as garbage input', () => {
+  it('rejects LIMN_PORT outside 0-65535 with the same usage error --port raises, instead of silently falling back', () => {
     process.env.LIMN_PORT = '99999'
-    expect(serviceTarget().port).toBe(5466)
+    expect(() => serviceTarget()).toThrow(CliUsageError)
+    expect(() => serviceTarget()).toThrow(/--port must be an integer 0-65535, got "99999"/)
     process.env.LIMN_PORT = '65536'
-    expect(serviceTarget().port).toBe(5466)
+    expect(() => serviceTarget()).toThrow(/--port must be an integer 0-65535, got "65536"/)
     // the boundary itself is still honoured
     process.env.LIMN_PORT = '65535'
     expect(serviceTarget().port).toBe(65535)
+    // LIMN_PORT=0 behaves like `--port 0` (accepted), not "out of range"
+    process.env.LIMN_PORT = '0'
+    expect(serviceTarget().port).toBe(0)
+  })
+
+  it('an unset or empty LIMN_PORT still yields the default port', () => {
+    delete process.env.LIMN_PORT
+    expect(serviceTarget().port).toBe(5466)
+    process.env.LIMN_PORT = ''
+    expect(serviceTarget().port).toBe(5466)
   })
 
   it('uses the real host for a non-loopback bind (Tailscale) rather than limn.localhost', () => {
