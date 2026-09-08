@@ -46,6 +46,8 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it — v2 `sessions.diff_stack`, v3 strips the dropped per-section `verify` key out of every stored annotations blob, v4 drops the dead `sessions.base_ident` generated column, v5 adds `idx_chat_messages_thread`, v6 drops the writer-less `reviewed_sections` table. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
 
+> ⚠️ **Migrations are forward-only — v6 is a one-way door.** v6 *drops* `reviewed_sections`, and a pre-v6 Limn's `loadReviewState` `SELECT`s that table unconditionally, so an older build opening a v6 database fails **every** session load. Once the service has started once on 0.4.0, do not downgrade the installed package to an earlier version against the same database — there is no down migration, and the older build will not read what the newer one wrote.
+
 ### Core entity graph
 
 ```text
@@ -71,8 +73,8 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 | `sessions` | The core table — see below. |
 | `comments` | PK `(session_id, id)`; full `Comment` in the `json` blob; `status` duplicated as a column for `unresolvedCount`. |
 | `chat_threads` | Autoincrement id; parent of `chat_messages`. `kind IN ('review','user')`, `engine`/`model`/`reasoning_effort`/`execution_mode`, `engine_session_id` (resume key), `title`. |
-| `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v2 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v5), `actions_json`, `tools_json`. |
-| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`, `scope` (v7 — `full` \| `scoped`). |
+| `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v1 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v1), `actions_json`, `tools_json`. |
+| `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`, `scope` (v1 — `full` \| `scoped`). |
 | `viewed_files` | PK `(session_id, file)`; per-file "viewed at SHA" markers. |
 | `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
