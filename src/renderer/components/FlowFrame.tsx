@@ -23,6 +23,19 @@ function caretPos(ta: HTMLTextAreaElement): { line: number; col: number; lineCou
   return { line, col, lineCount: ta.value.split('\n').length }
 }
 
+/** Liveness for the frame's async work (the working-file read, the save round trip):
+ *  ARMED in the effect setup body, not merely at ref creation. StrictMode — which
+ *  this app enables unconditionally (main.tsx) — runs setup → cleanup → setup on
+ *  mount in development, keeping the ref object across the simulated remount: a flag
+ *  written only at creation would stay `false` for the rest of the component's life,
+ *  so the one fetch that did start would drop its result and leave the textarea
+ *  disabled forever. The cleanup still disowns a real unmount, which is what stops a
+ *  late save from driving the frame the reviewer has since opened elsewhere. */
+export function aliveEffect(alive: { current: boolean }): () => void {
+  alive.current = true
+  return () => { alive.current = false }
+}
+
 /** The single in-place editor (specs/inplace-edits — board 12's "flow frame").
  *  Covers a contiguous run of working-tree lines; arrowing the caret past an edge
  *  admits the neighbouring file line (the growth gesture). ⏎ always makes a new
@@ -44,7 +57,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const caretRef = useRef<number | null>(null)
   const alive = useRef(true)
-  useEffect(() => () => { alive.current = false }, [])
+  useEffect(() => aliveEffect(alive), [])
 
   /** Persist the live draft under this session's `frameId` (#6 fix-round-1) — a
    *  plain module-level write (store/edits.ts's `setEditDraft`, outside zustand's

@@ -7,6 +7,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
+import { aliveEffect } from '../src/renderer/components/FlowFrame'
 import { makeLoaded } from './helpers/loaded'
 import { saveChordLabel } from '../src/renderer/lib/platform'
 
@@ -128,5 +129,26 @@ describe('in-place edit affordances', () => {
     const out = renderToStaticMarkup(<DiffView f={file} />)
     expect(out).not.toContain('flow-frame')
     expect(out).toContain('data-limn-line="src/a.ts:new:11"')
+  })
+})
+
+// StrictMode (main.tsx) runs every effect setup → cleanup → setup on mount in dev,
+// with refs preserved across the simulated remount. A liveness flag armed only at ref
+// creation therefore latches `false` for the instance's whole life: the working file
+// that IS fetched never reaches state and the textarea stays disabled forever.
+describe('the frame stays alive across StrictMode\'s dev remount', () => {
+  it('re-arms the flag in the effect setup, not just at ref creation', () => {
+    const alive = { current: true }
+    const cleanup = aliveEffect(alive) // React's first setup
+    cleanup() // StrictMode's simulated unmount
+    expect(alive.current).toBe(false)
+    aliveEffect(alive) // the second setup, on the very same ref object
+    expect(alive.current).toBe(true)
+  })
+
+  it('the cleanup still disowns a real unmount, so a late save can not drive the global frame', () => {
+    const alive = { current: true }
+    aliveEffect(alive)()
+    expect(alive.current).toBe(false)
   })
 })
