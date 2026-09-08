@@ -149,7 +149,6 @@ function rowToMeta(row: SessionDbRow): SessionMeta {
       base: { kind: row.base_kind, symbol: row.base_symbol, anchorSha: row.base_anchor_sha },
       compare: { kind: row.compare_kind, symbol: row.compare_symbol, anchorSha: row.compare_anchor_sha }
     },
-    engine: row.engine ?? undefined,
     agent: rowToAgent(row.engine, row.model, row.reasoning_effort),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -736,9 +735,6 @@ export function replaceUiState(db: DatabaseSync, sessionId: number, patch: UiSta
         db.prepare('INSERT INTO excluded_files (session_id, file, excluded) VALUES (?, ?, ?)').run(sessionId, file, excluded ? 1 : 0)
       }
     }
-    if (patch.engine !== undefined) {
-      db.prepare('UPDATE sessions SET engine = ? WHERE id = ?').run(patch.engine, sessionId)
-    }
     if (patch.diffStack !== undefined) {
       db.prepare('UPDATE sessions SET diff_stack = ? WHERE id = ?').run(JSON.stringify(normalizeStack(patch.diffStack)), sessionId)
     }
@@ -801,7 +797,6 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     repo: meta.repo,
     branch: effectiveRef(meta.pair.compare),
     base: effectiveRef(meta.pair.base),
-    engine: meta.engine,
     agent: meta.agent,
     annotations,
     comments, chats, viewedAt, reviewedSections, fileExcluded,

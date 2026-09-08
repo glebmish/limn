@@ -93,8 +93,8 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
       agent: a,
       loaded: s.loaded
         ? { ...s.loaded,
-            state: { ...s.loaded.state, agent: a, engine: a.engine },
-            session: { ...s.loaded.session, agent: a, engine: a.engine } }
+            state: { ...s.loaded.state, agent: a },
+            session: { ...s.loaded.session, agent: a } }
         : s.loaded
     }))
   },

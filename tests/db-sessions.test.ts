@@ -104,7 +104,6 @@ describe('sessions DAO', () => {
     expect(st.artifactApprovals).toEqual({ 'docs/spec.md': 'd'.repeat(40) })
     expect(st.viewedAt).toEqual({ 'a.ts': { sha: 'd'.repeat(40), hash: 'blob1' } })
     expect(st.reviewedSections).toEqual(['s1'])
-    expect(st.engine).toBe('claude')
     expect(st.agent).toEqual({ engine: 'claude' })
   })
 
@@ -128,7 +127,7 @@ describe('sessions DAO', () => {
       approvedSha: 'b'.repeat(40), reviewedAtSha: 'b'.repeat(40)
     })
     const st = loadReviewState(db, s.id)
-    expect(st.engine).toBe('codex')
+    expect(st.agent?.engine).toBe('codex')
     expect(st.annotations?.title).toBe('T')
     expect(st.approvedSha).toBe('b'.repeat(40))
   })

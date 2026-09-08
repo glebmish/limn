@@ -398,7 +398,7 @@ export interface ReviewCopyCandidate {
 }
 export interface ReviewState {
   repo: string; branch: string; base: string;
-  engine?: EngineId; agent?: AgentRef; annotations?: ReviewAnnotations;
+  agent?: AgentRef; annotations?: ReviewAnnotations;
   comments: Comment[]; chats: ChatThread[];
   /** per-file snapshot taken when the file was marked viewed. `sha` is the compare
    *  head (drives per-file commit-drift via diffSince — catches new commits and
@@ -591,8 +591,7 @@ export interface SessionMeta {
   id: number
   repo: string
   pair: RefPair
-  engine?: EngineId
-  /** review agent (engine + model/effort); engine mirrors agent.engine */
+  /** review agent (engine + model/effort) */
   agent?: AgentRef
   createdAt: string
   updatedAt: string

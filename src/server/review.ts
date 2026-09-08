@@ -336,7 +336,6 @@ function emptyReviewState(repo: string, pair: RefPair, agent: AgentRef): ReviewS
     repo,
     branch: effectiveRef(pair.compare),
     base: effectiveRef(pair.base),
-    engine: agent.engine,
     agent,
     annotations: undefined,
     comments: [], chats: [],
@@ -360,6 +359,6 @@ export async function previewReview(
     compare: { kind: compare.kind, symbol: compare.symbol, anchorSha: compare.sha }
   }
   const t = new Date().toISOString()
-  const session: SessionMeta = { id: 0, repo, pair, engine: agent.engine, agent, createdAt: t, updatedAt: t }
+  const session: SessionMeta = { id: 0, repo, pair, agent, createdAt: t, updatedAt: t }
   return assembleReview(db, session, emptyReviewState(repo, pair, agent), { persist: false })
 }
