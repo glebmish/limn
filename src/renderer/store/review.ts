@@ -19,13 +19,17 @@ import { loadRepoContext } from './repo'
 // navigated to must mint its own session, not persist itself onto the one they left.
 let materializing: { key: string; promise: Promise<number | null> } | null = null
 
-/** Identity of the review a materialize belongs to: its repo plus its ref pair.
- *  Re-read when the flight resolves, so a materialize that lands after the reviewer
- *  navigated away can tell it no longer owns the surface. */
+/** Identity of the review a materialize belongs to. Deliberately the SAME identity
+ *  the server keys sessions on (db/sessions.ts findSession): repo + the base side's
+ *  resolved anchor sha + the compare side's ref identity. Two sessions can share a
+ *  (base, compare) ref pair — a base branch that has moved gives them different anchor
+ *  shas — so keying on the symbols alone would call them one review. Re-read when the
+ *  flight resolves, so a materialize that lands after the reviewer navigated away can
+ *  tell it no longer owns the surface. */
 function reviewKey(repo: string | null, loaded: LoadedReview | null): string | null {
   if (!repo || !loaded) return null
   const { base, compare } = loaded.session.pair
-  return `${repo}\u0000${refIdentity(base)}\u0000${refIdentity(compare)}`
+  return [repo, base.anchorSha, refIdentity(compare)].join('\u0000')
 }
 
 // The shared apply step for the comment CRUD actions: swap the loaded review's

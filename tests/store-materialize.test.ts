@@ -84,11 +84,41 @@ describe('materialize persist chain', () => {
     const pending = useStore.getState().materialize()
     // the reviewer opens a different review while startSession is still in flight
     useStore.setState({ loaded: opened, sessionId: null })
+    // the shell the abandoned review would have swapped in carries a live op and a
+    // load warning — neither may reach the review now on screen.
+    const abandonedShell = makeLoaded({ compare: 'feat-a' })
+    loadSession.mockResolvedValueOnce({
+      ...abandonedShell,
+      state: { ...abandonedShell.state, loadWarnings: ['a blob of the abandoned review'] },
+      activeOps: [{ opId: 'op-abandoned', kind: 'chat', threadId: 7, exclusive: false, startedAt: new Date().toISOString(), events: [], nextSeq: 0 }]
+    } as unknown as LoadedReview)
     release({ sessionId: 42 })
     // the caller still gets the id it needs to persist its write…
     await expect(pending).resolves.toBe(42)
     await flush()
-    // …but the abandoned review is not restored over the one now on screen
+    // …but nothing of the abandoned review reaches the one now on screen: not its
+    // load warning, not its live ops, not its shell.
+    expect(useStore.getState().error).toBeNull()
+    expect(useStore.getState().ops).toEqual({})
+    expect(useStore.getState().loaded).toBe(opened)
+    expect(useStore.getState().sessionId).toBeNull()
+  })
+
+  it('keys the flight on the base anchor sha, not just the ref pair', async () => {
+    // two sessions can share a (base, compare) pair — the server keys on the base's
+    // resolved anchor sha (db/sessions.ts findSession), so a base branch that moved
+    // gives the same pair two identities. The renderer must agree, or a stale
+    // materialize yanks the reviewer onto the other session.
+    const abandoned = makeLoaded({ compare: 'feat', baseAnchorSha: 'sha-old' })
+    const opened = makeLoaded({ compare: 'feat', baseAnchorSha: 'sha-new' })
+    useStore.setState({ loaded: abandoned })
+    let release!: (v: { sessionId: number }) => void
+    startSession.mockReturnValueOnce(new Promise<{ sessionId: number }>((r) => { release = r }))
+    const pending = useStore.getState().materialize()
+    useStore.setState({ loaded: opened, sessionId: null })
+    release({ sessionId: 42 })
+    await expect(pending).resolves.toBe(42)
+    await flush()
     expect(useStore.getState().loaded).toBe(opened)
     expect(useStore.getState().sessionId).toBeNull()
   })

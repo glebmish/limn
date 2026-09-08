@@ -14,6 +14,9 @@ export function makeLoaded(over: {
   sections?: Section[]
   repo?: string
   base?: string
+  /** the base side's resolved anchor sha — part of a session's identity (a branch base
+   *  that has moved since gives two sessions of the same ref pair different ones). */
+  baseAnchorSha?: string
   compare?: string
   compareKind?: string
   agent?: { engine: string }
@@ -27,7 +30,7 @@ export function makeLoaded(over: {
   return {
     session: {
       pair: {
-        base: { symbol: base, kind: 'branch' },
+        base: { symbol: base, kind: 'branch', anchorSha: over.baseAnchorSha ?? 'base-anchor' },
         compare: { symbol: compare, kind: over.compareKind ?? 'branch' },
       },
       agent: over.agent ?? { engine: 'claude' },
