@@ -47,10 +47,10 @@ export function wordDiffRanges(oldText: string, newText: string): { old: CharRan
     else j++
   }
 
-  // too little in common → unrelated lines, no word marks
-  const significant = (t: Token[]): number => t.filter((x) => x.text.trim()).length
-  const sig = Math.max(significant(a), significant(b))
-  if (sig > 0 && common / Math.max(a.length, b.length) < 0.5) return { old: [], new: [] }
+  // too little in common → unrelated lines, no word marks. Two whitespace-only lines
+  // need no guard of their own: `ranges` skips every whitespace-only token, so they
+  // come out empty either way (and two empty lines give NaN, which fails the test).
+  if (common / Math.max(a.length, b.length) < 0.5) return { old: [], new: [] }
 
   const ranges = (tokens: Token[], inLcs: boolean[]): CharRange[] => {
     const out: CharRange[] = []
