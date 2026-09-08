@@ -83,12 +83,22 @@ export async function main(argv: string[], io: Io = defaultIo()): Promise<number
     if (err instanceof CliUsageError) { io.err(`limn: ${err.message}`); io.err(HELP); return 2 }
     throw err
   }
-  switch (cmd.kind) {
-    case 'version': io.out(`limn ${APP_VERSION}`); return 0
-    case 'help': io.out(cmd.topic === 'service' ? HELP_SERVICE : cmd.topic === 'config' ? HELP_CONFIG : HELP); return 0
-    case 'serve': return runServe(cmd, io)
-    case 'open': return runOpen(cmd, io)
-    case 'config-list': case 'config-get': case 'config-set': return runConfig(cmd, io)
-    default: return runServiceCommand(cmd, io)
+  try {
+    switch (cmd.kind) {
+      case 'version': io.out(`limn ${APP_VERSION}`); return 0
+      case 'help': io.out(cmd.topic === 'service' ? HELP_SERVICE : cmd.topic === 'config' ? HELP_CONFIG : HELP); return 0
+      case 'serve': return await runServe(cmd, io)
+      case 'open': return await runOpen(cmd, io)
+      case 'config-list': case 'config-get': case 'config-set': return await runConfig(cmd, io)
+      default: return await runServiceCommand(cmd, io)
+    }
+  } catch (err) {
+    // A command can throw the same CliUsageError parseArgs does — e.g. an
+    // out-of-range LIMN_PORT, only discovered once the command actually resolves its
+    // target — and it deserves the same clean rendering, not a raw stack trace. Unlike
+    // the parseArgs path, HELP is not dumped: this is a bad runtime/env value, not a
+    // syntax mistake, so the full usage text would only bury the one line that matters.
+    if (err instanceof CliUsageError) { io.err(`limn: ${err.message}`); return 2 }
+    throw err
   }
 }
