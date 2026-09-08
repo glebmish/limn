@@ -16,6 +16,19 @@ export function newOpId(): string {
 /** A neutral op state — the effective op for a thread/review that owns no in-flight op. */
 export const IDLE_GEN: GenState = { running: false, opId: null, kind: null, threadId: null, log: [], error: null, startedAt: null, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: false }
 
+/** The op-surface state every review entry point drops before showing another review:
+ *  a previous session's running/errored op must not bleed its strip, its error banner,
+ *  its exclusive-lane block or its parked follow-up onto the review being opened.
+ *  Spread by all three entry points (openReview's transient path, resumeExisting,
+ *  backToDashboard) so a future field can't be remembered in only some of them.
+ *  Safe to share: nothing ever mutates either map in place — every write builds a new
+ *  object. `resumeExisting` re-adopts whatever is live on the session it opened AFTER
+ *  spreading this. */
+export const RESET_REVIEW_SURFACE: Pick<AppStore, 'ops' | 'queuedTurnByThread'> = Object.freeze({
+  ops: Object.freeze({}) as Record<string, OpState>,
+  queuedTurnByThread: Object.freeze({}) as Record<number, string>
+})
+
 /** How many trailing events an op's log retains — bounds per-event re-render cost. */
 const LOG_CAP = 200
 

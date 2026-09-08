@@ -8,6 +8,7 @@ import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { useStore } from './index'
 import { loadWarningStrip, pickActiveChat } from './derive'
+import { RESET_REVIEW_SURFACE } from './ops'
 import { loadRepoContext } from './repo'
 
 // in-flight materialize, so concurrent first-writes don't mint duplicate sessions.
@@ -133,12 +134,11 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       set({
         screen: 'review', sessionId: null, loaded, repo: repoPath,
         branch: loaded.state.branch, base: loaded.state.base,
-        // same reset resumeExisting does: a previous session's running/errored op must
-        // not bleed onto the review being opened. Its strip can't even render here (it
-        // is scoped to `loaded`'s chats), so a running one would only disable
-        // Generate/Copy and suppress the drift pill with nothing to explain why — and
-        // its late op:result would flush the OLD thread's parked turn into this review.
-        ops: {}, queuedTurnByThread: {},
+        // A stale running op's strip can't even render here (it is scoped to `loaded`'s
+        // chats), so it would only disable Generate/Copy and suppress the drift pill
+        // with nothing to explain why — and its late op:result would flush the OLD
+        // thread's parked turn into this review.
+        ...RESET_REVIEW_SURFACE,
         viewedAt: {}, collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,
         diffStack: loaded.state.diffStack ?? UNIFIED, fileStack: {},
         activeChatId: null, draftChat: null, transientFresh: opts?.fresh ?? false, error: loadWarningStrip(loaded), pendingDrift: null, watchStopped: null
@@ -225,12 +225,11 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       const loaded = await api().loadSession(sessionId)
       set({
         sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
-        // reset the op map so a previous session's running/errored op doesn't bleed
-        // its strip or error banner onto the one being opened; `adoptOps` below then
-        // rejoins whatever is live on THIS session. Switching sessions orphans the old
-        // session's stream (main keeps running; its events park unclaimed in the bridge
-        // buffer) — acceptable per the concurrent-chat cancellation matrix.
-        ops: {}, queuedTurnByThread: {},
+        // `adoptOps` below then rejoins whatever is live on THIS session. Switching
+        // sessions orphans the old session's stream (main keeps running; its events
+        // park unclaimed in the bridge buffer) — acceptable per the concurrent-chat
+        // cancellation matrix.
+        ...RESET_REVIEW_SURFACE,
         repo: loaded.state.repo, branch: loaded.state.branch, base: loaded.state.base,
         viewedAt: loaded.state.viewedAt,
         collapsed: new Set<string>(), expanded: new Set<string>(), cur: null, curFile: null,

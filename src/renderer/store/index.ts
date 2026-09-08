@@ -5,7 +5,7 @@ import { dev } from '../dev'
 import { readOpenTicket, stripQuery } from '../boot-params'
 import { dispatchInitialRoute } from '../router'
 import type { OpsSlice } from './ops'
-import { createOpsSlice } from './ops'
+import { createOpsSlice, RESET_REVIEW_SURFACE } from './ops'
 import type { DashboardSlice } from './dashboard'
 import { createDashboardSlice } from './dashboard'
 import type { PrefsSlice } from './prefs'
@@ -144,13 +144,15 @@ export const useStore = create<AppStore>()((...a) => {
         const ticket = readOpenTicket(window.location.search)
         if (ticket) {
           stripQuery(['open'])
-          try {
-            const cli = await api().takeCliOpen(ticket)
-            // only a REDEEMED ticket claims the boot. A spent or unknown one (null) and a
-            // failed redeem fall through, so `/review/12?open=<expired>` still opens the
-            // review the URL names instead of stranding the address bar on a dead link.
-            if (cli) { await get().applyCliOpen(cli); return }
-          } catch { /* server gone — fall through to whatever the URL says */ }
+          // The catch covers the REDEEM only (a spent/unknown ticket comes back null, a
+          // dead server rejects): both mean no ticket, so the boot falls through and
+          // `/review/12?open=<expired>` still opens the review the URL names instead of
+          // stranding the address bar on a dead link. The navigation below is
+          // deliberately outside it — a REDEEMED ticket claims the boot outright, so a
+          // navigation that fails must not fall through and dispatch the URL route on
+          // top of it. It is awaited so `booting` holds until that screen lands.
+          const cli = await api().takeCliOpen(ticket).catch(() => null)
+          if (cli) { await get().applyCliOpen(cli); return }
         }
         // a deep link (/review/<id>, /hub?repo=, /review?repo=&base=&compare=) — the
         // router reconciles the address bar if it turns out to be dead.
@@ -185,10 +187,9 @@ export const useStore = create<AppStore>()((...a) => {
       set({
         screen: 'dashboard', loaded: null, sessionId: null, transientFresh: false,
         repoState: null, repoSessions: [], pendingDrift: null, watchStopped: null,
-        // drop the review surface's op state too (as resumeExisting and openReview do),
-        // so the session we just left can't disable the next review's Generate button
+        // the session we just left must not disable the next review's Generate button
         // or flush its parked turn into whatever is opened next.
-        ops: {}, queuedTurnByThread: {}
+        ...RESET_REVIEW_SURFACE
       })
       await get().loadDashboard()
     },
