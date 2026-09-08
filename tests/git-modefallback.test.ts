@@ -1,16 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { getDiff, parseUnifiedDiff } from '../src/server/git'
-
-function git(dir: string, ...args: string[]): string {
-  return execFileSync('git', args, {
-    cwd: dir, encoding: 'utf8',
-    env: { ...process.env, GIT_AUTHOR_NAME: 'F', GIT_AUTHOR_EMAIL: 'f@x', GIT_COMMITTER_NAME: 'F', GIT_COMMITTER_EMAIL: 'f@x' }
-  }).trim()
-}
+import { fixtureGit as git } from './helpers/fixtureRepo'
 
 describe('mode-only (chmod) path recovery', () => {
   it('recovers the path of a permission-only change with no ---/+++ headers', () => {
