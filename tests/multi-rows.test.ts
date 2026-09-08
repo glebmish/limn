@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Hunk } from '../src/shared/types'
+import type { DiffLine, Hunk } from '../src/shared/types'
 import { buildMultiRows, multiGaps } from '../src/renderer/lib/rowsMulti'
-import { buildFileRows, type AlignedRow } from '../src/renderer/lib/rows'
+import { buildFileRows, runHighlight, type AlignedRow } from '../src/renderer/lib/rows'
 import { hunkGaps } from '../src/renderer/lib/expand'
 
 const aligned = (rows: ReturnType<typeof buildMultiRows>) => rows.filter((r): r is AlignedRow => r.type === 'aligned')
@@ -168,6 +168,31 @@ describe('buildMultiRows highlighting (#7)', () => {
     const add = aligned(buildMultiRows([midCol], nowCol, multiGaps([midCol], nowCol), 'typescript')).find((r) => r.key === 'new:4')!
     expect(add.cells[2].html).toContain('hljs-keyword') // `const`, from the new-side pass
     expect(add.cells[1].html).toContain('hljs-keyword')
+  })
+
+  it('gives each column the html from its OWN run, even when both columns hold the same line object', () => {
+    // Two diffs normally hand us distinct DiffLine objects, so a lookup keyed only on
+    // the object happened to land on the right column. Nothing guarantees that: here
+    // one object sits in both columns, inside a comment in the checkpoint's run and
+    // outside it in current's, and each cell must show its own column's tokenization.
+    const shared: DiffLine = { old: 2, new: 2, kind: '', text: 'value = 1' }
+    const col = (first: string, tail: string): Hunk => ({ range: '@@ -1,3 +1,3 @@', header: '', lines: [
+      { old: 1, new: 1, kind: '', text: first }, shared,
+      { old: 3, new: null, kind: 'del', text: 'gone' }, { old: null, new: 3, kind: 'add', text: tail }
+    ] })
+    const midRun = [col('/* an unclosed comment', 'const a = 1')]
+    const nowRun = [col('const opened = 1', 'const a = 2')]
+
+    const midWant = runHighlight(midRun[0].lines, 'typescript').new[1]
+    const nowWant = runHighlight(nowRun[0].lines, 'typescript').new[1]
+    expect(midWant).toContain('hljs-comment') // swallowed by the comment above it
+    expect(midWant).not.toBe(nowWant)
+
+    const row = aligned(buildMultiRows([midRun], nowRun, multiGaps([midRun], nowRun), 'typescript')).find((r) => r.key === 'old:2')!
+    expect(row.cells[1].html).toBe(midWant)
+    expect(row.cells[2].html).toBe(nowWant)
+    // the base cell reads the old side of the column the line came from (current here)
+    expect(row.cells[0].html).toBe(runHighlight(nowRun[0].lines, 'typescript').old[1])
   })
 })
 

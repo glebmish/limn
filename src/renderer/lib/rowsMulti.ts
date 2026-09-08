@@ -151,17 +151,20 @@ function gapRow(gap: Gap, where: GapRow['where'], header: string): GapRow {
 export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: string | null, opts: { trailing?: boolean } = {}): ViewRow[] {
   const ims = mids.map(indexSide), inow = indexSide(now)
   const near = ims.length - 1
+  /** run-level HTML per column, indexed as `NOW_COL` / `midCol(k)` below. */
   const htmls = [runHtml(now, lang), ...mids.map((m) => runHtml(m, lang))]
-  /** `l`'s run-level HTML on `side`. A line no column's hunks show — the placeholder a
-   *  column gets for a base line its own diff never touched — has no run to sit in, so
-   *  the isolated-line highlighter is the honest answer there. */
-  const html = (l: DiffLine, side: 'old' | 'new'): string => {
-    for (const m of htmls) {
-      const h = m.get(l)?.[side]
-      if (h != null) return h
-    }
-    return highlightLine(disp(l.text), lang)
-  }
+  const NOW_COL = 0
+  /** checkpoint `k`'s column index into `htmls` (current sits at 0). */
+  const midCol = (k: number): number => k + 1
+  /** `l`'s run-level HTML on `side`, tokenized in COLUMN `col`'s own run. The column
+   *  is passed in rather than found by scanning, because the same `DiffLine` object
+   *  can sit in two columns' hunks: a scan would hand both cells whichever column it
+   *  hit first, so a line swallowed by a comment in one column would render that way
+   *  in the other too. A line that column's hunks never show — the placeholder a
+   *  column gets for a base line its own diff never touched — has no run to sit in,
+   *  so the isolated-line highlighter is the honest answer there. */
+  const html = (l: DiffLine, side: 'old' | 'new', col: number): string =>
+    htmls[col].get(l)?.[side] ?? highlightLine(disp(l.text), lang)
   /** the current-diff hunk's discard spans, resolved once per hunk (rows.ts does the
    *  same per run) — only current's own hunks carry uncommitted lines */
   const spanCache = new Map<Hunk, readonly (DiscardSpan | null)[]>()
@@ -186,11 +189,11 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
       const midCells: Cell[] = mi.map((m, k) => {
         const x = m[p]
         return x
-          ? { l: x.l, side: 'mid', lineNo: x.l.new, kind: 'add', html: html(x.l, 'new'), attribution: midMatched[k][p] ? undefined : 'gone' }
+          ? { l: x.l, side: 'mid', lineNo: x.l.new, kind: 'add', html: html(x.l, 'new', midCol(k)), attribution: midMatched[k][p] ? undefined : 'gone' }
           : pad('mid')
       })
       const nowCell: Cell = n
-        ? { l: n.l, side: 'new', lineNo: n.l.new, kind: 'add', html: html(n.l, 'new'), attribution: nowMatched[p] ? undefined : 'since' }
+        ? { l: n.l, side: 'new', lineNo: n.l.new, kind: 'add', html: html(n.l, 'new', NOW_COL), attribution: nowMatched[p] ? undefined : 'since' }
         : pad('new')
       // the nearest checkpoint's and current's own words, where they sit side by side and differ
       const m = near >= 0 ? mi[near][p] : undefined
@@ -220,30 +223,35 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
       if (g && g.to != null) out.push(gapRow(g, i === 0 ? 'above' : '', (inow.hunkOf.get(b) ?? ims.find((im) => im.hunkOf.has(b))?.hunkOf.get(b))?.header ?? ''))
     }
     insertRows(b)
-    const at = inow.lineAt.get(b) ?? ims.map((im) => im.lineAt.get(b)).find((x) => x != null)
+    // the base line comes from current's diff where it has it, else from the first
+    // checkpoint that does — and `atCol` records WHICH, so the base cell reads that
+    // column's own run rather than whichever column happens to hold the same object
+    const firstMidAt = ims.findIndex((im) => im.lineAt.has(b))
+    const at = inow.lineAt.get(b) ?? (firstMidAt >= 0 ? ims[firstMidAt].lineAt.get(b) : undefined)
     if (!at) continue // only the EOF insertion anchor lives here — no base line of its own
+    const atCol = inow.lineAt.has(b) ? NOW_COL : midCol(firstMidAt)
     const text = at.l.text
     const nowDel = inow.del.has(b)
     const nearDel = near >= 0 && ims[near].del.has(b)
     const nowNo = nowDel ? null : inow.kept.get(b) ?? b + offsetAt(inow, b)
     const nowAt = inow.lineAt.get(b)
-    const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, 'old') }
+    const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, 'old', atCol) }
     // A checkpoint's empty slot is never `gone` ("the checkpoint had this — current
     // does not"): the checkpoint is precisely the column that does NOT have the line.
     // Where current kept a base line the nearest checkpoint dropped, that is the
     // documented `since` case — "a current line the checkpoint beside it never had" —
     // and the mark goes on the current cell, which is the one that has the line.
-    const midCells: Cell[] = ims.map((im) => {
+    const midCells: Cell[] = ims.map((im, k) => {
       if (im.del.has(b)) return { l: null, side: 'mid', lineNo: null, kind: '', deleted: true }
       const no = im.kept.get(b) ?? b + offsetAt(im, b)
       const l = im.lineAt.get(b)?.l ?? { old: b, new: no, kind: '' as const, text }
-      return { l, side: 'mid', lineNo: no, kind: '', html: html(l, 'new') }
+      return { l, side: 'mid', lineNo: no, kind: '', html: html(l, 'new', midCol(k)) }
     })
     const nowCell: Cell = nowDel
       ? { l: null, side: 'new', lineNo: null, kind: '', deleted: true, attribution: nearDel ? undefined : 'since' }
       : (() => {
           const l = nowAt?.l ?? { old: b, new: nowNo, kind: '' as const, text }
-          return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, 'new'), attribution: nearDel ? ('since' as const) : undefined }
+          return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, 'new', NOW_COL), attribution: nearDel ? ('since' as const) : undefined }
         })()
     out.push({
       type: 'aligned', key: `old:${b}`,
