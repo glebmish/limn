@@ -18,12 +18,15 @@ export function sendComments(ids: string[], steer?: string): void {
 }
 
 /** Answer(s) to the agent's open intent questions: a read-only refine turn on the
- *  review agent that folds the decision into the narration — no code edits, no gate. */
-export function sendAnswers(ids: string[]): void {
+ *  review agent that folds the decision into the narration — no code edits, no gate.
+ *  Returns the thread the answers went to, so the card that sent them can link to
+ *  that exact thread rather than re-deriving one. */
+export function sendAnswers(ids: string[]): number | undefined {
   const { loaded } = useStore.getState()
   const target = currentReviewChat(loaded?.state.chats ?? [], loaded?.state.latestIteration?.sessionId)
-  if (!target) return
+  if (!target) return undefined
   useStore.getState().sendBatch(target.id, ids, undefined, true)
+  return target.id
 }
 
 export function queuedComments(): Comment[] {

@@ -48,7 +48,11 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   // destination the drawer's batch CTA also targets), falling back to the review agent.
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
   const activeAgent = useStore((s) => activeChat(s.loaded, s.activeChatId, s.draftChat)?.agent)
-  const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? []))
+  // the fallback thread for a comment that predates per-comment thread ids: the same
+  // pick every review-scoped send makes — the thread that authored the latest
+  // iteration, else the newest review thread (an aborted regenerate leaves an empty
+  // newest one, which is not where anything was sent)
+  const reviewChat = useStore((s) => currentReviewChat(s.loaded?.state.chats ?? [], s.loaded?.state.latestIteration?.sessionId))
   const reviewAgent = useStore((s) => s.loaded?.state.agent)
   const openChat = useStore((s) => s.openChat)
   // terminal merged record (spec §7): comments are read-only — no send/edit/delete

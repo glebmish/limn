@@ -52,6 +52,17 @@ function progressStep(log: EngineEvent[]): number {
   return 0
 }
 
+/** The review thread this card belongs to — the SAME pick `sendAnswers` makes
+ *  (lib/comments.ts): the thread that authored the latest iteration, else the newest
+ *  review thread. The one-argument pick used to be re-derived here, which parts
+ *  company with the send after an aborted regenerate — the newest review thread is
+ *  then an empty one that never got an engine session, while the questions on screen
+ *  came from the older thread the answers are streamed into. `sent`, the thread a
+ *  batch actually went to this session, wins outright. */
+export function decisionThreadId(loaded: LoadedReview | null, sent: number | null = null): number | undefined {
+  return sent ?? currentReviewChat(loaded?.state.chats ?? [], loaded?.state.latestIteration?.sessionId)?.id
+}
+
 export interface DecisionTurn {
   /** whether the answer turn (or anything else) is streaming into the review thread */
   running: boolean
@@ -77,7 +88,7 @@ export function decisionTurn(input: {
   openCount: number
   answeredCount: number
 }): DecisionTurn {
-  const threadId = currentReviewChat(input.loaded?.state.chats ?? [])?.id
+  const threadId = decisionThreadId(input.loaded)
   const gen = opForThread(input.ops, threadId)
   return {
     running: gen.running,
@@ -96,10 +107,12 @@ export function Questions() {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [adding, setAdding] = useState(false)
   const [activeCommentIds, setActiveCommentIds] = useState<string[]>([])
+  /** the thread this card's answers were actually sent to, once they have been */
+  const [sentThreadId, setSentThreadId] = useState<number | null>(null)
 
   const questions = loaded?.state.annotations?.questions ?? EMPTY_QUESTIONS
   const comments = loaded?.state.comments ?? EMPTY_COMMENTS
-  const reviewChat = currentReviewChat(loaded?.state.chats ?? [])
+  const threadId = decisionThreadId(loaded)
   const reviewAgent = loaded?.state.agent
 
   const rows = useMemo<DecisionRow[]>(() => questions.map((question) => {
@@ -142,7 +155,7 @@ export function Questions() {
   if (questions.length === 0) return null
 
   const submit = (): void => {
-    if (!ready || !loaded || !reviewChat) return
+    if (!ready || !loaded || threadId == null) return
     setAdding(true)
     void (async () => {
       const ids: string[] = []
@@ -159,7 +172,7 @@ export function Questions() {
       }
       if (ids.length > 0) {
         setActiveCommentIds(ids)
-        sendAnswers(ids)
+        setSentThreadId(sendAnswers(ids) ?? null)
       }
       setAdding(false)
     })()
@@ -216,7 +229,7 @@ export function Questions() {
             ))}
           </div>
           <div className="dc-foot dc-foot-done">
-            <button className="dc-chat" onClick={() => openChat(reviewChat?.id)}>
+            <button className="dc-chat" onClick={() => openChat(decisionThreadId(loaded, sentThreadId))}>
               <I.bubble />Open chat with the agent
             </button>
             <span className="grow"></span>

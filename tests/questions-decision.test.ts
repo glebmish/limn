@@ -4,7 +4,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 ;(globalThis as unknown as { window: unknown }).window = { api: {} }
 
 import type { OpState } from '../src/renderer/store'
-import { decisionTurn } from '../src/renderer/components/Questions'
+import { decisionThreadId, decisionTurn } from '../src/renderer/components/Questions'
 
 const op = (over: Partial<OpState>): OpState => ({
   running: true, opId: 'op', kind: 'chat', threadId: 5, log: [], error: null,
@@ -65,5 +65,42 @@ describe('Questions — the decision card watches the answer turn it actually st
   it('the progress card needs the comments of this turn, not just a running op', () => {
     expect(turn(opsOf(op({ opId: 'batch' })), { activeCount: 0 }).runningThisTurn).toBe(false)
     expect(turn({}, { adding: true, activeCount: 2 }).runningThisTurn).toBe(true)
+  })
+})
+
+// After an aborted regenerate the NEWEST review thread is an empty one: a generation
+// mints its thread up front and only binds the engine session on success, and the
+// orphan prune never removes the latest review thread. `latestIteration.sessionId`
+// still names the older thread that authored the questions on screen — the thread
+// `sendAnswers` targets, so the gate and the deep link must name it too (finding 105).
+const aborted = ({
+  state: {
+    chats: [{ id: 1, kind: 'review', engineSessionId: 's1' }, { id: 2, kind: 'review' }],
+    latestIteration: { sessionId: 's1' }
+  }
+} as unknown as LoadedReview)
+
+describe('Questions — the gate, the send and "Open chat" name one thread', () => {
+  it('picks the thread that authored the latest iteration, exactly as sendAnswers does', () => {
+    expect(decisionThreadId(aborted)).toBe(1)
+  })
+
+  it('falls back to the newest review thread when no iteration names one', () => {
+    const fresh = ({ state: { chats: [{ id: 1, kind: 'review' }, { id: 2, kind: 'review' }] } } as unknown as LoadedReview)
+    expect(decisionThreadId(fresh)).toBe(2)
+  })
+
+  it('the thread the answers actually went to wins outright', () => {
+    expect(decisionThreadId(aborted, 2)).toBe(2)
+  })
+
+  it('no chats at all: nothing to open and nothing to send to', () => {
+    expect(decisionThreadId(null)).toBeUndefined()
+  })
+
+  it('the card watches the op on that same thread', () => {
+    const t = decisionTurn({ ops: opsOf(op({ opId: 'batch', threadId: 1 })), loaded: aborted, adding: false, activeCount: 1, openCount: 1, answeredCount: 1 })
+    expect(t.running).toBe(true)
+    expect(t.runningThisTurn).toBe(true)
   })
 })
