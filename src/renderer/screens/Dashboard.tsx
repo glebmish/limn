@@ -97,15 +97,6 @@ export default function Dashboard() {
 
   useEffect(() => { void boot() }, [boot])
 
-  // pre-select the repo you last drilled into, so returning from a repo's sessions
-  // (Back) lands the cursor where you were rather than at the top.
-  useEffect(() => {
-    if (!dashboard) return
-    const idx = repo ? dashboard.repos.findIndex((r) => r.path === repo) : -1
-    useStore.setState({ sel: idx >= 0 ? idx : 0 })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboard])
-
   const repos: RepoIndexEntry[] = useMemo(() => {
     const all = dashboard?.repos ?? []
     const f = filter.trim().toLowerCase()
@@ -118,6 +109,20 @@ export default function Dashboard() {
   // keep the keyboard cursor in range as the filtered list shrinks
   const reposRef = useRef(repos)
   reposRef.current = repos
+
+  // pre-select the repo you last drilled into, so returning from a repo's sessions
+  // (Back) lands the cursor where you were rather than at the top. Indexed against
+  // `repos` — the FILTERED list — because that is the only list `sel` is ever read
+  // against (the rows below, and the Enter handler's reposRef); a full-list index
+  // with a filter typed highlights the wrong row or none at all. Deliberately keyed
+  // to `dashboard` alone: re-filtering already resets the cursor to the top via
+  // setFilter, and this effect is the reload path.
+  useEffect(() => {
+    if (!dashboard) return
+    const idx = repo ? repos.findIndex((r) => r.path === repo) : -1
+    useStore.setState({ sel: idx >= 0 ? idx : 0 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboard])
 
   const openRepoSessions = (entry: RepoIndexEntry): void => {
     void (entry.sessionCount > 0 ? enterHub(entry.path) : openRepo(entry.path))

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LoadedReview } from '../src/shared/ipc'
+import type { RepoIndexEntry } from '../src/shared/types'
 
 // The header's two ref pickers are the seam under test: React props are the only
 // place an onChange handler exists without a DOM, so the picker is replaced by a
@@ -10,10 +11,26 @@ vi.mock('../src/renderer/components/RefPicker', () => ({
   RefPicker: (props: Record<string, unknown>) => { pickers.push(props); return null }
 }))
 
-;(globalThis as unknown as { window: unknown }).window = { api: {} }
+// A static render never runs effects, and Dashboard restores the keyboard cursor in
+// one. Collecting the real callbacks (the closure the component actually built) and
+// running them after the render exercises that code without a DOM.
+const { effects } = vi.hoisted(() => ({ effects: [] as (() => unknown)[] }))
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return { ...actual, useEffect: (fn: () => unknown) => { effects.push(fn) } }
+})
+function runEffects(): void {
+  const queued = effects.splice(0)
+  for (const fn of queued) fn()
+}
+
+;(globalThis as unknown as { window: unknown }).window = {
+  api: {}, addEventListener: () => {}, removeEventListener: () => {}
+}
 
 const { useStore } = await import('../src/renderer/store')
 const { default: Review } = await import('../src/renderer/screens/Review')
+const { default: Dashboard } = await import('../src/renderer/screens/Dashboard')
 const { makeLoaded } = await import('./helpers/loaded')
 
 type State = ReturnType<typeof useStore.getState>
@@ -39,7 +56,73 @@ const picker = (label: string): Record<string, unknown> =>
 
 afterEach(() => {
   pickers.length = 0
+  effects.length = 0
   Object.assign(initial() as unknown as Record<string, unknown>, { loaded: null as LoadedReview | null })
+})
+
+const repoEntry = (path: string): RepoIndexEntry => ({
+  path, current: 'main', defaultBase: 'main', worktrees: [], sessionCount: 0,
+  lastActivity: '2026-06-12T10:00:00Z'
+})
+
+/** Seed the dashboard the way a return from a repo does: the index reloaded, the
+ *  filter box still holding what the reviewer typed, `repo` still on the repo they
+ *  drilled into. */
+function seedDashboard(repos: string[], filter: string, repo: string | null): void {
+  Object.assign(initial() as unknown as Record<string, unknown>, {
+    dashboard: { repos: repos.map(repoEntry), recents: [], recentSessions: [], notices: [] },
+    filter, repo, sel: 0, booting: false, error: null, screen: 'dashboard',
+    boot: vi.fn(async () => {})
+  })
+  useStore.setState({ sel: 0 })
+}
+
+describe('dashboard cursor restore (finding 113)', () => {
+  const REPOS = ['/w/alpha', '/w/beta', '/w/gamma']
+
+  it('indexes the list on screen, not the unfiltered one', () => {
+    seedDashboard(REPOS, 'gam', '/w/gamma')
+
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    // 'gamma' is the only row rendered, so the cursor belongs on row 0; 2 (its place
+    // in the unfiltered index) points past the end — nothing highlighted, ⏎ dead.
+    expect(useStore.getState().sel).toBe(0)
+  })
+
+  it('highlights the restored row', () => {
+    seedDashboard(REPOS, 'gam', '/w/gamma')
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    // the static render reads the store's INITIAL state, so hand the restored cursor
+    // back the way a live re-render would receive it
+    Object.assign(initial() as unknown as Record<string, unknown>, { sel: useStore.getState().sel })
+    const html = renderToStaticMarkup(<Dashboard />)
+
+    expect(html.match(/limn-repo-row sel/g)).toHaveLength(1)
+    expect(html).toContain('<div class="limn-repo-row sel"')
+    expect(html).toContain('gamma')
+  })
+
+  it('still restores the row with no filter typed', () => {
+    seedDashboard(REPOS, '', '/w/gamma')
+
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    expect(useStore.getState().sel).toBe(2)
+  })
+
+  it('falls back to the top row when the remembered repo is filtered out', () => {
+    seedDashboard(REPOS, 'alp', '/w/gamma')
+
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    expect(useStore.getState().sel).toBe(0)
+  })
 })
 
 describe('review header ref pickers (finding 112)', () => {
