@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { AgentAction, CommentAnchor, EngineId, FocusTarget } from '../../shared/types'
 import { I, EngineGlyph, Ava } from '../kit'
 import { effectiveSections, fileViewed, sectionViewState, useStore } from '../store'
+import { renderedFiles } from '../store/derive'
 import { COMMENT_JUMP_TITLE, commentJumpReason, commentJumpTarget, focusAnchor, type CommentJump } from '../lib/focus'
 import { agentLabel } from '../../shared/agents'
 import { splitPath } from './FileHeader'
@@ -221,7 +222,9 @@ function suggestResolved(action: Extract<AgentAction, { kind: 'suggest_viewed' }
   const sectionIds = action.sectionIds ?? []
   if (files.length === 0 && sectionIds.length === 0) return 'idle'
   const { loaded, viewedAt } = useStore.getState()
-  const diffFiles = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  // the same dirty-vs-spine list viewMarkFor stamps its hashes out of — derive.ts
+  // owns the rule, so this card's "done" state can't drift from the real ticks.
+  const diffFiles = renderedFiles(loaded)
   const sections = effectiveSections(loaded)
   const filesViewed = files.every((p) => {
     const fd = diffFiles.find((f) => f.path === p)

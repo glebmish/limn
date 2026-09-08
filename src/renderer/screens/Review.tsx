@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
+import { renderedFiles } from '../store/derive'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
 import { approvalFresh } from '../../shared/types'
@@ -121,10 +122,12 @@ export default function Review() {
   // When the tree is dirty, the merged base→working-tree diff (committed + uncommitted
   // lines interleaved per file, origin-tagged) drives every file surface; otherwise the
   // plain committed spine does. skeleton/volatile stay canonical for anchoring & approval.
-  const renderedFiles = loaded ? (loaded.dirty && loaded.merged ? loaded.merged : loaded.skeleton.files) : []
+  // The rule itself lives in derive.ts — viewMarkFor stamps the hash out of exactly this
+  // list, so a local copy would silently desynchronize the ticks from what's on screen.
+  const rendered = renderedFiles(loaded)
   const isExcluded = (f: FileDiff): boolean => fileIsExcluded(loaded, f)
   // excluded (untracked, hidden) files leave their section/band for the Excluded group
-  const filesFor = (s: Section): FileDiff[] => orderFilesForReview(renderedFiles, s.files).filter((f) => !isExcluded(f))
+  const filesFor = (s: Section): FileDiff[] => orderFilesForReview(rendered, s.files).filter((f) => !isExcluded(f))
   // a section is done when all its files are viewed (derived — no separate flag)
   const isSectionDone = (s: Section): boolean => {
     const fs = filesFor(s)
@@ -141,7 +144,7 @@ export default function Review() {
   // dev/screenshot one-shots (flow/scroll/focus/batch/fake-gen/fake-drift/open-doc)
   useDevReviewHooks({ loaded, gen, scrollRef, setPendingDrift: store.setPendingDrift, openDoc })
   // [ / ] pull and put back sheets on the file nearest the top; ⇧ spreads
-  useStackKeys(curFile, renderedFiles)
+  useStackKeys(curFile, rendered)
 
   if (!loaded) return null
   const { skeleton, state, artifacts, commits } = loaded
@@ -152,12 +155,10 @@ export default function Review() {
   const fallbackTitle = branch && /^[0-9a-f]{12,}$/i.test(branch) ? `Changes on ${shortSha(branch)}` : `Changes on ${branch}`
   // who produced THIS review — locked to the generating agent (not the regen picker)
   const guidedBy = annotations?.generatedBy ?? state.agent ?? store.agent
-  // the files actually rendered: merged (base→working-tree) while dirty, else the spine.
-  // excluded untracked files are split off — they carry no review state and live in
-  // their own collapsed group, out of every count and section.
-  const renderedAll = renderedFiles
-  const excludedFiles = orderFilesForReview(renderedAll.filter(isExcluded))
-  const displayFiles = renderedAll.filter((f) => !isExcluded(f))
+  // excluded untracked files are split off the rendered list — they carry no review
+  // state and live in their own collapsed group, out of every count and section.
+  const excludedFiles = orderFilesForReview(rendered.filter(isExcluded))
+  const displayFiles = rendered.filter((f) => !isExcluded(f))
   const flatDisplayFiles = orderFilesForReview(displayFiles)
   // dirty-only files (untracked or worktree-only edits) have no committed section/spine
   // entry — surfaced in a trailing band so they aren't dropped.
