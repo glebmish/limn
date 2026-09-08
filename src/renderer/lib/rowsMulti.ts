@@ -1,6 +1,6 @@
 import type { DiffLine, Hunk } from '../../shared/types'
 import type { Gap } from './expand'
-import { fnLabel, type Cell, type GapRow, type ViewRow } from './rows'
+import { fnLabel, runHighlight, type Cell, type GapRow, type ViewRow } from './rows'
 import { disp, highlightLine } from './highlight'
 import { wordDiffRanges } from './worddiff'
 
@@ -98,7 +98,28 @@ export function multiGaps(mids: Hunk[][], now: Hunk[]): Gap[] {
 }
 
 const pad = (side: Cell['side']): Cell => ({ l: null, side, lineNo: null, kind: '' })
-const html = (l: DiffLine, lang: string | null): string => highlightLine(disp(l.text), lang)
+
+/** One column's lines highlighted the way `linesForRun` does it: one `runHighlight`
+ *  pass per hunk, both sides, so a construct spanning several of the hunk's lines (a
+ *  block comment, a template literal — #7) keeps its styling on every line it covers.
+ *  Indexed by the `DiffLine` identity the row builder already carries, since a cell
+ *  reaches its line through `lineAt`/`insBefore` rather than by walking the run.
+ *  The old and new passes are kept apart: the base column shows the file as it read
+ *  before the run's changes, every other column as it reads after. */
+function runHtml(hunks: Hunk[], lang: string | null): Map<DiffLine, { old?: string; new?: string }> {
+  const out = new Map<DiffLine, { old?: string; new?: string }>()
+  for (const h of hunks) {
+    const hl = runHighlight(h.lines, lang)
+    let oi = -1, ni = -1
+    for (const l of h.lines) {
+      const e: { old?: string; new?: string } = {}
+      if (l.old != null) e.old = hl.old[++oi]
+      if (l.new != null) e.new = hl.new[++ni]
+      out.set(l, e)
+    }
+  }
+  return out
+}
 
 /** Which insertions on one side the other side repeats at the same base position,
  *  matched by text as a multiset (two identical inserts need two matches). */
@@ -124,6 +145,17 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
   const ims = mids.map(indexSide), inow = indexSide(now)
   const near = ims.length - 1
   const gaps = multiGaps(mids, now)
+  const htmls = [runHtml(now, lang), ...mids.map((m) => runHtml(m, lang))]
+  /** `l`'s run-level HTML on `side`. A line no column's hunks show — the placeholder a
+   *  column gets for a base line its own diff never touched — has no run to sit in, so
+   *  the isolated-line highlighter is the honest answer there. */
+  const html = (l: DiffLine, side: 'old' | 'new'): string => {
+    for (const m of htmls) {
+      const h = m.get(l)?.[side]
+      if (h != null) return h
+    }
+    return highlightLine(disp(l.text), lang)
+  }
   const gapByBase = new Map(gaps.map((g) => [g.from - g.oldOffset, g]))
   const bases = coveredBases([...ims, inow])
   const out: ViewRow[] = []
@@ -140,11 +172,11 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
       const midCells: Cell[] = mi.map((m, k) => {
         const x = m[p]
         return x
-          ? { l: x.l, side: 'mid', lineNo: x.l.new, kind: 'add', html: html(x.l, lang), attribution: midMatched[k][p] ? undefined : 'gone' }
+          ? { l: x.l, side: 'mid', lineNo: x.l.new, kind: 'add', html: html(x.l, 'new'), attribution: midMatched[k][p] ? undefined : 'gone' }
           : pad('mid')
       })
       const nowCell: Cell = n
-        ? { l: n.l, side: 'new', lineNo: n.l.new, kind: 'add', html: html(n.l, lang), attribution: nowMatched[p] ? undefined : 'since' }
+        ? { l: n.l, side: 'new', lineNo: n.l.new, kind: 'add', html: html(n.l, 'new'), attribution: nowMatched[p] ? undefined : 'since' }
         : pad('new')
       // the nearest checkpoint's and current's own words, where they sit side by side and differ
       const m = near >= 0 ? mi[near][p] : undefined
@@ -180,7 +212,7 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
     const nearDel = near >= 0 && ims[near].del.has(b)
     const nowNo = nowDel ? null : inow.kept.get(b) ?? b + offsetAt(inow, b)
     const nowAt = inow.lineAt.get(b)
-    const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, lang) }
+    const baseCell: Cell = { l: at.l, side: 'old', lineNo: b, kind: nowDel ? 'del' : '', html: html(at.l, 'old') }
     // A checkpoint's empty slot is never `gone` ("the checkpoint had this — current
     // does not"): the checkpoint is precisely the column that does NOT have the line.
     // Where current kept a base line the nearest checkpoint dropped, that is the
@@ -190,13 +222,13 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], lang: string | null,
       if (im.del.has(b)) return { l: null, side: 'mid', lineNo: null, kind: '', deleted: true }
       const no = im.kept.get(b) ?? b + offsetAt(im, b)
       const l = im.lineAt.get(b)?.l ?? { old: b, new: no, kind: '' as const, text }
-      return { l, side: 'mid', lineNo: no, kind: '', html: html(l, lang) }
+      return { l, side: 'mid', lineNo: no, kind: '', html: html(l, 'new') }
     })
     const nowCell: Cell = nowDel
       ? { l: null, side: 'new', lineNo: null, kind: '', deleted: true, attribution: nearDel ? undefined : 'since' }
       : (() => {
           const l = nowAt?.l ?? { old: b, new: nowNo, kind: '' as const, text }
-          return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, lang), attribution: nearDel ? ('since' as const) : undefined }
+          return { l, side: 'new' as const, lineNo: nowNo, kind: '' as const, html: html(l, 'new'), attribution: nearDel ? ('since' as const) : undefined }
         })()
     out.push({
       type: 'aligned', key: `old:${b}`,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Hunk } from '../src/shared/types'
 import { buildMultiRows, multiGaps } from '../src/renderer/lib/rowsMulti'
-import type { AlignedRow } from '../src/renderer/lib/rows'
+import { buildFileRows, type AlignedRow } from '../src/renderer/lib/rows'
 
 const aligned = (rows: ReturnType<typeof buildMultiRows>) => rows.filter((r): r is AlignedRow => r.type === 'aligned')
 // base: l1..l6. checkpoint: replaced l3 with X, added `const y = 1` after l4.
@@ -120,6 +120,38 @@ describe('buildMultiRows', () => {
     expect(rows.map((r) => r.key)).toEqual(['old:3', 'new:4'])
     expect(rows[1].cells[2]).toMatchObject({ attribution: 'since', lineNo: 4 })
     expect(rows[1].cells[1]).toMatchObject({ l: null })
+  })
+})
+
+// #7: a construct spanning several of a run's lines must keep its styling on every
+// line it covers. Unified and Split go through `runHighlight`, and so do Multi's own
+// revealed folds (`contextRows`) — a hunk cell tokenized on its own would lose the
+// comment three rows above the fold that keeps it.
+describe('buildMultiRows highlighting (#7)', () => {
+  const commented = (range: string, tailNew: number): Hunk => ({ range, header: '', lines: [
+    { old: 1, new: 1, kind: '', text: '/* a comment' },
+    { old: 2, new: 2, kind: '', text: '   still comment' },
+    { old: 3, new: 3, kind: '', text: '   ends here */' },
+    { old: 4, new: null, kind: 'del', text: 'const a = 1' },
+    { old: null, new: 4, kind: 'add', text: `const a = ${tailNew}` }
+  ] })
+
+  const midCol = [commented('@@ -1,4 +1,4 @@', 2)]
+  const nowCol = [commented('@@ -1,4 +1,4 @@', 3)]
+
+  it('highlights each column over the whole run, not line by line', () => {
+    // the middle line of the comment, as Unified renders it
+    const uni = buildFileRows(nowCol, [], 'typescript').find((r) => r.type === 'line' && r.key === 'new:2')
+    const want = uni?.type === 'line' ? uni.html : undefined
+    expect(want).toContain('hljs-comment')
+    const two = aligned(buildMultiRows([midCol], nowCol, 'typescript')).find((r) => r.key === 'old:2')!
+    expect(two.cells.map((c) => c.html)).toEqual([want, want, want])
+  })
+
+  it('highlights an insertion cell in its own run too', () => {
+    const add = aligned(buildMultiRows([midCol], nowCol, 'typescript')).find((r) => r.key === 'new:4')!
+    expect(add.cells[2].html).toContain('hljs-keyword') // `const`, from the new-side pass
+    expect(add.cells[1].html).toContain('hljs-keyword')
   })
 })
 
