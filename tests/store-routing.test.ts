@@ -72,7 +72,7 @@ describe('applyCliOpen dispatch table', () => {
 describe('openRepo hub-vs-transient choice', () => {
   beforeEach(() => {
     openRepoApi.mockClear(); repoState.mockClear(); listRepoSessions.mockClear()
-    useStore.setState({ repo: null, repoState: null, screen: 'dashboard' })
+    useStore.setState({ repo: null, repoState: null, screen: 'dashboard', showArchived: false })
     useStore.setState({
       resumeExisting: vi.fn(async () => {}) as never,
       openReview: vi.fn(async () => {}) as never,
@@ -135,6 +135,21 @@ describe('openRepo hub-vs-transient choice', () => {
     expect(useStore.getState().screen).toBe('hub')
     expect(repoState).not.toHaveBeenCalled()
     expect(listRepoSessions).toHaveBeenCalledTimes(1)
+  })
+
+  // #80 fix: passing showArchived through openRepo's own listRepoSessions call
+  // means the list can now include archived-only sessions — the hub-vs-transient
+  // branch must key off LIVE sessions, not the list's raw length, or a repo whose
+  // sessions are all archived would wrongly land on the hub.
+  it('opens a transient review when every session is archived, even with showArchived on', async () => {
+    useStore.setState({ showArchived: true })
+    listRepoSessions.mockResolvedValueOnce([
+      { id: 1, compareKind: 'branch', compareSymbol: 'other', archived: true },
+    ])
+    await useStore.getState().openRepo('/r')
+    await flush()
+    expect(useStore.getState().screen).not.toBe('hub')
+    expect(useStore.getState().openReview).toHaveBeenCalledWith('/r')
   })
 })
 

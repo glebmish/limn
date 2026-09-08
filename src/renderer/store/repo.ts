@@ -111,12 +111,13 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
       ])
       set({ repo: repoPath, repoState, repoSessions })
       // a repo with saved sessions lands on the hub (the session list) — resuming
-      // one unasked surprises more than it saves. Only a repo with no live
-      // sessions opens a fresh transient review for the current branch. This
-      // already holds fresh context from the fetch above, so it lands on the hub
-      // screen directly rather than through enterHub, which would otherwise
-      // re-fetch both via loadRepoContext for the same repo.
-      if (repoSessions.length > 0) { enterHubScreen(repoPath); return }
+      // one unasked surprises more than it saves. Only a repo with no LIVE
+      // sessions opens a fresh transient review for the current branch (showArchived
+      // can make repoSessions non-empty with nothing but archived ones — those don't
+      // count). This already holds fresh context from the fetch above, so it lands
+      // on the hub screen directly rather than through enterHub, which would
+      // otherwise re-fetch both via loadRepoContext for the same repo.
+      if (repoSessions.some((s) => !s.archived)) { enterHubScreen(repoPath); return }
       await get().openReview(repoPath)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err), screen: 'dashboard' })
