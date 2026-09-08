@@ -447,7 +447,7 @@ export async function executeMerge(db: DatabaseSync, sessionId: number, req: Mer
       await updateRefCas(ctx.repo, baseRef, ctx.tipSha, req.expect.baseHead)
       mergedSha = ctx.tipSha
     } else {
-      // plumbing: the probe's treeOid IS the exact three-way result; on an
+      // plumbing: the probe's treeOid IS the exact merge result; on an
       // unavailable probe (git < 2.38) an ff-possible tip's own tree is identical.
       const treeOid = ctx.inputs.probe.treeOid
         ?? (ctx.inputs.ffPossible ? await headSha(ctx.repo, `${ctx.tipSha}^{tree}`) : null)

@@ -62,7 +62,7 @@ describe('mergeTreeProbe', () => {
     expect(probe.conflictFiles).toEqual([])
   })
 
-  it('clean three-way when the base moved without overlap', async () => {
+  it('clean merge when the base moved without overlap', async () => {
     const dir = makeMergeRepo()
     write(dir, 'other.txt', 'main moved\n')
     git(dir, 'add', '-A')

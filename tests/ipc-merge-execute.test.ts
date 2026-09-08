@@ -343,7 +343,7 @@ describe('mergeExecute — dependents + cleanup', () => {
     expect(res.status).toBe('merged')
     if (res.status !== 'merged') return
 
-    // merge-anyway over a clean probe landed the true three-way result
+    // merge-anyway over a clean probe landed the true merge result
     expect(fixtureGit(h.dir, 'show', 'main:docs/spec.md')).toBe('# Rate limiting spec v2')
     expect(fixtureGit(h.dir, 'show', 'main:src/b.ts')).toContain('return 43')
     // the dependent's rebase conflicted and aborted: branch + worktree exactly as before
