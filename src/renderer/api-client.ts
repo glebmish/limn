@@ -1,5 +1,10 @@
 import { API_CHANNELS } from '../shared/ipc'
 import type { OpEventMsg, OpResultMsg, RepoChangedMsg, RendererApi } from '../shared/ipc'
+// The reconnect resync reaches back into the store (see `ensureStream`'s onopen): a
+// gap in the push stream is only recoverable by refetching what the page is showing,
+// and the store owns that path. Imported lazily-in-effect (getState inside the
+// handler), never at install time, so this stays a one-way dependency on the module.
+import { useStore } from './store'
 
 // The only `window.api` backing: RendererApi carried over HTTP (request/response
 // channels) + Server-Sent Events (the push streams). Installed by main.tsx before render.
@@ -40,16 +45,44 @@ type AnyMsg = OpEventMsg | OpResultMsg | RepoChangedMsg
 const subscribers: Record<string, Set<(msg: AnyMsg) => void>> = {}
 let source: EventSource | null = null
 
+/** How long to wait before replacing a stream the browser failed for good. Matches
+ *  the `retry: 2000` the server sends for the drops the browser handles itself. */
+const REBUILD_DELAY_MS = 2000
+/** true once the page has had a live stream: every open after that closed a gap. */
+let everOpened = false
+
 function ensureStream(): void {
   if (source) return
-  source = new EventSource(withToken('/events'))
-  source.onmessage = (e) => {
+  const es = new EventSource(withToken('/events'))
+  source = es
+  es.onmessage = (e) => {
     let parsed: { channel: string; msg: AnyMsg }
     try { parsed = JSON.parse(e.data) } catch { return }
     const subs = subscribers[parsed.channel]
     if (subs) for (const cb of subs) cb(parsed.msg)
   }
-  // EventSource auto-reconnects on error; nothing to do but keep it.
+  es.onopen = () => {
+    // The first open is the page's own connection — the screen was fetched over the
+    // same round trip, so there is nothing to catch up on. Every later one closed a
+    // gap, and nothing replays what the server pushed during it: the frames carry no
+    // `id:`, so there is no Last-Event-ID replay. Refetching what is on screen is the
+    // resync (it re-adopts the session's live ops), and it is a no-op when the page
+    // has nothing loaded yet.
+    if (everOpened) void useStore.getState().refreshLoaded()
+    everOpened = true
+  }
+  es.onerror = () => {
+    // CONNECTING: an ordinary drop. The browser reconnects on its own and `onopen`
+    // above closes the gap. CLOSED: the connection FAILED — a response that is not
+    // 200 `text/event-stream` (the service's own 401/403, or anything a proxy or
+    // captive portal injects on the way) — and per the HTML spec the browser never
+    // retries that one. Without a replacement the tab goes silent for good: no
+    // op:event, no op:result, a finished generation stuck showing as running.
+    if (es.readyState !== EventSource.CLOSED || source !== es) return
+    es.close()
+    source = null
+    setTimeout(ensureStream, REBUILD_DELAY_MS)
+  }
 }
 
 function subscribe<T extends AnyMsg>(channel: string, cb: (msg: T) => void): () => void {
