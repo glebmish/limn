@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import type { AgentAction, AgentRef, Comment, CommentAnchor, CommentReply, EngineEvent, FocusTarget, ReviewAnnotations, SessionMeta } from '../../shared/types.js'
+import { effectiveRef, type AgentAction, type AgentRef, type Comment, type CommentAnchor, type CommentReply, type EngineEvent, type FocusTarget, type ReviewAnnotations, type SessionMeta } from '../../shared/types.js'
 import { getSession, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
 import { resolveStampTree, stampAnchor, type StampTree } from '../anchorStamp.js'
+import { headSha } from '../git.js'
 
 // One engine-agnostic tool set, hosted two ways: Claude consumes the zod `input`
 // shape directly via `tool(name, desc, shape, handler)`; Codex app-server reaches
@@ -130,6 +131,18 @@ async function resolveStampCtx(ctx: ToolHostCtx): Promise<StampCtx | undefined> 
     if (!session) return undefined
     return { session, tree: await resolveStampTree(ctx.repo, session) }
   } catch { return undefined }
+}
+
+/** The compare side's head right now — what a per-file view mark's sha is measured
+ *  against. Best-effort by design: a session that has gone (a deleted branch, a
+ *  workdir that is no longer a repo) reports null rather than failing the tool call,
+ *  since the rest of the progress snapshot is still worth having. */
+async function compareHead(ctx: ToolHostCtx): Promise<string | null> {
+  try {
+    const session = getSession(ctx.db, ctx.sessionId)
+    if (!session) return null
+    return await headSha(ctx.repo, effectiveRef(session.pair.compare))
+  } catch { return null }
 }
 
 /** Stamp a diff FocusTarget against the current surface, exactly as `add_comment`
@@ -338,10 +351,12 @@ const TOOL_IMPLS: ToolImpl[] = [
       'viewed, and comment counts by status (queued/sent/resolved/outdated). Call this ' +
       'to calibrate what to suggest next — e.g. don\'t re-suggest a file already viewed, and ' +
       'check for queued comments before wrapping up. Each `viewed_files` entry names the ' +
-      'commit sha the tick was taken at: a file whose content changed since then reads as ' +
-      'changed-since-viewed to the reviewer and may be worth walking again.',
+      'commit sha the tick was taken at; `compare_head_sha` is the branch head those ticks ' +
+      'are measured against, so a mark whose sha is not the head is a file the branch has ' +
+      'moved past — it reads as changed-since-viewed to the reviewer and may be worth ' +
+      'walking again. `compare_head_sha` is null when the ref cannot be read.',
     input: GET_PROGRESS_INPUT,
-    run: (ctx) => {
+    run: async (ctx) => {
       const state = loadReviewState(ctx.db, ctx.sessionId)
       const comments = { queued: 0, sent: 0, resolved: 0, outdated: 0 }
       for (const c of state.comments) comments[c.status]++
@@ -352,6 +367,11 @@ const TOOL_IMPLS: ToolImpl[] = [
         // synchronous tool doesn't have, so report the mark's own sha rather than a bare
         // key that would imply every entry is currently viewed.
         viewed_files: Object.entries(state.viewedAt).map(([file, m]) => ({ file, sha: m.sha })),
+        // …and the head those per-mark shas mean something against. Without it the
+        // marks are unanchored: the agent can read "ticked at c0ffee" and still not
+        // tell a live tick from one the branch has since moved past. One `rev-parse`,
+        // best-effort — an unreadable ref reports null rather than failing the call.
+        compare_head_sha: await compareHead(ctx),
         comments,
         // Live commit/file drift requires shelling out to git (async); this tool stays
         // synchronous + read-only, so it surfaces only the cheap, already-loaded anchor —

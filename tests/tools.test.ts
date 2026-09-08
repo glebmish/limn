@@ -654,6 +654,36 @@ describe('get_review_progress (real temp DB)', () => {
     expect(events).toEqual([])
     expect(host.collected()).toEqual([])
   })
+
+  // Each view mark carries the sha it was taken at, but without the head those shas
+  // are compared against, the agent has nothing to compare them TO — it cannot tell a
+  // still-current tick from one the branch has moved past.
+  it('names the compare head the view marks are measured against', async () => {
+    const fx = makeFixtureRepo()
+    const db = openDb(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'limn-progress-head-')), 'db')).db
+    const s = createSession(db, fx.dir, {
+      base: { kind: 'branch', symbol: 'main', anchorSha: fx.shas.base },
+      compare: { kind: 'branch', symbol: 'feature', anchorSha: fx.shas.head }
+    }, { engine: 'claude' })
+    const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
+    replaceUiState(db, s.id, { viewedAt: { 'src/a.ts': { sha: fx.shas.firstFeature, hash: 'h' } } })
+    const ctx: ToolHostCtx = {
+      db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
+      agent: { engine: 'claude' }, emit: () => {}
+    }
+    const { result } = await createToolHost(ctx).call('get_review_progress', {})
+    const parsed = JSON.parse(result) as { compare_head_sha: string | null; viewed_files: { sha: string }[] }
+    expect(parsed.compare_head_sha).toBe(fx.shas.head)
+    // …and it is a real answer to "changed since viewed": this tick predates the head
+    expect(parsed.viewed_files[0].sha).not.toBe(parsed.compare_head_sha)
+  })
+
+  it('reports a null compare head rather than failing when the ref cannot be read', async () => {
+    const { ctx } = setup() // repo '/repo' does not exist
+    const { result, isError } = await createToolHost(ctx).call('get_review_progress', {})
+    expect(isError).toBeFalsy()
+    expect((JSON.parse(result) as { compare_head_sha: string | null }).compare_head_sha).toBeNull()
+  })
 })
 
 // commit_changes was removed — the agent commits via git through its own shell,
