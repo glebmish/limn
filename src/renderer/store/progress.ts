@@ -138,7 +138,13 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     // drop the force-open override so the now-complete section folds away.
     const expanded = new Set(get().expanded)
     if (viewed) expanded.delete(sectionId)
-    set({ viewedAt, expanded })
+    // same as toggleViewed's hold-release: a focus target force-shows its file's
+    // body and force-opens its section, so ticking a section that holds the
+    // jumped-to file would otherwise leave the section (and that file's body)
+    // force-open even though it now reads done.
+    const ft = get().focusTarget
+    const focusTarget = viewed && ft?.file && paths.includes(ft.file) ? null : ft
+    set({ viewedAt, expanded, focusTarget })
     persistUi()
   },
 

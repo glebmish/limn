@@ -62,6 +62,28 @@ describe('section disclosure auto-collapse', () => {
     expect(useStore.getState().expanded.has('s1')).toBe(false)
   })
 
+  // #79: same gesture as the file-level tick above (a jumped-to file force-shows its
+  // body and force-opens its section) — the section checkbox marks the same files
+  // viewed but left the hold in place, so the section (and that file's body) stayed
+  // force-open even though it now reads done.
+  it('setSectionViewed releases a focus hold on one of the section\'s own files', () => {
+    useStore.setState({
+      loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' })], sections: [section('s1', ['a.ts'])] }),
+      focusTarget: { file: 'a.ts', sectionId: 's1' },
+    })
+    useStore.getState().setSectionViewed('s1', ['a.ts'], true)
+    expect(useStore.getState().focusTarget).toBeNull()
+  })
+
+  it('setSectionViewed leaves a focus hold on a file OUTSIDE the section alone', () => {
+    useStore.setState({
+      loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' }), makeFile({ path: 'b.ts', fileHash: 'h' })], sections: [section('s1', ['a.ts'])] }),
+      focusTarget: { file: 'b.ts' },
+    })
+    useStore.getState().setSectionViewed('s1', ['a.ts'], true)
+    expect(useStore.getState().focusTarget).toEqual({ file: 'b.ts' })
+  })
+
   it('setSectionViewed(viewed=false) clears the marks without touching expanded', () => {
     useStore.setState({
       loaded: makeLoaded({ headSha: 'HEAD', files: [makeFile({ path: 'a.ts', fileHash: 'h' })] }),
