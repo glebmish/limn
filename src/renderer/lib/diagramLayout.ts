@@ -71,8 +71,20 @@ export function layoutDiagram(d: Diagram): { rows: DiagramNode2[][]; ok: boolean
   for (const t of branchTargets) visited.add(t)
 
   // any leftover nodes (disconnected from the fan-out chain/branches) — best
-  // effort: append as their own row rather than silently dropping them.
-  const leftover = ids.filter((id) => !visited.has(id)).map((id) => byId.get(id)!)
+  // effort: append as their own row rather than silently dropping them. Walk
+  // each unvisited root via outMap (same as the fanoutNodes.length===0 branch
+  // above) so a leftover chain renders in its actual edge order, not array order.
+  const leftover: DiagramNode2[] = []
+  for (const id of ids) {
+    if (visited.has(id) || (inDegree.get(id) ?? 0) > 0) continue
+    let cur: string | undefined = id
+    while (cur && !visited.has(cur)) {
+      visited.add(cur)
+      leftover.push(byId.get(cur)!)
+      cur = outMap.get(cur)?.[0]
+    }
+  }
+  for (const id of ids) if (!visited.has(id)) { visited.add(id); leftover.push(byId.get(id)!) }
   const rows = leftover.length > 0 ? [mainRow, branchRow, leftover] : [mainRow, branchRow]
   return { rows, ok: true }
 }

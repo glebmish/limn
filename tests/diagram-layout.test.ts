@@ -61,4 +61,19 @@ describe('layoutDiagram', () => {
     expect(ok).toBe(true)
     expect(rows.flat().map((n) => n.id)).toEqual(['a', 'b'])
   })
+
+  it('a leftover chain disconnected from the fan-out renders in edge order, not node-array order', () => {
+    // `a` fans out to b, c. Separately, A -> B is its own chain, but the node
+    // array lists B before A — the leftover row must still follow the A->B
+    // edge, not the array order, or the row's "->" implies a reversed edge.
+    const d = diagram(['a', 'b', 'c', 'B', 'A'], [
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' },
+      { from: 'A', to: 'B' }
+    ])
+    const { rows, ok } = layoutDiagram(d)
+    expect(ok).toBe(true)
+    expect(rows).toHaveLength(3)
+    expect(rows[2].map((n) => n.id)).toEqual(['A', 'B'])
+  })
 })
