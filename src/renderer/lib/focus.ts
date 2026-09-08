@@ -1,5 +1,6 @@
 import type { Comment, CommentAnchor, FocusTarget } from '../../shared/types'
 import { effectiveSections, useStore } from '../store'
+import { sectionIndex } from './fileOrder'
 import { startFocusJump } from './focusScroll'
 
 export { limnSelector } from './focusScroll'
@@ -64,16 +65,13 @@ export function focusAnchor(target: FocusTarget, opts: { quiet?: boolean } = {})
   if (anchor.kind === 'section') {
     st.openSection(anchor.sectionId)
     st.setFocusTarget(null)
+  } else if (anchor.kind === 'file' || anchor.kind === 'diff') {
+    // same path→section rule `sectionIndex` documents for sidebar jumps — one
+    // implementation of the tie-break, not a second one reimplemented here.
+    const secId = sectionIndex(effectiveSections(st.loaded)).get(anchor.file)
+    st.setFocusTarget({ file: anchor.file, ...(secId ? { sectionId: secId } : {}) })
   } else {
-    let secId: string | undefined
-    if (anchor.kind === 'file' || anchor.kind === 'diff') {
-      secId = effectiveSections(st.loaded).find((s) => s.files.includes(anchor.file))?.id
-    }
-    st.setFocusTarget(
-      anchor.kind === 'file' || anchor.kind === 'diff'
-        ? { file: anchor.file, ...(secId ? { sectionId: secId } : {}) }
-        : null
-    )
+    st.setFocusTarget(null)
   }
   startFocusJump(anchor, opts)
 }

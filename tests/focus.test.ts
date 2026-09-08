@@ -1,6 +1,17 @@
-import { describe, it, expect } from 'vitest'
-import { commentJumpTarget, jumpTarget, limnSelector } from '../src/renderer/lib/focus'
-import type { Comment, FocusTarget } from '../src/shared/types'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+import type { Comment, FocusTarget, Section } from '../src/shared/types'
+import { makeLoaded } from './helpers/loaded'
+
+// the seam: focusAnchor's own jump-execution step, irrelevant to the section-
+// resolution rule this file pins below — stubbed so it never touches `document`
+// (this suite runs without a DOM).
+vi.mock('../src/renderer/lib/focusScroll', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/lib/focusScroll')>()),
+  startFocusJump: vi.fn()
+}))
+
+const { commentJumpTarget, jumpTarget, limnSelector, focusAnchor } = await import('../src/renderer/lib/focus')
+const { useStore } = await import('../src/renderer/store')
 
 describe('limnSelector', () => {
   it('maps each FocusTarget kind to its data-limn-* selector', () => {
@@ -59,5 +70,47 @@ describe('commentJumpTarget', () => {
   it('returns null for anchors no jump can land on (artifact, plan-step, …)', () => {
     expect(commentJumpTarget(cmt({ anchor: { kind: 'artifact', path: 'spec.md', line: 3, lineContent: 'x' } }))).toBeNull()
     expect(commentJumpTarget(cmt({ anchor: { kind: 'question', questionId: 'q1' } }))).toBeNull()
+  })
+})
+
+// #90: focusAnchor stamps the target's owning section onto focusTarget so a file/
+// line jump force-opens the section that holds it. That rule is `sectionIndex`'s
+// path→first-section tie-break (fileOrder.ts) — pinned here so a jump keeps using
+// the ONE implementation of it rather than growing a second one that can drift.
+describe('focusAnchor: section resolution', () => {
+  const section = (id: string, files: string[]): Section => ({ id, name: id, files, narration: [] })
+
+  beforeEach(() => {
+    useStore.setState({
+      loaded: makeLoaded({ sections: [section('s1', ['a.ts', 'shared.ts']), section('s2', ['b.ts', 'shared.ts'])] }),
+      docPath: null,
+      focusTarget: null
+    })
+  })
+
+  it('stamps a file anchor with the section that lists it', () => {
+    focusAnchor({ kind: 'file', file: 'b.ts' })
+    expect(useStore.getState().focusTarget).toEqual({ file: 'b.ts', sectionId: 's2' })
+  })
+
+  it('stamps a diff anchor the same way', () => {
+    focusAnchor({ kind: 'diff', file: 'b.ts', side: 'new', line: 3, hunkRange: '', lineContent: '' })
+    expect(useStore.getState().focusTarget).toEqual({ file: 'b.ts', sectionId: 's2' })
+  })
+
+  it('a path two sections list lands on the first one (sectionIndex tie-break)', () => {
+    focusAnchor({ kind: 'file', file: 'shared.ts' })
+    expect(useStore.getState().focusTarget).toEqual({ file: 'shared.ts', sectionId: 's1' })
+  })
+
+  it('a path no section claims gets no sectionId', () => {
+    focusAnchor({ kind: 'file', file: 'loose.ts' })
+    expect(useStore.getState().focusTarget).toEqual({ file: 'loose.ts' })
+  })
+
+  it('a summary anchor clears the focus target instead', () => {
+    useStore.setState({ focusTarget: { file: 'a.ts', sectionId: 's1' } })
+    focusAnchor({ kind: 'summary' })
+    expect(useStore.getState().focusTarget).toBeNull()
   })
 })
