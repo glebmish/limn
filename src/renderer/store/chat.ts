@@ -164,6 +164,10 @@ export interface ChatSlice {
   attachFindings(threadId: number, runId: string): void
   /** "Keep as prose": hide a run's report-only card for good. */
   keepProse(threadId: number, runId: string): Promise<void>
+  /** Point a thread at another agent IN PLACE (no fork) — for an action thread whose
+   *  refused run never bound an engine session, so "Run with Claude instead" can
+   *  re-run there. */
+  retargetThread(threadId: number, agent: AgentRef): Promise<void>
 }
 
 export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, get) => ({
@@ -419,6 +423,14 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       get().finishOp(opId, 'failed', err instanceof Error ? err.message : String(err))
       set({ error: err instanceof Error ? err.message : String(err) })
     })
+  },
+
+  async retargetThread(threadId, agent) {
+    try {
+      setChats(await api().setChatAgent(threadId, agent))
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
   },
 
   async keepProse(threadId, runId) {

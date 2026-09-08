@@ -97,6 +97,9 @@ export interface ReviewSlice {
   requeueComment(comment: Comment): Promise<void>
   /** Continue a thread: append the reviewer's reply and re-queue it for the agent. */
   replyToComment(comment: Comment, text: string): Promise<void>
+  /** Triage proposals (board 14 v3): accept → queued, keep → resolved note, dismiss →
+   *  hidden, restore → proposed. One RPC for one or many. */
+  triageFindings(ids: string[], verdict: 'accept' | 'keep' | 'dismiss' | 'restore'): Promise<void>
 }
 
 export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (set, get) => ({
@@ -351,5 +354,16 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     if (sessionId == null) return
     const state = await api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString()))
     setComments(state.comments)
+  },
+
+  async triageFindings(ids, verdict) {
+    const sessionId = await get().materialize()
+    if (sessionId == null || ids.length === 0) return
+    try {
+      const state = await api().triageFindings(sessionId, ids, verdict)
+      setComments(state.comments)
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
   }
 })

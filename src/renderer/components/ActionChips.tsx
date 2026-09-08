@@ -212,6 +212,34 @@ function CommentActionCard({ action, engine }: {
   )
 }
 
+/** A finding an action run proposed (design board 14 R1/N1): the dashed mark the
+ *  gutter uses, the severity the skill assigned, file:line, and the body. Reads the
+ *  LIVE comment when it still exists (re-anchored, and its status: accepted / kept /
+ *  dismissed since), falling back to the frozen snapshot. Click jumps to it. */
+function FindingCard({ action }: { action: Extract<AgentAction, { kind: 'finding_added' }> }) {
+  const live = useStore((s) => s.loaded?.state.comments.find((c) => c.id === action.comment.id))
+  const jump: CommentJump = live ?? { anchor: action.comment.anchor }
+  const c = live ?? action.comment
+  const target = commentJumpTarget(jump)
+  const degraded = commentJumpReason(jump)
+  const status = live ? (live.status === 'proposed' ? '' : live.status === 'dismissed' ? 'dismissed' : live.status === 'queued' ? 'accepted' : live.status === 'resolved' ? 'kept' : live.status) : 'swept'
+  const content = (
+    <>
+      <div className="limn-act-head">
+        <span className={'ax-fmark' + (status ? ' off' : '')} aria-hidden />
+        <span className="ah-verb">Finding</span>
+        {c.severity && <span className={`sev-badge sev-${c.severity}`}>{c.severity}</span>}
+        {status && <span className="ax-fstatus">{status}</span>}
+        <span className="ax-floc mono">{anchorShort(c.anchor, Boolean(degraded))}</span>
+      </div>
+      <div className="ax-ftxt">{c.text.split('\n\nSuggestion:')[0]}</div>
+    </>
+  )
+  return target ? (
+    <button className="limn-act ax-finding" title={degraded ? COMMENT_JUMP_TITLE[degraded] : 'Show in the diff'} onClick={() => focusAnchor(target)}>{content}</button>
+  ) : <div className="limn-act ax-finding">{content}</div>
+}
+
 /** The resolved state to show on mount: an explicit dismissal is persisted; the
  *  "marked" outcome is derived from the real viewed marks (every suggested file
  *  viewed, and every suggested section fully viewed). Anything unresolvable counts
@@ -322,6 +350,8 @@ function renderAction(action: AgentAction, engine?: EngineId, threadId?: number)
       return { kind: 'card', node: <PointCard action={action} /> }
     case 'suggest_viewed':
       return { kind: 'card', node: <SuggestCard action={action} threadId={threadId} /> }
+    case 'finding_added':
+      return { kind: 'card', node: <FindingCard action={action} /> }
     case 'comment_added':
     case 'comment_replied':
       return { kind: 'card', node: <CommentActionCard action={action} engine={engine} /> }

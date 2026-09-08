@@ -8,6 +8,10 @@ import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../sh
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
 import { ActionLauncher } from './ActionLauncher'
+import { ActionRunBar } from './ActionRunBar'
+import { ActionResultCard } from './ActionResultCard'
+import { KindGlyph } from './ActionMarks'
+import { FINDING_HARNESS } from '../../shared/actions'
 import { ActionChips } from './ActionChips'
 import { splitPath } from './FileHeader'
 import { ToolCallLog } from './ToolCallLog'
@@ -280,6 +284,8 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
           )}
 
+          {active && active.id >= 0 && active.messages.some((m) => m.run) && <ActionRunBar thread={active} op={op} />}
+
           <div className="chat-body" ref={scrollRef} onScroll={onBodyScroll}>
             {active?.kind === 'review' && active.messages.length === 0 && !streaming && (
               <div className="chat-hint">
@@ -301,6 +307,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   submittedRefs={submittedRefsByIndex[idx]}
                   engine={active?.agent.engine}
                   threadId={active?.id}
+                  after={m.role === 'agent' && m.runResult && active && active.id >= 0 ? <ActionResultCard thread={active} runId={m.runResult.runId} agentText={m.text} /> : undefined}
                   comments={loaded?.state.comments ?? EMPTY_COMMENTS}
                 />
               )
@@ -481,19 +488,22 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
  *  primitive / stable reference (`submittedRefs` from a messages-keyed memo, `comments`
  *  a store reference with an EMPTY fallback), so `memo` skips re-rendering — and thus
  *  re-parsing markdown for — every settled message on each streamed event. */
-const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, threadId, comments }: {
+const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, threadId, comments, after }: {
   m: ChatMsg
   submittedRefs: string[] | undefined
   engine?: EngineId
   threadId?: number
   comments: Comment[]
+  /** rendered after the bubble — a run's result card follows its ending turn */
+  after?: React.ReactNode
 }) {
   return (
+    <>
     <div className={'chat-msg ' + m.role}>
       <Ava ai={m.role === 'agent'}>
         {m.role === 'agent' ? <EngineGlyph engine={engine} style={{ width: 13, height: 13 }} /> : 'me'}
       </Ava>
-      <div className="chat-bubble">
+      <div className={'chat-bubble' + (m.run ? ' ax-prompt' : '')}>
         {m.anchor && <div className="chat-anchor">re: {describeShort(m.anchor)}</div>}
         {m.role === 'agent' ? (
           m.segments && m.segments.length > 0
@@ -504,6 +514,8 @@ const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, thread
                 <Markdown text={m.text} />
               </>
             )
+        ) : m.run ? (
+          <RunPrompt m={m} />
         ) : (
           <>
             <div>{m.text}</div>
@@ -515,8 +527,36 @@ const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, thread
         {(!m.segments || m.segments.length === 0) && m.actions && m.actions.length > 0 && <ActionChips actions={m.actions} engine={engine} threadId={threadId} />}
       </div>
     </div>
+    {after}
+    </>
   )
 })
+
+/** The user bubble that launched an action run (board 14 R1): the skill or prompt
+ *  as it was actually sent, plus the harness Limn appended, folded. */
+function RunPrompt({ m }: { m: ChatMsg }) {
+  const [shown, setShown] = useState(false)
+  const run = m.run!
+  const harnessAt = m.text.indexOf(FINDING_HARNESS)
+  const head = harnessAt >= 0 ? m.text.slice(0, harnessAt).trimEnd() : m.text
+  const isAttach = harnessAt < 0 && /add_finding/.test(m.text)
+  return (
+    <>
+      <div className="ax-prompt-h">
+        <KindGlyph kind={run.kind} small />
+        <span className="ax-prompt-text">{isAttach ? 'Attach findings' : head}</span>
+        <span className="ax-prompt-run">run {run.n}</span>
+      </div>
+      {harnessAt >= 0 && (
+        <div className="ax-harness">
+          {shown ? FINDING_HARNESS : `+ Limn: report each finding with add_finding — file, line, severity.`}
+          <a onClick={() => setShown((v) => !v)}>{shown ? 'Hide' : 'Show'}</a>
+        </div>
+      )}
+      {isAttach && <div className="ax-harness">{m.text}</div>}
+    </>
+  )
+}
 
 /** Resolve a settled MCP tool call to the AgentAction.kind it produced, if any,
  *  via the shared ACTION_TOOL_KIND table (see src/shared/toolcalls.ts). */

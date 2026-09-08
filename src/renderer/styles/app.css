@@ -821,3 +821,41 @@ body.is-resizing * { cursor: col-resize !important; }
 .ax-target .ax-pf .ax-thennote { display: inline-flex; align-items: center; gap: 5px; }
 .ax-target .ax-pf .btn { margin-left: auto; }
 .ax-target .ax-pf .btn:disabled { opacity: .5; cursor: default; }
+
+/* ── agent actions — the action thread (board 14 R1/R3) ── */
+.ax-runbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 13px; border-bottom: 1px solid var(--accent-line); background: var(--accent-soft); font-size: 11.5px; color: var(--accent-ink); flex-wrap: wrap; }
+.ax-runbar > span:not(.gen-spinner):not(.limn-spin) { flex: 1 1 auto; min-width: 0; line-height: 1.4; }
+.ax-runbar b { font-weight: 700; }
+.ax-runbar .btn { flex: 0 0 auto; }
+.ax-runbar.done { border-bottom-color: var(--line); background: var(--panel-2); color: var(--ink-2); }
+.ax-runbar.err { border-bottom-color: var(--red-line); background: var(--red-soft); color: var(--red); }
+.ax-runbar.wait { border-bottom-color: var(--amber-line); background: var(--amber-soft); color: var(--amber); }
+.ax-runbar svg.ic { width: 13px; height: 13px; flex: 0 0 auto; }
+.ax-runbar .btn-ghost { color: inherit; }
+.ax-runbar .ax-avail-from { color: var(--muted); font-weight: 500; }
+.chat-msg.user .chat-bubble.ax-prompt { max-width: 92%; }
+.ax-prompt-h { display: flex; align-items: center; gap: 6px; font: 600 12px var(--mono); }
+.ax-prompt-h .ax-prompt-text { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; }
+.ax-prompt-h .ax-prompt-run { font: 500 10.5px var(--sans); color: var(--muted); flex: 0 0 auto; }
+.ax-harness { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--accent-line); font-size: 10.5px; line-height: 1.45; color: var(--muted); font-family: var(--sans); white-space: normal; }
+.ax-harness a { color: var(--accent-ink); font-weight: 600; cursor: pointer; margin-left: 3px; }
+.ax-finding .limn-act-head { gap: 7px; }
+.ax-finding .ah-verb { font-weight: 700; color: var(--ink-2); }
+.ax-fmark { width: 9px; height: 9px; border-radius: 50%; border: 1.5px dashed var(--accent); flex: 0 0 auto; background: var(--panel); }
+.ax-fmark.off { border-style: solid; border-color: var(--line-3); }
+.ax-fstatus { font: 600 10px var(--sans); color: var(--muted); }
+.ax-floc { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+.ax-ftxt { padding: 0 9px 7px; font-size: 11.5px; line-height: 1.45; color: var(--ink); text-align: left; white-space: pre-wrap; }
+.ax-finding .sev-badge { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; line-height: 1.6; }
+.ax-finding .sev-badge.sev-risk { color: var(--red); background: var(--red-soft); border: 1px solid var(--red-line); }
+.ax-finding .sev-badge.sev-note { color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-line); }
+button.limn-act.ax-finding:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+.ax-result { border: 1px solid var(--accent-line); border-radius: var(--r-md); background: var(--accent-soft); padding: 9px 11px; font-size: 11.5px; color: var(--ink-2); margin: 2px 0 6px 21px; }
+.ax-result .ax-rh { display: flex; align-items: center; gap: 7px; font-weight: 600; color: var(--accent-ink); }
+.ax-result .ax-rh b { font-weight: 700; }
+.ax-result .ax-rh svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.ax-ract { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ax-ract a { font-size: 11px; font-weight: 600; color: var(--accent-ink); cursor: pointer; margin-left: auto; }
+.ax-rnote { margin-top: 7px; font-size: 10.5px; line-height: 1.45; color: var(--muted); }
+.ax-result.plain { border-color: var(--line-2); background: var(--panel-2); }
+.ax-result.plain .ax-rh { color: var(--ink-2); }
