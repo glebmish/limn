@@ -65,6 +65,9 @@ export const DiffView = memo(function DiffView({ f }: {
   // `fileIsExcluded` rebuilds a Set of every sectioned path, so it is worth keeping
   // off the render path of a review with many files
   const excluded = useMemo(() => fileIsExcluded(loaded, f), [loaded, f])
+  // how many files the ✓ would spread to — the same list `fileIsExcluded` walks, and
+  // the same reason to walk it off the render path
+  const fileCount = useMemo(() => renderedFiles(loaded).length, [loaded])
   // stable while the review is: the `?? []` fallback would otherwise mint a fresh
   // array every render and defeat the two memos below
   const comments = useMemo(() => loaded?.state.comments ?? [], [loaded])
@@ -177,7 +180,7 @@ export const DiffView = memo(function DiffView({ f }: {
             stack={stack}
             differs={differs}
             defaultStack={diffStack}
-            fileCount={renderedFiles(loaded).length}
+            fileCount={fileCount}
             shas={{
               review: loaded?.state.reviewedAtSha,
               approved: loaded ? (approvedShaList(loaded.state).includes(loaded.skeleton.headSha) ? loaded.skeleton.headSha : loaded.state.approvedSha) : undefined,

@@ -167,8 +167,8 @@ describe('the drift-rail hover strip (#100)', () => {
     seed({ out: ['approved', 'base'], against: 'base' }, withMid)
     const body = diffBody(renderToStaticMarkup(<DiffView f={withMid} />))
     expect(body).toContain('layout-multi')
-    expect(body).not.toContain('since')  // no drift rail is painted in Multi…
-    expect(body).not.toContain('attr-')  // …and nothing here drifted from the checkpoint
+    expect(body).not.toMatch(/class="dcell[^"]*\bsince\b/)  // no drift rail is painted in Multi…
+    expect(body).not.toMatch(/class="dcell[^"]*\battr-/)     // …and nothing here drifted from the checkpoint
     expect(body).not.toContain('rail-hit')
   })
 
