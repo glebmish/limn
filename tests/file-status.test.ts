@@ -47,7 +47,6 @@ describe('combineReviewStatuses', () => {
 
   it('rolls a folder unviewed for unviewed children with no amber drift', () => {
     expect(combineReviewStatuses(['st-rev', 'st-unrev'])).toBe('st-unrev')
-    expect(combineReviewStatuses(['st-rev', 'st-risk'])).toBe('st-unrev')
   })
 
   it('shows a folder green only when every child is viewed', () => {

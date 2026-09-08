@@ -1,7 +1,7 @@
 import type { FileDiff, ViewMark } from '../../shared/types'
 import { fileViewed } from '../store'
 
-export type ReviewGlyphStatus = 'st-unrev' | 'st-rev' | 'st-amber' | 'st-risk'
+export type ReviewGlyphStatus = 'st-unrev' | 'st-rev' | 'st-amber'
 
 export function reviewStatusForFile(f: FileDiff, viewedAt: Record<string, ViewMark>, headSha?: string): ReviewGlyphStatus {
   if (fileViewed(f, viewedAt, headSha)) return 'st-rev'
@@ -20,8 +20,7 @@ export function combineReviewStatuses(statuses: ReviewGlyphStatus[]): ReviewGlyp
 }
 
 export function reviewStatusLabel(status: ReviewGlyphStatus): string {
-  return status === 'st-risk' ? 'deleted'
-    : status === 'st-amber' ? 'changed'
+  return status === 'st-amber' ? 'changed'
     : status === 'st-rev' ? 'viewed'
     : 'unviewed'
 }

@@ -131,7 +131,6 @@ span.review-glyph.file-glyph{border-radius:0;background:currentColor;-webkit-mas
 .review-glyph.st-unrev{color:var(--line-3)}
 .review-glyph.st-rev{color:var(--accent)}
 .review-glyph.st-amber{color:var(--amber)}
-.review-glyph.st-risk{color:var(--red)}
 .fpath{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fpath .dir{color:var(--muted)}
 .fpath .name{color:var(--ink);font-weight:500}

@@ -178,7 +178,6 @@
 .gnav-dir > .gnav-folder .review-glyph.st-unrev{color:var(--muted)}
 .gnav-dir > .gnav-folder .review-glyph.st-rev{color:var(--accent)}
 .gnav-dir > .gnav-folder .review-glyph.st-amber{color:var(--amber)}
-.gnav-dir > .gnav-folder .review-glyph.st-risk{color:var(--red)}
 .gnav-dir > .gnav-folder .fname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;font-weight:600;color:var(--ink-2)}
 .gnav-dir > .gnav-folder .fcount{flex:0 0 auto;font-size:9.5px;font-weight:600;color:var(--muted-2);font-variant-numeric:tabular-nums}
 .gnav-dir.collapsed > .gnav-folder .gnav-caret::before{transform:rotate(-45deg)}
