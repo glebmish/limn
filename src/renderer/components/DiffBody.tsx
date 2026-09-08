@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import type { Comment, DiffLine, FileDiff } from '../../shared/types'
+import type { Comment, DiffLine, FileAt, FileDiff } from '../../shared/types'
 import { I } from '../kit'
 import { useStore } from '../store'
 import type { Sheet, Stack } from '../../shared/diffStack'
@@ -92,6 +92,28 @@ function CodeLine({ text, lang, ranges, html }: { text: string; lang: string | n
       <span className="code-syn" dangerouslySetInnerHTML={{ __html: html ?? highlightLine(disp(text), lang) }} />
     </span>
   )
+}
+
+/** Latch one `readFileAt` into the body's fold state — but only while the read is
+ *  still the one the body is waiting for. A read is issued for a given file object
+ *  and stack; a save (or a pull, or a re-generate) mints new `FileDiff`s and resets
+ *  the body's state under it, and a read issued *before* that lands *after* it, when
+ *  its text belongs to line numbers that have since moved. Latching it then paints
+ *  pre-refresh text under post-refresh numbers, or (on a failure) leaves every fold
+ *  inert for content that would read fine. So `isCurrent` is asked once, at the
+ *  moment the answer arrives, and a superseded read writes nothing and resolves null
+ *  — which also drops the `reveal` that awaited it. */
+export async function latchFileRead(
+  read: Promise<FileAt>,
+  isCurrent: () => boolean,
+  sink: { lines: (lines: string[]) => void; failed: () => void }
+): Promise<string[] | null> {
+  let r: FileAt
+  try { r = await read } catch { r = { ok: false, reason: 'absent' } }
+  if (!isCurrent()) return null
+  if (!r.ok) { sink.failed(); return null }
+  sink.lines(r.lines)
+  return r.lines
 }
 
 /** The origin / drift rail class for a line, shared by the unified row and a cell. */
@@ -231,7 +253,14 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   const [fileLines, setFileLines] = useState<string[] | null>(null)
   const [readFailed, setReadFailed] = useState(false)
   const linesPromise = useRef<Promise<string[] | null> | null>(null)
-  useEffect(() => { setReveals({}); setFileLines(null); setReadFailed(false); linesPromise.current = null }, [f, stackKey])
+  // identity of the read in flight: cleared by the reset below, so a read issued for
+  // the previous file/stack knows not to latch its answer (`latchFileRead`)
+  const readToken = useRef<object | null>(null)
+  useEffect(() => {
+    setReveals({}); setFileLines(null); setReadFailed(false)
+    linesPromise.current = null
+    readToken.current = null
+  }, [f, stackKey])
   // The runs themselves are pure arithmetic over the hunks and are ALWAYS modelled:
   // they are the only thing marking a discontinuity now that the `@@` head is gone,
   // and a `.dline` has no top border, so leaving them out makes two distant hunks
@@ -263,13 +292,13 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     if (fileLines) return Promise.resolve(fileLines)
     if (!loaded || readFailed) return Promise.resolve(null)
     if (!linesPromise.current) {
-      linesPromise.current = api().readFileAt(loaded.state.repo, loaded.session.pair.compare, f.path, { kind: 'now' })
-        .then((r) => {
-          if (!r.ok) { setReadFailed(true); return null }
-          setFileLines(r.lines)
-          return r.lines
-        })
-        .catch(() => { setReadFailed(true); return null })
+      const token = {}
+      readToken.current = token
+      linesPromise.current = latchFileRead(
+        api().readFileAt(loaded.state.repo, loaded.session.pair.compare, f.path, { kind: 'now' }),
+        () => readToken.current === token,
+        { lines: setFileLines, failed: () => setReadFailed(true) }
+      )
     }
     return linesPromise.current
   }
