@@ -209,5 +209,34 @@ export const MIGRATIONS: Migration[] = [
     up(db) {
       db.exec('DROP TABLE reviewed_sections')
     }
+  },
+  {
+    // Agent actions (design board 14): an ACTION thread remembers which pinned action
+    // runs in it, and the messages that launch / end a run carry the run's identity
+    // and outcome. Both are JSON blobs — nothing filters on them; the DAO reads the
+    // thread and rebuilds run numbering from the messages. Comments gain two statuses,
+    // `proposed` (an agent finding the reviewer has not taken) and `dismissed` (hidden,
+    // restorable); SQLite cannot widen a CHECK in place, so the table is rebuilt —
+    // the same rows, the same primary key, one longer status list. Stored hotspots
+    // stay `resolved` (pre-v3 notes); only new generations mint proposals.
+    version: 7,
+    up(db) {
+      db.exec('ALTER TABLE chat_threads ADD COLUMN action_json TEXT')
+      db.exec('ALTER TABLE chat_messages ADD COLUMN run_json TEXT')
+      db.exec(`
+        CREATE TABLE comments_v7 (
+          id TEXT NOT NULL,
+          session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK (status IN ('queued','sent','resolved','outdated','proposed','dismissed')),
+          json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (session_id, id)
+        );
+        INSERT INTO comments_v7 (id, session_id, status, json, created_at)
+          SELECT id, session_id, status, json, created_at FROM comments;
+        DROP TABLE comments;
+        ALTER TABLE comments_v7 RENAME TO comments;
+      `)
+    }
   }
 ]

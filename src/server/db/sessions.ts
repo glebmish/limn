@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
-  AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration, IterationMeta,
+  ActionRunRef, ActionRunResult, AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration, IterationMeta,
   MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
@@ -346,14 +346,18 @@ type ChatThreadRow = {
   id: number; kind: 'review' | 'user'; engine: EngineId
   model: string | null; reasoning_effort: string | null
   engine_session_id: string | null; title: string | null; created_at: string
-  execution_mode: string | null
+  execution_mode: string | null; action_json: string | null
 }
 
-const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode'
+const THREAD_COLS = 'id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode, action_json'
+
+/** The run metadata a chat_messages row stores in `run_json`: the launching user
+ *  message's `run`, or the ending agent message's `runResult`. */
+type RunJson = { run?: ActionRunRef; runResult?: ActionRunResult }
 
 function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarningKind[]): ChatThread {
-  const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
-    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null; tools_json: string | null; segments_json: string | null; comment_refs_json: string | null }[])
+  const messages = (db.prepare('SELECT role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json, run_json FROM chat_messages WHERE thread_id = ? ORDER BY id')
+    .all(row.id) as { role: 'user' | 'agent'; text: string; at: string; anchor_json: string | null; actions_json: string | null; tools_json: string | null; segments_json: string | null; comment_refs_json: string | null; run_json: string | null }[])
     .map((r) => {
       // Chat payload is split: role/text/time are durable columns, while these JSON
       // blobs are optional enrichments. If one enrichment blob is corrupt, keep the
@@ -365,15 +369,19 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarnin
       const tools = safeJson<ToolCall[]>(r.tools_json, chatWarning)
       const segments = safeJson<MessageSegment[]>(r.segments_json, chatWarning)
       const commentRefs = safeJson<string[]>(r.comment_refs_json, chatWarning)
+      const runJson = safeJson<RunJson>(r.run_json, chatWarning)
       return {
         role: r.role, text: r.text, at: r.at,
         ...(anchor !== undefined ? { anchor } : {}),
         ...(actions !== undefined ? { actions } : {}),
         ...(tools !== undefined ? { tools } : {}),
         ...(segments !== undefined ? { segments } : {}),
-        ...(commentRefs !== undefined ? { commentRefs } : {})
+        ...(commentRefs !== undefined ? { commentRefs } : {}),
+        ...(runJson?.run ? { run: runJson.run } : {}),
+        ...(runJson?.runResult ? { runResult: runJson.runResult } : {})
       }
     })
+  const action = safeJson<ChatThread['action']>(row.action_json, warnings ? { kind: 'chat', into: warnings } : undefined)
   return {
     id: row.id,
     kind: row.kind,
@@ -382,19 +390,49 @@ function rowToThread(db: DatabaseSync, row: ChatThreadRow, warnings?: LoadWarnin
     messages,
     title: row.title ?? undefined,
     createdAt: row.created_at,
-    executionMode: isExecutionMode(row.execution_mode) ? row.execution_mode : LEGACY_EXECUTION_MODE
+    executionMode: isExecutionMode(row.execution_mode) ? row.execution_mode : LEGACY_EXECUTION_MODE,
+    ...(action ? { action } : {})
   }
 }
 
-export interface NewChatThread { kind: 'review' | 'user'; agent: AgentRef; engineSessionId?: string; title?: string; executionMode?: ExecutionMode }
+export interface NewChatThread { kind: 'review' | 'user'; agent: AgentRef; engineSessionId?: string; title?: string; executionMode?: ExecutionMode; action?: ChatThread['action'] }
 
 export function createChatThread(db: DatabaseSync, sessionId: number, t: NewChatThread): ChatThread {
   const res = db.prepare(`INSERT INTO chat_threads
-    (session_id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (session_id, kind, engine, model, reasoning_effort, engine_session_id, title, created_at, execution_mode, action_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(sessionId, t.kind, t.agent.engine, t.agent.model ?? null, t.agent.reasoningEffort ?? null,
-      t.engineSessionId ?? null, t.title ?? null, now(), t.executionMode ?? DEFAULT_EXECUTION_MODE)
+      t.engineSessionId ?? null, t.title ?? null, now(), t.executionMode ?? DEFAULT_EXECUTION_MODE,
+      t.action ? JSON.stringify(t.action) : null)
   return getChatThread(db, Number(res.lastInsertRowid))!
+}
+
+/** The one thread a pinned action runs in for this session (spec: one thread per
+ *  action, one turn per run), or null before its first run. */
+export function findActionThread(db: DatabaseSync, sessionId: number, actionId: string): ChatThread | null {
+  const rows = db.prepare(`SELECT ${THREAD_COLS} FROM chat_threads WHERE session_id = ? AND action_json IS NOT NULL ORDER BY id`).all(sessionId) as ChatThreadRow[]
+  const hit = rows.find((r) => safeJson<ChatThread['action']>(r.action_json)?.actionId === actionId)
+  return hit ? rowToThread(db, hit) : null
+}
+
+/** The ordinal the next run in this thread gets: one more than the launching user
+ *  messages already there (a plain follow-up reply is not a run). */
+export function nextRunNumber(db: DatabaseSync, threadId: number): number {
+  const rows = db.prepare(`SELECT run_json FROM chat_messages WHERE thread_id = ? AND role = 'user' AND run_json IS NOT NULL`).all(threadId) as { run_json: string }[]
+  return rows.filter((r) => safeJson<RunJson>(r.run_json)?.run).length + 1
+}
+
+/** Patch the run result stored on the agent message that ended `runId` (keep as
+ *  prose, …). An unknown run is a no-op. */
+export function setRunResult(db: DatabaseSync, threadId: number, runId: string, patch: Partial<ActionRunResult>): void {
+  const rows = db.prepare(`SELECT id, run_json FROM chat_messages WHERE thread_id = ? AND role = 'agent' AND run_json IS NOT NULL ORDER BY id`).all(threadId) as { id: number; run_json: string }[]
+  for (const row of rows) {
+    const json = safeJson<RunJson>(row.run_json)
+    if (!json?.runResult || json.runResult.runId !== runId) continue
+    const next: RunJson = { ...json, runResult: { ...json.runResult, ...patch } }
+    db.prepare('UPDATE chat_messages SET run_json = ? WHERE id = ?').run(JSON.stringify(next), row.id)
+    return
+  }
 }
 
 export function getChatThread(db: DatabaseSync, threadId: number): ChatThread | null {
@@ -414,12 +452,14 @@ export function listChatThreads(db: DatabaseSync, sessionId: number, warnings?: 
 }
 
 export function addChatMessage(db: DatabaseSync, threadId: number, m: ChatMessage): void {
-  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  const runJson: RunJson | null = m.run || m.runResult ? { ...(m.run ? { run: m.run } : {}), ...(m.runResult ? { runResult: m.runResult } : {}) } : null
+  db.prepare('INSERT INTO chat_messages (thread_id, role, text, at, anchor_json, actions_json, tools_json, segments_json, comment_refs_json, run_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(threadId, m.role, m.text, m.at, m.anchor ? JSON.stringify(m.anchor) : null,
       m.actions && m.actions.length ? JSON.stringify(m.actions) : null,
       m.tools && m.tools.length ? JSON.stringify(m.tools) : null,
       m.segments && m.segments.length ? JSON.stringify(m.segments) : null,
-      m.commentRefs && m.commentRefs.length ? JSON.stringify(m.commentRefs) : null)
+      m.commentRefs && m.commentRefs.length ? JSON.stringify(m.commentRefs) : null,
+      runJson ? JSON.stringify(runJson) : null)
 }
 
 /** Persist a resolution onto a suggest_viewed action in a thread's message history.
