@@ -266,7 +266,12 @@ export default function Review() {
           <RefPicker value={base} onChange={(v) => void store.setSessionBase(v)} repo={state.repo} relativeTo={base || branch || 'HEAD'} label="base ref"
             loc={loaded.baseLoc} />
           <span className="rv-arrow" title="base ← compare (changes this branch adds over the base)">←</span>
-          <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { compare: v }) }} repo={state.repo} relativeTo={branch || 'HEAD'} label="compare ref" prominent
+          {/* Both sides of the pair, always: openReview falls back to the repo's
+              DEFAULT base for a missing one, so switching compare with only
+              `{ compare }` would silently drop a base the reviewer picked (v1.2.0 →
+              main) and land on a different diff, URL, and possibly session. The base
+              picker keeps the compare side the same way, via setSessionBase. */}
+          <RefPicker value={branch} onChange={(v) => { if (state.repo) void store.openReview(state.repo, { base: loaded.session.pair.base.symbol, compare: v }) }} repo={state.repo} relativeTo={branch || 'HEAD'} label="compare ref" prominent
             loc={loaded.compareLoc} />
         </span>
         <span className="grow"></span>
