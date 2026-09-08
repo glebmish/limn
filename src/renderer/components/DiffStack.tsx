@@ -136,8 +136,13 @@ export function DiffStack({ f, stack, differs, defaultStack, fileCount, shas, si
     () => f.hunks.some((h) => h.lines.some((l) => l.origin === 'staged' || l.origin === 'unstaged')), [f])
   const spreadTitle = `Use for all ${fileCount} files — every other file shows ${describeStack(defaultStack)}`
   const resetTitle = `Back to the review's default — ${describeStack(defaultStack)}`
+  // The peel plays on `.dcols`/`.gfile-diff` inside this root (review.css), so its end
+  // event is caught below as it bubbles — which means every OTHER animation under the
+  // strip arrives there too, the picker menu's mount fade included. Naming the
+  // animation is what keeps opening a picker mid-peel from cutting the peel short;
+  // `e.target === e.currentTarget` would never match, the peel being a descendant's.
   return (
-    <div className={cls} data-cols={nCols} onAnimationEnd={() => setPeel(false)}>
+    <div className={cls} data-cols={nCols} onAnimationEnd={(e) => { if (e.animationName === 'peel') setPeel(false) }}>
       {/* the strip: − (level with the captions), the tab, ✓ — each sticks to the
           viewport while the file is on screen, so a long file never hides them */}
       <div className="stk-strip">

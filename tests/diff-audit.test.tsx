@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FileDiff } from '../src/shared/types'
@@ -231,5 +232,31 @@ describe('what a store write costs the diff subtree (#97)', () => {
     expect(sliceFor(file, 'base')).toBe(hunks)
     expect(hunkGaps(sliceFor(file, 'base')).map((g) => g.key))
       .toEqual(hunkGaps(hunks).map((g) => g.key))
+  })
+})
+
+describe('the peel animation and the picker fade share one bubbling handler (#96)', () => {
+  // The peel's end event is caught on the `.stk` root as it bubbles up from `.dcols`
+  // / `.gfile-diff`, so every other animation under the strip — the picker menu's
+  // mount fade among them — is delivered there too. The guard names the animation,
+  // which only holds while the name in the CSS and the name in the guard agree; a
+  // static render can't fire an animation event, so pin the coupling itself.
+  const src = (p: string): string => readFileSync(new URL(p, import.meta.url), 'utf8')
+  const css = src('../src/renderer/styles/review.css')
+  const stack = src('../src/renderer/components/DiffStack.tsx')
+
+  it('resets the peel only for the peel', () => {
+    expect(css).toContain('@keyframes peel{')
+    expect(stack).toContain("if (e.animationName === 'peel') setPeel(false)")
+  })
+
+  it('runs the peel on the strip\'s children, not the element that listens', () => {
+    // …which is why the guard cannot be `e.target === e.currentTarget`
+    expect(css).toContain('.stk.peel .dcols,.stk.peel .gfile-diff{animation:peel')
+  })
+
+  it('gives the menu its own mount animation, so opening one no longer ends a peel', () => {
+    expect(css).toContain('animation:fb-menu-in')
+    expect(css).toContain('@keyframes fb-menu-in{')
   })
 })
