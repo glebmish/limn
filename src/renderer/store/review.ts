@@ -3,6 +3,7 @@ import { withUserReply } from '../../shared/commentReply'
 import type { StateCreator } from 'zustand'
 import type { LoadedReview } from '../../shared/ipc'
 import type { AgentWriteCapability, Comment, CommentAnchor, DriftSummary } from '../../shared/types'
+import { refIdentity } from '../../shared/types'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { useStore } from './index'
@@ -11,8 +12,20 @@ import { loadRepoContext } from './repo'
 
 // in-flight materialize, so concurrent first-writes don't mint duplicate sessions.
 // Module-scope single-flight guard: promoted out of the store factory so it survives
-// the slice split while keeping its exact set-before-await / clear-in-finally semantics.
-let materializing: Promise<number | null> | null = null
+// the slice split while keeping its exact set-before-await / clear-in-finally
+// semantics. KEYED by the review it belongs to: collapsing two first-writes is only
+// correct when they belong to the same review — a write on the review the reviewer
+// navigated to must mint its own session, not persist itself onto the one they left.
+let materializing: { key: string; promise: Promise<number | null> } | null = null
+
+/** Identity of the review a materialize belongs to: its repo plus its ref pair.
+ *  Re-read when the flight resolves, so a materialize that lands after the reviewer
+ *  navigated away can tell it no longer owns the surface. */
+function reviewKey(repo: string | null, loaded: LoadedReview | null): string | null {
+  if (!repo || !loaded) return null
+  const { base, compare } = loaded.session.pair
+  return `${repo}\u0000${refIdentity(base)}\u0000${refIdentity(compare)}`
+}
 
 // The shared apply step for the comment CRUD actions: swap the loaded review's
 // comment list for the persisted one. Slice-internal — promoted to a module fn
@@ -139,17 +152,26 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
   async materialize() {
     const existing = get().sessionId
     if (existing != null) return existing
-    if (materializing) return materializing
     const { repo, loaded, agent, transientFresh } = get()
-    if (!repo || !loaded) return null
+    const key = reviewKey(repo, loaded)
+    if (!repo || !loaded || !key) return null
+    // collapse only with a flight for the SAME review; a write on a different one
+    // gets its own session rather than being persisted onto the review left behind.
+    if (materializing?.key === key) return materializing.promise
     const pair = loaded.session.pair
     const reviewAgent = loaded.session.agent ?? agent
-    materializing = (async () => {
+    const promise = (async () => {
       try {
         // startSession (non-fresh) reuses an existing pair-session, so this never
         // duplicates; `transientFresh` forces a brand-new one for "New review".
         const { sessionId } = await api().startSession(repo, pair.base.symbol, pair.compare.symbol, reviewAgent, transientFresh)
         const real = await api().loadSession(sessionId)
+        // Take over the surface only if the store still shows THIS review: the
+        // reviewer can navigate away (deep link, sidebar, base picker) across the two
+        // round trips above, and restoring the review they left would swap the screen
+        // under them — and point the URL upgrade at the abandoned session. The caller
+        // still gets its id, so the write that triggered this persists where it belongs.
+        if (reviewKey(get().repo, get().loaded) !== key) return sessionId
         // swap in the persisted shell but KEEP the store's in-memory viewed/reviewed
         // marks — the write that triggered materialize set them just before this.
         // viewedAt lives at the top level (survives the swap); fileExcluded rides on
@@ -163,13 +185,18 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
         void loadRepoContext(repo)
         return sessionId
       } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) })
+        // same rule for the banner: don't strip-error the review now on screen with a
+        // failure that belongs to the one the reviewer already left.
+        if (reviewKey(get().repo, get().loaded) === key) set({ error: err instanceof Error ? err.message : String(err) })
         return null
       } finally {
-        materializing = null
+        // only clear our OWN flight — a later materialize for another review owns the
+        // slot by then, and wiping it would let a duplicate session through.
+        if (materializing?.key === key) materializing = null
       }
     })()
-    return materializing
+    materializing = { key, promise }
+    return promise
   },
 
   async copyReviewFrom(sourceSessionId, sourceIteration) {

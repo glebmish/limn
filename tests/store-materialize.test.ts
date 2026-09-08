@@ -28,7 +28,8 @@ function reset(): void {
 
 describe('materialize persist chain', () => {
   beforeEach(() => {
-    startSession.mockClear(); loadSession.mockClear(); saveUiState.mockClear()
+    // mockReset (not mockClear) so a queued *Once implementation can't leak forward
+    startSession.mockReset(); loadSession.mockReset(); saveUiState.mockClear()
     startSession.mockResolvedValue({ sessionId: 42 })
     loadSession.mockResolvedValue(makeLoaded())
     reset()
@@ -72,6 +73,40 @@ describe('materialize persist chain', () => {
     const id = await useStore.getState().materialize()
     expect(id).toBe(99)
     expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('a materialize that lands after the reviewer navigated away leaves the new review alone', async () => {
+    const abandoned = makeLoaded({ compare: 'feat-a' })
+    const opened = makeLoaded({ compare: 'feat-b' })
+    useStore.setState({ loaded: abandoned })
+    let release!: (v: { sessionId: number }) => void
+    startSession.mockReturnValueOnce(new Promise<{ sessionId: number }>((r) => { release = r }))
+    const pending = useStore.getState().materialize()
+    // the reviewer opens a different review while startSession is still in flight
+    useStore.setState({ loaded: opened, sessionId: null })
+    release({ sessionId: 42 })
+    // the caller still gets the id it needs to persist its write…
+    await expect(pending).resolves.toBe(42)
+    await flush()
+    // …but the abandoned review is not restored over the one now on screen
+    expect(useStore.getState().loaded).toBe(opened)
+    expect(useStore.getState().sessionId).toBeNull()
+  })
+
+  it('a first write on a different review mints its own session instead of riding the abandoned flight', async () => {
+    useStore.setState({ loaded: makeLoaded({ compare: 'feat-a' }) })
+    let release!: (v: { sessionId: number }) => void
+    startSession.mockReturnValueOnce(new Promise<{ sessionId: number }>((r) => { release = r }))
+    const first = useStore.getState().materialize()
+    useStore.setState({ loaded: makeLoaded({ compare: 'feat-b' }), sessionId: null })
+    startSession.mockResolvedValueOnce({ sessionId: 43 })
+    const second = useStore.getState().materialize()
+    release({ sessionId: 42 })
+    expect(await first).toBe(42)
+    expect(await second).toBe(43)
+    expect(startSession).toHaveBeenCalledTimes(2)
+    expect(startSession).toHaveBeenNthCalledWith(1, '/repo', 'main', 'feat-a', { engine: 'claude' }, false)
+    expect(startSession).toHaveBeenNthCalledWith(2, '/repo', 'main', 'feat-b', { engine: 'claude' }, false)
   })
 
   it('returns null on failure and surfaces the error message', async () => {
