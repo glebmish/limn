@@ -121,6 +121,18 @@ describe('dashboard cursor restore (finding 113)', () => {
     expect(html).toContain('gamma')
   })
 
+  it('counts rows in the filtered list, not from the top of it', () => {
+    // 'ta' keeps beta and zeta, dropping the two rows in between: the remembered repo
+    // sits at 1 in the list on screen and at 3 in the unfiltered index — so this
+    // pins the computation, not a coincidence with 0.
+    seedDashboard(['/w/one', '/w/beta', '/w/two', '/w/zeta'], 'ta', '/w/zeta')
+
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    expect(useStore.getState().sel).toBe(1)
+  })
+
   it('still restores the row with no filter typed', () => {
     seedDashboard(REPOS, '', '/w/gamma')
 
