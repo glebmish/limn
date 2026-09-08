@@ -157,14 +157,26 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
 
 export async function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): Promise<void> {
   const store = useStore.getState()
-  // create the review thread (with its opening user turn) and select it BEFORE the
-  // agent runs, so generation streams into a real, persisted chat from the first
-  // moment — the live stream renders through the normal chat path.
-  const threadId = await api().beginReview(sessionId, agent, update, steer)
-  await store.reload()              // pull the new review thread into loaded state
-  store.switchChat(threadId)        // select it (drawer shows the live stream if open)
-  store.startOp('review', opId, threadId, true) // generation always takes the exclusive lane
-  void api().generate(sessionId, agent, opId, threadId, steer, update)
+  try {
+    // create the review thread (with its opening user turn) and select it BEFORE the
+    // agent runs, so generation streams into a real, persisted chat from the first
+    // moment — the live stream renders through the normal chat path.
+    const threadId = await api().beginReview(sessionId, agent, update, steer)
+    await store.reload()              // pull the new review thread into loaded state
+    store.switchChat(threadId)        // select it (drawer shows the live stream if open)
+    store.startOp('review', opId, threadId, true) // generation always takes the exclusive lane
+    // Fire-and-forget, but never silently: the server runs its generate preflight
+    // BEFORE registering the op, so a rejection here means no op:result will ever
+    // arrive. Retire the op ourselves or the strip spins forever and the exclusive
+    // lane stays blocked for every other generate/batch/rebase.
+    Promise.resolve(api().generate(sessionId, agent, opId, threadId, steer, update)).catch((err: unknown) => {
+      useStore.getState().finishOp(opId, 'failed', err instanceof Error ? err.message : String(err))
+    })
+  } catch (err) {
+    // every sibling lifecycle action reports through the error strip; the generate
+    // entry path used to swallow a failed beginReview as a dead button click.
+    useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 /** Materialize the (possibly transient) review, then run the agent with the chosen
