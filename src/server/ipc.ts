@@ -235,22 +235,13 @@ function stopWatch(): void {
 }
 
 /** Call the watch down ONLY when it is armed on this target. Every teardown site is a
- *  per-session event (archive, merge, mark-merged) while the watcher is a single
+ *  per-session event (archive, merge, mark-merged) — or a review that has nothing of
+ *  its own to watch (merged, commit-kind, missing ref) — while the watcher is a single
  *  module-global slot shared by every client: a bare `stopWatch()` there kills the
- *  watch another tab's open review is relying on (finding 24). */
+ *  watch another tab's open review is relying on (finding 24). Only `startWatch`,
+ *  which actually takes the slot, may displace another target's watch. */
 function stopWatchFor(repo: string, branch: string): void {
   if (watcher && watcher.repo === repo && watcher.branch === branch) stopWatch()
-}
-
-/** Release the watch slot for a client that has nothing to watch (a merged or
- *  commit-kind review, a missing ref). Silent when the armed watch is this review's
- *  own; a watch on ANOTHER target is displaced exactly as `startWatch` displaces one,
- *  so the poll always stops — leaving it armed would orphan a 500ms git poll nobody
- *  reads — and the displaced tab is told rather than silently disarmed. */
-function releaseWatch(repo: string, branch: string): void {
-  if (!watcher) return
-  if (watcher.repo === repo && watcher.branch === branch) stopWatch()
-  else displaceWatch()
 }
 
 /** Call the armed watch down and tell whoever was reading it, by broadcasting a
@@ -683,9 +674,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && !loaded.state.merged && session.pair.compare.kind === 'branch') {
       void startWatch(session.repo, session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      // nothing to watch for THIS review — release the slot, announcing the takeover
-      // when it holds another client's target
-      releaseWatch(session.repo, session.pair.compare.symbol)
+      // nothing to watch for THIS review — call down its own watch (a reload of a
+      // review that just went merged), but never another client's: this review takes
+      // no watch, so displacing one would orphan a tab that IS reading the poll.
+      stopWatchFor(session.repo, session.pair.compare.symbol)
     }
     return loaded
   })
@@ -698,7 +690,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (!loaded.refMissing && loaded.session.pair.compare.kind === 'branch') {
       void startWatch(repo, loaded.session.pair.compare.symbol, loaded.skeleton.headSha)
     } else {
-      releaseWatch(repo, loaded.session.pair.compare.symbol)
+      // nothing to watch here — see loadSession: own watch only, never another's
+      stopWatchFor(repo, loaded.session.pair.compare.symbol)
     }
     return loaded
   })

@@ -119,7 +119,7 @@ describe('the one global branch watch survives unrelated sessions (finding 24)',
     expect(await waitForChange(h, watched.dir, 'feature')).toBeTruthy()
   })
 
-  it('opening a commit-kind review releases the branch watch instead of orphaning it', async () => {
+  it('opening a commit-kind review leaves another client\'s live branch watch alone', async () => {
     const h = setup()
     const fx = makeFixtureRepo()
     const branchId = createSession(h.db, fx.dir, await pairFor(fx.dir, 'main', 'feature'), agent).id
@@ -127,13 +127,37 @@ describe('the one global branch watch survives unrelated sessions (finding 24)',
       base: { kind: 'branch', symbol: 'main', anchorSha: fx.shas.base },
       compare: { kind: 'commit', symbol: fx.shas.head.slice(0, 7), anchorSha: fx.shas.head }
     }, agent).id
-    await h.handlers.get('loadSession')!(branchId) // arms the watch on feature
+    await h.handlers.get('loadSession')!(branchId) // client A arms the watch on feature
 
-    // nothing to watch for a commit-kind review: the armed watch must come down…
+    // client B has nothing of its own to watch — but A's watch is not B's to take,
+    // and "another open review took the live watch" would be a lie: B took nothing.
     await h.handlers.get('loadSession')!(commitId)
-    expect(h.repoChanged.find((m) => m.branch === 'feature')?.watchStopped?.reason).toBeTruthy()
+    expect(h.repoChanged.find((m) => m.branch === 'feature')?.watchStopped).toBeUndefined()
 
-    // …and stay down: no poll survives to broadcast the branch moving
+    // A's poll is still live: the branch moving still reaches it
+    fixtureWrite(fx.dir, 'src/z.ts', 'export const z = 1\n')
+    fixtureGit(fx.dir, 'add', '-A')
+    fixtureGit(fx.dir, 'commit', '-m', 'outside hands')
+    expect(await waitForChange(h, fx.dir, 'feature')).toBeTruthy()
+  })
+
+  it('reloading a review that went merged releases its OWN watch', async () => {
+    const h = setup()
+    const fx = makeFixtureRepo()
+    const sessionId = createSession(h.db, fx.dir, await pairFor(fx.dir, 'main', 'feature'), agent).id
+    await h.handlers.get('loadSession')!(sessionId) // arms the watch on feature
+
+    // the same review, now merged: nothing left to watch and the armed watch is its
+    // own, so it comes down rather than polling git every 500ms for nobody.
+    markSessionMerged(h.db, sessionId, {
+      strategy: 'squash', mergedSha: 'f'.repeat(40), reviewedTipSha: fx.shas.head,
+      baseSymbol: 'main', baseShaBefore: fx.shas.base, mergedAt: new Date().toISOString(),
+      overrides: [],
+      cleanup: { archived: false, branchDeleted: false, worktreeRemoved: false, retargeted: [], failures: [] },
+      dependents: []
+    })
+    await h.handlers.get('loadSession')!(sessionId)
+
     const before = h.repoChanged.length
     fixtureWrite(fx.dir, 'src/z.ts', 'export const z = 1\n')
     fixtureGit(fx.dir, 'add', '-A')
