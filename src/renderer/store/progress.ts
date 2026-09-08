@@ -36,6 +36,15 @@ const persistExcluded = async (): Promise<void> => {
   void api().saveUiState(id, { fileExcluded: useStore.getState().loaded?.state.fileExcluded ?? {} })
 }
 
+/** Drop a focus hold when it sits on one of the files just marked viewed — a focus
+ *  target force-shows its file's body and force-opens its section, so a Viewed tick
+ *  on the very file (or a section containing it) you jumped to would otherwise
+ *  leave it force-open even though it now reads done. Shared by toggleViewed
+ *  (single file) and setSectionViewed (a section's files). */
+function releaseHold(ft: { file?: string; sectionId?: string } | null, paths: string[]): typeof ft {
+  return ft?.file && paths.includes(ft.file) ? null : ft
+}
+
 /** The review-progress domain: viewed marks, section disclosure (collapsed/expanded),
  *  in-review navigation (cur/curFile/focusTarget), the artifact-doc overlay, and the
  *  global diff baseline. Its persisted mutations funnel through the promoted helpers
@@ -107,10 +116,8 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     if (currentlyViewed) delete viewedAt[file]
     else viewedAt[file] = viewMarkFor(get().loaded, file)
     const expanded = collapseCompletedSections(get().loaded, viewedAt, get().expanded)
-    // the tick ends the focus hold on this file: a focus target force-shows its
-    // file's body and force-opens its section, so the tick on the very file you
-    // jumped to would otherwise neither fold it nor let its section complete.
-    const focusTarget = get().focusTarget?.file === file ? null : get().focusTarget
+    // the tick ends the focus hold on this file — see releaseHold's doc comment.
+    const focusTarget = releaseHold(get().focusTarget, [file])
     set({ viewedAt, expanded, focusTarget })
     persistUi()
   },
@@ -138,12 +145,8 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     // drop the force-open override so the now-complete section folds away.
     const expanded = new Set(get().expanded)
     if (viewed) expanded.delete(sectionId)
-    // same as toggleViewed's hold-release: a focus target force-shows its file's
-    // body and force-opens its section, so ticking a section that holds the
-    // jumped-to file would otherwise leave the section (and that file's body)
-    // force-open even though it now reads done.
-    const ft = get().focusTarget
-    const focusTarget = viewed && ft?.file && paths.includes(ft.file) ? null : ft
+    // same hold-release as toggleViewed — see releaseHold's doc comment.
+    const focusTarget = viewed ? releaseHold(get().focusTarget, paths) : get().focusTarget
     set({ viewedAt, expanded, focusTarget })
     persistUi()
   },

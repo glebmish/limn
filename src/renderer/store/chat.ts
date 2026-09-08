@@ -58,12 +58,13 @@ function pickReviewThread(chats: ChatThread[], engineSessionId?: string): ChatTh
 /** Mint a chat thread with the given agent when a review-scoped send found no
  *  review thread to target — older/generated sessions can predate persisted
  *  review threads. Materializes the session first if needed. Sets the error on
- *  failure. Shared by followUp and sendRebase. */
-async function mintReviewThread(agent: AgentRef | undefined): Promise<number | null> {
+ *  failure. Shared by followUp and sendRebase, both of which already resolve the
+ *  agent (loaded state's, falling back to the store's own — never undefined). */
+async function mintReviewThread(agent: AgentRef): Promise<number | null> {
   const sessionId = useStore.getState().sessionId ?? await useStore.getState().materialize()
   if (sessionId == null) return null
   try {
-    const chats = await api().createChat(sessionId, agent ?? useStore.getState().agent)
+    const chats = await api().createChat(sessionId, agent)
     setChats(chats)
     return chats[chats.length - 1]?.id ?? null
   } catch (err) {
@@ -328,8 +329,6 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     void (async () => {
       const current = get().loaded
       if (!current) return
-      // same review-thread pick as followUp: the thread that authored the latest
-      // iteration, else the newest review thread, else mint one with the review agent.
       const review = pickReviewThread(current.state.chats, current.state.latestIteration?.sessionId)
       let targetId = review?.id
       if (targetId == null) {
