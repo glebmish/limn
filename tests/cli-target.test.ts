@@ -27,6 +27,16 @@ describe('serviceTarget', () => {
     expect(serviceTarget(6000).url).toBe('http://limn.localhost:6000')
   })
 
+  it('falls back to the default port when LIMN_PORT is out of the 0-65535 range, same as garbage input', () => {
+    process.env.LIMN_PORT = '99999'
+    expect(serviceTarget().port).toBe(5466)
+    process.env.LIMN_PORT = '65536'
+    expect(serviceTarget().port).toBe(5466)
+    // the boundary itself is still honoured
+    process.env.LIMN_PORT = '65535'
+    expect(serviceTarget().port).toBe(65535)
+  })
+
   it('uses the real host for a non-loopback bind (Tailscale) rather than limn.localhost', () => {
     process.env.LIMN_WEB_HOST = 'my-box.tailnet.ts.net'
     expect(serviceTarget()).toEqual({

@@ -5,7 +5,7 @@ import { CANONICAL_HOST, hostForUrl, isLoopbackName } from '../server/guard.js'
 export function resolvePort(explicit?: number): number {
   if (explicit !== undefined) return explicit
   const env = Number(process.env.LIMN_PORT)
-  return Number.isInteger(env) && env > 0 ? env : DEFAULT_PORT
+  return Number.isInteger(env) && env > 0 && env <= 65535 ? env : DEFAULT_PORT
 }
 
 /** Where *this shell* thinks the Limn service is. Every CLI surface that talks to the
