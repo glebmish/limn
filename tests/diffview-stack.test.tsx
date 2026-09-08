@@ -9,12 +9,12 @@ import { makeLoaded, makeFile } from './helpers/loaded'
 import type { FileDiff } from '../src/shared/types'
 import { UNIFIED, type Stack } from '../src/shared/diffStack'
 import { pickerOptions, sheetsFor, sinceLabel } from '../src/renderer/lib/stack'
+import { initialStateOf } from './helpers/store'
 
-// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
-// review-sidebar.test.tsx) — seed both that object and the live state so the
-// component sees the same review either way it reads.
+// seed both the initial-state object (see tests/helpers/store.ts) and the live
+// state so the component sees the same review either way it reads.
 type State = ReturnType<typeof useStore.getState>
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 function seed(patch: Partial<State>): void {
   Object.assign(initial(), patch)
   useStore.setState(patch)

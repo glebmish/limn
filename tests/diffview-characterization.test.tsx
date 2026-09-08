@@ -5,12 +5,12 @@ import type { LoadedReview } from '../src/shared/ipc'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { useStore } from '../src/renderer/store'
 import { makeLoaded, makeFile } from './helpers/loaded'
+import { initialStateOf } from './helpers/store'
 
-// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
-// section-viewed-a11y.test.tsx). DiffView reads `loaded`, `viewedAt`, `diffStack` — seed
-// them by mutating the initial state object the render observes; reset() restores it.
-type State = ReturnType<typeof useStore.getState>
-const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+// DiffView reads `loaded`, `viewedAt`, `diffStack` — seed them by mutating the
+// initial state object the render observes (see tests/helpers/store.ts);
+// reset() restores it.
+const initial = () => initialStateOf(useStore)
 
 function seed(loaded: LoadedReview, opts: { viewedAt?: Record<string, ViewMark>; against?: 'base' | 'approved' | 'viewed' } = {}): void {
   const init = initial()

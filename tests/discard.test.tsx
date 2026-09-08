@@ -9,9 +9,9 @@ import { UNIFIED } from '../src/shared/diffStack'
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded } from './helpers/loaded'
+import { initialStateOf } from './helpers/store'
 
-type State = ReturnType<typeof useStore.getState>
-const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = () => initialStateOf(useStore)
 
 // merged-diff file: one committed add, one staged add, one unstaged −/+ pair
 const file: FileDiff = {

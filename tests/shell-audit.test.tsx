@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Comment } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
+import { initialStateOf } from './helpers/store'
 
 // The seam: ArtifactDoc's own import of react-markdown. React compares element types
 // by reference, so the `components` map ArtifactDoc hands to ReactMarkdown IS the
@@ -21,7 +22,7 @@ const { ArtifactDoc } = await import('../src/renderer/components/ArtifactDoc')
 const { useStore } = await import('../src/renderer/store')
 
 type State = ReturnType<typeof useStore.getState>
-const initialState = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initialState = (): State => initialStateOf(useStore)
 function seedLoaded(loaded: LoadedReview | null): void {
   ;(initialState() as { loaded: LoadedReview | null }).loaded = loaded
 }

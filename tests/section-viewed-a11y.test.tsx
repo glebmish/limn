@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { FileDiff, Section, ViewMark } from '../src/shared/types'
 import { SectionView } from '../src/renderer/components/SectionView'
 import { useStore } from '../src/renderer/store'
+import { initialStateOf } from './helpers/store'
 
 // minimal FileDiff: viewed-state derivation reads `path`/`fileHash`; DiffView needs a
 // renderable hunk shape when the section body is open.
@@ -20,11 +21,10 @@ function file(path: string): FileDiff {
 const vm = (sha = 's'): ViewMark => ({ sha, hash: 'h' })
 const section = (name: string): Section => ({ id: 's1', name, narration: [] } as unknown as Section)
 
-// zustand v5's `useStore` server snapshot reads `getInitialState()` (react.mjs), so
-// `renderToStaticMarkup` sees the INITIAL store state and ignores `setState`. Seed the
-// state SectionView reads by mutating the initial `viewedAt`/`collapsed` objects (the
-// same references SSR observes); `reset()` restores them between cases.
-const initial = () => (useStore as unknown as { getInitialState: () => ReturnType<typeof useStore.getState> }).getInitialState()
+// Seed the state SectionView reads by mutating the initial `viewedAt`/`collapsed`
+// objects (the same references SSR observes, see tests/helpers/store.ts); `reset()`
+// restores them between cases.
+const initial = () => initialStateOf(useStore)
 function seedViewed(marks: Record<string, ViewMark>): void {
   Object.assign(initial().viewedAt, marks)
 }

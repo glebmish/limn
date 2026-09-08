@@ -4,12 +4,10 @@ import { ArtifactDoc } from '../src/renderer/components/ArtifactDoc'
 import { useStore } from '../src/renderer/store'
 import type { Comment } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
+import { initialStateOf } from './helpers/store'
 
-// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot, so the
-// component's store reads are seeded by mutating that object (same helper shape as
-// action-chips.test.tsx / diffview-characterization.test.tsx).
 type State = ReturnType<typeof useStore.getState>
-const initialState = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initialState = (): State => initialStateOf(useStore)
 function seedLoaded(loaded: LoadedReview | null): void {
   ;(initialState() as { loaded: LoadedReview | null }).loaded = loaded
 }

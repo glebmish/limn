@@ -3,11 +3,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SettingsDialog } from '../src/renderer/components/SettingsDialog'
 import { useStore } from '../src/renderer/store'
 import type { AgentRef } from '../src/shared/types'
+import { initialStateOf } from './helpers/store'
 
-// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot (see
-// review-sidebar.test.tsx) — seed `defaultAgent` by mutating that object directly.
+// seed `defaultAgent` by mutating the initial state object directly (see
+// tests/helpers/store.ts).
 type State = ReturnType<typeof useStore.getState>
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 function seedDefaultAgent(a: AgentRef): void {
   ;(initial() as unknown as { defaultAgent: AgentRef }).defaultAgent = a
 }

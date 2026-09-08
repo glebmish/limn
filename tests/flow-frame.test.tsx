@@ -10,11 +10,9 @@ import { DiffView } from '../src/renderer/components/DiffView'
 import { aliveEffect } from '../src/renderer/components/FlowFrame'
 import { makeLoaded } from './helpers/loaded'
 import { saveChordLabel } from '../src/renderer/lib/platform'
+import { initialStateOf } from './helpers/store'
 
-// zustand v5's hooks read getInitialState() for the SSR snapshot — seed by mutating
-// the initial state object, exactly as diffview-characterization.test.tsx does.
-type State = ReturnType<typeof useStore.getState>
-const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = () => initialStateOf(useStore)
 
 const file: FileDiff = {
   path: 'src/a.ts', status: 'modified', binary: false, add: 1, del: 1,

@@ -8,9 +8,9 @@ import type { LoadedReview } from '../src/shared/ipc'
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded } from './helpers/loaded'
+import { initialStateOf } from './helpers/store'
 
-type State = ReturnType<typeof useStore.getState>
-const initial = () => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = () => initialStateOf(useStore)
 
 const file: FileDiff = {
   path: 'src/a.ts', status: 'modified', binary: false, add: 1, del: 0,

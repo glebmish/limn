@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LoadedReview } from '../src/shared/ipc'
 import type { RepoIndexEntry } from '../src/shared/types'
+import { initialStateOf } from './helpers/store'
 
 // The header's two ref pickers are the seam under test: React props are the only
 // place an onChange handler exists without a DOM, so the picker is replaced by a
@@ -45,9 +46,7 @@ const { default: Dashboard } = await import('../src/renderer/screens/Dashboard')
 const { makeLoaded } = await import('./helpers/loaded')
 
 type State = ReturnType<typeof useStore.getState>
-// renderToStaticMarkup reads zustand through useSyncExternalStore's SERVER snapshot,
-// which is the store's initial state — so seeding has to mutate that object.
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 
 function seed(over: { base?: string; compare?: string; annotated?: boolean; dirty?: boolean } = {}): { openReview: ReturnType<typeof vi.fn> } {
   const loaded = makeLoaded({

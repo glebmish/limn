@@ -10,6 +10,7 @@ const dashboard = vi.fn(async () => ({ repos: [] as RepoIndexEntry[], recents: [
 
 import { useStore } from '../src/renderer/store'
 import Dashboard, { forgetPrompt } from '../src/renderer/screens/Dashboard'
+import { initialStateOf } from './helpers/store'
 
 const entry = (path: string, sessionCount = 0): RepoIndexEntry => ({
   path, current: 'main', defaultBase: 'main', worktrees: [],
@@ -17,7 +18,7 @@ const entry = (path: string, sessionCount = 0): RepoIndexEntry => ({
 })
 
 type State = ReturnType<typeof useStore.getState>
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 
 describe('forgetting a repo from the dashboard', () => {
   beforeEach(() => {

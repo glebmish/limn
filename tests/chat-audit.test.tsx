@@ -12,6 +12,7 @@ import { useStore } from '../src/renderer/store'
 import type { OpState } from '../src/renderer/store'
 import type { LoadedReview } from '../src/shared/ipc'
 import type { AgentAction, Comment, RefPair, ReviewAnnotations } from '../src/shared/types'
+import { initialStateOf } from './helpers/store'
 
 // Finding 107: ACTION_TOOL_KIND (src/shared/toolcalls.ts) hand-mirrors the tool→
 // action-kind pairing that src/server/engines/tools.ts states authoritatively.
@@ -105,13 +106,8 @@ describe('GenPanel primary CTAs disable while another exclusive op runs (#108)',
     startedAt: 0, outcome: null, errorCode: null, answeredApprovals: new Set(), exclusive: true, ...over
   })
 
-  // GenPanel reads the store via bare `useStore()` (no selector). Under
-  // renderToStaticMarkup, React's useSyncExternalStore takes zustand's
-  // *server* snapshot (`getInitialState()`), not a `setState`-mutated one — so the
-  // fixture must mutate the initial-state object in place, the same pattern
-  // tests/dashboard-forget-repo.test.tsx uses for the same reason.
   type StoreState = ReturnType<typeof useStore.getState>
-  const initial = (): StoreState => (useStore as unknown as { getInitialState: () => StoreState }).getInitialState()
+  const initial = (): StoreState => initialStateOf(useStore)
 
   afterEach(() => {
     initial().ops = {}

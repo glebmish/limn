@@ -8,6 +8,7 @@ import { DiffView } from '../src/renderer/components/DiffView'
 import { railExplanation } from '../src/renderer/lib/railExplanation'
 import { makeLoaded, makeFile } from './helpers/loaded'
 import type { DiffLine, FileDiff } from '../src/shared/types'
+import { initialStateOf } from './helpers/store'
 
 const line = (over: Partial<DiffLine> = {}): DiffLine => ({ old: null, new: 1, kind: 'add', text: 'x', ...over })
 
@@ -36,9 +37,8 @@ describe('what a rail says when you point at it', () => {
   })
 })
 
-// zustand v5's bare `useStore()` reads getInitialState() for the SSR snapshot.
 type State = ReturnType<typeof useStore.getState>
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 
 function render(l: DiffLine): string {
   const f: FileDiff = makeFile({

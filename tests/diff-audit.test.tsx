@@ -14,9 +14,10 @@ import { UNIFIED, type Stack } from '../src/shared/diffStack'
 import type { EngineEvent, FileAt } from '../src/shared/types'
 import { sliceFor } from '../src/renderer/lib/stack'
 import { hunkGaps } from '../src/renderer/lib/expand'
+import { initialStateOf } from './helpers/store'
 
 type State = ReturnType<typeof useStore.getState>
-const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
+const initial = (): State => initialStateOf(useStore)
 
 const file: FileDiff = {
   path: 'src/a.ts', status: 'modified', binary: false, add: 2, del: 1,

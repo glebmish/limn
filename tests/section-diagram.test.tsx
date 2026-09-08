@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { Diagram, FileDiff, Section } from '../src/shared/types'
 import { SectionView } from '../src/renderer/components/SectionView'
 import { useStore } from '../src/renderer/store'
+import { initialStateOf } from './helpers/store'
 
 // minimal FileDiff: viewed-state derivation reads `path`/`fileHash`; DiffView needs a
 // renderable hunk shape when the section body is open.
@@ -23,7 +24,7 @@ function section(diagram: Diagram): Section {
 }
 
 function initial() {
-  return (useStore as unknown as { getInitialState: () => ReturnType<typeof useStore.getState> }).getInitialState()
+  return initialStateOf(useStore)
 }
 function reset(): void {
   const init = initial()
