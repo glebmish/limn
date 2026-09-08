@@ -99,6 +99,23 @@ describe('reanchorComments', () => {
     expect((resolved.anchor as { line: number }).line).toBe(5)
   })
 
+  it('freezes a proposal\'s status like a resolution: an unlocatable one is flagged off-diff, never outdated', async () => {
+    const sk = mkSkeleton([])
+    const proposed = mkComment({
+      id: 'p', status: 'proposed', author: 'agent',
+      anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 5, hunkRange: '@@', lineContent: 'gone' }
+    })
+    const dismissed = mkComment({
+      id: 'd', status: 'dismissed', author: 'agent',
+      anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 6, hunkRange: '@@', lineContent: 'gone too' }
+    })
+    await reanchorComments(mkCtx(sk), [proposed, dismissed], [])
+    expect(proposed.status).toBe('proposed')
+    expect(proposed.notInDiff).toBe(true)
+    expect(dismissed.status).toBe('dismissed')
+    expect(dismissed.notInDiff).toBe(true)
+  })
+
   it('re-anchors a resolved comment onto the line its content moved to', async () => {
     const sk = mkSkeleton([
       { old: 1, new: 1, kind: '', text: 'context' },

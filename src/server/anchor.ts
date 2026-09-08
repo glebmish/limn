@@ -508,10 +508,13 @@ export async function reanchorComments(
       if (c.status === 'outdated') c.status = 'queued'
       c.notInDiff = v.offSurface || undefined
       if (v.stamped) c.anchor = v.stamped
-    } else if (c.status === 'resolved') {
-      // Status frozen (see the fn doc): a resolution outlives its anchor. The anchor
-      // is nowhere on the surface, so flag it off-diff rather than leaving it to
-      // render inline at whatever code now occupies its old line number.
+    } else if (c.status === 'resolved' || c.status === 'proposed' || c.status === 'dismissed') {
+      // Status frozen (see the fn doc): a resolution outlives its anchor, and so does
+      // a proposal — an agent finding the reviewer has not triaged must stay
+      // accept/dismiss-able, not silently become 'outdated' (which would drop it
+      // from the proposed count and the triage strip). The anchor is nowhere on the
+      // surface, so flag it off-diff rather than leaving it to render inline at
+      // whatever code now occupies its old line number.
       c.notInDiff = true
     } else {
       c.status = 'outdated'

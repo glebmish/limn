@@ -58,4 +58,11 @@ describe('withUserReply', () => {
     expect(out.status).toBe('queued')
     expect(out.replies).toEqual([{ author: 'user', text: 'agree, fix it', at: 't1' }])
   })
+
+  it('keeps a proposal proposed — a reply marks it touched, it does not accept it', () => {
+    const out = withUserReply(base({ id: 'af-1', author: 'agent', severity: 'note', status: 'proposed', resolution: undefined, source: { actionId: 'a', runId: 'r' } }), 'is this really duplicated?', 't1')
+    expect(out.status).toBe('proposed')
+    expect(out.replies).toEqual([{ author: 'user', text: 'is this really duplicated?', at: 't1' }])
+    expect(out.source).toEqual({ actionId: 'a', runId: 'r' })
+  })
 })

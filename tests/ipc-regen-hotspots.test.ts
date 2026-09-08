@@ -74,7 +74,7 @@ describe('full regeneration — hotspot comments are replaced, not duplicated', 
     await generateFull(h, 'op-1')
     const [minted] = hotspotComments(h)
 
-    // reviewer engaged: re-queued it (status no longer 'resolved')
+    // reviewer engaged: accepted it (status no longer a proposal)
     upsertComment(h.db, h.sessionId, { ...minted, status: 'queued' })
 
     await generateFull(h, 'op-2')
