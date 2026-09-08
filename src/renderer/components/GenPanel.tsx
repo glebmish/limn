@@ -57,6 +57,7 @@ function SteerInput({ value, onChange, onSubmit, disabled }: {
       className="gc-steer"
       type="text"
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => { if (e.key === 'Enter' && !disabled) { e.preventDefault(); onSubmit() } }}
       placeholder="Steer this pass (optional) — e.g. focus on error handling, skip test churn"
@@ -300,7 +301,7 @@ export function GenPanel() {
           </>
         ) : dirtyBehind ? <span className="beh">working tree changed</span> : <span className="ud">up to date</span>}
       </span>
-      <SteerInput value={steer} onChange={setSteer} onSubmit={submitExistingReviewPrimary} disabled={gate.blocked} />
+      <SteerInput value={steer} onChange={setSteer} onSubmit={submitExistingReviewPrimary} disabled={gate.blocked || busy} />
       <div className="gen-acts">
         {needsUpdate ? (
           generatedOutOfHistory ? (

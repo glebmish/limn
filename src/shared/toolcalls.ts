@@ -24,7 +24,7 @@ export function deriveVerb(name: string): ToolVerb {
  *  the renderer states the pairing — it cannot import src/server/engines/tools.ts
  *  (pulls node:sqlite/node:crypto), where each tool's `run` independently returns
  *  its own `action: { kind: '...' }`. `satisfies` ties every value to a real
- *  `AgentAction['kind']` at compile time; tests/chat-audit.test.ts ties the whole
+ *  `AgentAction['kind']` at compile time; tests/chat-audit.test.tsx ties the whole
  *  table to the server's tools at test time, by driving every tool through
  *  `createToolHost` and asserting the emitted action's `kind` against this map (it
  *  already desynced once, silently, in e6688a6 — a hand-mirrored copy with no tie

@@ -169,4 +169,38 @@ describe('GenPanel primary CTAs disable while another exclusive op runs (#108)',
 
     expect(buttonTag(html, 'Retry')).toContain('disabled')
   })
+
+  /** Extract the opening tag of the review's SteerInput (class "gc-steer"), so we
+   *  can inspect its `disabled` attribute the same way buttonTag does for buttons. */
+  function steerInputTag(html: string): string {
+    const at = html.indexOf('class="gc-steer"')
+    if (at < 0) throw new Error('SteerInput not found (class="gc-steer")')
+    const start = html.lastIndexOf('<input', at)
+    const end = html.indexOf('/>', start)
+    return html.slice(start, end)
+  }
+
+  it('the existing-review SteerInput (regenerate/update path) disables while another exclusive op runs', () => {
+    // needsUpdate via dirtyBehind: generatedSha === headSha (not behind, not off
+    // history) but the working tree is dirty. Enter here calls
+    // submitExistingReviewPrimary, which — in the needsUpdate branch — calls
+    // startGenerateNow(steer, true) unconditionally; ops.ts's anyExclusiveRunning
+    // guard swallows that call silently while `busy`, same bug class as the CTAs
+    // above, and the sibling Regenerate/Update review buttons two lines below
+    // already gate on `gate.blocked || busy`.
+    const sha = 'a'.repeat(40)
+    const loaded = {
+      state: { chats: [{ id: 3 }], annotations: {}, reviewedAtSha: sha },
+      skeleton: { headSha: sha },
+      commits: [],
+      dirty: true
+    } as unknown as LoadedReview
+    const ops: Record<string, OpState> = { other: op({ opId: 'other', kind: 'chat', threadId: 99, running: true, exclusive: true }) }
+    initial().ops = ops
+    initial().loaded = loaded
+
+    const html = renderToStaticMarkup(<GenPanel />)
+
+    expect(steerInputTag(html)).toContain('disabled')
+  })
 })
