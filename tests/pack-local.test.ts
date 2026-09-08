@@ -41,7 +41,11 @@ function run(root: string, binDir: string): { status: number; stderr: string } {
     execFileSync(path.join(root, 'scripts', 'pack-local.sh'), [], {
       cwd: root,
       env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
-      encoding: 'utf8'
+      encoding: 'utf8',
+      // Without this, execFileSync inherits the child's stderr, so the script's own
+      // refusal lines print live during `vitest run` instead of staying captured in
+      // the thrown error's `.stderr` (which the assertions below already read).
+      stdio: ['ignore', 'pipe', 'pipe']
     })
     return { status: 0, stderr: '' }
   } catch (err) {

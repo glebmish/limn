@@ -22,6 +22,12 @@ if [ ! -d dist/renderer ] || [ ! -d dist/server ]; then
   echo "pack-local: dist/ is missing — run: npm run build" >&2
   exit 1
 fi
+# `-newer dist` compares against dist/'s own top-level mtime, which only bumps when
+# a direct child of dist/ is added or removed — not on every file written inside an
+# already-existing subdirectory. That's fine here only because `npm run build`
+# always starts from `rm -rf dist` (a clean slate, re-populated from scratch); a
+# build that repopulated dist/ incrementally without removing it first would defeat
+# this check.
 if [ -n "$(find src -type f -newer dist -print -quit)" ]; then
   echo "pack-local: dist/ is older than src/ — run: npm run build" >&2
   exit 1
