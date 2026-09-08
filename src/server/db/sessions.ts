@@ -5,7 +5,10 @@ import type {
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
 } from '../../shared/types.js'
 import { approvalFresh, effectiveRef, refIdentity } from '../../shared/types.js'
-import { normalizeStack, parseStack, type Stack } from '../../shared/diffStack.js'
+// the saveUiState patch shape is the IPC contract itself — this layer persists it,
+// so it must never carry a second, silently divergent copy of the interface.
+import type { UiStatePatch } from '../../shared/ipc.js'
+import { normalizeStack, parseStack } from '../../shared/diffStack.js'
 import { DEFAULT_EXECUTION_MODE, isExecutionMode, LEGACY_EXECUTION_MODE } from '../../shared/executionMode.js'
 import { inTx } from './db.js'
 
@@ -709,15 +712,6 @@ export function unapproveSessionSurface(db: DatabaseSync, sessionId: number, has
 
 export function unapproveSessionSha(db: DatabaseSync, sessionId: number, sha: string): void {
   unapproveSessionSurface(db, sessionId, sha)
-}
-
-export interface UiStatePatch {
-  viewedAt?: Record<string, ViewMark>
-  reviewedSections?: string[]
-  fileExcluded?: Record<string, boolean>
-  engine?: EngineId
-  /** the review's default diff stack (design board 13) */
-  diffStack?: Stack
 }
 
 /** Replace-semantics for the renderer's saveUiState patch (matches the old
