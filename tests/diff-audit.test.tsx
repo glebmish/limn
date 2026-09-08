@@ -6,7 +6,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 ;(globalThis as unknown as { window: unknown }).window = { api: {} }
 
 import { useStore } from '../src/renderer/store'
-import { DiffView } from '../src/renderer/components/DiffView'
+import { DiffView, foldsStillOpen } from '../src/renderer/components/DiffView'
 import { latchFileRead } from '../src/renderer/components/DiffBody'
 import { makeLoaded } from './helpers/loaded'
 import { UNIFIED, type Stack } from '../src/shared/diffStack'
@@ -97,5 +97,33 @@ describe('a file read that lands after the file was refreshed (#98)', () => {
     const stale = spy()
     expect(await latchFileRead(Promise.reject(new Error('boom')), () => false, stale.sink)).toBeNull()
     expect(stale.failed).toBe(0)
+  })
+})
+
+describe('the header\'s fold label after a refresh (#99)', () => {
+  // a refresh (save, pull, re-generate) mints a new FileDiff for the same path, and
+  // the body's fold state resets with it — the header must not go on saying "Collapse"
+  const refreshed: FileDiff = { ...file, hunks: [...file.hunks] }
+
+  it('holds while the file object and the stack are the ones it was opened on', () => {
+    expect(foldsStillOpen({ f: file, stackKey: 'k' }, file, 'k')).toBe(true)
+  })
+
+  it('lapses when the file is refreshed under it — the folds shut, so the label follows', () => {
+    expect(refreshed).toEqual(file)                       // same file, same lines…
+    expect(foldsStillOpen({ f: file, stackKey: 'k' }, refreshed, 'k')).toBe(false) // …new object
+  })
+
+  it('lapses on a stack change, as it always did', () => {
+    expect(foldsStillOpen({ f: file, stackKey: 'k' }, file, 'other')).toBe(false)
+  })
+
+  it('is closed when nothing opened it', () => {
+    expect(foldsStillOpen(null, file, 'k')).toBe(false)
+  })
+
+  it('starts closed, offering Expand all', () => {
+    seed(UNIFIED)
+    expect(renderToStaticMarkup(<DiffView f={file} />)).toContain('aria-label="Expand all folds"')
   })
 })

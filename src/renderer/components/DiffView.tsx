@@ -12,6 +12,17 @@ import { FileHeader, splitPath } from './FileHeader'
 import { DiffBody, type ComposerAt } from './DiffBody'
 import { approvedShaList, sinceBasis } from '../../shared/sinceBasis'
 
+/** Whether the header's Expand-all latch still stands: it was taken on one file
+ *  object and one stack, and the body's folds reset with either. A refresh (a save,
+ *  a pull, a re-generate) mints a fresh `FileDiff` for the same path, so an
+ *  identity check — not a path check — is what keeps the header's word ("Collapse")
+ *  and the rows underneath it from disagreeing. */
+export function foldsStillOpen(
+  open: { f: FileDiff; stackKey: string } | null, f: FileDiff, stackKey: string
+): boolean {
+  return open != null && open.f === f && open.stackKey === stackKey
+}
+
 export function DiffView({ f }: {
   f: FileDiff
 }) {
@@ -37,10 +48,12 @@ export function DiffView({ f }: {
   // manual open/collapse override for this file's diff. null = follow the default
   // (open when unviewed, collapsed when viewed); true/false = explicitly toggled.
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
-  // the header's Expand all / Collapse — every fold in the body at once. Reset with
-  // the baseline: the body's own fold state resets there too (line numbers move).
-  const [foldsOpen, setFoldsOpen] = useState(false)
-  useEffect(() => setFoldsOpen(false), [stackKey])
+  // the header's Expand all / Collapse — every fold in the body at once. Held as the
+  // file/stack it was opened on rather than a bare flag: the body's own fold state
+  // resets with either (line numbers move), so deriving the header's label from the
+  // same identity is what stops it saying "Collapse" over folds that just shut.
+  const [foldsOpenOn, setFoldsOpenOn] = useState<{ f: FileDiff; stackKey: string } | null>(null)
+  const foldsOpen = foldsStillOpen(foldsOpenOn, f, stackKey)
   // the strip's − and caption row stick right under the sticky file header, so they
   // need its real height (a wrapped path or a pill changes it) — measured, not assumed
   const cardRef = useRef<HTMLDivElement>(null)
@@ -97,7 +110,7 @@ export function DiffView({ f }: {
           effectiveOpen={effectiveOpen}
           artifact={artifact}
           foldsOpen={foldsOpen}
-          onToggleFolds={() => setFoldsOpen((o) => !o)}
+          onToggleFolds={() => setFoldsOpenOn(foldsOpen ? null : { f, stackKey })}
           // a header click on the focused file collapses it too: the focus hold
           // (which force-shows the body) ends, and the toggle goes off what is SHOWN
           onToggleOpen={() => { const restore = holdFold(); if (focused) setFocusTarget(null); setManualOpen(!showBody); restore() }}
