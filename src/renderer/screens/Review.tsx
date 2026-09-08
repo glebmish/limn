@@ -50,8 +50,8 @@ import { useViewportWidth } from '../lib/useViewportWidth'
  *  candidate and writes the CSS var straight onto `bodyRef` (the `.wf-body`
  *  element), bypassing React for the whole gesture, and returns the applied width
  *  for the handle to announce. The store is only written at gesture end —
- *  `onCommit` (pointerup) and `onReset` (double-click) — via `setPanelWidth(...,
- *  { persist: true })`. A keyboard nudge calls `onChange` then `onCommit`
+ *  `onCommit` (pointerup) and `onReset` (double-click) — via `setPanelWidth`,
+ *  which always persists. A keyboard nudge calls `onChange` then `onCommit`
  *  back-to-back with no drag in between, so it still commits (and persists)
  *  immediately, one key press = one store write.
  *
@@ -90,11 +90,11 @@ const ShellHandle = memo(function ShellHandle(
         // whether or not the store write below happens.
         paint(clampPanelWidth(kind, preferred, viewport, other))
         if (!shouldPersist(preferred, useStore.getState()[PREF_KEYS[kind]])) return
-        setPanelWidth(kind, preferred, { persist: true })
+        setPanelWidth(kind, preferred)
       }}
       onReset={() => {
         paint(clampPanelWidth(kind, spec.default, viewport, other))
-        setPanelWidth(kind, spec.default, { persist: true })
+        setPanelWidth(kind, spec.default)
       }}
     />
   )

@@ -45,11 +45,11 @@ export interface PrefsSlice {
    *  left unchanged) when the server rejects the value. */
   setDefaultAgent(a: AgentRef): Promise<void>
   setSidebarView(v: SidebarView): void
-  /** Update a panel's preferred width in memory. Pass `{ persist: true }` to also
-   *  write the pref — which is what every caller does, since a pointer drag paints
-   *  the CSS var imperatively and only reaches the store once, at gesture end. The
-   *  caller range-clamps (`clampPanelRange`); the viewport guard is never stored. */
-  setPanelWidth(kind: PanelKind, width: number, opts?: { persist?: boolean }): void
+  /** Update a panel's preferred width and persist it. A pointer drag paints the CSS
+   *  var imperatively and only reaches the store once, at gesture end, so there's no
+   *  write storm to guard against. The caller range-clamps (`clampPanelRange`); the
+   *  viewport guard is never stored. */
+  setPanelWidth(kind: PanelKind, width: number): void
 }
 
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set) => ({
@@ -109,9 +109,9 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
     set({ sidebarView: v })
   },
 
-  setPanelWidth(kind, width, opts) {
+  setPanelWidth(kind, width) {
     const key = PREF_KEYS[kind]
     set({ [key]: width } as Pick<PrefsSlice, 'sidebarWidth'> | Pick<PrefsSlice, 'chatWidth'>)
-    if (opts?.persist) void api().setPref(key, JSON.stringify(width))
+    void api().setPref(key, JSON.stringify(width))
   }
 })

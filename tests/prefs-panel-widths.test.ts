@@ -39,14 +39,8 @@ describe('panel width prefs', () => {
     expect(useStore.getState().sidebarWidth).toBe(286)
   })
 
-  it('setPanelWidth updates state without persisting by default', () => {
-    useStore.getState().setPanelWidth('sidebar', 333)
-    expect(useStore.getState().sidebarWidth).toBe(333)
-    expect(setPref).not.toHaveBeenCalled()
-  })
-
-  it('setPanelWidth persists when opts.persist is true', () => {
-    useStore.getState().setPanelWidth('chat', 444, { persist: true })
+  it('setPanelWidth updates state and always persists', () => {
+    useStore.getState().setPanelWidth('chat', 444)
     expect(useStore.getState().chatWidth).toBe(444)
     expect(setPref).toHaveBeenCalledWith('chatWidth', '444')
   })
