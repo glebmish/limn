@@ -26,6 +26,9 @@ export interface ToolHostCtx {
   agent: AgentRef
   /** the engine session backing this turn's thread. */
   engineSessionId?: string
+  /** Set on an ACTION RUN turn (design board 14): `add_finding` sources its proposals
+   *  to this action + run, and a re-run of the same action sweeps them. */
+  run?: { actionId: string; runId: string }
   /** Restrict this turn to a subset of the tool set (SHARED_LANE_TOOL_NAMES for a
    *  read-only turn sharing the repo with a generation). A tool outside it answers
    *  with an error the agent can act on — never a silent no-op. Omitted: all tools. */
@@ -77,6 +80,16 @@ const SUGGEST_INPUT = {
 // An agent comment can anchor anywhere a focus can (diff / file / section /
 // summary) — the same subset, reused so there's no second anchor schema.
 const ADD_COMMENT_INPUT = { anchor: focusTarget, text: z.string().min(1) } satisfies z.ZodRawShape
+// A finding anchors to a repository line on the NEW side (the reviewed branch as it
+// is now) — the agent names file + line, never a diff-hunk coordinate.
+const ADD_FINDING_INPUT = {
+  file: z.string().min(1),
+  line: z.number().int().positive(),
+  endLine: z.number().int().positive().optional(),
+  severity: z.enum(['note', 'risk']),
+  body: z.string().min(1),
+  suggestion: z.string().optional()
+} satisfies z.ZodRawShape
 const REPLY_INPUT = { commentId: z.string().min(1), text: z.string().min(1) } satisfies z.ZodRawShape
 const RESOLVE_INPUT = {
   commentId: z.string().min(1),
@@ -293,6 +306,36 @@ const TOOL_IMPLS: ToolImpl[] = [
     }
   },
   {
+    name: 'add_finding',
+    description:
+      'Report one finding of an action run as a PROPOSED review comment the reviewer accepts, keeps, ' +
+      'or dismisses. Anchor it to the exact repository file and line (new side, 1-based; a range via ' +
+      'endLine). severity: "risk" for bugs/security problems, "note" for everything else. body is short ' +
+      'markdown; suggestion is optional replacement text. Call it once per finding, as you find them. ' +
+      'Only available inside an action run.',
+    input: ADD_FINDING_INPUT,
+    run: async (ctx, raw) => {
+      if (!ctx.run) throw new Error('add_finding is only available inside an action run — use add_comment for a note.')
+      const { file, line, endLine, severity, body, suggestion } = raw as z.infer<z.ZodObject<typeof ADD_FINDING_INPUT>>
+      let anchor: CommentAnchor = { kind: 'diff', file, side: 'new', line, ...(endLine ? { endLine } : {}), hunkRange: '', lineContent: '' }
+      const session = getSession(ctx.db, ctx.sessionId)
+      if (session) anchor = await stampAnchor(ctx.repo, session, anchor)
+      const iteration = loadReviewState(ctx.db, ctx.sessionId).latestIteration?.n ?? 0
+      const text = suggestion ? `${body}\n\nSuggestion:\n\`\`\`\n${suggestion}\n\`\`\`` : body
+      const comment: Comment = {
+        id: `af-${Date.now()}-${commentSeq++}`,
+        anchor, author: 'agent', agentRef: ctx.agent, threadId: ctx.threadId,
+        text, severity,
+        status: 'proposed', // INVARIANT: a proposal never enters the batch on its own
+        source: { actionId: ctx.run.actionId, runId: ctx.run.runId, threadId: ctx.threadId },
+        replies: [], createdAt: new Date().toISOString(), iteration
+      }
+      upsertComment(ctx.db, ctx.sessionId, comment)
+      const anchored = anchor.kind === 'diff' && anchor.stamp ? 'anchored' : 'unanchored — the line could not be read, the reviewer sees it in the "not in this diff" bucket'
+      return { result: `Proposed a ${severity} on ${anchorLabel(anchor)} (${anchored}).`, action: { kind: 'finding_added', comment } }
+    }
+  },
+  {
     name: 'reply_to_comment',
     description: "Reply to an existing comment (by id), as the agent. Use it to answer a reviewer's comment in place.",
     input: REPLY_INPUT,
@@ -480,7 +523,7 @@ export function limnAllowedToolNames(): string[] {
  *  loudly at turn setup (assertAutoAcceptCoverage) and in tests. Hand-maintained
  *  on purpose — do NOT derive it from LIMN_TOOLS, so a new tool can't ride in. */
 export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment',
+  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment', 'add_finding',
   'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress', 'edit_review',
   'update_plan_status'
 ])
@@ -495,7 +538,7 @@ export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
  *  AUTO_ACCEPT_TOOL_NAMES — a new tool must be classified (tests/tools.test.ts pins
  *  the complement), so it can't ride onto the shared lane unexamined. */
 export const SHARED_LANE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment',
+  'point', 'suggest_mark_viewed', 'list_comments', 'add_comment', 'add_finding',
   'reply_to_comment', 'resolve_comment', 'get_review', 'get_review_progress'
 ])
 

@@ -29,7 +29,7 @@ function actionEvents(events: EngineEvent[]): AgentAction[] {
   return events.filter((e): e is Extract<EngineEvent, { type: 'action' }> => e.type === 'action').map((e) => e.action)
 }
 
-const ALL_TOOLS = ['add_comment', 'edit_review', 'get_review', 'get_review_progress', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed', 'update_plan_status']
+const ALL_TOOLS = ['add_comment', 'add_finding', 'edit_review', 'get_review', 'get_review_progress', 'list_comments', 'point', 'reply_to_comment', 'resolve_comment', 'suggest_mark_viewed', 'update_plan_status']
 const mcp = (n: string): string => `mcp__limn__${n}`
 
 describe('LIMN_TOOLS catalog', () => {
@@ -313,6 +313,44 @@ describe('comment tools (real temp DB)', () => {
     expect(added.threadId).toBe(threadId)
     expect(added.anchor).toEqual({ kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' })
     expect(action).toMatchObject({ kind: 'comment_added' })
+  })
+
+  it('add_finding mints a PROPOSED comment sourced to the run, with severity, on the new side', async () => {
+    const { db, ctx, sessionId, threadId } = setup()
+    const host = createToolHost({ ...ctx, run: { actionId: 'act-1', runId: 'run-1-1' } })
+    const { isError, result, action } = await host.call('add_finding', {
+      file: 'src/a.ts', line: 2, severity: 'risk', body: 'round() is skipped on this path'
+    })
+    expect(isError).toBeFalsy()
+    expect(result).toContain('src/a.ts:2')
+    const added = loadReviewState(db, sessionId).comments.find((c) => c.id.startsWith('af-'))!
+    expect(added.status).toBe('proposed')
+    expect(added.severity).toBe('risk')
+    expect(added.author).toBe('agent')
+    expect(added.agentRef).toEqual({ engine: 'claude', model: 'opus' })
+    expect(added.threadId).toBe(threadId)
+    expect(added.source).toEqual({ actionId: 'act-1', runId: 'run-1-1', threadId })
+    expect(added.text).toBe('round() is skipped on this path')
+    expect(added.anchor).toEqual({ kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' })
+    expect(action).toMatchObject({ kind: 'finding_added', comment: { id: added.id } })
+  })
+
+  it('add_finding keeps a range and folds a suggestion into the body', async () => {
+    const { db, ctx, sessionId } = setup()
+    const host = createToolHost({ ...ctx, run: { actionId: 'act-1', runId: 'run-1-1' } })
+    await host.call('add_finding', { file: 'src/a.ts', line: 2, endLine: 4, severity: 'note', body: 'dup', suggestion: 'gross()' })
+    const added = loadReviewState(db, sessionId).comments.find((c) => c.id.startsWith('af-'))!
+    expect(added.anchor).toMatchObject({ line: 2, endLine: 4 })
+    expect(added.text).toBe('dup\n\nSuggestion:\n```\ngross()\n```')
+  })
+
+  it('add_finding refuses outside an action run — nothing to source the proposal to', async () => {
+    const { db, ctx, sessionId } = setup()
+    const host = createToolHost(ctx)
+    const { isError, result } = await host.call('add_finding', { file: 'src/a.ts', line: 2, severity: 'note', body: 'x' })
+    expect(isError).toBe(true)
+    expect(result).toContain('action run')
+    expect(loadReviewState(db, sessionId).comments.some((c) => c.id.startsWith('af-'))).toBe(false)
   })
 
   it('reply_to_comment appends an agent reply with identity', async () => {
