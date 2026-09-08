@@ -7,6 +7,7 @@ import { agentLabel } from '../../shared/agents'
 import type { CommentAnchor, EngineId, MessageSegment, ToolCall } from '../../shared/types'
 import { AgentPicker } from './AgentPicker'
 import { ChatDropdown } from './ChatDropdown'
+import { ActionLauncher } from './ActionLauncher'
 import { ActionChips } from './ActionChips'
 import { splitPath } from './FileHeader'
 import { ToolCallLog } from './ToolCallLog'
@@ -249,9 +250,12 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
           <>
             <I.bubble style={{ width: 13, height: 13, color: 'var(--accent)' }} />
             <b>Chats</b>
-            <span className="dim" style={{ fontSize: 10.5 }}>tied to this review</span>
+            <span className="dim chat-head-fill" style={{ fontSize: 10.5 }}>tied to this review</span>
           </>
         )}
+        {/* the action launcher lives where threads live (board 14 L1) — before the
+            first thread too, so a rebase can be the first thing a review runs */}
+        <ActionLauncher />
         <button className="btn btn-sm btn-ghost chat-head-x" aria-label="Close chats" onClick={onClose}>
           <I.x style={{ width: 11, height: 11 }} />
         </button>

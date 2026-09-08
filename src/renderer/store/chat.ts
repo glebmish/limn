@@ -1,12 +1,13 @@
 import type { StateCreator } from 'zustand'
 import type { OperationStatus } from '../../shared/ipc'
-import type { AgentRef, ChatThread, CommentAnchor, ExecutionMode } from '../../shared/types'
+import type { ActionRunTarget, AgentRef, ChatThread, CommentAnchor, ExecutionMode } from '../../shared/types'
 import { DEFAULT_EXECUTION_MODE } from '../../shared/executionMode'
 import { api } from '../lib/api'
 import { dev } from '../dev'
 import type { AppStore } from './index'
 import { useStore } from './index'
 import { newOpId } from './ops'
+import { drainOrphans } from './bridge'
 import type { ChatDraft } from './derive'
 import { activeChat, anyRunning, chatSendBlocked, checkoutGate, DRAFT_CHAT_ID, pickActiveChat } from './derive'
 import { batchTurnLabel, rebaseTurnLabel } from '../../shared/turnLabels'
@@ -155,6 +156,14 @@ export interface ChatSlice {
    *  the active one hasn't persisted yet) — the destination shown in the UI. */
   sendQueuedComments(commentIds: string[], steer?: string): void
   deleteChat(id: number): Promise<void>
+  // ── agent actions (design board 14) ──
+  /** Launch a pinned action (materializing a transient review first): the run
+   *  streams into its thread, the drawer opens on it. */
+  runAction(actionId: string, target: ActionRunTarget): Promise<void>
+  /** One more turn in the same thread asking the agent to anchor its report (N3). */
+  attachFindings(threadId: number, runId: string): void
+  /** "Keep as prose": hide a run's report-only card for good. */
+  keepProse(threadId: number, runId: string): Promise<void>
 }
 
 export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, get) => ({
@@ -383,6 +392,41 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       if (targetId == null) return
       get().sendBatch(targetId, commentIds, steer)
     })()
+  },
+
+  async runAction(actionId, target) {
+    const sessionId = await get().materialize()
+    if (sessionId == null) return
+    const opId = newOpId()
+    try {
+      const { threadId } = await api().runAction(sessionId, actionId, target, opId)
+      // register the op, then pull in whatever streamed during the round trip
+      get().startOp('chat', opId, threadId)
+      drainOrphans(opId)
+      set({ chatOpen: true, activeChatId: threadId, draftChat: null })
+      // the thread (and its launching turn) exist server-side now — show them
+      await get().refreshLoaded()
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  attachFindings(threadId, runId) {
+    if (chatSendBlocked(get().ops, threadId)) return
+    const opId = newOpId()
+    get().startOp('chat', opId, threadId)
+    api().attachFindings(threadId, runId, opId).catch((err: unknown) => {
+      get().finishOp(opId, 'failed', err instanceof Error ? err.message : String(err))
+      set({ error: err instanceof Error ? err.message : String(err) })
+    })
+  },
+
+  async keepProse(threadId, runId) {
+    try {
+      setChats(await api().setRunFlag(threadId, runId, 'keepProse'))
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
   },
 
   async deleteChat(id) {

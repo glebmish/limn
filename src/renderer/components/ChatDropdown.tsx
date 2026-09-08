@@ -3,6 +3,7 @@ import { usePopover } from '../lib/usePopover'
 import { engineLabel } from '../../shared/agents'
 import type { ChatThread } from '../../shared/types'
 import { dev } from '../dev'
+import { KindGlyph } from './ActionMarks'
 
 /** Chat selector as a dropdown listing every chat (replaces the tab strip so it
  *  doesn't crowd as chats pile up). Trigger shows the active chat; the menu lists
@@ -26,12 +27,14 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   // the unpersisted "New chat" draft (id < 0) is the active/trigger entry but is
   // never listed in the menu — it appears there only once it has its first message.
   const reviews = chats.filter((c) => c.kind === 'review')
-  const userChats = chats.filter((c) => c.kind === 'user' && c.id >= 0)
+  // action threads (design board 14: one thread per pinned action) get their own group
+  const actionThreads = chats.filter((c) => c.kind === 'user' && c.id >= 0 && c.action)
+  const userChats = chats.filter((c) => c.kind === 'user' && c.id >= 0 && !c.action)
 
   const Opt = (c: ChatThread) => (
     <div key={c.id} role="button" tabIndex={0} className={'chatdd-opt' + (c.kind === 'review' ? ' is-review' : '') + (c.id === activeId ? ' on' : '')} onClick={() => pick(c.id)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(c.id) } }}>
-      <EngineGlyph engine={c.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
+      {c.action ? <KindGlyph kind={c.action.kind} small /> : <EngineGlyph engine={c.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />}
       <span className="cd-name">{chatName(c, chats)}</span>
       <span className="cd-sub">{agentSub(c)}</span>
       {onDelete && c.kind === 'user' && (
@@ -46,7 +49,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   return (
     <div className="chatdd">
       <button ref={anchorRef} className="chatdd-trig" aria-expanded={open} onClick={toggle}>
-        <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />
+        {active?.action ? <KindGlyph kind={active.action.kind} small /> : <EngineGlyph engine={active?.agent.engine} className="cd-glyph" style={{ width: 14, height: 14 }} />}
         <span className="cd-name">{active ? chatName(active, chats) : 'Chats'}</span>
         <span className="cd-sub">{active ? agentSub(active) : ''}</span>
         <span className="cd-car">{open ? <I.chevD style={{ width: 13, height: 13 }} /> : <I.chevR style={{ width: 13, height: 13 }} />}</span>
@@ -55,6 +58,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
         <div className="chatdd-menu" ref={floatingRef} style={menuStyle}>
           {reviews.length > 0 && <div className="chatdd-grp">Review{reviews.length > 1 ? ' sessions' : ''}</div>}
           {reviews.map(Opt)}
+          {actionThreads.length > 0 && <div className="chatdd-grp">Actions</div>}
+          {actionThreads.map(Opt)}
           {userChats.length > 0 && <div className="chatdd-grp">Chats</div>}
           {userChats.map(Opt)}
           <div role="button" tabIndex={0} className="chatdd-new" onClick={() => { onNew(); close() }}
@@ -67,7 +72,8 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   )
 }
 
-function chatName(c: ChatThread, all: ChatThread[]): string {
+export function chatName(c: ChatThread, all: ChatThread[]): string {
+  if (c.action) return c.action.name
   if (c.kind === 'review') {
     // each generation is its own review session; the latest is current, older ones
     // are kept as history and labelled so they read as past sessions
