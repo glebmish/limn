@@ -49,8 +49,11 @@ type State = ReturnType<typeof useStore.getState>
 // which is the store's initial state — so seeding has to mutate that object.
 const initial = (): State => (useStore as unknown as { getInitialState: () => State }).getInitialState()
 
-function seed(over: { base?: string; compare?: string } = {}): { openReview: ReturnType<typeof vi.fn> } {
-  const loaded = makeLoaded({ base: over.base ?? 'main', compare: over.compare ?? 'feat' })
+function seed(over: { base?: string; compare?: string; annotated?: boolean; dirty?: boolean } = {}): { openReview: ReturnType<typeof vi.fn> } {
+  const loaded = makeLoaded({
+    base: over.base ?? 'main', compare: over.compare ?? 'feat',
+    dirty: over.dirty ?? false, ...(over.annotated ? { sections: [] } : {})
+  })
   Object.assign(loaded as unknown as Record<string, unknown>, { volatile: [], commits: [], branchHash: 'bh' })
   Object.assign(loaded.skeleton as unknown as Record<string, unknown>, { mergeBase: 'mb00000' })
   const openReview = vi.fn(async () => {})
@@ -197,5 +200,42 @@ describe('review header ref pickers (finding 112)', () => {
 
     // the base side already routes through the store action that keeps the pair whole
     expect(setSessionBase).toHaveBeenCalledWith('main')
+  })
+})
+
+// Pins the "No changes between" empty state across the de-duplication (finding 115):
+// it says the same sentence, once, in the same place, in both review modes.
+describe('review empty state (finding 115)', () => {
+  const SENTENCE = '<div class="limn-empty">No changes between <b>feat</b> and <b>main</b>.</div>'
+
+  it('renders once in flat (un-narrated) mode, after the file list', () => {
+    seed()
+
+    const html = render()
+
+    expect(html.match(/limn-empty/g)).toHaveLength(1)
+    expect(html).toContain(SENTENCE)
+    expect(html.indexOf('flat-files')).toBeLessThan(html.indexOf('limn-empty'))
+  })
+
+  it('renders once in narrated mode too', () => {
+    seed({ annotated: true })
+
+    const html = render()
+
+    expect(html.match(/limn-empty/g)).toHaveLength(1)
+    expect(html).toContain(SENTENCE)
+  })
+
+  it('shortens a base that is a sha', () => {
+    seed({ base: '0badc0ffee0badc0ffee0badc0ffee0badc0ffee' })
+
+    expect(render()).toContain('No changes between <b>feat</b> and <b>0badc0f</b>.')
+  })
+
+  it('stays away while the working tree is dirty', () => {
+    seed({ dirty: true })
+
+    expect(render()).not.toContain('limn-empty')
   })
 })

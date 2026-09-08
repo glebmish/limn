@@ -259,6 +259,15 @@ export default function Review() {
   // review). Carries no review state; never affects counts or approval.
   const excludedBand = <UntrackedGroup files={excludedFiles} />
 
+  // "Nothing to show" — one sentence in one place. Both modes need it (the flat file
+  // list and the narrated sections) and their two guards are together just "no files
+  // and nothing uncommitted", so it renders once after the sections: `sections` is
+  // empty whenever there are no annotations, and everything between the two spots it
+  // used to occupy is annotations-gated, so the DOM order is the same in either mode.
+  const emptyState = displayFiles.length === 0 && !loaded.dirty && (
+    <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
+  )
+
   return (
     <div className={`wf dz-${DENSITY} stage-code`}>
       <div className="wf-titlebar">
@@ -385,9 +394,6 @@ export default function Review() {
                   <div className="flat-files">
                     {flatDisplayFiles.map((f) => <DiffView key={f.path} f={f} />)}
                   </div>
-                  {displayFiles.length === 0 && !loaded.dirty && (
-                    <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
-                  )}
                 </>
               )}
 
@@ -403,9 +409,7 @@ export default function Review() {
                   secRef={(el) => { secRefs.current[s.id] = el }}
                 />
               ))}
-              {annotations && displayFiles.length === 0 && !loaded.dirty && (
-                <div className="limn-empty">No changes between <b>{branch}</b> and <b>{/^[0-9a-f]{7,40}$/i.test(base) ? shortSha(base) : base}</b>.</div>
-              )}
+              {emptyState}
 
               {annotations && looseBand}
               {excludedBand}
