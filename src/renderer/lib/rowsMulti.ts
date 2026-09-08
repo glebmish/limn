@@ -246,7 +246,13 @@ export function buildMultiRows(mids: Hunk[][], now: Hunk[], gaps: Gap[], lang: s
       run: nowAt ? { lines: nowAt.hunk.lines, idx: nowAt.idx } : null
     })
   }
+  // The trailing run to EOF, under `buildFileRows`'s rule: a file with no new side at
+  // all has nothing below its last row, and asserting a run of hidden lines under it
+  // is a plain lie the reader can't disprove. "No new side" is a statement about
+  // CURRENT only — a file current's own diff does not touch at all (only a checkpoint
+  // differs from base) plainly continues below, so an empty `now` keeps its tail.
+  const nowShowsALine = now.length === 0 || now.some((h) => h.lines.some((l) => l.new != null))
   const tail = gaps[gaps.length - 1]
-  if (tail && opts.trailing !== false && bases.length) out.push(gapRow(tail, 'below', ''))
+  if (tail && opts.trailing !== false && bases.length && nowShowsALine) out.push(gapRow(tail, 'below', ''))
   return out
 }

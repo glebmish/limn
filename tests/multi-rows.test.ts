@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Hunk } from '../src/shared/types'
 import { buildMultiRows, multiGaps } from '../src/renderer/lib/rowsMulti'
 import { buildFileRows, type AlignedRow } from '../src/renderer/lib/rows'
+import { hunkGaps } from '../src/renderer/lib/expand'
 
 const aligned = (rows: ReturnType<typeof buildMultiRows>) => rows.filter((r): r is AlignedRow => r.type === 'aligned')
 // base: l1..l6. checkpoint: replaced l3 with X, added `const y = 1` after l4.
@@ -111,6 +112,21 @@ describe('buildMultiRows', () => {
     expect(buildMultiRows([midB], nowB, multiGaps([midB], nowB), null, { trailing: false }).filter((r) => r.type === 'gap').map((r) => r.key)).toEqual(['gap:g1', 'gap:g13'])
   })
 
+  // as in `buildFileRows`: there is no file below a wholly-deleted one, so offering a
+  // run trailing off under its last row asserts hidden lines the reader cannot
+  // disprove. DiffBody only masks it once a failed read makes the fold inert — on
+  // first render it is painted and clickable.
+  it('offers no trailing run on a wholly-deleted file', () => {
+    const gone: Hunk[] = [{ range: '@@ -1,3 +0,0 @@', header: '', lines: [
+      { old: 1, new: null, kind: 'del', text: 'a' },
+      { old: 2, new: null, kind: 'del', text: 'b' },
+      { old: 3, new: null, kind: 'del', text: 'c' }
+    ] }]
+    expect(buildMultiRows([gone], gone, multiGaps([gone], gone), null).filter((r) => r.type === 'gap')).toEqual([])
+    // the two builders agree about the rule
+    expect(buildFileRows(gone, hunkGaps(gone)).filter((r) => r.type === 'gap')).toEqual([])
+  })
+
   it('insertions at end of file land after the last base line', () => {
     const midE: Hunk[] = []
     const nowE: Hunk[] = [{ range: '@@ -3,1 +3,2 @@', header: '', lines: [
@@ -205,6 +221,14 @@ describe('buildMultiRows with several checkpoint columns', () => {
   it('keys a checkpoint-only insertion by its column so two checkpoints never collide', () => {
     const rows = aligned(buildMultiRows([review, approval], [], multiGaps([review, approval], []), null))
     expect(rows.map((r) => r.key)).toEqual(['old:1', 'old:2', 'mid0:3', 'old:3'])
+  })
+
+  // "wholly deleted" is a statement about CURRENT: a file current does not touch at
+  // all still continues below its last shown row
+  it('keeps the trailing run when only a checkpoint touched the file', () => {
+    const rows = buildMultiRows([review, approval], [], multiGaps([review, approval], []), null)
+    const tail = rows.filter((r) => r.type === 'gap').at(-1)
+    expect(tail?.type === 'gap' && tail.where).toBe('below')
   })
 
   it('measures gaps with one offset per checkpoint column', () => {
