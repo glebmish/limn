@@ -885,3 +885,24 @@
 .stk.peel .dcols,.stk.peel .gfile-diff{animation:peel .16s ease-out}
 /* the key's "when it applies" note beside a group heading */
 .fh-pop .key-when{font:500 10px var(--sans);color:var(--muted);letter-spacing:0;text-transform:none;margin-left:6px}
+
+/* ── proposals (design board 14 T1, v3): a dashed ring in the gutter, a dashed box ── */
+.dline{position:relative}
+.ax-cm{position:absolute;left:3px;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:50%;background:var(--accent);z-index:3;pointer-events:none}
+.ax-cm.prop{background:var(--panel);border:1.5px dashed var(--accent);width:7px;height:7px}
+.dthread .box.proposed{border-style:dashed;border-color:var(--accent-line)}
+.dthread .box.proposed .bh{background:var(--accent-soft-2,rgba(58,125,84,.05))}
+.dthread .box.proposed:focus{outline:none;box-shadow:0 0 0 2px var(--accent-line)}
+.dthread .bf.ax-triage-bf{gap:0;align-items:center}
+.dthread .bf.ax-triage-bf .acc,.dthread .bf.ax-triage-bf .dis{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:var(--r-sm);font-weight:600;font-size:11px}
+.dthread .bf.ax-triage-bf .acc{color:#fff;background:var(--accent)}.dthread .bf.ax-triage-bf .acc:hover{background:var(--accent-ink);color:#fff}
+.dthread .bf.ax-triage-bf .dis{color:var(--ink-2);border:1px solid var(--line-2);margin-left:6px}.dthread .bf.ax-triage-bf .dis:hover{border-color:var(--line-3);color:var(--ink)}
+.dthread .bf.ax-triage-bf .keep{margin-left:10px;font-weight:600;color:var(--ink-2)}
+.dthread .bf.ax-triage-bf .rep{margin-left:12px;color:var(--accent-ink);font-weight:600}
+.pill-prop{background:var(--panel);color:var(--accent-ink);border:1px dashed var(--accent-line)}
+.dthread .agentq.ax-touched{color:var(--muted);font-weight:500}
+.ax-gnavhint{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);flex:0 0 auto;font-family:var(--mono)}
+.ax-gnavhint i{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block}
+.ax-gnavhint i.p{background:var(--panel);border:1.5px dashed var(--accent);width:6px;height:6px}
+.ax-gnavhint b{font-weight:600;color:var(--ink-2)}
+.eyebrow .ax-proposed-count{color:var(--accent-ink)}

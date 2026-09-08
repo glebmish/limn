@@ -20,6 +20,7 @@ import { WorkspacePicker } from '../components/WorkspacePicker'
 import { RefPicker } from '../components/RefPicker'
 import { SplitHandle } from '../components/SplitHandle'
 import { api } from '../lib/api'
+import { commentCounts } from '../lib/comments'
 import { agentLabel } from '../../shared/agents'
 import { orderFilesForReview } from '../lib/fileOrder'
 import { reviewTimelineGroups, timelineShaInRange } from '../lib/reviewTimeline'
@@ -181,6 +182,7 @@ export default function Review() {
   const reviewedCount = sections.filter(isSectionDone).length
   const fileCount = displayFiles.length
   const viewedCount = displayFiles.filter((f) => fileViewed(f, viewedAt, loaded.skeleton.headSha)).length
+  const counts = commentCounts(state.comments)
   const summaryComments = state.comments.filter((c) => c.anchor.kind === 'summary')
   const titleComments = state.comments.filter((c) => c.anchor.kind === 'title')
   const approvedShas = state.approvedShas ?? (state.approvedSha ? [state.approvedSha] : [])
@@ -220,13 +222,15 @@ export default function Review() {
     <button
       className={'btn btn-sm rv-approve ' + (approved ? 'btn-primary rv-approved' : '')}
       disabled={gen.running}
-      title={approved
+      title={(approved
         ? 'Clear your approval for this commit'
         : dirtyNeedsApproval
           ? 'Approve this commit together with its current uncommitted working-tree changes'
         : loaded.dirty
           ? `Records the committed state — ${loaded.volatile.length} uncommitted change${loaded.volatile.length === 1 ? '' : 's'} won't be covered.`
-          : 'Record the current commit as approved'}
+          : 'Record the current commit as approved')
+        // proposals never block approval, but the reviewer should know they are open
+        + (!approved && counts.proposed > 0 ? ` · ${counts.proposed} proposal${counts.proposed === 1 ? '' : 's'} untriaged` : '')}
       onClick={async () => {
         const id = await store.materialize()
         if (id != null) void (approved ? api().unapprove(id) : api().approve(id)).then(() => store.reload())
@@ -360,7 +364,7 @@ export default function Review() {
           ) : (
             <>
               <div className="page-head" ref={headRef}>
-                <div className="eyebrow">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · +{totalAdd} / −{totalDel}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
+                <div className="eyebrow">{displayFiles.length} file{displayFiles.length === 1 ? '' : 's'} · +{totalAdd} / −{totalDel}{counts.comments > 0 || counts.proposed > 0 ? <> · <b>{counts.comments}</b> comment{counts.comments === 1 ? '' : 's'}</> : ''}{counts.proposed > 0 ? <> · <b className="ax-proposed-count">{counts.proposed}</b> proposed</> : ''}{GUIDANCE !== 'minimal' && annotations ? ` · Guided by: ${agentLabel(guidedBy).replace(' · ', ' ')}` : ''}</div>
                 <div className="page-title-row">
                   <h1 className="page-h1-cmt">
                     {annotations && !merged && <CmtPlus extra="h1-plus" onClick={() => setTitleCommenting(true)} />}

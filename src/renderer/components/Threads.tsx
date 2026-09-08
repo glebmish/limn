@@ -44,6 +44,11 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const [confirmDel, setConfirmDel] = useState(false)
   const [draft, setDraft] = useState(c.text)
   const isAgent = c.author === 'agent'
+  // a proposal (design board 14 v3): an agent finding the reviewer has not taken —
+  // dashed box, `proposed` pill, and a footer that is only Accept · Keep · Dismiss ·
+  // Reply. A dismissed one is hidden entirely (the run's strip can restore it).
+  const proposed = c.status === 'proposed'
+  const triage = useStore((s) => s.triageFindings)
   // engine a queued comment will be sent to = the *active* chat's agent (the
   // destination the drawer's batch CTA also targets), falling back to the review agent.
   const reviewEngine = useStore((s) => s.loaded?.state.agent?.engine)
@@ -120,11 +125,14 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   // else the card header
   const lastTurn: 'resolution' | 'reply' | 'head' = showResolution ? 'resolution' : c.replies.length ? 'reply' : 'head'
 
+  if (c.status === 'dismissed') return null
+
   return (
-    <div className="dthread">
-      <div className={'box' + (isAgent ? ' agent' : '')}>
+    <div className="dthread" data-comment-id={c.id} data-proposed={proposed || undefined}>
+      <div className={'box' + (isAgent ? ' agent' : '') + (proposed ? ' proposed' : '')} tabIndex={proposed ? 0 : undefined}>
         <div className="bh">
           {isAgent ? <AgentId agentRef={c.agentRef} threadId={c.threadId} /> : <><Ava>me</Ava><b>You</b></>}
+          {proposed && <span className="pill pill-prop">proposed</span>}
           {c.severity && (
             // hotspot severity badge — deliberately NOT the resolved-verdict green/
             // muted palette, so a hotspot never reads as an already-handled thread.
@@ -133,6 +141,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             </span>
           )}
           <span className="dim">{locLabel}</span>
+          {proposed && c.replies.length > 0 && <span className="agentq ax-touched" title="You replied — this proposal stays until you accept, keep or dismiss it; a re-run will not sweep it">replied</span>}
           {lastTurn === 'head' && statusChips(c.author)}
           {c.anchorEdited && c.status !== 'outdated' && (
             // The commented line itself was rewritten since the comment was made (the
@@ -190,10 +199,10 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         )}
         {replying && (
           <Composer
-            placeholder="Reply — the thread goes back to the agent with your next batch…"
+            placeholder={proposed ? 'Reply — the proposal stays proposed; accept it to send it' : 'Reply — the thread goes back to the agent with your next batch…'}
             kicker="reply"
             submitLabel="Reply"
-            hint="re-queues this thread for the agent"
+            hint={proposed ? 'keeps it proposed, marks it touched' : 're-queues this thread for the agent'}
             onCancel={() => setReplying(false)}
             onSubmit={(text) => { void useStore.getState().replyToComment(c, text); setReplying(false) }}
           />
@@ -206,7 +215,15 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             {deleteControl}
           </div>
         )}
-        {!merged && !editing && !replying && isAgent && (
+        {!merged && !editing && !replying && proposed && (
+          <div className="bf ax-triage-bf">
+            <button className="acc" onClick={() => void triage([c.id], 'accept')} title="Take it: becomes a queued comment for the agent's next batch"><I.check style={{ width: 11, height: 11 }} />Accept</button>
+            <button className="keep" onClick={() => void triage([c.id], 'keep')} title="Keep it as a note without sending it to the agent">Keep</button>
+            <button className="dis" onClick={() => void triage([c.id], 'dismiss')} title="Hide it — the run's strip can restore it until a re-run"><I.x style={{ width: 11, height: 11 }} />Dismiss</button>
+            <button className="rep" onClick={() => setReplying(true)} title="Reply without taking it — a re-run will not sweep a replied-to proposal">Reply</button>
+          </div>
+        )}
+        {!merged && !editing && !replying && isAgent && !proposed && (
           <div className="bf">
             {/* a hotspot the reviewer already queued needs neither — its card carries
                 the queued chip and Send now instead (they would only re-queue what is

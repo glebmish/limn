@@ -1,6 +1,7 @@
 import { Fragment, useRef, useState } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { Artifact, Comment, FileDiff, ReviewAnnotations, Section, ViewMark } from '../../shared/types'
+import { sectionCommentCounts } from '../lib/comments'
 import { narrationText } from '../../shared/types'
 import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
@@ -270,6 +271,7 @@ export function ReviewSidebar({
                     <span className="gnav-caret" {...clickable(() => onToggleSection(s.id, sectionNav.open), { expanded: sectionNav.open })} />
                     <span className="gnav-idx" {...clickable(() => jumpTo(s.id))}>{i + 1}</span>
                     <span className="gnav-name" title={s.name} {...clickable(() => jumpTo(s.id))}>{s.name}</span>
+                    <SectionCounts files={s.files} comments={comments} />
                   </div>
                   {sectionNav.open && !sectionNav.done && narrationText(s) && <div className="gnav-intent" {...clickable(() => jumpTo(s.id))}>{narrationText(s)}</div>}
                   <FileTree
@@ -304,5 +306,18 @@ export function ReviewSidebar({
       </div>
 
     </nav>
+  )
+}
+
+/** The section row's comment marks (board 14 T1): the reviewer's own count with a
+ *  solid dot, the open proposals with a dashed ring — only when non-zero. */
+function SectionCounts({ files, comments }: { files: readonly string[]; comments: readonly Comment[] }) {
+  const { owned, proposed } = sectionCommentCounts(files, comments)
+  if (owned === 0 && proposed === 0) return null
+  return (
+    <span className="ax-gnavhint" title={`${owned} comment${owned === 1 ? '' : 's'} · ${proposed} proposed`}>
+      {owned > 0 && <><i aria-hidden /><b>{owned}</b></>}
+      {proposed > 0 && <><i className="p" aria-hidden /><b>{proposed}</b></>}
+    </span>
   )
 }

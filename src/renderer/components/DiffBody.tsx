@@ -170,10 +170,12 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   const hunks = layout === 'multi' ? f.hunks : sliceFor(f, since)
   const lang = langForPath(f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
+  // a dismissed proposal is hidden everywhere until restored (board 14 v3)
+  const shown = fileComments.filter((c) => c.status !== 'dismissed')
   // resolved comments are included: the re-anchor pipeline now maintains their
   // notInDiff too (#18), so the flag is current rather than a stale leftover — and a
   // resolved comment whose anchor was lost must stay visible somewhere in the file.
-  const notShown = fileComments.filter((c) => c.notInDiff && c.status !== 'outdated')
+  const notShown = shown.filter((c) => c.notInDiff && c.status !== 'outdated')
 
   // ── in-place edits (specs/inplace-edits): the flow frame replaces the rows it
   // covers; a hover pencil / double-click on any working-tree row opens it.
@@ -372,9 +374,18 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   }, [selected, f.path])
 
   const threadsFor = (line: number, side: 'new' | 'old'): Comment[] =>
-    fileComments.filter((c) =>
+    shown.filter((c) =>
       c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
     )
+  /** The gutter mark for a line with threads (board 14 T1): a solid dot for the
+   *  reviewer's own comments, a dashed ring when any proposal sits there. */
+  const commentMark = (anchor: { side: 'new' | 'old'; lineNo: number } | null | undefined): React.ReactNode => {
+    if (!anchor) return null
+    const ts = threadsFor(anchor.lineNo, anchor.side)
+    if (ts.length === 0) return null
+    const prop = ts.some((c) => c.status === 'proposed')
+    return <span className={'ax-cm' + (prop ? ' prop' : '')} title={prop ? 'A proposed finding on this line' : 'A comment on this line'} aria-hidden />
+  }
 
   // The rows as they actually render — each fold's revealed edges spliced in around
   // it (lib/rows.ts `viewAlignedRows`). Memoized: it re-runs the per-run highlight
@@ -528,6 +539,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
             // so an instant bubble fires on every pass toward it
             <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />
           )}
+          {commentMark(r.anchor)}
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
           <CodeLine text={l.text} lang={lang} ranges={c.marks} html={c.html} />
@@ -593,6 +605,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
                 onDoubleClick={isNow && editable && nowL ? (e) => openFrameAt(nowL, e) : undefined}
               >
                 {railTip && <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />}
+                {r.anchor && c.side === r.anchor.side && commentMark(r.anchor)}
                 <span className="gut"><span>{c.lineNo ?? ''}</span></span>
                 <span className="sign">{c.kind === 'add' ? '+' : c.kind === 'del' || c.deleted ? '−' : ''}</span>
                 {c.l ? <CodeLine text={c.l.text} lang={lang} ranges={c.marks} html={c.html} /> : <span className="code" />}
