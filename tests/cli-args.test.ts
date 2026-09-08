@@ -55,6 +55,13 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['service', 'serve', '--port', '7000', 'x'], cwd)).toThrow(/unexpected argument "x"/)
     expect(() => parseArgs(['service', 'logs', '-f', 'limn.log'], cwd)).toThrow(/unexpected argument "limn.log"/)
   })
+  it('rejects a second positional dir on `open` instead of silently overwriting it', () => {
+    expect(() => parseArgs(['open', 'a', 'b'], cwd)).toThrow(/unexpected argument "b"/)
+    const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-cli-args-'))
+    fs.mkdirSync(path.join(tmpCwd, 'a'))
+    fs.mkdirSync(path.join(tmpCwd, 'b'))
+    expect(() => parseArgs(['a', 'b'], tmpCwd)).toThrow(/unexpected argument "b"/)
+  })
   it('--generate flags generation; --agent/--model/--effort build an AgentOverride', () => {
     expect(parseArgs(['--generate'], cwd)).toMatchObject({ kind: 'open', generate: true })
     expect(parseArgs(['--generate'], cwd)).not.toHaveProperty('agent')

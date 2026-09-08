@@ -55,6 +55,7 @@ function parseOpen(argv: string[], cwd: string): CliCommand {
   const out: Extract<CliCommand, { kind: 'open' }> = { kind: 'open', dir: cwd, hub: false, fresh: false, noService: false, generate: false, printUrl: false }
   const agent: AgentOverride = {}
   let agentTouched = false
+  let dirTaken = false
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i]
     if (tok === '--base' || tok.startsWith('--base=')) { [out.base, i] = takeValue(argv, i, '--base'); continue }
@@ -68,6 +69,8 @@ function parseOpen(argv: string[], cwd: string): CliCommand {
     if (tok === '--model' || tok.startsWith('--model=')) { [agent.model, i] = takeValue(argv, i, '--model'); agentTouched = true; continue }
     if (tok === '--effort' || tok.startsWith('--effort=')) { [agent.effort, i] = takeValue(argv, i, '--effort'); agentTouched = true; continue }
     if (tok.startsWith('-')) throw new CliUsageError(`unknown flag ${tok}`)
+    if (dirTaken) throw new CliUsageError(`unexpected argument "${tok}"`)
+    dirTaken = true
     out.dir = path.resolve(cwd, tok)
   }
   if (agentTouched && !out.generate) throw new CliUsageError('--agent/--model/--effort need --generate')
