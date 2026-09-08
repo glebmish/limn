@@ -98,6 +98,9 @@ interface AcpTurnOptions<T> {
   /** identity for chat; parse∘extract for review/scoped — throws → one repair turn. */
   parse: (text: string) => T
   status?: string
+  /** see ChatTurn.beforePrompt / commandsWaitMs */
+  beforePrompt?: (commands: string[] | null) => Promise<void> | void
+  commandsWaitMs?: number
 }
 
 export class AcpEngine implements ReviewEngine {
@@ -154,6 +157,8 @@ export class AcpEngine implements ReviewEngine {
       executionMode: turn.executionMode,
       currentMode: turn.currentMode,
       readOnly: turn.readOnly,
+      beforePrompt: turn.beforePrompt,
+      commandsWaitMs: turn.commandsWaitMs,
       parse: (t) => t
     })
   }
@@ -190,6 +195,13 @@ export class AcpEngine implements ReviewEngine {
       // Reset per prompt; accumulates agent_message_chunk text (even when suppressed).
       let finalText = ''
       let replaying = true
+      // The session's command list (`available_commands_update`), captured OUTSIDE
+      // the replay gate: claude-agent-acp sends it ~5 ms after session/new resolves,
+      // i.e. racing the `replaying = false` flip below, and an action run needs it
+      // before the prompt (opts.beforePrompt). Null until it arrives.
+      let commands: string[] | null = null
+      let onCommands: () => void = () => {}
+      const commandsArrived = new Promise<void>((res) => { onCommands = res })
 
       try {
         // (a) MCP host for tool-enabled turns.
@@ -242,6 +254,10 @@ export class AcpEngine implements ReviewEngine {
             if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
               const diffs = diffBlocks(u.content)
               if (diffs.length) toolDiffs.set(u.toolCallId, toApprovalDiffs(diffs))
+            }
+            if (u.sessionUpdate === 'available_commands_update') {
+              commands = u.availableCommands.map((c) => c.name)
+              onCommands()
             }
             // Drop everything until session/new|load resolves — replay is history
             // Limn already holds in its own DB (spec §D1 step 4).
@@ -368,6 +384,15 @@ export class AcpEngine implements ReviewEngine {
           } catch { /* config-option passthrough is advisory — unknown ids are swallowed */ }
         }
 
+        // (f2) action runs check the skill they are about to invoke against the
+        // session's own command list BEFORE any prompt goes out (board 14 R3). Bounded
+        // wait: the list normally lands within milliseconds of session/new; a resumed
+        // session may never send one, and `beforePrompt` decides what to trust then.
+        if (opts.beforePrompt) {
+          await Promise.race([commandsArrived, new Promise<void>((res) => setTimeout(res, opts.commandsWaitMs ?? 2000))])
+          await opts.beforePrompt(commands)
+        }
+
         // (g) prompt + validate + one repair (spec §D5), on the SAME live session.
         const promptOnce = async (text: string): Promise<string> => {
           finalText = ''
@@ -440,7 +465,7 @@ export class AcpEngine implements ReviewEngine {
 
 /** Kill the child's whole process group (negative pid) so adapter-spawned tool/
  *  shell descendants die too; fall back to a direct kill. */
-function killTree(child: ChildProcessWithoutNullStreams | null): void {
+export function killTree(child: ChildProcessWithoutNullStreams | null): void {
   if (!child) return
   const pid = child.pid
   try {

@@ -691,6 +691,30 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     // forward-compat note, at debug/status level, not a hard turn error.
     expect(events.some((e) => e.type === 'status' && /mode/i.test(e.text))).toBe(true)
   })
+  it('17. beforePrompt sees the session\'s command list before anything is sent; a throw refuses the turn with no prompt', async () => {
+    const { engine, readRecords } = fakeEngine({ turns: [{ text: 'should never stream' }], availableCommands: ['simplify', 'compact'] })
+    const seen: (string[] | null)[] = []
+    const run = engine.chat({
+      repo: '/tmp', message: '/simplify',
+      beforePrompt: (commands) => { seen.push(commands); throw new Error('Simplify is not installed for Claude') }
+    })
+    const [events, err] = await Promise.all([drain(run.events), run.result.catch((e: Error) => e)])
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toContain('not installed')
+    expect(seen).toEqual([['simplify', 'compact']])
+    expect(events.some((e) => e.type === 'text')).toBe(false)
+    expect(readRecords().map((r) => r.event)).not.toContain('prompt')
+  })
+
+  it('17b. beforePrompt gets null when no list arrives within the wait, and the prompt still goes out', async () => {
+    const { engine, readRecords } = fakeEngine({ turns: [{ text: 'hi' }] })
+    const seen: (string[] | null)[] = []
+    const run = engine.chat({ repo: '/tmp', message: 'hello', beforePrompt: (c) => { seen.push(c) }, commandsWaitMs: 200 })
+    await drain(run.events)
+    await run.result
+    expect(seen).toEqual([null])
+    expect(readRecords().map((r) => r.event)).toContain('prompt')
+  })
 })
 
 /** Minimal poll helper (avoids importing vitest's fake timers). */

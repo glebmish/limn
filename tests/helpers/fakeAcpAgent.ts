@@ -83,6 +83,14 @@ export interface FakeScript {
   /** mode ids on which `session/set_mode` throws (T2: proves the retry-once-with-
    *  fallback path, not just the bare-catch it replaces). */
   rejectSetSessionMode?: string[]
+  /** command names announced via `available_commands_update` right AFTER session/new
+   *  (and session/load, unless `noCommandsOnLoad`) resolves — the way claude-agent-acp
+   *  does it (~5 ms after the response). Omitted: no announcement at all. */
+  availableCommands?: string[]
+  /** delay (ms) before the announcement (default 5). */
+  commandsDelayMs?: number
+  /** a RESUMED session sends no list (the unverified Codex-on-resume case). */
+  noCommandsOnLoad?: boolean
   /** the scripted prompt turns, consumed in order. */
   turns: FakeTurn[]
 }
@@ -138,9 +146,22 @@ class FakeAgent implements Agent {
     }
   }
 
+  /** Announce the command list a beat after the session response went out. */
+  private announceCommands(sessionId: string): void {
+    const names = this.script.availableCommands
+    if (!names) return
+    setTimeout(() => {
+      void this.conn.sessionUpdate({
+        sessionId,
+        update: { sessionUpdate: 'available_commands_update', availableCommands: names.map((name) => ({ name, description: name })) }
+      })
+    }, this.script.commandsDelayMs ?? 5)
+  }
+
   newSession(params: Parameters<Agent['newSession']>[0]): NewSessionResponse {
     record({ event: 'newSession', cwd: params.cwd, mcpServers: params.mcpServers })
     const ids = this.script.availableModes
+    this.announceCommands(this.script.sessionId ?? 'fake-new')
     return {
       sessionId: this.script.sessionId ?? 'fake-new',
       ...(ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {})
@@ -158,6 +179,7 @@ class FakeAgent implements Agent {
     // path: proves AcpEngine's `modeIdsFrom` capture on a LOADED session, not
     // just a freshly-created one).
     const ids = this.script.availableModes
+    if (!this.script.noCommandsOnLoad) this.announceCommands(params.sessionId)
     return ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {}
   }
 
@@ -179,6 +201,7 @@ class FakeAgent implements Agent {
   }
 
   async prompt(params: Parameters<Agent['prompt']>[0]): Promise<PromptResponse> {
+    record({ event: 'prompt', text: params.prompt.map((b) => (b.type === 'text' ? b.text : '')).join('') })
     const turn = this.script.turns[this.turnIndex] ?? {}
     this.turnIndex++
     const sessionId = params.sessionId

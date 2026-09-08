@@ -74,6 +74,13 @@ export interface ChatTurn {
    *  engine runs in read-only mode and every non-Limn tool request is denied, never
    *  parked. Set by ipc.ts when this turn runs alongside an exclusive op. */
   readOnly?: boolean
+  /** Action runs (design board 14 N2): called once the session is open and its
+   *  `available_commands_update` has arrived — or `commandsWaitMs` passed without one
+   *  (`null`: a resumed Codex session may never send it) — BEFORE the prompt goes
+   *  out. A throw refuses the turn: nothing is sent, no tokens are spent. */
+  beforePrompt?: (commands: string[] | null) => Promise<void> | void
+  /** how long `beforePrompt` waits for the command list (default 2000 ms). */
+  commandsWaitMs?: number
 }
 
 export interface EngineRun<T> {
