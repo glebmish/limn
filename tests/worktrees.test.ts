@@ -9,7 +9,8 @@ import {
 } from '../src/server/git'
 
 function git(dir: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim()
+  // stderr captured, not inherited — see fixtureRepo's git helper
+  return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
 let fx: FixtureRepo

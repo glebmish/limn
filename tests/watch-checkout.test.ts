@@ -15,7 +15,7 @@ describe('watchState notices checkouts (external worktree add/remove)', () => {
     // an EXTERNAL checkout (terminal, not the app): main gets its own worktree
     const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-wt-'))
     fs.rmSync(wt, { recursive: true })
-    execFileSync('git', ['worktree', 'add', wt, 'main'], { cwd: fx.dir })
+    execFileSync('git', ['worktree', 'add', wt, 'main'], { cwd: fx.dir, stdio: ['ignore', 'pipe', 'pipe'] })
 
     const after = await watchState(fx.dir, 'main')
     expect(after.workdir).not.toBeNull()

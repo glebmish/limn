@@ -54,7 +54,7 @@ describe('branches & metadata', () => {
     expect(after).not.toBe(before)
     // restore so other tests see the committed content
     const { execFileSync } = await import('node:child_process')
-    execFileSync('git', ['checkout', '--', 'src/a.ts'], { cwd: fx.dir })
+    execFileSync('git', ['checkout', '--', 'src/a.ts'], { cwd: fx.dir, stdio: ['ignore', 'pipe', 'pipe'] })
   })
 })
 

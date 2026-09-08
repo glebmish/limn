@@ -12,6 +12,11 @@ function git(dir: string, ...args: string[]): string {
   return execFileSync('git', args, {
     cwd: dir,
     encoding: 'utf8',
+    // execFileSync INHERITS stderr unless told otherwise, so git's progress chatter
+    // ("Preparing worktree", "Switched to branch", "Rebasing (1/3)") printed straight
+    // into a passing run's output, where it reads as an error the suite ignored.
+    // Captured instead — `encoding` still decodes it onto a thrown error's `.stderr`.
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fix@test',
