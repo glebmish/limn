@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { fileViewed, sectionDisclosureState, sectionViewState } from '../src/renderer/store'
 import { doneSectionIds } from '../src/renderer/store/derive'
+import { makeLoaded } from './helpers/loaded'
 import type { FileDiff, Section, ViewMark } from '../src/shared/types'
 
 // minimal FileDiff: the derivation reads `path`, `fileHash`, and `hunks[].sinceViewed`.
@@ -49,32 +50,35 @@ describe('sectionViewState (derives section completion from its files)', () => {
   })
 })
 
-// #92: this is the memo Review.tsx computes once (on [sections, viewedAt, loaded])
+// #92: this is the memo Review.tsx computes once (on [loaded, sections, viewedAt])
 // instead of useReviewScroll's scroll handler recomputing sectionViewState per
 // section per scroll frame — pinned at the pure-function level (no DOM needed).
+// Takes `loaded` directly (not a filesFor closure) so the memo's deps can be
+// exhaustive without recomputing every render.
 describe('doneSectionIds', () => {
   const section = (id: string, paths: string[]): Section => ({ id, name: id, files: paths, narration: [] })
-  const byPath = new Map([file('a.ts'), file('b.ts'), file('c.ts')].map((f) => [f.path, f]))
-  const filesFor = (s: Section): FileDiff[] => s.files.map((p) => byPath.get(p)!).filter(Boolean)
+  const loaded = makeLoaded({ files: [file('a.ts'), file('b.ts'), file('c.ts')] })
 
   it('collects only the sections whose files are all viewed', () => {
     const sections = [section('s1', ['a.ts']), section('s2', ['b.ts', 'c.ts'])]
     const viewed = { 'a.ts': vm(), 'b.ts': vm() } // s1 done, s2 only partly
 
-    expect(doneSectionIds(sections, filesFor, viewed)).toEqual(new Set(['s1']))
+    expect(doneSectionIds(loaded, sections, viewed)).toEqual(new Set(['s1']))
   })
 
   it('excludes a section with no files (sectionViewState treats it as "none")', () => {
-    const sections = [section('empty', [])]
-
-    expect(doneSectionIds(sections, filesFor, {})).toEqual(new Set())
+    expect(doneSectionIds(loaded, [section('empty', [])], {})).toEqual(new Set())
   })
 
   it('is empty when nothing is viewed, and full when every section is', () => {
     const sections = [section('s1', ['a.ts']), section('s2', ['b.ts'])]
 
-    expect(doneSectionIds(sections, filesFor, {})).toEqual(new Set())
-    expect(doneSectionIds(sections, filesFor, { 'a.ts': vm(), 'b.ts': vm() })).toEqual(new Set(['s1', 's2']))
+    expect(doneSectionIds(loaded, sections, {})).toEqual(new Set())
+    expect(doneSectionIds(loaded, sections, { 'a.ts': vm(), 'b.ts': vm() })).toEqual(new Set(['s1', 's2']))
+  })
+
+  it('is empty for a null review (nothing loaded, nothing to view)', () => {
+    expect(doneSectionIds(null, [section('s1', ['a.ts'])], { 'a.ts': vm() })).toEqual(new Set())
   })
 })
 

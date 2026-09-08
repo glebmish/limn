@@ -134,10 +134,12 @@ export default function Review() {
   // once here, not per scroll frame: useReviewScroll's scroll-sync used to recompute
   // this per section (up to 2N times per scroll event) via its own copy of the
   // predicate; it now reads this same memo through a ref. isSectionDone is a thin
-  // lookup into it, not a second computation.
+  // lookup into it, not a second computation. doneSectionIds reads loaded/sections/
+  // viewedAt directly (not the filesFor closure), so its deps here are exhaustive —
+  // filesFor is an unmemoised closure that would otherwise recompute this every render.
   const doneSectionIds = useMemo(
-    () => computeDoneSectionIds(sections, filesFor, viewedAt, loaded?.skeleton.headSha),
-    [sections, viewedAt, loaded]
+    () => computeDoneSectionIds(loaded, sections, viewedAt),
+    [loaded, sections, viewedAt]
   )
   const isSectionDone = (s: Section): boolean => doneSectionIds.has(s.id)
 

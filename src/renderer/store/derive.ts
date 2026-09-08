@@ -94,16 +94,6 @@ export function sectionViewState(files: FileDiff[], viewedAt: Record<string, Vie
   return n === 0 ? 'none' : n === files.length ? 'all' : 'some'
 }
 
-/** Every section whose files are all viewed, as a Set of ids — the same predicate
- *  `sectionViewState` owns, just collected once over the whole list instead of
- *  recomputed per section per caller. Review.tsx memoises this on
- *  `[sections, viewedAt, loaded]` and both `isSectionDone` (reviewedCount) and the
- *  scroll-sync handler in `useReviewScroll` read the resulting Set — the section-done
- *  rule keeps one owner even though the callers used to duplicate the predicate. */
-export function doneSectionIds(sections: readonly Section[], filesFor: (s: Section) => FileDiff[], viewedAt: Record<string, ViewMark>, headSha?: string): Set<string> {
-  return new Set(sections.filter((s) => sectionViewState(filesFor(s), viewedAt, headSha) === 'all').map((s) => s.id))
-}
-
 export interface SectionDisclosureState {
   viewState: 'none' | 'some' | 'all'
   done: boolean
@@ -152,6 +142,26 @@ export function fileIsExcluded(loaded: LoadedReview | null, f: FileDiff): boolea
 function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
   const byPath = new Map(renderedFiles(loaded).map((f) => [f.path, f]))
   return section.files.map((p) => byPath.get(p)).filter((f): f is FileDiff => Boolean(f))
+}
+
+/** Every section whose files are all viewed, as a Set of ids — the same predicate
+ *  `sectionViewState` owns, computed once over the whole review instead of recomputed
+ *  per section per caller (Review.tsx's `isSectionDone`/`reviewedCount` and
+ *  `useReviewScroll`'s scroll-sync handler both read the resulting Set). Takes
+ *  `loaded`/`sections`/`viewedAt` directly — the same inputs Review.tsx's own
+ *  `filesFor` reads (`renderedFiles` + `fileIsExcluded`) — rather than a `filesFor`
+ *  closure, so it stays a pure function of its declared arguments with nothing hidden
+ *  for a caller's memo to under-declare in its deps. Unlike `filesForSection` above
+ *  (used by `collapseCompletedSections`, a different rule), this excludes files the
+ *  review currently excludes — an excluded file can still be listed in a section. */
+export function doneSectionIds(loaded: LoadedReview | null, sections: readonly Section[], viewedAt: Record<string, ViewMark>): Set<string> {
+  const files = renderedFiles(loaded).filter((f) => !fileIsExcluded(loaded, f))
+  const headSha = loaded?.skeleton.headSha
+  const done = new Set<string>()
+  for (const s of sections) {
+    if (sectionViewState(orderFilesForReview(files, s.files), viewedAt, headSha) === 'all') done.add(s.id)
+  }
+  return done
 }
 
 export function collapseCompletedSections(loaded: LoadedReview | null, viewedAt: Record<string, ViewMark>, expanded: Set<string>): Set<string> {
