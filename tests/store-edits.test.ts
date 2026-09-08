@@ -112,6 +112,24 @@ describe('saveEdit', () => {
   })
 })
 
+// #77: refreshLoaded's transient branch captured viewedAt BEFORE awaiting
+// previewReview (a real round trip) and wrote it back after — reverting any
+// viewed tick made while the preview was in flight.
+describe('refreshLoaded (transient)', () => {
+  it('does not revert a viewed tick made while the preview round trip is in flight', async () => {
+    seed({ sessionId: null, viewed: false })
+    let resolvePreview!: (v: LoadedReview) => void
+    previewReview.mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
+    const refreshPromise = useStore.getState().refreshLoaded()
+    // the reviewer ticks Viewed while the round trip is still in flight
+    useStore.getState().toggleViewed('src/a.ts', false)
+    expect(useStore.getState().viewedAt['src/a.ts']).toBeDefined()
+    resolvePreview(makeLoaded())
+    await refreshPromise
+    expect(useStore.getState().viewedAt['src/a.ts']).toBeDefined()
+  })
+})
+
 // ── #6 fix-round-1: `frameId` identifies the edit *session*, not the region, so
 // DiffBody can tell "the same edit, grown" (reuse the live FlowFrame) apart from
 // "a different edit" (a double-click/pencil re-open elsewhere while one is already

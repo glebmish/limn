@@ -140,10 +140,11 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
     if (!loaded || !repo) return
     const pair = loaded.session.pair
     try {
-      const keepViewed = get().viewedAt
       const fresh = await api().previewReview(repo, pair.base.symbol, pair.compare.symbol, loaded.session.agent ?? get().agent)
-      // transient: viewedAt lives at the store's top level — carry it across the swap
-      set({ loaded: fresh, pendingDrift: null, viewedAt: keepViewed })
+      // viewedAt is a sibling of `loaded`, not nested under it — zustand's merging
+      // `set` leaves it alone, so it survives the swap without a write-back (and a
+      // write-back would revert any tick made during the previewReview round trip).
+      set({ loaded: fresh, pendingDrift: null })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
     }
