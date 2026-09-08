@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildChatPrompt, buildSeededChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, buildScopedUpdatePrompt } from '../src/server/engines/prompts'
+import { buildChatPrompt, buildSeededChatPrompt, buildReviewPrompt, buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, buildScopedUpdatePrompt, MAX_UNTRACKED_OFFERED } from '../src/server/engines/prompts'
 import type { ScopedUpdatePromptInput } from '../src/server/engines/prompts'
 import type { ReviewRequest } from '../src/server/engines/types'
 import type { Comment, CommentReply, FileDiff, ReviewAnnotations } from '../src/shared/types'
@@ -263,6 +263,25 @@ describe('buildScopedUpdatePrompt (diff-scoped update)', () => {
     const block = p.slice(idx)
     expect(block).toContain('scratch/new.ts')        // the new untracked file is offered
     expect(block).not.toContain('src/db/mig.ts')     // the sectioned untracked file is not offered again
+  })
+
+  it('caps the owned-untracked list like its sibling, and says how many it left out', () => {
+    // A drift of hundreds of owned untracked files would otherwise dump every path
+    // into the prompt — the exact spend the candidates list is capped to avoid.
+    const many = Array.from({ length: MAX_UNTRACKED_OFFERED + 3 }, (_, i) =>
+      mkFile({ path: `src/db/mig.ts`, untracked: true, status: 'added' , add: i + 1 }))
+    // distinct owned paths: every one of them belongs to s1
+    const prior: ReviewAnnotations = {
+      ...priorAnn,
+      sections: [{ ...priorAnn.sections[0], files: many.map((_, i) => `src/db/mig${i}.ts`) }, priorAnn.sections[1]]
+    }
+    const since = many.map((f, i) => ({ ...f, path: `src/db/mig${i}.ts` }))
+    const p = buildScopedUpdatePrompt(mkInput({ prior, since }))
+    const block = p.slice(p.indexOf('Untracked files in the drift that a prior section already owns'))
+    expect(block).toContain('src/db/mig0.ts')
+    expect(block).toContain(`src/db/mig${MAX_UNTRACKED_OFFERED - 1}.ts`)
+    expect(block).not.toContain(`src/db/mig${MAX_UNTRACKED_OFFERED}.ts`)
+    expect(block).toContain('…and 3 more')
   })
 
   it('names an already-sectioned untracked file in the drift with its owner, body not inlined', () => {

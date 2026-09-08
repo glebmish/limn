@@ -278,9 +278,16 @@ export function buildScopedUpdatePrompt(input: ScopedUpdatePromptInput): string 
   // file on every scoped iteration. So it is NAMED with its owner instead of inlined:
   // the agent reads the ones whose narration might have gone stale. Dropping it
   // entirely (the prior behaviour) hid real drift the header claims to cover.
+  // Capped by MAX_UNTRACKED_OFFERED like the candidates list below: a drift carrying
+  // hundreds of owned untracked files (a generated directory, a vendored tree) would
+  // otherwise dump every path into the prompt, which is the spend that cap exists to
+  // avoid. The overflow is COUNTED rather than dropped in silence — a bare truncation
+  // would hide drift the header claims to cover, which is what naming these fixed.
   const ownedUntracked = since.filter((f) => f.untracked && sectioned.has(f.path))
-  const ownedUntrackedBlock = ownedUntracked.length
-    ? `\nUntracked files in the drift that a prior section already owns — an untracked file has no committed baseline, so its hunks are NOT inlined and Limn cannot tell how much of it moved since ${sinceShort}. Read one and revise its section only if its current content no longer matches the narration:\n${ownedUntracked.map((f) => `- ${f.path} (${f.add} line${f.add === 1 ? '' : 's'}${f.binary ? ', binary' : ''}) — ${ownerLabel(f)}`).join('\n')}\n`
+  const ownedShown = ownedUntracked.slice(0, MAX_UNTRACKED_OFFERED)
+  const ownedOverflow = ownedUntracked.length - ownedShown.length
+  const ownedUntrackedBlock = ownedShown.length
+    ? `\nUntracked files in the drift that a prior section already owns — an untracked file has no committed baseline, so its hunks are NOT inlined and Limn cannot tell how much of it moved since ${sinceShort}. Read one and revise its section only if its current content no longer matches the narration:\n${ownedShown.map((f) => `- ${f.path} (${f.add} line${f.add === 1 ? '' : 's'}${f.binary ? ', binary' : ''}) — ${ownerLabel(f)}`).join('\n')}${ownedOverflow ? `\n- …and ${ownedOverflow} more, not listed` : ''}\n`
     : ''
 
   // Untracked candidates: only untracked files NOT already owned by a prior section,
