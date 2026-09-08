@@ -24,9 +24,20 @@ function runEffects(): void {
   for (const fn of queued) fn()
 }
 
-;(globalThis as unknown as { window: unknown }).window = {
-  api: {}, addEventListener: () => {}, removeEventListener: () => {}
+// Dashboard's shortcuts live on a window keydown listener; capturing it is how a key
+// press gets delivered without a DOM.
+const keys: ((e: { key: string; preventDefault(): void }) => void)[] = []
+;(globalThis as unknown as { window: unknown; document: unknown }).window = {
+  api: {},
+  addEventListener: (type: string, fn: unknown) => {
+    if (type === 'keydown') keys.push(fn as (e: { key: string; preventDefault(): void }) => void)
+  },
+  removeEventListener: () => {}
 }
+;(globalThis as unknown as { document: unknown }).document = { activeElement: null }
+// the handler's "is the reviewer typing?" guard instanceof-checks these
+Object.assign(globalThis, { HTMLInputElement: class {}, HTMLTextAreaElement: class {} })
+const press = (key: string): void => { keys[keys.length - 1]({ key, preventDefault: () => {} }) }
 
 const { useStore } = await import('../src/renderer/store')
 const { default: Review } = await import('../src/renderer/screens/Review')
@@ -57,6 +68,7 @@ const picker = (label: string): Record<string, unknown> =>
 afterEach(() => {
   pickers.length = 0
   effects.length = 0
+  keys.length = 0
   Object.assign(initial() as unknown as Record<string, unknown>, { loaded: null as LoadedReview | null })
 })
 
@@ -122,6 +134,43 @@ describe('dashboard cursor restore (finding 113)', () => {
     runEffects()
 
     expect(useStore.getState().sel).toBe(0)
+  })
+})
+
+// Pins the filter box across the "one source of truth" refactor (finding 114): the
+// box shows the store's filter, and Escape clears it through the store action.
+describe('dashboard filter box (finding 114)', () => {
+  const REPOS = ['/w/alpha', '/w/beta', '/w/gamma']
+
+  it('shows the store filter in the box', () => {
+    seedDashboard(REPOS, 'gam', null)
+
+    const html = renderToStaticMarkup(<Dashboard />)
+
+    expect(html).toContain('<input placeholder="Filter repositories…" aria-label="Filter repositories" value="gam"/>')
+    // and the list it filters is the one the box says it is
+    expect(html.match(/limn-repo-row/g)).toHaveLength(1)
+    expect(html).toContain('<span class="rr-name">gamma</span>')
+  })
+
+  it('clears the filter on Escape through the store', () => {
+    seedDashboard(REPOS, 'gam', null)
+    const setFilter = vi.fn()
+    Object.assign(initial() as unknown as Record<string, unknown>, { setFilter })
+    renderToStaticMarkup(<Dashboard />)
+    runEffects()
+
+    press('Escape')
+
+    expect(setFilter).toHaveBeenCalledWith('')
+  })
+
+  it('renders an empty box when nothing is typed', () => {
+    seedDashboard(REPOS, '', null)
+
+    const html = renderToStaticMarkup(<Dashboard />)
+
+    expect(html).toContain('<input placeholder="Filter repositories…" aria-label="Filter repositories" value=""/>')
   })
 })
 

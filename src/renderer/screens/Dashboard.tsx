@@ -136,7 +136,7 @@ export default function Dashboard() {
       const active = document.activeElement
       const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
       const list = reposRef.current
-      if (e.key === 'Escape') { setFilter(''); if (filterRef.current) filterRef.current.value = ''; return }
+      if (e.key === 'Escape') { setFilter(''); return }
       if (e.key === 'ArrowDown') { e.preventDefault(); useStore.setState({ sel: Math.min(list.length - 1, useStore.getState().sel + 1) }); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); useStore.setState({ sel: Math.max(0, useStore.getState().sel - 1) }); return }
       if (e.key === 'Enter') {
@@ -180,11 +180,14 @@ export default function Dashboard() {
 
       {hasRepos && (
         <div className="limn-dash-filter">
+          {/* Controlled by the store's filter — the box has no second copy of the
+              string to keep in step (Escape clears it by re-rendering). The ref is
+              only the type-to-focus target. */}
           <input
             ref={filterRef}
             placeholder="Filter repositories…"
             aria-label="Filter repositories"
-            defaultValue={filter}
+            value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
