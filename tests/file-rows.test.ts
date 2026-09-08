@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Hunk } from '../src/shared/types'
 import { hunkGaps } from '../src/renderer/lib/expand'
-import { buildFileRows, fnLabel, lineRow, rowKey } from '../src/renderer/lib/rows'
+import { asAligned, buildFileRows, buildSplitRows, contextRows, fnLabel, lineRow, rowKey } from '../src/renderer/lib/rows'
 
 // @@ -12,4 +12,5 @@ : one add at new 14
 const h1: Hunk = {
@@ -221,5 +221,33 @@ describe('buildFileRows / linesForRun highlighting (#7)', () => {
     const add = rows.find((r) => r.type === 'line' && r.key === 'new:14')
     expect(add?.type === 'line' && add.html).toBe('NEW')
     expect(add?.type === 'line' && add.html).not.toContain('hljs-')
+  })
+})
+
+describe('rows carry their discard span (#101)', () => {
+  const dirty: Hunk = {
+    range: '@@ -12,3 +12,3 @@', header: '', lines: [
+      { old: 12, new: 12, kind: '', text: 'a' },
+      { old: 13, new: null, kind: 'del', text: 'was', origin: 'unstaged' },
+      { old: null, new: 13, kind: 'add', text: 'is', origin: 'unstaged' },
+      { old: 14, new: 14, kind: '', text: 'c' }
+    ]
+  }
+  const want = { start: 13, end: 13, snapshot: ['is'], restore: ['was'] }
+
+  it('resolves it once per run and hands the same object to every row of the span', () => {
+    const rows = buildFileRows([dirty], hunkGaps([dirty])).filter((r) => r.type === 'line')
+    expect(rows.map((r) => r.discard)).toEqual([null, want, want, null])
+    expect(rows[1].discard).toBe(rows[2].discard) // one walk, shared — not one per row
+    expect(asAligned(rows[1]).discard).toBe(rows[1].discard)
+  })
+
+  it('Split hangs it on the paired row it renders the ↺ from', () => {
+    const rows = buildSplitRows([dirty], hunkGaps([dirty])).filter((r) => r.type === 'aligned')
+    expect(rows.map((r) => r.discard)).toEqual([null, want, null])
+  })
+
+  it('a revealed context row belongs to no run, so it has none', () => {
+    expect(contextRows([{ old: 20, new: 20, kind: '', text: 'ctx' }], 'unified', null)[0].discard).toBeNull()
   })
 })

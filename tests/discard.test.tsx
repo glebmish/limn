@@ -5,6 +5,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 
 ;(globalThis as unknown as { window: unknown }).window = { api: {} }
 
+import { UNIFIED } from '../src/shared/diffStack'
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
 import { makeLoaded } from './helpers/loaded'
@@ -38,6 +39,8 @@ function seed(writable: boolean) {
 
 afterEach(() => {
   ;(initial() as { loaded: LoadedReview | null }).loaded = null
+  ;(initial() as { diffStack: unknown }).diffStack = UNIFIED
+  useStore.setState({ diffStack: UNIFIED })
 })
 
 describe('rail ↺ discard', () => {
@@ -49,6 +52,17 @@ describe('rail ↺ discard', () => {
     expect(out).toContain('aria-label="Discard uncommitted change at line 14"') // the + row
     expect(out).toContain('aria-label="Discard uncommitted change at line 12"') // the − row of the same span
     expect((out.match(/limn-line-discard/g) ?? []).length).toBe(2)
+  })
+
+  it('rides the row model into Split too — one dot, on the row the ↺ renders from', () => {
+    seed(true)
+    useStore.setState({ diffStack: { out: ['base'], against: 'base' } })
+    ;(initial() as { diffStack: unknown }).diffStack = { out: ['base'], against: 'base' }
+    const out = renderToStaticMarkup(<DiffView f={file} />)
+    expect(out).toContain('layout-split')
+    // the del and the add pair into ONE row there, and the ↺ sits on its anchor cell
+    expect(out).toContain('aria-label="Discard uncommitted change at line 14"')
+    expect((out.match(/limn-line-discard/g) ?? []).length).toBe(1)
   })
 
   it('read-only review renders no discard affordance', () => {

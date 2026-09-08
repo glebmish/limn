@@ -1,4 +1,5 @@
 import type { DiffLine, Hunk } from '../../shared/types'
+import { discardSpansForRun, type DiscardSpan } from './edits'
 import { disp, highlightRun } from './highlight'
 import type { Gap } from './expand'
 import { pairHunkLines, wordDiffRanges, type CharRange } from './worddiff'
@@ -62,6 +63,10 @@ export interface LineRow {
    *  an unstaged span must never be treated as continuing across it. */
   run: DiffLine[]
   runIdx: number
+  /** The discardable unstaged span this row sits in, or null. Computed once per run
+   *  by `linesForRun` (like `html` above) — never per row per render, which is what
+   *  the body used to do just to decide whether to draw the ↺. */
+  discard?: DiscardSpan | null
 }
 
 export interface GapRow {
@@ -146,6 +151,7 @@ export function linesForRun(
   opts: { hunkRange: string; fromHunk: boolean; marks?: Map<number, CharRange[]> }
 ): LineRow[] {
   const html = runHighlight(run, lang)
+  const discard = discardSpansForRun(run)
   const out: LineRow[] = []
   let oldIdx = -1
   let newIdx = -1
@@ -155,6 +161,7 @@ export function linesForRun(
     const row = lineRow(run, j, { hunkRange: opts.hunkRange, fromHunk: opts.fromHunk, marks: opts.marks?.get(j) })
     if (!row) return
     row.html = row.side === 'new' ? html.new[newIdx] : html.old[oldIdx]
+    row.discard = discard[j]
     out.push(row)
   })
   return out
@@ -292,6 +299,11 @@ export interface AlignedRow {
    *  revealed context row (which belongs to no run) — and, in Multi, for a base
    *  line git's now-diff never touched. */
   run: { lines: DiffLine[]; idx: number } | null
+  /** the discard payload for the ↺ on this row, or null where there is none —
+   *  resolved once per run by the builders (`discardSpansForRun`), so the body
+   *  neither re-walks the run to decide whether to draw the button nor walks it
+   *  again to answer the click */
+  discard: DiscardSpan | null
 }
 
 export type ViewRow = AlignedRow | GapRow
@@ -307,7 +319,8 @@ export function asAligned(r: LineRow): AlignedRow {
     cells: [cellOf(r.l, r.side, r.lineNo, { marks: r.marks, html: r.html })],
     anchor: r.fromHunk ? { side: r.side, lineNo: r.lineNo } : null,
     hunkRange: r.hunkRange, fromHunk: r.fromHunk,
-    run: { lines: r.run, idx: r.runIdx }
+    run: { lines: r.run, idx: r.runIdx },
+    discard: r.discard ?? null
   }
 }
 
@@ -324,7 +337,7 @@ export function contextRows(lines: DiffLine[], layout: Layout, lang: string | nu
     const cells: Cell[] = layout === 'unified' ? [cellOf(l, 'new', l.new, { html: h })]
       : layout === 'split' ? [cellOf(l, 'old', l.old, { html: h }), cellOf(l, 'new', l.new, { html: h })]
       : [cellOf(l, 'old', l.old, { html: h }), ...midOffsets.map((off) => cellOf(l, 'mid', l.new! - off, { html: h })), cellOf(l, 'new', l.new, { html: h })]
-    out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, run: null })
+    out.push({ type: 'aligned', key: `new:${l.new}`, cells, anchor: null, hunkRange: '', fromHunk: false, run: null, discard: null })
   })
   return out
 }
@@ -335,6 +348,7 @@ function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
   const run = h.lines
   const html = runHighlight(run, lang)
   const marks = runWordMarks(run)
+  const discard = discardSpansForRun(run)
   const oldIdx: number[] = [], newIdx: number[] = []
   let oi = -1, ni = -1
   for (const l of run) { if (l.old != null) oi++; if (l.new != null) ni++; oldIdx.push(oi); newIdx.push(ni) }
@@ -354,7 +368,8 @@ function splitHunkRows(h: Hunk, lang: string | null): AlignedRow[] {
       cells: [j != null ? cellAt(j, 'old') : pad('old'), k != null ? cellAt(k, 'new') : pad('new')],
       anchor: nowL?.new != null ? { side: 'new', lineNo: nowL.new } : { side: 'old', lineNo: oldL!.old! },
       hunkRange: h.range, fromHunk: true,
-      run: { lines: run, idx: k ?? j! }
+      run: { lines: run, idx: k ?? j! },
+      discard: discard[k ?? j!]
     }
   }
   const out: AlignedRow[] = []

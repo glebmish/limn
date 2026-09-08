@@ -325,3 +325,22 @@ export function discardSpanAt(lines: DiffLine[], idx: number): DiscardSpan | nul
     restore: run.filter((l) => l.kind === 'del').map((l) => l.text)
   }
 }
+
+/** `discardSpanAt` for every index of a run, in one pass: each maximal unstaged
+ *  block is resolved once and the resulting span (or null) is shared by every row
+ *  in it. The row model hangs this on its rows (`lib/rows.ts`) so the body can ask
+ *  "is this row discardable?" by reading a field instead of re-walking the run —
+ *  which it did per unstaged row, per render, purely as a `!= null` test. */
+export function discardSpansForRun(lines: DiffLine[]): (DiscardSpan | null)[] {
+  const out: (DiscardSpan | null)[] = lines.map(() => null)
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].origin !== 'unstaged') { i++; continue }
+    let hi = i
+    while (hi < lines.length - 1 && lines[hi + 1].origin === 'unstaged') hi++
+    const span = discardSpanAt(lines, i)
+    for (let j = i; j <= hi; j++) out[j] = span
+    i = hi + 1
+  }
+  return out
+}

@@ -11,7 +11,7 @@ import { Composer, InlineThread } from './Threads'
 import type { CharRange } from '../lib/worddiff'
 import { disp, highlightLine, langForPath } from '../lib/highlight'
 import { describeModeChange } from './FileHeader'
-import { discardSpanAt, fileEditable, rawOffsetFromDisplayColumn } from '../lib/edits'
+import { fileEditable, rawOffsetFromDisplayColumn, type DiscardSpan } from '../lib/edits'
 import {
   STEP, foldControls, gapContaining, hunkGaps, revealLines, stepReveal, type Gap, type GapReveal
 } from '../lib/expand'
@@ -233,9 +233,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   // ── rail ↺: discard a contiguous unstaged span — git checkout --, surfaced.
   // Runs the same CAS save pipeline with the span's pre-change text as payload;
   // a conflict (file moved since render) just refreshes the review.
-  const discardAt = async (lines: DiffLine[], j: number): Promise<void> => {
-    const span = discardSpanAt(lines, j)
-    if (!span) return
+  const discardAt = async (span: DiscardSpan): Promise<void> => {
     const res = await useStore.getState().saveEdit(f.path, {
       start: span.start, end: span.end, snapshot: span.snapshot, newLines: span.restore
     })
@@ -457,17 +455,23 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
       <I.edit style={{ width: 12, height: 12 }} />
     </button>
   )
-  const discardButton = (r: AlignedRow, l: DiffLine): React.ReactNode =>
-    r.run && l.origin === 'unstaged' && discardSpanAt(r.run.lines, r.run.idx) != null ? (
+  /** The rail ↺, on every row of a discardable span (hover shows one at a time). The
+   *  span itself comes precomputed off the row model — asking `discardSpanAt` here
+   *  meant walking the run for each unstaged row of every open file, on every render,
+   *  only to test it against null, and walking it once more to answer the click. */
+  const discardButton = (r: AlignedRow, l: DiffLine): React.ReactNode => {
+    const span = r.discard
+    return span ? (
       <button
         className="rail-undo limn-line-discard"
         title="Discard — git checkout -- (reverts this uncommitted span)"
         aria-label={`Discard uncommitted change at line ${l.new ?? l.old}`}
-        onClick={() => void discardAt(r.run!.lines, r.run!.idx)}
+        onClick={() => void discardAt(span)}
       >
         <I.undo style={{ width: 10, height: 10 }} />
       </button>
     ) : null
+  }
   const afterRow = (r: AlignedRow): React.ReactNode => {
     if (!r.anchor) return null
     const { side, lineNo } = r.anchor

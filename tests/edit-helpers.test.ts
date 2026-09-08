@@ -3,7 +3,7 @@ import type { DiffLine, FileDiff } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import type { FrameDraft } from '../src/renderer/lib/edits'
 import {
-  caretAfterGrowth, discardSpanAt, fileEditable, frameDeletesLines, frameGutter, frameHint,
+  caretAfterGrowth, discardSpanAt, discardSpansForRun, fileEditable, frameDeletesLines, frameGutter, frameHint,
   frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn, reapplyCue,
   seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../src/renderer/lib/edits'
@@ -497,5 +497,40 @@ describe('discardSpanAt', () => {
     const lines = [add(5, 'committed add'), ctx(6, 6), add(7, 'mine', 'unstaged'), ctx(7, 8)]
     expect(discardSpanAt(lines, 0)).toBeNull()
     expect(discardSpanAt(lines, 2)).toEqual({ start: 7, end: 7, snapshot: ['mine'], restore: [] })
+  })
+})
+
+describe('discardSpansForRun', () => {
+  it('gives every row of a span the same span object, and one walk per span', () => {
+    const lines = [ctx(9, 9), del(10, 'old text', 'unstaged'), add(10, 'new text', 'unstaged'), ctx(11, 11)]
+    const spans = discardSpansForRun(lines)
+    expect(spans.length).toBe(lines.length)
+    expect(spans[0]).toBeNull()
+    expect(spans[3]).toBeNull()
+    expect(spans[1]).toEqual({ start: 10, end: 10, snapshot: ['new text'], restore: ['old text'] })
+    expect(spans[2]).toBe(spans[1]) // one span, shared — not one walk per row
+  })
+
+  it('keeps two spans in one run apart', () => {
+    const lines = [add(5, 'a', 'unstaged'), ctx(6, 6), add(7, 'b', 'unstaged')]
+    const spans = discardSpansForRun(lines)
+    expect(spans[0]).toEqual({ start: 5, end: 5, snapshot: ['a'], restore: [] })
+    expect(spans[2]).toEqual({ start: 7, end: 7, snapshot: ['b'], restore: [] })
+    expect(spans[1]).toBeNull()
+  })
+
+  it('marks a refused span null on every one of its rows, as discardSpanAt does', () => {
+    const mixed = [ctx(9, 9), add(10, 'stg', 'staged'), add(11, 'unstg', 'unstaged'), ctx(10, 12)]
+    expect(discardSpansForRun(mixed)).toEqual([null, null, null, null])
+    const delOnly = [ctx(9, 9), del(10, 'gone', 'unstaged'), ctx(11, 10)]
+    expect(discardSpansForRun(delOnly)).toEqual([null, null, null])
+  })
+
+  it('agrees with discardSpanAt at every index', () => {
+    const lines = [
+      ctx(9, 9), add(10, 'stg', 'staged'), ctx(10, 11),
+      del(11, 'old', 'unstaged'), add(12, 'new', 'unstaged'), ctx(12, 13)
+    ]
+    expect(discardSpansForRun(lines)).toEqual(lines.map((_, i) => discardSpanAt(lines, i)))
   })
 })
