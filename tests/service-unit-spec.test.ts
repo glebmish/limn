@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execSync } from 'node:child_process'
 import { unitSpec } from '../src/cli/service/index'
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, execSync: vi.fn(actual.execSync) }
+})
 
 const FORWARDED = ['LIMN_PORT', 'LIMN_DB', 'LIMN_WEB_HOST', 'LIMN_WEB_TOKEN']
 const saved: Record<string, string | undefined> = {}
@@ -44,6 +50,31 @@ describe('unitSpec', () => {
     try {
       expect(() => unitSpec(false, { loginPath: LOGIN_PATH })).toThrow(/npm run build/)
     } finally { process.argv[1] = savedArgv1 }
+  })
+
+  it('isolates the PATH from login-shell startup chatter (nvm/oh-my-zsh banners) instead of baking it in verbatim', () => {
+    // The banner precedes the sentinel-bracketed PATH, exactly as a real
+    // `$SHELL -ilc 'echo START; echo -n "$PATH"; echo; echo END'` capture would.
+    const raw = 'Now using node v20.11.0 (npm v10.2.4)\n__LIMN_PATH_START__\n/usr/local/bin:/usr/bin:/bin\n__LIMN_PATH_END__\n'
+    vi.mocked(execSync).mockReturnValueOnce(raw)
+    const spec = unitSpec(false)
+    const segments = spec.pathEnv.split(path.delimiter)
+    expect(segments).toContain('/usr/local/bin')
+    expect(segments.every((s) => path.isAbsolute(s))).toBe(true)
+  })
+
+  it('falls back to process.env.PATH when the captured output has no markers or does not look like a PATH', () => {
+    const savedPath = process.env.PATH
+    process.env.PATH = '/env/bin:/env/usr/bin'
+    try {
+      vi.mocked(execSync).mockReturnValueOnce('no markers here, just a startup banner\n')
+      expect(unitSpec(false).pathEnv.split(path.delimiter)).toContain('/env/bin')
+      vi.mocked(execSync).mockReturnValueOnce('__LIMN_PATH_START__\nnot a path\n__LIMN_PATH_END__\n')
+      expect(unitSpec(false).pathEnv.split(path.delimiter)).toContain('/env/bin')
+    } finally {
+      if (savedPath === undefined) delete process.env.PATH
+      else process.env.PATH = savedPath
+    }
   })
 
   it('records a real node binary and passes port80 through', () => {

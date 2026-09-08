@@ -27,12 +27,40 @@ export async function isServiceInstalled(): Promise<boolean> {
   return b ? fs.existsSync(b.unitPath()) : false
 }
 
+const PATH_START = '__LIMN_PATH_START__'
+const PATH_END = '__LIMN_PATH_END__'
+
+/** A sane PATH is a `path.delimiter`-joined list of absolute directories — login-shell
+ *  startup chatter (nvm/oh-my-zsh/conda banners) fused onto the value would not. */
+function looksLikePath(candidate: string): boolean {
+  if (!candidate) return false
+  const segments = candidate.split(path.delimiter).filter(Boolean)
+  return segments.length > 0 && segments.every((s) => path.isAbsolute(s))
+}
+
+/** Extracts the PATH `loginShellPath` bracketed between sentinel markers, so any
+ *  interactive-shell startup output that lands on stdout before them (nvm's "Now
+ *  using node vX", conda/oh-my-zsh banners, …) can't fuse onto the value. Falls back
+ *  to `fallback` when the markers are missing or the extracted text doesn't look like
+ *  a real PATH. */
+export function extractLoginPath(raw: string, fallback: string): string {
+  const start = raw.indexOf(PATH_START)
+  const end = raw.indexOf(PATH_END)
+  if (start === -1 || end === -1 || end < start) return fallback
+  const candidate = raw.slice(start + PATH_START.length, end).trim()
+  return looksLikePath(candidate) ? candidate : fallback
+}
+
 /** launchd/systemd start the service with a bare PATH; engines need git/claude/codex. */
 function loginShellPath(): string {
+  const fallback = process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
   try {
-    return execSync(`${process.env.SHELL || '/bin/sh'} -ilc 'echo -n "$PATH"'`, { timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      || process.env.PATH || ''
-  } catch { return process.env.PATH || '/usr/local/bin:/usr/bin:/bin' }
+    const raw = execSync(
+      `${process.env.SHELL || '/bin/sh'} -ilc 'echo ${PATH_START}; echo -n "$PATH"; echo; echo ${PATH_END}'`,
+      { timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    )
+    return extractLoginPath(raw, fallback)
+  } catch { return fallback }
 }
 
 /** The script the unit runs. `../index.js` next to this module covers both the
