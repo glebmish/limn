@@ -43,6 +43,35 @@ async function materializeActiveChat(): Promise<number | null> {
   }
 }
 
+/** Pick the review thread a review-scoped send (followUp, sendRebase) should land
+ *  on: the thread that authored the latest iteration, else the newest review
+ *  thread — no further fallback, since both callers mint a new thread instead.
+ *  Unlike `currentReviewChat` (lib/comments.ts), which falls back to `chats[0]`
+ *  for its read-only UI callers that can't mint. */
+function pickReviewThread(chats: ChatThread[], engineSessionId?: string): ChatThread | undefined {
+  return (engineSessionId
+    ? chats.find((c) => c.kind === 'review' && c.engineSessionId === engineSessionId)
+    : undefined)
+    ?? [...chats].reverse().find((c) => c.kind === 'review')
+}
+
+/** Mint a chat thread with the given agent when a review-scoped send found no
+ *  review thread to target — older/generated sessions can predate persisted
+ *  review threads. Materializes the session first if needed. Sets the error on
+ *  failure. Shared by followUp and sendRebase. */
+async function mintReviewThread(agent: AgentRef | undefined): Promise<number | null> {
+  const sessionId = useStore.getState().sessionId ?? await useStore.getState().materialize()
+  if (sessionId == null) return null
+  try {
+    const chats = await api().createChat(sessionId, agent ?? useStore.getState().agent)
+    setChats(chats)
+    return chats[chats.length - 1]?.id ?? null
+  } catch (err) {
+    useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+    return null
+  }
+}
+
 /** Send a chat turn to an explicit thread id. This is the low-level path used by
  *  both the composer and the review Follow up CTA; it avoids relying on
  *  activeChatId having just been changed by another action. */
@@ -252,30 +281,15 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
     if (!loaded) return
     void (async () => {
       const current = get().loaded
-      const review = (current?.state.latestIteration?.sessionId
-        ? current.state.chats.find((c) => c.kind === 'review' && c.engineSessionId === current.state.latestIteration?.sessionId)
-        : undefined)
-        ?? [...(current?.state.chats ?? [])].reverse().find((c) => c.kind === 'review')
+      const review = pickReviewThread(current?.state.chats ?? [], current?.state.latestIteration?.sessionId)
       let targetId = review?.id
       // don't follow-up a thread that's already streaming (incl. its own generation,
       // OQ6) or when the shared lane is full — checked before any createChat side effect.
       if (targetId != null && chatSendBlocked(get().ops, targetId)) return
       if (targetId == null) {
-        // Older/generated sessions can predate persisted review threads. Create a
-        // normal chat with the review agent so Follow up still has somewhere real
-        // to send instead of silently doing nothing.
-        const sessionId = get().sessionId ?? await get().materialize()
-        if (sessionId == null) return
-        try {
-          const chats = await api().createChat(sessionId, loaded.state.agent ?? get().agent)
-          setChats(chats)
-          targetId = chats[chats.length - 1]?.id
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) })
-          return
-        }
+        targetId = (await mintReviewThread(loaded.state.agent ?? get().agent)) ?? undefined
+        if (targetId == null) return
       }
-      if (targetId == null) return
       get().openChat(targetId)
       sendChatToThread(targetId, body)
     })()
@@ -316,24 +330,12 @@ export const createChatSlice: StateCreator<AppStore, [], [], ChatSlice> = (set, 
       if (!current) return
       // same review-thread pick as followUp: the thread that authored the latest
       // iteration, else the newest review thread, else mint one with the review agent.
-      const review = (current.state.latestIteration?.sessionId
-        ? current.state.chats.find((c) => c.kind === 'review' && c.engineSessionId === current.state.latestIteration?.sessionId)
-        : undefined)
-        ?? [...current.state.chats].reverse().find((c) => c.kind === 'review')
+      const review = pickReviewThread(current.state.chats, current.state.latestIteration?.sessionId)
       let targetId = review?.id
       if (targetId == null) {
-        const sessionId = get().sessionId ?? await get().materialize()
-        if (sessionId == null) return
-        try {
-          const chats = await api().createChat(sessionId, current.state.agent ?? get().agent)
-          setChats(chats)
-          targetId = chats[chats.length - 1]?.id
-        } catch (err) {
-          set({ error: err instanceof Error ? err.message : String(err) })
-          return
-        }
+        targetId = (await mintReviewThread(current.state.agent ?? get().agent)) ?? undefined
+        if (targetId == null) return
       }
-      if (targetId == null) return
       const loaded = get().loaded
       if (loaded) {
         setChats(loaded.state.chats.map((c) => c.id === targetId
