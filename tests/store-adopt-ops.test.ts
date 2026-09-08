@@ -7,7 +7,7 @@ const loadSession = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
 const previewReview = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
 const startSession = vi.fn(async () => ({ sessionId: 9 }))
 const findSession = vi.fn(async () => null)
-const openRepo = vi.fn(async () => ({}))
+const openRepo = vi.fn(async () => ({ defaultBase: 'main', current: 'feat', branches: ['feat'] }))
 const repoState = vi.fn(async () => ({ defaultBase: 'main', current: 'feat', branches: ['feat'] }))
 const listRepoSessions = vi.fn(async () => [])
 ;(globalThis as unknown as { window: unknown }).window = {

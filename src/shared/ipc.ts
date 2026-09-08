@@ -1,7 +1,7 @@
 import type { Stack } from './diffStack.js'
 import type {
   AgentRef, AgentWriteCapability, ApplyEditResult, ApprovalDecision, Artifact, ChatThread, Comment, CommentAnchor, CommitInfo, DiffSkeleton, DriftSummary, EngineEvent, EngineId,
-  ExecutionMode, FileAt, FileCheckpoint, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoInfo, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
+  ExecutionMode, FileAt, FileCheckpoint, FileDiff, FileEdit, MergeCleanupRequest, MergeExecuteRequest, MergeExecuteResult, MergePreflight, RecentSession, RefLoc, RefSide, RepoIndexEntry, RepoState, ReviewCopyCandidate, ReviewState, SessionListItem, SessionMeta, ViewMark, WorkingFile
 } from './types.js'
 
 export interface LoadedReview {
@@ -81,7 +81,10 @@ export interface UiStatePatch {
 export interface Api {
   pickRepo(): Promise<string | null>
   recentRepos(): Promise<string[]>
-  openRepo(path: string): Promise<RepoInfo>
+  /** Validate a repo path, stamp it as recently opened, and return its live git
+   *  state — the same shape `repoState` returns, so opening a repo is one round
+   *  trip rather than two. */
+  openRepo(path: string): Promise<RepoState>
   /** Live git state (branches, current branch, worktrees, dirtiness). */
   repoState(repo: string): Promise<RepoState>
   /** Sessions for a repo, latest first. Live only unless `includeArchived`. */

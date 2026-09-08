@@ -434,8 +434,6 @@ export interface ReviewState {
    *  A merged session is read-only: no watcher, no drift, mutations blocked. */
   merged?: MergeRecord;
 }
-export interface RepoInfo { path: string; branches: string[]; current: string; defaultBase: string }
-
 /** A git worktree (primary or linked). `branch` is null for a detached HEAD.
  *  `dirty` is populated by `repoState` (the UI path) and left undefined by the
  *  lean `listWorktrees` used in hot git paths. */

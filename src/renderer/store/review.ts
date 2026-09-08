@@ -101,10 +101,10 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       // dashboard path; CLI / direct callers may not have them yet, so fetch when
       // the repo differs or state is missing. openRepo also records it under Recent.
       if (get().repo !== repoPath || !get().repoState) {
-        const [info, repoState, repoSessions] = await Promise.all([
-          api().openRepo(repoPath), api().repoState(repoPath), api().listRepoSessions(repoPath)
+        const [repoState, repoSessions] = await Promise.all([
+          api().openRepo(repoPath), api().listRepoSessions(repoPath)
         ])
-        set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
+        set({ repo: repoPath, repoState, repoSessions })
       }
       const repoState = get().repoState
       if (!repoState) return

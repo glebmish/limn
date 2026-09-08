@@ -18,7 +18,7 @@ const loadSession = vi.fn(async (): Promise<LoadedReview> => {
 })
 const repoState = vi.fn(async () => ({ worktrees: [] }))
 const listRepoSessions = vi.fn(async () => [])
-const openRepo = vi.fn(async () => ({}))
+const openRepo = vi.fn(async () => ({ worktrees: [] }))
 ;(globalThis as unknown as { window: unknown }).window = {
   api: { addWorktreeFor, previewReview, loadSession, repoState, listRepoSessions, openRepo }
 }

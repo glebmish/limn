@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { LoadedReview } from '../../shared/ipc'
-import type { RepoInfo, RepoState, SessionListItem } from '../../shared/types'
+import type { RepoState, SessionListItem } from '../../shared/types'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { useStore } from './index'
@@ -43,7 +43,6 @@ export async function afterCheckout(branch: string, loaded: LoadedReview | null)
  *  payoff, and session archive/restore. */
 export interface RepoSlice {
   repo: string | null
-  repoInfo: RepoInfo | null
   /** live git state for the current repo (branches, current branch, worktrees,
    *  dirtiness) — feeds the hub + review-header switchers. */
   repoState: RepoState | null
@@ -79,7 +78,6 @@ export interface RepoSlice {
 
 export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, get) => ({
   repo: null,
-  repoInfo: null,
   repoState: null,
   repoSessions: [],
   showArchived: false,
@@ -93,12 +91,13 @@ export const createRepoSlice: StateCreator<AppStore, [], [], RepoSlice> = (set, 
   async openRepo(repoPath) {
     set({ error: null })
     try {
-      const [info, repoState, repoSessions] = await Promise.all([
+      // openRepo returns the repo's live state, so this is the whole context: no
+      // second repoState round trip for the same three git reads.
+      const [repoState, repoSessions] = await Promise.all([
         api().openRepo(repoPath),
-        api().repoState(repoPath),
         api().listRepoSessions(repoPath)
       ])
-      set({ repo: repoPath, repoInfo: info, repoState, repoSessions })
+      set({ repo: repoPath, repoState, repoSessions })
       // a repo with saved sessions lands on the hub (the session list) — resuming
       // one unasked surprises more than it saves. Only a repo with no live
       // sessions opens a fresh transient review for the current branch.

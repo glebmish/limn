@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { makeLoaded } from './helpers/loaded'
 import type { LoadedReview } from '../src/shared/ipc'
 
-const openRepoApi = vi.fn(async () => ({ name: 'repo' }))
+const openRepoApi = vi.fn(async () => ({ path: '/r', current: 'feat', defaultBase: 'main', branches: ['feat', 'main'], worktrees: [], dirty: false, dirtyCount: 0 }))
 const repoState = vi.fn(async () => ({ current: 'feat', defaultBase: 'main', branches: ['feat', 'main'], worktrees: [] }))
 const listRepoSessions = vi.fn(async () => [] as unknown[])
 const loadSession = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
@@ -81,7 +81,6 @@ describe('openRepo hub-vs-transient choice', () => {
   })
 
   it('opens the session hub when the repo has sessions, even off-branch ones', async () => {
-    repoState.mockResolvedValueOnce({ current: 'feat', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
     listRepoSessions.mockResolvedValueOnce([
       { id: 1, compareKind: 'branch', compareSymbol: 'other' },
     ])
@@ -93,7 +92,6 @@ describe('openRepo hub-vs-transient choice', () => {
   })
 
   it('opens the hub rather than resuming when a session matches the current branch', async () => {
-    repoState.mockResolvedValueOnce({ current: 'feat', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
     listRepoSessions.mockResolvedValueOnce([
       { id: 2, compareKind: 'branch', compareSymbol: 'feat' },
     ])
@@ -104,13 +102,24 @@ describe('openRepo hub-vs-transient choice', () => {
   })
 
   it('opens a transient review when the repo has no sessions', async () => {
-    repoState.mockResolvedValueOnce({ current: 'feat', defaultBase: 'main', branches: ['feat'], worktrees: [] } as never)
     listRepoSessions.mockResolvedValueOnce([])
     await useStore.getState().openRepo('/r')
     await flush()
     expect(useStore.getState().enterHub).not.toHaveBeenCalled()
     expect(useStore.getState().resumeExisting).not.toHaveBeenCalled()
     expect(useStore.getState().openReview).toHaveBeenCalledWith('/r')
+  })
+
+  // openRepo returns the repo's live state, so the store takes it from there —
+  // asking repoState for the same three git reads in the same Promise.all was a
+  // round trip whose answer was thrown away.
+  it('takes the live repo state from openRepo itself, with no second repoState call', async () => {
+    listRepoSessions.mockResolvedValueOnce([])
+    await useStore.getState().openRepo('/r')
+    await flush()
+    expect(openRepoApi).toHaveBeenCalledWith('/r')
+    expect(repoState).not.toHaveBeenCalled()
+    expect(useStore.getState().repoState).toMatchObject({ current: 'feat', defaultBase: 'main' })
   })
 })
 

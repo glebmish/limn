@@ -578,11 +578,13 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
 
   handle('recentRepos', async () => dao.recentRepoPaths(db, 8).filter((r) => fs.existsSync(r)))
 
+  // validate + stamp Recent, then hand back the same live state `repoState` returns:
+  // the caller needs it either way, and re-deriving a subset here made opening a repo
+  // two round trips (and two runs of the same git subprocesses).
   handle('openRepo', async (repo: string) => {
     if (!fs.existsSync(path.join(repo, '.git'))) throw new Error(`${repo} is not a git repository`)
     dao.touchRepo(db, repo)
-    const branches = await listBranches(repo)
-    return { path: repo, branches, current: await currentBranch(repo), defaultBase: pickDefaultBase(branches) }
+    return repoState(repo)
   })
 
   handle('repoState', async (repo: string) => repoState(repo))
