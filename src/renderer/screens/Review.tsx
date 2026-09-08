@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, useStore } from '../store'
+import { DENSITY, effectiveSections, fileIsExcluded, fileViewed, reviewOp, GUIDANCE, pendingApprovals, sectionViewState, useStore } from '../store'
 import { renderedFiles } from '../store/derive'
 import { I, shortSha, strategyLabel, CmtPlus } from '../kit'
 import type { FileDiff, Section } from '../../shared/types'
@@ -128,11 +128,9 @@ export default function Review() {
   const isExcluded = (f: FileDiff): boolean => fileIsExcluded(loaded, f)
   // excluded (untracked, hidden) files leave their section/band for the Excluded group
   const filesFor = (s: Section): FileDiff[] => orderFilesForReview(rendered, s.files).filter((f) => !isExcluded(f))
-  // a section is done when all its files are viewed (derived — no separate flag)
-  const isSectionDone = (s: Section): boolean => {
-    const fs = filesFor(s)
-    return fs.length > 0 && fs.every((f) => fileViewed(f, viewedAt, loaded?.skeleton.headSha))
-  }
+  // a section is done when all its files are viewed (derived — no separate flag;
+  // sectionViewState is the one place that rule lives, ActionChips reads it too)
+  const isSectionDone = (s: Section): boolean => sectionViewState(filesFor(s), viewedAt, loaded?.skeleton.headSha) === 'all'
 
   // all review scroll wiring: refs, header-height + scroll-sync effects, the section/
   // file jump helpers, and the doc scroll-memory (peek + goToDoc/closeDocBack/toggleDoc)

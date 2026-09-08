@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { LoadedReview } from '../../shared/ipc'
 import type { FileDiff, Section } from '../../shared/types'
-import { fileViewed, useStore } from '../store'
+import { sectionViewState, useStore } from '../store'
 import { cancelFocusJump, pinnedTop } from './focusScroll'
 import { focusAnchor } from './focus'
 import { dev } from '../dev'
@@ -78,10 +78,9 @@ export function useReviewScroll({
       const baseTop = box.getBoundingClientRect().top + pinnedTop(box) + FOLD_GAP
       const va = useStore.getState().viewedAt
       const vaHead = useStore.getState().loaded?.skeleton.headSha
-      const sectionDone = (s: Section): boolean => {
-        const fs = filesFor(s)
-        return fs.length > 0 && fs.every((f) => fileViewed(f, va, vaHead))
-      }
+      // same rule Review.tsx's isSectionDone reads for reviewedCount — one owner
+      // (sectionViewState), not a second hand-rolled predicate here.
+      const sectionDone = (s: Section): boolean => sectionViewState(filesFor(s), va, vaHead) === 'all'
       let active: string | undefined
       if (sections.length > 0) {
         const firstOpen = sections.find((s) => !sectionDone(s))
