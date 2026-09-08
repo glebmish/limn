@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reduceToolCalls, reduceSegments, deriveVerb, deriveMeta, clampOut, bashArg } from '../src/shared/toolcalls'
+import { reduceToolCalls, reduceSegments, deriveVerb, clampOut, bashArg } from '../src/shared/toolcalls'
 import type { EngineEvent } from '../src/shared/types'
 
 describe('reduceToolCalls', () => {
@@ -116,15 +116,6 @@ describe('deriveVerb', () => {
     ['command_execution', 'bash'], ['Glob', 'list'],
     ['list_comments', 'list'], ['mcp__limn__add_comment', 'edit'], ['unknown_tool', 'other'],
   ] as const)('%s -> %s', (name, verb) => { expect(deriveVerb(name)).toBe(verb) })
-})
-
-describe('deriveMeta', () => {
-  it('counts lines for read', () => { expect(deriveMeta('read', 'a\nb\nc')).toBe('3 lines') })
-  it('counts hits for grep', () => { expect(deriveMeta('grep', 'f.ts:1\nf.ts:2')).toBe('2 hits') })
-  it('returns undefined for empty / other', () => {
-    expect(deriveMeta('read', '')).toBeUndefined()
-    expect(deriveMeta('other', 'x')).toBeUndefined()
-  })
 })
 
 describe('bashArg', () => {

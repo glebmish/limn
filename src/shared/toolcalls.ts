@@ -19,17 +19,6 @@ export function deriveVerb(name: string): ToolVerb {
   return 'other'
 }
 
-/** Best-effort one-line summary of a tool result. `undefined` => the row shows a
- *  plain "done" check instead. */
-export function deriveMeta(verb: ToolVerb, resultText: string): string | undefined {
-  const t = resultText.trim()
-  if (!t) return undefined
-  const lines = t.split('\n').length
-  if (verb === 'read') return `${lines} ${lines === 1 ? 'line' : 'lines'}`
-  if (verb === 'grep') return `${lines} ${lines === 1 ? 'hit' : 'hits'}`
-  return undefined
-}
-
 /** Unwrap a Codex shell invocation (`/bin/zsh -lc '<script>'`, `bash -c "…"`, `sh -c …`)
  *  down to the meaningful command. Multi-line scripts collapse to the first real command
  *  line, skipping comments and heredoc openers. Capped to ~120 chars; never regresses
