@@ -62,4 +62,15 @@ describe('reload regenerated-review detection', () => {
     await useStore.getState().reload()
     expect(loadSession).not.toHaveBeenCalled()
   })
+
+  it('surfaces a failed refresh in the error strip instead of rejecting', async () => {
+    const kept = makeLoaded({ chats: [{ id: 1, kind: 'review', messages: [] }] })
+    useStore.setState({ loaded: kept, viewedAt: { 'a.ts': { sha: 'HEAD', hash: 'ha' } }, error: null })
+    loadSession.mockRejectedValueOnce(new Error('fetch failed'))
+    await expect(useStore.getState().reload()).resolves.toBeUndefined()
+    expect(useStore.getState().error).toBe('fetch failed')
+    // the surface keeps what it had — a failed refresh must not blank the review
+    expect(useStore.getState().loaded).toBe(kept)
+    expect(useStore.getState().viewedAt).toEqual({ 'a.ts': { sha: 'HEAD', hash: 'ha' } })
+  })
 })

@@ -231,26 +231,35 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     const { sessionId } = get()
     if (sessionId == null) return
     const prevReviews = (get().loaded?.state.chats ?? []).filter((c) => c.kind === 'review')
-    const loaded = await api().loadSession(sessionId)
-    const reviews = loaded.state.chats.filter((c) => c.kind === 'review')
-    // a regenerate created a new review session: open the NEW (latest) review so it
-    // appears and opens in the chat sidebar. (The "switch to current" banner still
-    // shows if you later navigate back to an older session manually.)
-    const regeneratedId = reviews.length > prevReviews.length && prevReviews.length > 0
-      ? reviews[reviews.length - 1].id
-      : null
-    set({
-      loaded,
-      error: loadWarningStrip(loaded),
-      viewedAt: loaded.state.viewedAt,
-      activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
-      pendingDrift: null, // the reload folded any drift in; the watcher re-baselines
-      watchStopped: null
-    })
-    // an op may have started elsewhere while this tab sat idle; known ops are skipped,
-    // so this never disturbs a stream this tab is already rendering.
-    get().adoptOps(loaded.activeOps ?? [])
-    void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
+    // Same try/catch as this slice's other lifecycle actions. Most callers fire this
+    // as `void store.reload()`, so a bare rejection would be an unhandled one: no
+    // banner, no retry, and a surface silently frozen on pre-reload data. On failure
+    // the existing `loaded`/`viewedAt` stay put — a dropped connection must not blank
+    // the review — and only the error strip changes.
+    try {
+      const loaded = await api().loadSession(sessionId)
+      const reviews = loaded.state.chats.filter((c) => c.kind === 'review')
+      // a regenerate created a new review session: open the NEW (latest) review so it
+      // appears and opens in the chat sidebar. (The "switch to current" banner still
+      // shows if you later navigate back to an older session manually.)
+      const regeneratedId = reviews.length > prevReviews.length && prevReviews.length > 0
+        ? reviews[reviews.length - 1].id
+        : null
+      set({
+        loaded,
+        error: loadWarningStrip(loaded),
+        viewedAt: loaded.state.viewedAt,
+        activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
+        pendingDrift: null, // the reload folded any drift in; the watcher re-baselines
+        watchStopped: null
+      })
+      // an op may have started elsewhere while this tab sat idle; known ops are skipped,
+      // so this never disturbs a stream this tab is already rendering.
+      get().adoptOps(loaded.activeOps ?? [])
+      void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) })
+    }
   },
 
   setPendingDrift(d, capability) {
