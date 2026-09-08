@@ -124,6 +124,45 @@ describe('InlineThread — resolved threads can be continued', () => {
   })
 })
 
+// Re-queueing a hotspot (spec Decision 19) is a plain status flip: resolved → queued.
+// The card used to collapse to Delete alone at that point — the queued chip, Send now,
+// Reply and Re-queue were all gated on the turn's author or on `resolved`.
+describe('InlineThread — a re-queued agent hotspot keeps its affordances', () => {
+  // exactly what requeueComment writes: status flipped, nothing else touched
+  const requeued = hotspotComment({ status: 'queued', resolution: undefined })
+
+  it('shows the queued chip and Send now on a hotspot with no replies', () => {
+    const out = html(requeued)
+    expect(out).toContain('queued for agent')
+    expect(out).toContain('Send now')
+  })
+
+  it('offers Delete but not Reply/Re-queue — it is already in the batch', () => {
+    const out = html(requeued)
+    expect(out).toContain('>Delete<')
+    expect(out).not.toContain('Re-queue')
+    expect(out).not.toContain('>Reply<')
+  })
+
+  it('a hotspot sent with the batch says so and can still be continued', () => {
+    const out = html(hotspotComment({ status: 'sent', resolution: undefined }))
+    expect(out).toContain('>Reply<')
+    expect(out).toContain('Re-queue')
+  })
+
+  it('an outdated hotspot says outdated', () => {
+    expect(html(hotspotComment({ status: 'outdated', resolution: undefined }))).toContain('outdated')
+  })
+
+  it('the resolution entry keeps ONE agent identity chip beside its verdict', () => {
+    const out = html(hotspotComment({ resolution: { verdict: 'addressed', note: 'Guarded the empty case.' } }))
+    const entry = out.indexOf('>resolution<')
+    expect(entry).toBeGreaterThan(-1)
+    // the entry's own AgentId is the identity; the status chips must not add a second
+    expect(out.slice(entry).match(/limn-agentid/g)).toBeNull()
+  })
+})
+
 // The status chips follow the LATEST turn. A reply lands at the bottom of the thread;
 // a "queued for agent" chip up in the card header said nothing about whether that
 // reply had gone anywhere.

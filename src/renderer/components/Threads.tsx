@@ -68,11 +68,16 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   // The thread's status chips (queued · Send now / with agent… / outdated / the
   // verdict) sit on the LATEST turn, not always on the card header: a reply lands at
   // the bottom of the thread, and a "queued for agent" chip at the top of the card
-  // said nothing about it. `author` is the turn's author — the queued/sent chips
-  // describe a reviewer turn, so a reviewer reply on an agent hotspot gets them too.
+  // said nothing about it. `author` is the turn's author — but queued/outdated
+  // describe the COMMENT's status, so they render whoever spoke last: an agent
+  // hotspot the reviewer re-queued (spec Decision 19) is queued for the agent exactly
+  // like a reviewer comment, and its card used to say nothing at all. The agent-
+  // IDENTITY chip stays reviewer-only: an agent turn already renders that agent
+  // beside it (the card header's AgentId, the resolution entry's), so an ungated one
+  // would just be a duplicate chip.
   const statusChips = (author: 'user' | 'agent'): ReactElement => (
     <>
-      {author === 'user' && c.status === 'queued' && (
+      {c.status === 'queued' && (
         <>
           <span className="agentq"><EngineGlyph engine={activeAgent?.engine ?? reviewEngine} style={{ width: 11, height: 11 }} />{merged ? 'never sent' : 'queued for agent'}</span>
           {!merged && (
@@ -93,7 +98,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
           </button>
         )
       })()}
-      {author === 'user' && c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
+      {c.status === 'outdated' && <span className="agentq" style={{ color: 'var(--muted)' }}>outdated</span>}
       {c.status === 'resolved' && c.resolution && (
         <span
           className="agentq"
@@ -199,8 +204,11 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
         )}
         {!merged && !editing && !replying && isAgent && (
           <div className="bf">
-            {c.status === 'resolved' && <ReplyButton onClick={() => setReplying(true)} />}
-            {c.status === 'resolved' && <RequeueButton c={c} />}
+            {/* a hotspot the reviewer already queued needs neither — its card carries
+                the queued chip and Send now instead (they would only re-queue what is
+                already in the batch) */}
+            {c.status !== 'queued' && <ReplyButton onClick={() => setReplying(true)} />}
+            {c.status !== 'queued' && <RequeueButton c={c} />}
             {deleteControl}
           </div>
         )}
