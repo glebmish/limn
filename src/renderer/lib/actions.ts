@@ -82,6 +82,22 @@ export function actionDraftProblem(draft: { kind: ActionDef['kind']; name: strin
   return null
 }
 
+/** The display name the editor fills in until the reviewer types their own: a
+ *  skill's last path segment, title-cased (`pr-review-toolkit:review-pr` → "Review
+ *  pr"); a prompt has no natural name. */
+export function defaultActionName(kind: ActionDef['kind'], body: string): string {
+  if (kind !== 'skill') return ''
+  const bare = bareSkillName(body)
+  const last = bare.split(':').pop() ?? bare
+  return last.replace(/[-_]+/g, ' ').trim().replace(/^\w/, (c) => c.toUpperCase())
+}
+
+/** The engines the skill editor checks on its own when it opens: those never probed
+ *  for this repo. A failed or stale record is left to the explicit Check / Refresh. */
+export function uncheckedEngines(avail: readonly CommandAvailability[]): EngineId[] {
+  return avail.filter((a) => a.state === 'unknown').map((a) => a.engine)
+}
+
 /** The "seen on <engine>" list for the editor: names matching the typed prefix
  *  (or all when empty), each flagged when it is already pinned. */
 export function seenChoices(

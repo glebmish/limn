@@ -202,7 +202,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <ActionsSettings repo={repo} />
             </div>
             <div className="settings-foot">
-              <span className="settings-note">Actions are global · skills stay in Claude Code and Codex</span>
               <span className="grow" />
               <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
             </div>

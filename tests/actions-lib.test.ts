@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ActionDef } from '../src/shared/types'
 import type { CommandAvailability } from '../src/shared/actions'
-import { actionDraftProblem, actionSub, markFor, markTitle, markedEngines, moveAction, seenChoices } from '../src/renderer/lib/actions'
+import { actionDraftProblem, actionSub, defaultActionName, markFor, markTitle, markedEngines, moveAction, seenChoices, uncheckedEngines } from '../src/renderer/lib/actions'
 
 const simplify: ActionDef = { id: 'a', kind: 'skill', name: 'Simplify', body: 'simplify' }
 const rebase: ActionDef = { id: 'b', kind: 'prompt', name: 'Rebase', body: 'Rebase onto main\nresolve conflicts' }
@@ -70,5 +70,23 @@ describe('list helpers', () => {
       { engine: 'codex', names: [{ name: 'security-review', pinned: false }] }
     ])
     expect(seenChoices(seen, 'zzz', [])).toEqual([])
+  })
+})
+
+describe('editor defaults', () => {
+  it('defaultActionName title-cases a skill\'s last segment and leaves prompts unnamed', () => {
+    expect(defaultActionName('skill', 'simplify')).toBe('Simplify')
+    expect(defaultActionName('skill', '/simplify')).toBe('Simplify')
+    expect(defaultActionName('skill', 'pr-review-toolkit:review-pr')).toBe('Review pr')
+    expect(defaultActionName('skill', 'code_review')).toBe('Code review')
+    expect(defaultActionName('skill', '')).toBe('')
+    expect(defaultActionName('prompt', 'Rebase onto main')).toBe('')
+  })
+
+  it('uncheckedEngines names only the never-probed engines', () => {
+    const unk = avail({ state: 'unknown', names: [], checkedAt: '' })
+    expect(uncheckedEngines([unk, avail({ engine: 'codex' })])).toEqual(['claude'])
+    expect(uncheckedEngines([avail({ state: 'failed' }), avail({ engine: 'codex', state: 'checking' })])).toEqual([])
+    expect(uncheckedEngines([])).toEqual([])
   })
 })

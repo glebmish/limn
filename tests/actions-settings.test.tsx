@@ -29,7 +29,7 @@ describe('SettingsDialog — tabs', () => {
     expect(actions).toContain('<h2 id="settings-title">Actions</h2>')
     expect(actions).toContain('Pinned actions')
     expect(actions).not.toContain('Default review agent')
-    expect(actions).toContain('Actions are global · skills stay in Claude Code and Codex')
+    expect(actions).not.toContain('Actions are global')
   })
 })
 

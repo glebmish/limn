@@ -758,6 +758,7 @@ body.is-resizing * { cursor: col-resize !important; }
 .ax-probe button.spin svg { animation: limn-spin .8s linear infinite; }
 .ax-probe button:disabled { cursor: default; }
 .ax-skill-status .ax-eng { width: 13px; height: 13px; margin-right: 3px; vertical-align: middle; }
+.ax-skill-status .ax-check { margin-left: 8px; font: 600 11px var(--sans); color: var(--accent-ink); border: none; background: none; padding: 0; cursor: pointer; }
 
 /* ── agent actions — the launcher (board 14 L1) ── */
 .chat-head .chat-head-fill { flex: 1 1 auto; }
