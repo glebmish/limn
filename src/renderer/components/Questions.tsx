@@ -3,7 +3,7 @@ import type { AgentAction, AgentQuestion, ChatThread, Comment } from '../../shar
 import { agentLabel } from '../../shared/agents'
 import { genForLoaded, useStore } from '../store'
 import { I, EngineGlyph } from '../kit'
-import { addComment, currentReviewChat, editComment, sendAnswers } from '../lib/comments'
+import { currentReviewChat, sendAnswers } from '../lib/comments'
 
 interface DecisionRow {
   question: AgentQuestion
@@ -112,10 +112,10 @@ export function Questions() {
         const text = answers[row.question.id]?.trim()
         if (!text) continue
         if (row.queued) {
-          if (row.queued.text !== text) await editComment(row.queued, text)
+          if (row.queued.text !== text) await useStore.getState().editComment(row.queued, text)
           ids.push(row.queued.id)
         } else {
-          const id = await addComment({ kind: 'question', questionId: row.question.id }, text)
+          const id = await useStore.getState().addComment({ kind: 'question', questionId: row.question.id }, text)
           if (id) ids.push(id)
         }
       }

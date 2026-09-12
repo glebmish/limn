@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import { useStore } from '../store'
 import { I, CmtPlus } from '../kit'
-import { addComment } from '../lib/comments'
+import { api } from '../lib/api'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
 import { MD_PLUGINS, PreBlock, InlineCode, type HastNode } from '../lib/markdown'
@@ -31,8 +31,8 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
     try {
       const id = await materialize()
       if (id == null) return
-      if (approvedAt) await window.api.unapproveArtifact(id, path)
-      else await window.api.approveArtifact(id, path)
+      if (approvedAt) await api().unapproveArtifact(id, path)
+      else await api().approveArtifact(id, path)
       void reload()
     } finally {
       setApproving(false)
@@ -63,7 +63,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
             placeholder={`Comment on this ${art.role} line — the agent gets it with your next batch…`}
             onCancel={() => setComposerLine(null)}
             onSubmit={(t) => {
-              void addComment({ kind: 'artifact', path, line, lineContent }, t)
+              void useStore.getState().addComment({ kind: 'artifact', path, line, lineContent }, t)
               setComposerLine(null)
             }}
           />
@@ -140,7 +140,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
                       <Composer
                         placeholder={`Comment on plan deviation ${i + 1} — the agent gets it with your next batch…`}
                         onCancel={() => setCommentDeviation(null)}
-                        onSubmit={(t) => { void addComment({ kind: 'deviation', index: i }, t); setCommentDeviation(null) }}
+                        onSubmit={(t) => { void useStore.getState().addComment({ kind: 'deviation', index: i }, t); setCommentDeviation(null) }}
                       />
                     )}
                   </Fragment>

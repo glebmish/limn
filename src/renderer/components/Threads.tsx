@@ -3,7 +3,7 @@ import type { AgentRef, Comment } from '../../shared/types'
 import { I, Ava, EngineGlyph } from '../kit'
 import { agentLabel } from '../../shared/agents'
 import { activeChat, useStore } from '../store'
-import { currentReviewChat, deleteComment, editComment, sendComments } from '../lib/comments'
+import { currentReviewChat, sendComments } from '../lib/comments'
 
 const VERDICT_ICON = { addressed: '✓', reworked: '↻', skipped: '✗' } as const
 
@@ -35,7 +35,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const deleteControl = confirmDel ? (
     <>
       <span className="dim">Delete this comment?</span>
-      <button className="del-confirm" onClick={() => void deleteComment(c.id)}>Confirm</button>
+      <button className="del-confirm" onClick={() => void useStore.getState().deleteComment(c.id)}>Confirm</button>
       <button onClick={() => setConfirmDel(false)}>Cancel</button>
     </>
   ) : (
@@ -90,7 +90,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               autoFocus
             />
             <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-              <button className="btn btn-sm btn-primary" onClick={() => { void editComment(c, draft); setEditing(false) }}>Save</button>
+              <button className="btn btn-sm btn-primary" onClick={() => { void useStore.getState().editComment(c, draft); setEditing(false) }}>Save</button>
               <button className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
             </div>
           </div>

@@ -1,48 +1,29 @@
 import { useEffect } from 'react'
-import { DENSITY, useStore } from './store'
+import { DENSITY, handleCliOpen, handleOpEvent, handleOpResult, handleRepoChanged, handleSettingsOpen, useStore } from './store'
 import Dashboard from './screens/Dashboard'
 import RepoHub from './screens/RepoHub'
 import Review from './screens/Review'
 import { SettingsDialog } from './components/SettingsDialog'
 import { dev } from './dev'
+import { api } from './lib/api'
 
 export default function App() {
   const { screen, settingsOpen, closeSettings } = useStore()
 
   useEffect(() => {
-    const offEvent = window.api.onOpEvent(({ opId, event }) => {
-      if (useStore.getState().gen.opId !== opId) return
-      useStore.getState().pushOpEvent(event)
-    })
-    const offResult = window.api.onOpResult(({ opId, status, error, reload, errorCode }) => {
-      const st = useStore.getState()
-      if (st.gen.opId !== opId) return
-      st.finishOp(status, error, errorCode)
-      if (status === 'succeeded' || reload) void st.reload()
-    })
-    const offChanged = window.api.onRepoChanged((msg) => {
-      const { repo, branch, drift, writeCapability, watchStopped } = msg
-      const st = useStore.getState()
-      if (st.screen !== 'review' || st.gen.running) return
-      // the branch moved while reading — notify via the titlebar fetch pill instead
-      // of yanking the surface out from under the reviewer. They click to fold it in.
-      if (st.repo === repo && st.branch === branch) {
-        // a stopped watch reports last-known fields, not real drift — reflect the
-        // paused state and leave the drift pill as-is; a recovery (no watchStopped)
-        // clears the pause and folds the live drift back in.
-        st.setWatchStopped(watchStopped ?? null)
-        if (!watchStopped) st.setPendingDrift(drift, writeCapability)
-        void st.refreshRepoContext()
-      }
-    })
-    const offSettings = window.api.onSettingsOpen(() => useStore.getState().openSettings())
+    // Subscribe the push-event channels to the named bridge handlers (store/bridge.ts).
+    // Each handler carries the exact guard + dispatch this useEffect used to inline.
+    const offEvent = api().onOpEvent(handleOpEvent)
+    const offResult = api().onOpResult(handleOpResult)
+    const offChanged = api().onRepoChanged(handleRepoChanged)
+    const offSettings = api().onSettingsOpen(handleSettingsOpen)
     if (dev.openSettings) useStore.getState().openSettings()
     // CLI: open a repo on Compare (or surface an error on the dashboard).
     // The initial pending open is consumed by store.boot() AFTER the dashboard
     // loads (so its error toast survives loadDashboard's reset) — boot's
     // takeCliOpen also marks the renderer ready. We subscribe here so later
     // second-instance forwards are delivered live.
-    const offCli = window.api.onCliOpen((msg) => useStore.getState().applyCliOpen(msg))
+    const offCli = api().onCliOpen(handleCliOpen)
     return () => {
       offEvent()
       offResult()

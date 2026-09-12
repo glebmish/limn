@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { checkoutGate, genCancelled, genForLoaded, newOpId, pendingApprovals, useStore } from '../store'
+import { checkoutGate, genCancelled, genForLoaded, pendingApprovals, startGenerate, startGenerateNow, useStore } from '../store'
 import { I, EngineGlyph, shortSha, ago } from '../kit'
 import { reduceToolCalls } from '../../shared/toolcalls'
 import { AgentPicker } from './AgentPicker'
 import { ToolCallLog } from './ToolCallLog'
 import { useTooltip } from '../lib/useTooltip'
 import { usePopover } from '../lib/usePopover'
-import type { AgentRef, CommitInfo } from '../../shared/types'
+import type { CommitInfo } from '../../shared/types'
+
+// startGenerate / startGenerateNow moved to store/ops.ts (store orchestration, not
+// rendering). Transitional re-export so Review.tsx's `from '../components/GenPanel'`
+// import keeps resolving without a same-commit cross-file rename.
+export { startGenerate, startGenerateNow }
 
 /** Hover hint on the "Update review" button. Honest about the mechanism: an update is a
  *  FRESH engine run (no session resume — ReviewRequest carries no engineSessionId) seeded
@@ -19,32 +24,6 @@ export const UPDATE_REVIEW_HINT =
 function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-export async function startGenerate(sessionId: number, agent: AgentRef, opId: string, steer?: string, update?: boolean): Promise<void> {
-  const store = useStore.getState()
-  // create the review thread (with its opening user turn) and select it BEFORE the
-  // agent runs, so generation streams into a real, persisted chat from the first
-  // moment — the live stream renders through the normal chat path.
-  const threadId = await window.api.beginReview(sessionId, agent, update, steer)
-  await store.reload()              // pull the new review thread into loaded state
-  store.switchChat(threadId)        // select it (drawer shows the live stream if open)
-  store.startOp('review', opId, threadId)
-  void window.api.generate(sessionId, agent, opId, threadId, steer, update)
-}
-
-/** Materialize the (possibly transient) review, then run the agent with the chosen
- *  review agent. The first generate from a transient entry mints the session.
- *  `steer` is an optional one-shot note that focuses the pass; `update` folds new
- *  drift commits into the existing review instead of re-narrating from scratch. */
-export async function startGenerateNow(steer?: string, update?: boolean): Promise<void> {
-  if (useStore.getState().gen.running) return // an op is already in flight
-  if (checkoutGate(useStore.getState().loaded).blocked) return
-  const sessionId = await useStore.getState().materialize()
-  if (sessionId == null) return
-  const { loaded, agent } = useStore.getState()
-  if (checkoutGate(loaded).blocked) return
-  await startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
 }
 
 /** CTA before annotations exist + live progress strip during any agent op. */

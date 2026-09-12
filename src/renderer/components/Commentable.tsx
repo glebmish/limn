@@ -3,7 +3,6 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { SelectionScope } from '../../shared/types'
 import { I } from '../kit'
 import { useStore } from '../store'
-import { addComment } from '../lib/comments'
 import { captureSelection, sameScope, type CapturedSelection } from '../lib/selection'
 import { computePosition } from '../lib/floating'
 import { Composer, InlineThread } from './Threads'
@@ -71,7 +70,7 @@ export function Commentable({ scope, className, children }: {
             placeholder={`Comment on “${snip(composing.quote)}” — the agent gets it with your next batch…`}
             onCancel={() => setComposing(null)}
             onSubmit={(text) => {
-              void addComment({ kind: 'selection', scope, quote: composing.quote, prefix: composing.prefix, suffix: composing.suffix }, text)
+              void useStore.getState().addComment({ kind: 'selection', scope, quote: composing.quote, prefix: composing.prefix, suffix: composing.suffix }, text)
               setComposing(null)
             }}
           />

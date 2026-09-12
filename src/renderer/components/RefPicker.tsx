@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { I, ago, shortSha } from '../kit'
 import { usePopover } from '../lib/usePopover'
+import { api } from '../lib/api'
 import { useStore } from '../store'
 import { wtName } from '../lib/workspace'
 import type { CommitInfo, RefLoc } from '../../shared/types'
@@ -61,7 +62,7 @@ export function RefPicker({ value, onChange, repo, relativeTo, label, prominent 
     setCommits(null) // drop stale commits immediately; the list shows fresh data only
     setLoadErr(false)
     let ignore = false
-    void window.api.refOptions(repo, scope).then((r) => {
+    void api().refOptions(repo, scope).then((r) => {
       if (ignore) return
       setBranches(r.branches)
       setDefaultBase(r.defaultBase)

@@ -3,6 +3,7 @@ import type { AgentRef, EngineId, ReasoningEffort } from '../../shared/types'
 import { AGENT_CATALOG, modelsFor, modelOption, engineLabel } from '../../shared/agents'
 import { I, EngineGlyph } from '../kit'
 import { usePopover } from '../lib/usePopover'
+import { api } from '../lib/api'
 import { dev } from '../dev'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
@@ -25,7 +26,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right' }: {
 
   useEffect(() => {
     for (const e of ['claude', 'codex'] as EngineId[]) {
-      void window.api.authStatus(e).then((s) => setAuth((a) => ({ ...a, [e]: s })))
+      void api().authStatus(e).then((s) => setAuth((a) => ({ ...a, [e]: s })))
         .catch(() => setAuth((a) => ({ ...a, [e]: { ok: false, hint: 'auth check failed' } })))
     }
   }, [])

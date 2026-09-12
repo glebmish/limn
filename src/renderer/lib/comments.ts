@@ -1,38 +1,5 @@
 import { useStore } from '../store'
-import type { Comment, CommentAnchor } from '../../shared/types'
-
-export async function addComment(anchor: CommentAnchor, text: string): Promise<string | null> {
-  const sessionId = await useStore.getState().materialize()  // first comment mints the session
-  if (sessionId == null) return null
-  const loaded = useStore.getState().loaded
-  const comment: Comment = {
-    id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    anchor,
-    author: 'user',
-    text,
-    status: 'queued',
-    replies: [],
-    createdAt: new Date().toISOString(),
-    iteration: loaded?.state.latestIteration?.n ?? 0
-  }
-  const state = await window.api.upsertComment(sessionId, comment)
-  useStore.getState().setComments(state.comments)
-  return comment.id
-}
-
-export async function editComment(comment: Comment, text: string): Promise<void> {
-  const sessionId = await useStore.getState().materialize()
-  if (sessionId == null) return
-  const state = await window.api.upsertComment(sessionId, { ...comment, text })
-  useStore.getState().setComments(state.comments)
-}
-
-export async function deleteComment(id: string): Promise<void> {
-  const sessionId = await useStore.getState().materialize()
-  if (sessionId == null) return
-  const state = await window.api.deleteComment(sessionId, id)
-  useStore.getState().setComments(state.comments)
-}
+import type { Comment } from '../../shared/types'
 
 /** The current review session = the LATEST review thread (each generation makes a
  *  new one; older review threads stay as history). */

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { FileDiff, Section } from '../../shared/types'
 import { I, DiagramNodeBox, Flow, EngineGlyph, CmtPlus } from '../kit'
 import { GUIDANCE, sectionDisclosureState, useStore } from '../store'
-import { addComment } from '../lib/comments'
 import { clickable } from '../lib/clickable'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
@@ -97,7 +96,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               placeholder={`Comment on the “${s.name}” change…`}
               onCancel={() => setCommenting(null)}
               onSubmit={(text) => {
-                void addComment({ kind: 'section', sectionId: s.id }, text)
+                void useStore.getState().addComment({ kind: 'section', sectionId: s.id }, text)
                 setCommenting(null)
               }}
             />
@@ -149,7 +148,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               placeholder={`Comment on the diagram in “${s.name}”…`}
               onCancel={() => setCommenting(null)}
               onSubmit={(text) => {
-                void addComment({ kind: 'section', sectionId: s.id, part: 'diagram' }, text)
+                void useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'diagram' }, text)
                 setCommenting(null)
               }}
             />
@@ -163,7 +162,7 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
               placeholder={`Comment on the “${s.name}” section…`}
               onCancel={() => setCommenting(null)}
               onSubmit={(text) => {
-                void addComment({ kind: 'section', sectionId: s.id, part: 'narration' }, text)
+                void useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'narration' }, text)
                 setCommenting(null)
               }}
             />

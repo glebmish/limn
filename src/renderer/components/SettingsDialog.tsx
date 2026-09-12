@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { EngineGlyph, I } from '../kit'
 import { ENGINE_PATH_PREF_KEYS } from '../../shared/prefs'
+import { api } from '../lib/api'
 
 type EngineStatus = { ok: boolean; hint: string }
 
@@ -81,8 +82,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   const refreshStatus = async (): Promise<void> => {
     const [claude, codex] = await Promise.all([
-      window.api.authStatus('claude'),
-      window.api.authStatus('codex')
+      api().authStatus('claude'),
+      api().authStatus('codex')
     ])
     setClaudeStatus(claude)
     setCodexStatus(codex)
@@ -92,7 +93,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     let alive = true
     void (async () => {
       try {
-        const prefs = await window.api.getPrefs()
+        const prefs = await api().getPrefs()
         if (!alive) return
         setClaudePath(prefs[ENGINE_PATH_PREF_KEYS.claude] ?? '')
         setCodexPath(prefs[ENGINE_PATH_PREF_KEYS.codex] ?? '')
@@ -118,8 +119,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     setError(null)
     try {
       await Promise.all([
-        window.api.setPref(ENGINE_PATH_PREF_KEYS.claude, claudePath.trim()),
-        window.api.setPref(ENGINE_PATH_PREF_KEYS.codex, codexPath.trim())
+        api().setPref(ENGINE_PATH_PREF_KEYS.claude, claudePath.trim()),
+        api().setPref(ENGINE_PATH_PREF_KEYS.codex, codexPath.trim())
       ])
       await refreshStatus()
       setSaved(true)

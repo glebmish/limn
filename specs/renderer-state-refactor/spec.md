@@ -1,6 +1,16 @@
 # Renderer state & component decomposition
 
-## Status: Draft — awaiting answers to open questions
+## Status: Ready to implement — all open questions resolved (2026-07-02)
+
+Resolutions (all recommendations accepted): Q1 single store + slice creators; Q2 barrel
+`store/index.ts` (keep `'../store'` paths); Q3 lazy `api(): RendererApi` function seam;
+Q4 keep `sendComments`/`sendAnswers`, make `setComments` slice-internal, update the 6
+`addComment` call sites; **Q5 ACCEPT the `composerAt` → `{hunkIdx, lineIdx}` fix (drops
+the unreachable duplicate-line double-composer quirk; note it in the commit)**; Q6 move
+`startGenerate`/`startGenerateNow` into `store/ops.ts` with a transitional GenPanel
+re-export; Q7 defer the selector lint rule; Q8 `DENSITY`/`GUIDANCE` in `store/derive.ts`;
+Q9 add `ReviewTitlebar.tsx` only if the orchestrator still exceeds ~350 lines after
+extractions 1–6; Q10 assert only UI-rendered `err.message` passthrough strings.
 
 Pure refactoring. Zero behavior change, zero visual change. Every step below must leave
 `npm run typecheck` (tsc) and `vitest` green and produce a UI that is pixel- and
@@ -437,11 +447,10 @@ way `comments-routing.test.ts` does):
    routing logic), make `setComments` slice-internal, update the 6 `addComment` call
    sites directly.
 5. **`composerAt` retyping to `{hunkIdx, lineIdx}` fixes the duplicate-line
-   double-composer quirk — is that an acceptable strictly-better change, or must the
-   quirk be preserved for "zero behavior change"?** Recommended: accept the fix (it's
-   unreachable in practice — same line number + identical text in two hunks of one
-   file) but note it in the commit message; if a strict ruling is wanted, keep the
-   4-field object and only split the components.
+   double-composer quirk …** — **RESOLVED: accept the fix.** Use `{hunkIdx, lineIdx}`;
+   the double-composer quirk disappears (unreachable in practice). Note the fix in the
+   commit message. This is the one intentional behavior change in an otherwise
+   zero-change refactor.
 6. **Move `startGenerate`/`startGenerateNow` from `GenPanel.tsx` into `store/ops.ts`?**
    Recommended: yes — they are pure store/api orchestration and the ops slice is their
    natural home; leave a re-export in `GenPanel.tsx` for one release of the branch, then

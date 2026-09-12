@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { WatchPausedPill } from '../src/renderer/screens/Review'
+import { WatchPausedPill } from '../src/renderer/components/DriftFetchPill'
 
 describe('WatchPausedPill (titlebar "live updates paused" pill)', () => {
   it('renders the fixed label with the reason as the tooltip', () => {
