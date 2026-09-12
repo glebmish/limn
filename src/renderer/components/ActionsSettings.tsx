@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 import type { ActionDef, EngineId } from '../../shared/types'
 import type { CommandAvailability } from '../../shared/actions'
 import { bareSkillName, newActionId, skillPrompt } from '../../shared/actions'
 import { engineLabel } from '../../shared/agents'
 import { EngineGlyph, I } from '../kit'
 import { useStore } from '../store'
+import { useFloating } from '../lib/useFloating'
 import { actionDraftProblem, actionSub, defaultActionName, markFor, markTitle, markedEngines, moveAction, seenChoices, uncheckedEngines } from '../lib/actions'
 import { ActionMarks, EngineMark, KindGlyph, checkedAgo } from './ActionMarks'
 
@@ -39,6 +40,10 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [skillFocus, setSkillFocus] = useState(false)
+  // The completions float (position:fixed, placed by the shared hook) instead of
+  // sitting in the flow: a click on Add action blurs the field first, and a list
+  // that left the flow moved the button out from under the pointer before mouseup.
+  const seenFloat = useFloating<HTMLInputElement, HTMLDivElement>(skillFocus, { matchWidth: true, gap: 4 })
 
   useEffect(() => {
     void loadSeenCommands()
@@ -148,12 +153,12 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
             {draft.kind === 'skill' ? (
               <div className="settings-field">
                 <label htmlFor="ax-skill">Skill</label>
-                <input id="ax-skill" type="text" value={draft.body} spellCheck={false} placeholder="simplify · pr-review-toolkit:review-pr" autoFocus
+                <input id="ax-skill" ref={seenFloat.anchorRef} type="text" value={draft.body} spellCheck={false} placeholder="simplify · pr-review-toolkit:review-pr" autoFocus
                   autoComplete="off" role="combobox" aria-autocomplete="list" aria-expanded={skillFocus} aria-controls="ax-seen"
                   onFocus={() => setSkillFocus(true)} onBlur={() => setSkillFocus(false)}
                   onChange={(e) => setDraft(withBody(draft, e.target.value))}
                   onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
-                {skillFocus && <SeenList seen={seen} typed={draft.body} pinned={actions} onPick={(name) => setDraft(withBody(draft, name))} />}
+                {skillFocus && <SeenList seen={seen} typed={draft.body} pinned={actions} floatRef={seenFloat.floatingRef} style={seenFloat.style} onPick={(name) => setDraft(withBody(draft, name))} />}
                 <SkillStatus name={draft.body} avail={avail} onCheck={repo && !checking ? () => void refreshCommands(repo) : null} />
               </div>
             ) : (
@@ -184,17 +189,20 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
 
 /** The completions under the skill field while it has focus: the names Limn has
  *  seen on any engine, grouped, filtered by what is typed. */
-function SeenList({ seen, typed, pinned, onPick }: {
+function SeenList({ seen, typed, pinned, floatRef, style, onPick }: {
   seen: readonly { engine: EngineId; names: string[] }[]
   typed: string
   pinned: readonly ActionDef[]
+  floatRef: Ref<HTMLDivElement>
+  style: CSSProperties
   onPick: (name: string) => void
 }) {
   const groups = seenChoices(seen, typed, pinned)
   if (groups.length === 0) return null
   const current = bareSkillName(typed)
+  const maxHeight = typeof style.maxHeight === 'number' ? Math.min(style.maxHeight, 220) : 220
   return (
-    <div id="ax-seen" className="ax-seen" role="listbox" aria-label="Skills seen on your engines">
+    <div id="ax-seen" ref={floatRef} className="ax-seen" style={{ ...style, maxHeight }} role="listbox" aria-label="Skills seen on your engines">
       {groups.map((g) => (
         <div key={g.engine}>
           <div className="g"><EngineGlyph engine={g.engine} style={{ width: 13, height: 13, color: 'var(--accent)' }} />seen on {engineLabel(g.engine)}</div>

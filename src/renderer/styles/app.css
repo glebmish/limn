@@ -745,7 +745,7 @@ body.is-resizing * { cursor: col-resize !important; }
 .ax-editor input[type=text], .ax-editor textarea { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 7px 9px; resize: vertical; }
 .ax-editor input.sans { font-family: var(--sans); }
 .ax-editor-foot { display: flex; align-items: center; gap: 8px; }
-.ax-seen { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); overflow: hidden; font-size: 11.5px; max-height: 220px; overflow-y: auto; }
+.ax-seen { z-index: 40; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); box-shadow: 0 8px 24px rgba(40,40,40,.14); font-size: 11.5px; overflow-y: auto; }
 .ax-seen .g { font: 700 9.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 6px 9px 3px; background: var(--panel-2); display: flex; align-items: center; gap: 6px; }
 .ax-seen .o { display: flex; align-items: center; gap: 8px; padding: 5px 9px; font-family: var(--mono); color: var(--ink); cursor: pointer; }
 .ax-seen .o:hover, .ax-seen .o.on { background: var(--accent-soft); }
