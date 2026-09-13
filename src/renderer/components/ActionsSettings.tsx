@@ -174,7 +174,7 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
               <input type="checkbox" checked={actionFindings({ kind: draft.kind, findings: draft.findings })}
                 onChange={(e) => setDraft({ ...draft, findings: e.target.checked })} />
               <span>Collect findings after the run</span>
-              <i>a second pass asks the agent for its findings and proposes them on the code</i>
+              <i>a second pass proposes the agent’s findings on the code</i>
             </label>
             <div className="settings-field">
               <label htmlFor="ax-name">Name</label>
@@ -183,7 +183,7 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
             </div>
             <div className="ax-editor-foot">
-              <span className="settings-note">{problem ?? (draft.kind === 'prompt' ? 'Sent verbatim, plus the add_finding note' : '')}</span>
+              <span className="settings-note">{problem ?? (draft.kind === 'prompt' ? 'Sent verbatim' : '')}</span>
               <span className="grow" />
               <button className="btn btn-sm btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
               <button className="btn btn-sm btn-primary" disabled={Boolean(problem)} onClick={save}>{draft.id ? 'Save' : 'Add action'}</button>

@@ -22,7 +22,10 @@ export function ActionLauncher() {
   const actions = useStore((s) => s.actions)
   const defaultAgent = useStore((s) => s.defaultAgent)
   const repo = useStore((s) => s.loaded?.state.repo ?? null)
-  const gate = useStore((s) => checkoutGate(s.loaded))
+  const loaded = useStore((s) => s.loaded)
+  // derived outside the selector: checkoutGate mints a fresh object per call, and a
+  // selector that never returns a stable reference re-renders without end
+  const gate = checkoutGate(loaded)
   const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? NO_AVAIL)
   const chats = useStore((s) => s.loaded?.state.chats ?? EMPTY_CHATS)
   const ops = useStore((s) => s.ops)

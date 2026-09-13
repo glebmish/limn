@@ -286,7 +286,7 @@ if (process.env.LIMN_SEED_ACTIONS === '1') {
   prefs(`commands:codex:${fx.dir}`, JSON.stringify({ names: ['review', 'compact', '$security-review'], checkedAt: twoMin, state: 'ok' }))
   const t = createChatThread(db, session.id, { kind: 'user', agent: { engine: 'claude', model: 'opus' }, title: 'Simplify', action: { actionId: 'act-simplify', name: 'Simplify', kind: 'skill' } })
   simplifyChat = t.id
-  const run = { actionId: 'act-simplify', runId: `run-${t.id}-1`, n: 1, name: 'Simplify', kind: 'skill' as const }
+  const run = { actionId: 'act-simplify', runId: `run-${t.id}-1`, n: 1, name: 'Simplify', kind: 'skill' as const, findings: true }
   const startedAt = new Date(Date.now() - 4 * 60_000).toISOString()
   const endedAt = new Date(Date.now() - 3 * 60_000 + 48_000).toISOString()
   const f1 = {
@@ -302,12 +302,12 @@ if (process.env.LIMN_SEED_ACTIONS === '1') {
   }
   upsertComment(db, session.id, f1)
   upsertComment(db, session.id, f2)
-  addChatMessage(db, t.id, { role: 'user', text: '/simplify\n\nLimn: for each finding you report, also call the `add_finding` tool (file, line, severity, body) so it lands on the code as a proposed comment the reviewer can accept or dismiss. Anchor each one to the exact line in the repository file; use severity "risk" for bugs and security problems, "note" for everything else.', at: startedAt, run })
+  addChatMessage(db, t.id, { role: 'user', text: '/simplify', at: startedAt, run })
   addChatMessage(db, t.id, {
     role: 'agent', at: endedAt,
     text: 'Two simplifications, none behavioural. The webhook dedupe key can also drop its `JSON.stringify`; I left that out as it changes the stored key.',
     actions: [{ kind: 'finding_added', comment: f1 }, { kind: 'finding_added', comment: f2 }],
-    runResult: { runId: run.runId, outcome: 'finished' }
+    runResult: { runId: run.runId, outcome: 'finished', extraction: 'ok', delta: { commits: 0, files: 0, dirty: false } }
   })
   setThreadEngineSession(db, t.id, 'claude-simplify-1')
 }

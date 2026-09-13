@@ -745,7 +745,8 @@ body.is-resizing * { cursor: col-resize !important; }
 .ax-editor input[type=text], .ax-editor textarea { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 7px 9px; resize: vertical; }
 .ax-editor input.sans { font-family: var(--sans); }
 .ax-editor-foot { display: flex; align-items: center; gap: 8px; }
-.ax-collect { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); cursor: pointer; }
+.settings-field label.ax-collect { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font: 500 12px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--ink); cursor: pointer; }
+.settings-field label.ax-collect > span { white-space: nowrap; }
 .ax-collect input { margin: 0; accent-color: var(--accent); }
 .ax-collect i { font-style: normal; font-size: 11px; color: var(--muted); }
 .ax-none.ax-gate { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
