@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { effectiveRef, type AgentAction, type AgentRef, type Comment, type CommentAnchor, type CommentReply, type CommentStatus, type EngineEvent, type FocusTarget, type ReviewAnnotations, type SessionMeta } from '../../shared/types.js'
+import { effectiveRef, type AgentAction, type AgentRef, type Comment, type CommentAnchor, type CommentReply, type CommentSource, type CommentStatus, type EngineEvent, type FocusTarget, type ReviewAnnotations, type SessionMeta } from '../../shared/types.js'
 import { getSession, loadReviewState, updateSessionMeta, upsertComment } from '../db/sessions.js'
+import { CHAT_ACTION_ID } from '../../shared/actions.js'
 import { resolveStampTree, stampAnchor, type StampTree } from '../anchorStamp.js'
 import { headSha } from '../git.js'
 
@@ -27,7 +28,8 @@ export interface ToolHostCtx {
   /** the engine session backing this turn's thread. */
   engineSessionId?: string
   /** Set on an ACTION RUN turn (design board 14): `add_finding` sources its proposals
-   *  to this action + run, and a re-run of the same action sweeps them. */
+   *  to this action + run, and a re-run of the same action sweeps them. Outside a
+   *  run a proposal is sourced to the thread's chat run (`CHAT_ACTION_ID`). */
   run?: { actionId: string; runId: string }
   /** push a live engine event to the renderer (an `action` event, here). */
   emit: (event: EngineEvent) => void
@@ -307,28 +309,16 @@ const TOOL_IMPLS: ToolImpl[] = [
       'Report one finding of an action run as a PROPOSED review comment the reviewer accepts, keeps, ' +
       'or dismisses. Anchor it to the exact repository file and line (new side, 1-based; a range via ' +
       'endLine). severity: "risk" for bugs/security problems, "note" for everything else. body is short ' +
-      'markdown; suggestion is optional replacement text. Call it once per finding, as you find them. ' +
-      'Only available inside an action run.',
+      'markdown; suggestion is optional replacement text. Call it once per finding, as you find them.',
     input: ADD_FINDING_INPUT,
     run: async (ctx, raw) => {
-      if (!ctx.run) throw new Error('add_finding is only available inside an action run — use add_comment for a note.')
-      const { file, line, endLine, severity, body, suggestion } = raw as z.infer<z.ZodObject<typeof ADD_FINDING_INPUT>>
-      let anchor: CommentAnchor = { kind: 'diff', file, side: 'new', line, ...(endLine ? { endLine } : {}), hunkRange: '', lineContent: '' }
-      const session = getSession(ctx.db, ctx.sessionId)
-      if (session) anchor = await stampAnchor(ctx.repo, session, anchor)
-      const iteration = loadReviewState(ctx.db, ctx.sessionId).latestIteration?.n ?? 0
-      const text = suggestion ? `${body}\n\nSuggestion:\n\`\`\`\n${suggestion}\n\`\`\`` : body
-      const comment: Comment = {
-        id: `af-${Date.now()}-${commentSeq++}`,
-        anchor, author: 'agent', agentRef: ctx.agent, threadId: ctx.threadId,
-        text, severity,
-        status: 'proposed', // INVARIANT: a proposal never enters the batch on its own
-        source: { actionId: ctx.run.actionId, runId: ctx.run.runId, threadId: ctx.threadId },
-        replies: [], createdAt: new Date().toISOString(), iteration
-      }
-      upsertComment(ctx.db, ctx.sessionId, comment)
-      const anchored = anchor.kind === 'diff' && anchor.stamp ? 'anchored' : 'unanchored — the line could not be read, the reviewer sees it in the "not in this diff" bucket'
-      return { result: `Proposed a ${severity} on ${anchorLabel(anchor)} (${anchored}).`, action: { kind: 'finding_added', comment } }
+      const f = raw as z.infer<z.ZodObject<typeof ADD_FINDING_INPUT>>
+      const source: CommentSource = ctx.run
+        ? { actionId: ctx.run.actionId, runId: ctx.run.runId, threadId: ctx.threadId }
+        : { actionId: CHAT_ACTION_ID, runId: `chat-${ctx.threadId}`, threadId: ctx.threadId }
+      const comment = await mintFinding({ db: ctx.db, sessionId: ctx.sessionId, repo: ctx.repo, agent: ctx.agent, threadId: ctx.threadId }, source, f)
+      const anchored = comment.anchor.kind === 'diff' && comment.anchor.stamp ? 'anchored' : 'unanchored — the line could not be read, the reviewer sees it in the "not in this diff" bucket'
+      return { result: `Proposed a ${f.severity} on ${anchorLabel(comment.anchor)} (${anchored}).`, action: { kind: 'finding_added', comment } }
     }
   },
   {
@@ -530,6 +520,31 @@ export const AUTO_ACCEPT_TOOL_NAMES: ReadonlySet<string> = new Set([
 export function assertAutoAcceptCoverage(tools: ToolDef[]): void {
   const unlisted = tools.filter((t) => !AUTO_ACCEPT_TOOL_NAMES.has(t.name))
   if (unlisted.length) throw new Error(`limn tools not cleared for auto-accept: ${unlisted.map((t) => t.name).join(', ')} — every ACP engine auto-allows registered limn tools via the ladder policy; add them to AUTO_ACCEPT_TOOL_NAMES only if they cannot write files/git, otherwise wire them through the approval ladder first.`)
+}
+
+/** One finding → one PROPOSED comment, anchored like any agent comment. Shared by the
+ *  `add_finding` tool and the findings pass after an action run (ipc), so both mint
+ *  the same shape. INVARIANT: a proposal never enters the batch on its own. */
+export async function mintFinding(
+  ctx: Pick<ToolHostCtx, 'db' | 'sessionId' | 'repo' | 'agent' | 'threadId'>,
+  source: CommentSource,
+  f: { file: string; line: number; endLine?: number; severity: 'risk' | 'note'; body: string; suggestion?: string }
+): Promise<Comment> {
+  let anchor: CommentAnchor = { kind: 'diff', file: f.file, side: 'new', line: f.line, ...(f.endLine ? { endLine: f.endLine } : {}), hunkRange: '', lineContent: '' }
+  const session = getSession(ctx.db, ctx.sessionId)
+  if (session) anchor = await stampAnchor(ctx.repo, session, anchor)
+  const iteration = loadReviewState(ctx.db, ctx.sessionId).latestIteration?.n ?? 0
+  const text = f.suggestion ? `${f.body}\n\nSuggestion:\n\`\`\`\n${f.suggestion}\n\`\`\`` : f.body
+  const comment: Comment = {
+    id: `af-${Date.now()}-${commentSeq++}`,
+    anchor, author: 'agent', agentRef: ctx.agent, threadId: ctx.threadId,
+    text, severity: f.severity,
+    status: 'proposed',
+    source,
+    replies: [], createdAt: new Date().toISOString(), iteration
+  }
+  upsertComment(ctx.db, ctx.sessionId, comment)
+  return comment
 }
 
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {

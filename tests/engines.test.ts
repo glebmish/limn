@@ -363,7 +363,7 @@ describe('FakeEngine contract', () => {
       db, sessionId: s.id, threadId: t.id, opId: 'o', repo: fx.dir,
       agent: { engine: 'claude' }, engineSessionId: 'e1', emit: () => {}
     })
-    const batch = engine.chat({ repo: fx.dir, message: 'handle the comments', tools: host, writeEnabled: true })
+    const batch = engine.chat({ repo: fx.dir, message: 'handle the comments', tools: host, writeEnabled: true, raw: true })
     await drain(batch.events)
     await batch.result
 

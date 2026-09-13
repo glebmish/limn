@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react'
 import type { ActionDef, EngineId } from '../../shared/types'
 import type { CommandAvailability } from '../../shared/actions'
-import { bareSkillName, newActionId, skillPrompt } from '../../shared/actions'
+import { actionFindings, bareSkillName, newActionId, skillPrompt } from '../../shared/actions'
 import { engineLabel } from '../../shared/agents'
 import { EngineGlyph, I } from '../kit'
 import { useStore } from '../store'
@@ -11,9 +11,9 @@ import { ActionMarks, EngineMark, KindGlyph, checkedAgo } from './ActionMarks'
 
 /** `nameAuto`: the Name field still follows the skill (`defaultActionName`) — it
  *  flips off the moment the reviewer types a name, and back on when they clear it. */
-type Draft = { id: string | null; kind: ActionDef['kind']; name: string; body: string; nameAuto: boolean }
+type Draft = { id: string | null; kind: ActionDef['kind']; name: string; body: string; nameAuto: boolean; findings: boolean | undefined }
 
-const EMPTY_DRAFT: Draft = { id: null, kind: 'skill', name: '', body: '', nameAuto: true }
+const EMPTY_DRAFT: Draft = { id: null, kind: 'skill', name: '', body: '', nameAuto: true, findings: undefined }
 
 /** A body edit, keeping the auto-name in step while it is still automatic. */
 function withBody(draft: Draft, body: string): Draft {
@@ -73,7 +73,9 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
       id: draft.id ?? newActionId(),
       kind: draft.kind,
       name: draft.name.trim(),
-      body: draft.kind === 'skill' ? bareSkillName(draft.body) : draft.body.trim()
+      body: draft.kind === 'skill' ? bareSkillName(draft.body) : draft.body.trim(),
+      // stored only when it differs from the kind's default, so the default can move
+      ...(draft.findings === undefined || draft.findings === (draft.kind === 'skill') ? {} : { findings: draft.findings })
     }
     void setActions(draft.id ? actions.map((a) => (a.id === draft.id ? next : a)) : [...actions, next])
     setDraft(null)
@@ -102,7 +104,7 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
               >
                 <span className="grip" title="Drag to reorder — this is the launcher's order" aria-hidden>⋮⋮</span>
                 <KindGlyph kind={a.kind} />
-                <span className="ax-rn"><b>{a.name}</b><i>{actionSub(a)}</i></span>
+                <span className="ax-rn"><b>{a.name}</b><i>{actionSub(a)}{actionFindings(a) ? ' · findings' : ''}</i></span>
                 {a.kind === 'skill' && <span className="ax-avail"><ActionMarks action={a} engines={engines} avail={avail} /></span>}
                 <span className="ax-acts">
                   {confirmDel === a.id ? (
@@ -112,7 +114,7 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
                     </>
                   ) : (
                     <>
-                      <button title="Edit" aria-label={`Edit ${a.name}`} onClick={() => setDraft({ id: a.id, kind: a.kind, name: a.name, body: a.body, nameAuto: false })}><I.edit /></button>
+                      <button title="Edit" aria-label={`Edit ${a.name}`} onClick={() => setDraft({ id: a.id, kind: a.kind, name: a.name, body: a.body, nameAuto: false, findings: a.findings })}><I.edit /></button>
                       <button title="Delete" aria-label={`Delete ${a.name}`} onClick={() => setConfirmDel(a.id)}><I.trash /></button>
                     </>
                   )}
@@ -168,6 +170,12 @@ export function ActionsSettings({ repo }: { repo: string | null }) {
                   onChange={(e) => setDraft(withBody(draft, e.target.value))} />
               </div>
             )}
+            <label className="ax-collect">
+              <input type="checkbox" checked={actionFindings({ kind: draft.kind, findings: draft.findings })}
+                onChange={(e) => setDraft({ ...draft, findings: e.target.checked })} />
+              <span>Collect findings after the run</span>
+              <i>a second pass asks the agent for its findings and proposes them on the code</i>
+            </label>
             <div className="settings-field">
               <label htmlFor="ax-name">Name</label>
               <input id="ax-name" type="text" className="sans" value={draft.name} placeholder={draft.kind === 'skill' ? 'Simplify' : 'Rebase onto main'}

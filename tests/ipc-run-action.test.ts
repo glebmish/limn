@@ -5,12 +5,13 @@ import { registerIpc } from '../src/server/ipc'
 import { resolveRefInput } from '../src/server/git'
 import { lastFakeChatTurn, releaseFakeHolds } from '../src/server/engines/fake'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
-import { ACTIONS_PREF_KEY, FINDING_HARNESS, serializeActions } from '../src/shared/actions'
+import { ACTIONS_PREF_KEY, serializeActions } from '../src/shared/actions'
 import type { ActionDef, AgentRef, Comment, RefPair } from '../src/shared/types'
 import type { LoadedReview, OpEventMsg, OpResultMsg } from '../src/shared/ipc'
 import type { Transport } from '../src/server/transport'
 import type { CommandAvailability } from '../src/server/engines/probe'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -18,6 +19,9 @@ const agent: AgentRef = { engine: 'claude' }
 const SIMPLIFY: ActionDef = { id: 'act-simplify', kind: 'skill', name: 'Simplify', body: 'simplify' }
 const REBASE: ActionDef = { id: 'act-rebase', kind: 'prompt', name: 'Rebase onto main', body: 'Rebase this branch onto main [hold]' }
 const CHURN: ActionDef = { id: 'act-churn', kind: 'prompt', name: 'Explain test churn', body: 'Explain the test churn [no-findings]' }
+const AUDIT: ActionDef = { id: 'act-audit', kind: 'prompt', name: 'Audit', body: 'Audit the change', findings: true }
+const QUIET: ActionDef = { id: 'act-quiet', kind: 'skill', name: 'Quiet', body: 'simplify', findings: false }
+const BROKEN: ActionDef = { id: 'act-broken', kind: 'prompt', name: 'Broken', body: 'Audit [extract-fail]', findings: true }
 
 interface Harness {
   db: ReturnType<typeof openDb>['db']
@@ -28,7 +32,7 @@ interface Harness {
   repo: string
 }
 
-async function setup(actions: ActionDef[] = [SIMPLIFY, REBASE, CHURN]): Promise<Harness> {
+async function setup(actions: ActionDef[] = [SIMPLIFY, REBASE, CHURN, AUDIT, QUIET, BROKEN]): Promise<Harness> {
   const { dir } = makeFixtureRepo()
   const base = await resolveRefInput(dir, 'main')
   const compare = await resolveRefInput(dir, 'feature')
@@ -71,7 +75,7 @@ afterEach(() => { releaseFakeHolds(); delete process.env.LIMN_DEMO; delete proce
 const findingsOf = (h: Harness, runId: string): Comment[] => loadReviewState(h.db, h.sessionId).comments.filter((c) => c.source?.runId === runId)
 
 describe('runAction — a pinned action runs as a turn in its own thread', () => {
-  it('a new-thread run creates the action thread, numbers the run, sends the engine spelling plus the harness, and its findings land proposed', async () => {
+  it('a new-thread run creates the action thread, numbers the run, sends the engine spelling alone, and the findings pass mints its proposals', async () => {
     const h = await setup()
     const out = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }
     const thread = getChatThread(h.db, out.threadId)!
@@ -80,22 +84,48 @@ describe('runAction — a pinned action runs as a turn in its own thread', () =>
     expect(thread.executionMode).toBe('auto')
     expect(out.runId).toBe(`run-${out.threadId}-1`)
     // the launching user message is persisted at once (the run may wait in the queue)
-    expect(thread.messages[0]).toMatchObject({ role: 'user', run: { actionId: SIMPLIFY.id, runId: out.runId, n: 1, name: 'Simplify', kind: 'skill' } })
-    expect(thread.messages[0].text).toBe(`/simplify\n\n${FINDING_HARNESS}`)
+    expect(thread.messages[0]).toMatchObject({ role: 'user', run: { actionId: SIMPLIFY.id, runId: out.runId, n: 1, name: 'Simplify', kind: 'skill', findings: true } })
+    expect(typeof thread.messages[0].run!.headAtStart).toBe('string')
+    expect(thread.messages[0].text).toBe('/simplify')
 
     const res = await settled(h, 'op-1')
     expect(res.status).toBe('succeeded')
-    expect(lastFakeChatTurn()!.message.startsWith('/simplify')).toBe(true)
-    // the fake calls add_finding twice inside an action run
+    // the run's turn is the spelling alone, framed by the engine, write-capable
+    expect(lastFakeChatTurn()!.message).toBe('/simplify')
+    expect(lastFakeChatTurn()!.writeEnabled).toBe(true)
+    expect(lastFakeChatTurn()!.raw).toBeFalsy()
+    // the fake's findings pass reports two findings; Limn mints them under the run
     const findings = findingsOf(h, out.runId)
     expect(findings).toHaveLength(2)
     for (const f of findings) {
       expect(f.status).toBe('proposed')
       expect(f.source).toEqual({ actionId: SIMPLIFY.id, runId: out.runId, threadId: out.threadId })
+      expect(f.severity).toBeDefined()
     }
     const after = getChatThread(h.db, out.threadId)!
-    expect(after.messages.at(-1)).toMatchObject({ role: 'agent', runResult: { runId: out.runId, outcome: 'finished' } })
-    expect((after.messages.at(-1)!.actions ?? []).filter((a) => a.kind === 'finding_added')).toHaveLength(2)
+    const last = after.messages.at(-1)!
+    expect(last).toMatchObject({ role: 'agent', runResult: { runId: out.runId, outcome: 'finished', extraction: 'ok', delta: { commits: 0, files: 0, dirty: false } } })
+    // the minted proposals streamed to the tab as finding_added actions
+    expect(h.events.filter((e) => e.opId === 'op-1' && e.event.type === 'action' && e.event.action.kind === 'finding_added')).toHaveLength(2)
+  })
+
+  it('a prompt action that collects findings gets the pass; one that does not is skipped; a pass that cannot parse is recorded as failed', async () => {
+    const h = await setup()
+    const audit = await h.handlers.get('runAction')!(h.sessionId, AUDIT.id, { kind: 'new', agent }, 'op-a') as { threadId: number; runId: string }
+    await settled(h, 'op-a')
+    expect(findingsOf(h, audit.runId)).toHaveLength(2)
+    expect(getChatThread(h.db, audit.threadId)!.messages.at(-1)!.runResult?.extraction).toBe('ok')
+
+    const quiet = await h.handlers.get('runAction')!(h.sessionId, QUIET.id, { kind: 'new', agent }, 'op-q') as { threadId: number; runId: string }
+    await settled(h, 'op-q')
+    expect(findingsOf(h, quiet.runId)).toHaveLength(0)
+    expect(getChatThread(h.db, quiet.threadId)!.messages[0].run?.findings).toBe(false)
+    expect(getChatThread(h.db, quiet.threadId)!.messages.at(-1)!.runResult?.extraction).toBe('skipped')
+
+    const broken = await h.handlers.get('runAction')!(h.sessionId, BROKEN.id, { kind: 'new', agent }, 'op-b') as { threadId: number; runId: string }
+    expect((await settled(h, 'op-b')).status).toBe('succeeded')
+    expect(findingsOf(h, broken.runId)).toHaveLength(0)
+    expect(getChatThread(h.db, broken.threadId)!.messages.at(-1)!.runResult?.extraction).toBe('failed')
   })
 
   it('a second run reuses the thread, numbers itself 2, and sweeps the first run\'s untouched proposals', async () => {
@@ -117,13 +147,13 @@ describe('runAction — a pinned action runs as a turn in its own thread', () =>
     expect(listChatThreads(h.db, h.sessionId).filter((t) => t.action)).toHaveLength(1)
   })
 
-  it('a prompt action sends its text verbatim plus the harness; a report-only run ends with no findings', async () => {
+  it('a prompt action sends its text verbatim; without the switch no findings pass runs', async () => {
     const h = await setup()
     const out = await h.handlers.get('runAction')!(h.sessionId, CHURN.id, { kind: 'new', agent }, 'op-c') as { threadId: number; runId: string }
     await settled(h, 'op-c')
-    expect(lastFakeChatTurn()!.message).toBe(`${CHURN.body}\n\n${FINDING_HARNESS}`)
+    expect(lastFakeChatTurn()!.message).toBe(CHURN.body)
     expect(findingsOf(h, out.runId)).toHaveLength(0)
-    expect(getChatThread(h.db, out.threadId)!.messages.at(-1)!.runResult).toEqual({ runId: out.runId, outcome: 'finished' })
+    expect(getChatThread(h.db, out.threadId)!.messages.at(-1)!.runResult).toMatchObject({ runId: out.runId, outcome: 'finished', extraction: 'skipped' })
   })
 
   it('runs inside an existing thread, keeping that thread\'s name and numbering runs there', async () => {
@@ -180,6 +210,24 @@ describe('runAction — a pinned action runs as a turn in its own thread', () =>
     expect(getChatThread(h.db, out.threadId)).toBeNull()
   })
 
+  it('refuses a run and a chat message while the compare branch is not checked out anywhere', async () => {
+    const h = await setup()
+    // a branch that exists but no checkout holds: the turn would run on the wrong tree
+    execFileSync('git', ['branch', 'other'], { cwd: h.repo })
+    const base = await resolveRefInput(h.repo, 'main')
+    const other = await resolveRefInput(h.repo, 'other')
+    const detached = createSession(h.db, h.repo, {
+      base: { kind: base.kind, symbol: base.symbol, anchorSha: base.sha },
+      compare: { kind: other.kind, symbol: other.symbol, anchorSha: other.sha }
+    }, agent).id
+    await expect(h.handlers.get('runAction')!(detached, SIMPLIFY.id, { kind: 'new', agent }, 'op-nc')).rejects.toThrow(/Check out other to run actions/)
+    const thread = createChatThread(h.db, detached, { kind: 'user', agent, title: 'Chat' })
+    await h.handlers.get('sendChat')!(thread.id, 'why?', 'op-nc2')
+    const res = await settled(h, 'op-nc2')
+    expect(res.status).toBe('failed')
+    expect(res.error).toContain('Check out other to chat or run actions')
+  })
+
   it('unknown action or foreign thread is rejected', async () => {
     const h = await setup()
     await expect(h.handlers.get('runAction')!(h.sessionId, 'nope', { kind: 'new', agent }, 'op-x')).rejects.toThrow(/unknown action/i)
@@ -200,7 +248,8 @@ describe('attachFindings / setRunFlag', () => {
     const msgs = getChatThread(h.db, out.threadId)!.messages
     expect(msgs.map((m) => m.role)).toEqual(['user', 'agent', 'user', 'agent'])
     expect(msgs[2].run).toEqual(msgs[0].run) // same run, not run 2
-    expect(msgs[3].runResult).toEqual({ runId: out.runId, outcome: 'finished' })
+    // the attach turn collects through the tool, never through a second pass
+    expect(msgs[3].runResult).toMatchObject({ runId: out.runId, outcome: 'finished', extraction: 'skipped' })
   })
 
   it('setRunFlag keepProse marks the run result', async () => {

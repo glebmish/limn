@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { WireFinding } from './types.js'
 import type { AgentQuestion, FocusTarget, Hotspot, ReviewAnnotations, Section } from '../../shared/types.js'
 
 // Wire schemas: schema-in-prompt output validated client-side by zod (no native
@@ -94,6 +95,26 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
 }
 
 // JSON Schema for the SDKs' structured-output options
+/** The findings pass after an action run (spec agent-actions-intent §4.3). `endLine`
+ *  and `suggestion` may come back null from an engine that fills every key. */
+const wireFindingSchema = z.object({
+  file: z.string().min(1),
+  line: z.number().int().positive(),
+  endLine: z.number().int().positive().nullable().optional(),
+  severity: z.enum(['risk', 'note']),
+  body: z.string().min(1),
+  suggestion: z.string().nullable().optional()
+})
+const findingsWireSchema = z.object({ findings: z.array(wireFindingSchema) })
+export const findingsJsonSchema = toJsonSchema(findingsWireSchema)
+export function parseFindingsOutput(raw: unknown): WireFinding[] {
+  return findingsWireSchema.parse(raw).findings.map((f) => ({
+    file: f.file, line: f.line, severity: f.severity, body: f.body,
+    ...(f.endLine != null && f.endLine >= f.line ? { endLine: f.endLine } : {}),
+    ...(f.suggestion ? { suggestion: f.suggestion } : {})
+  }))
+}
+
 export const reviewJsonSchema = toJsonSchema(reviewWireSchema)
 export const scopedReviewJsonSchema = toJsonSchema(scopedReviewWireSchema)
 

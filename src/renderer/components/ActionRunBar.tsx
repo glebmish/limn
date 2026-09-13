@@ -2,7 +2,7 @@ import type { ChatThread, EngineId } from '../../shared/types'
 import { engineLabel } from '../../shared/agents'
 import { I } from '../kit'
 import { useStore, type OpState } from '../store'
-import { latestRun, runBarState } from '../lib/runs'
+import { deltaLabel, latestRun, runBarState } from '../lib/runs'
 import { ordinal } from './ChatDrawer'
 
 /** The run bar under the drawer head (design board 14 R1/R3): what is running and
@@ -36,7 +36,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
       return (
         <div className="ax-runbar" role="status">
           <span className="gen-spinner" />
-          <span>Running <b className="mono">{state.spelled}</b> · run {v.run.n} · findings attach as proposed</span>
+          <span>Running <b className="mono">{state.spelled}</b> · run {v.run.n}{state.collects ? ' · collects findings' : ''}</span>
           {op.opId && <button className="btn btn-sm btn-ghost" onClick={() => cancelOp(op.opId!)}>Cancel</button>}
         </div>
       )
@@ -45,7 +45,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
         <div className="ax-runbar done" role="status">
           <I.check className="ic" />
           <span>
-            Finished · run {v.run.n} · <b>{state.count === 0 ? 'no findings attached' : `${state.count} finding${state.count === 1 ? '' : 's'}`}</b>{state.duration ? ` · ${state.duration}` : ''}
+            Finished · run {v.run.n}{state.collects && <> · <b>{state.count === 0 ? 'no findings' : `${state.count} finding${state.count === 1 ? '' : 's'}`}</b></>}{deltaLabel(state.delta) ? ` · ${deltaLabel(state.delta)}` : ''}{state.duration ? ` · ${state.duration}` : ''}
             {state.availabilityFrom && <span className="ax-avail-from" title="The resumed session sent no fresh command list, so the run trusted the last probe"> · availability from {ago(state.availabilityFrom)}</span>}
           </span>
           <button className="btn btn-sm btn-ghost" onClick={rerun} title="Run again — untouched proposals from this run are replaced">Re-run</button>

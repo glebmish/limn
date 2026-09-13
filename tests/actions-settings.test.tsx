@@ -47,7 +47,7 @@ describe('ActionsSettings — the list', () => {
     const rows = html.split('class="ax-srow"').slice(1)
     expect(rows).toHaveLength(2)
     expect(rows[0]).toContain('aria-label="skill">/')
-    expect(rows[0]).toContain('<b>Simplify</b><i>/simplify</i>')
+    expect(rows[0]).toContain('<b>Simplify</b><i>/simplify · findings</i>')
     expect(rows[1]).toContain('aria-label="prompt">“')
     expect(rows[1]).toContain('<b>Rebase onto main</b><i>Rebase this branch onto main and resolve conflicts. Keep both sides.</i>')
     expect(html).toContain('aria-label="Edit Simplify"')

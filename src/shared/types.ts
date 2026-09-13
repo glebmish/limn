@@ -396,10 +396,25 @@ export type ActionKind = 'skill' | 'prompt'
 /** A pinned action (global config, prefs key `actions`). `body` is the bare skill
  *  name for a skill (`simplify`, `pr-review-toolkit:review-pr` — no `/` or `$`) or
  *  the verbatim prompt text for a prompt. */
-export interface ActionDef { id: string; kind: ActionKind; name: string; body: string }
+export interface ActionDef {
+  id: string; kind: ActionKind; name: string; body: string
+  /** Collect findings after the run (a second structured pass mints proposals).
+   *  Absent = on for a skill, off for a prompt — see `actionFindings`. */
+  findings?: boolean
+}
 /** One run of an action: the launching user message carries it. `n` is the run's
  *  ordinal within its thread ("Simplify · run 2"). */
-export interface ActionRunRef { actionId: string; runId: string; n: number; name: string; kind: ActionKind }
+export interface ActionRunRef {
+  actionId: string; runId: string; n: number; name: string; kind: ActionKind
+  /** whether this run collects findings (resolved from the action at launch);
+   *  absent on runs recorded before the switch existed — those always did */
+  findings?: boolean
+  /** the compare branch's head when the run launched — the receipt's baseline */
+  headAtStart?: string
+}
+/** What moved on the branch during a run: commits since `headAtStart`, files touched
+ *  (committed + uncommitted), and whether the worktree is dirty at the end. */
+export interface ActionRunDelta { commits: number; files: number; dirty: boolean }
 export type ActionRunOutcome = 'finished' | 'refused' | 'cancelled' | 'failed'
 /** Where a run goes: the action's own thread with this agent (created on the first
  *  run, execution mode auto), or an existing thread with its own agent and mode. */
@@ -413,6 +428,11 @@ export interface ActionRunResult {
   /** ISO time of the cached availability a skill run trusted because the resumed
    *  session sent no fresh command list */
   availabilityFrom?: string
+  /** the branch delta the receipt shows (absent when it could not be measured) */
+  delta?: ActionRunDelta
+  /** the findings pass: `ok` minted (possibly zero) proposals, `failed` could not
+   *  parse the engine's answer, `skipped` the action does not collect findings */
+  extraction?: 'ok' | 'failed' | 'skipped'
 }
 /** A conversation thread inside a review. 'review' is the auto-created thread
  *  bound to the engine session that produced the review; 'user' threads are

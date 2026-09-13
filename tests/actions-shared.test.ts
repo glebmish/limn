@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Comment } from '../src/shared/types'
 import {
-  ACTIONS_PREF_KEY, FINDING_HARNESS, REVIEW_ACTION_ID, actionPrompt, isProposal, newActionId,
+  ACTIONS_PREF_KEY, CHAT_ACTION_ID, REVIEW_ACTION_ID, actionFindings, actionPrompt, isProposal, newActionId,
   parseActions, runFindings, serializeActions, skillPrompt, touched
 } from '../src/shared/actions'
 
@@ -26,6 +26,19 @@ describe('actions config', () => {
     expect(parseActions(JSON.stringify([{ id: 'x' }, ...list, { id: 'y', kind: 'shell', name: 'n', body: 'b' }]))).toEqual(list)
   })
 
+  it('keeps the Collect findings switch, drops a non-boolean one, and defaults by kind', () => {
+    const list = [
+      { id: 'a', kind: 'skill' as const, name: 'Simplify', body: 'simplify', findings: false },
+      { id: 'b', kind: 'prompt' as const, name: 'Security', body: 'Look for injection', findings: true }
+    ]
+    expect(parseActions(serializeActions(list))).toEqual(list)
+    expect(parseActions(JSON.stringify([{ id: 'a', kind: 'skill', name: 'n', body: 'b', findings: 'yes' }]))).toEqual([])
+    expect(actionFindings({ kind: 'skill' })).toBe(true)
+    expect(actionFindings({ kind: 'prompt' })).toBe(false)
+    expect(actionFindings({ kind: 'skill', findings: false })).toBe(false)
+    expect(actionFindings({ kind: 'prompt', findings: true })).toBe(true)
+  })
+
   it('mints unique ids', () => {
     expect(newActionId()).not.toBe(newActionId())
   })
@@ -40,14 +53,10 @@ describe('prompts', () => {
     expect(skillPrompt('claude', '$security-review')).toBe('/security-review')
   })
 
-  it('appends the finding harness to both kinds', () => {
-    const skill = actionPrompt({ id: 'a', kind: 'skill', name: 'Simplify', body: 'simplify' }, 'claude')
-    expect(skill.startsWith('/simplify\n\n')).toBe(true)
-    expect(skill.endsWith(FINDING_HARNESS)).toBe(true)
-    const prompt = actionPrompt({ id: 'b', kind: 'prompt', name: 'Rebase', body: 'Rebase onto main' }, 'codex')
-    expect(prompt).toBe('Rebase onto main\n\n' + FINDING_HARNESS)
-    expect(FINDING_HARNESS).toContain('add_finding')
-    expect(FINDING_HARNESS.toLowerCase()).not.toContain('do not edit')
+  it('an action prompt is the spelling or the text alone — Limn appends nothing', () => {
+    expect(actionPrompt({ id: 'a', kind: 'skill', name: 'Simplify', body: 'simplify' }, 'claude')).toBe('/simplify')
+    expect(actionPrompt({ id: 'b', kind: 'prompt', name: 'Rebase', body: 'Rebase onto main' }, 'codex')).toBe('Rebase onto main')
+    expect(CHAT_ACTION_ID).toBe('chat')
   })
 })
 

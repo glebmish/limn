@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { ActionDef, AgentRef, ChatThread, EngineId } from '../../shared/types'
 import type { CommandAvailability } from '../../shared/actions'
-import { skillPrompt } from '../../shared/actions'
+import { actionFindings, skillPrompt } from '../../shared/actions'
 import { agentLabel, engineLabel, modelOption } from '../../shared/agents'
 import { EngineGlyph, I } from '../kit'
 import { usePopover } from '../lib/usePopover'
 import { dev } from '../dev'
-import { opForThread, useStore } from '../store'
+import { checkoutGate, opForThread, useStore } from '../store'
 import { actionSub, markFor, markedEngines, type Mark } from '../lib/actions'
 import { ActionMarks, EngineMark, KindGlyph, checkedAgo } from './ActionMarks'
 import { AgentPicker } from './AgentPicker'
+import { WorkspacePicker } from './WorkspacePicker'
 
 /** The launcher (design board 14 L1, v3): a bolt in the drawer head opens the pinned
  *  actions. A row click runs the action at once on a NEW thread with the reviewer's
@@ -21,6 +22,7 @@ export function ActionLauncher() {
   const actions = useStore((s) => s.actions)
   const defaultAgent = useStore((s) => s.defaultAgent)
   const repo = useStore((s) => s.loaded?.state.repo ?? null)
+  const gate = useStore((s) => checkoutGate(s.loaded))
   const avail = useStore((s) => (repo ? s.commands[repo] : undefined) ?? NO_AVAIL)
   const chats = useStore((s) => s.loaded?.state.chats ?? EMPTY_CHATS)
   const ops = useStore((s) => s.ops)
@@ -77,7 +79,9 @@ export function ActionLauncher() {
                   </span>
                 </span>
               </div>
-              {actions.length === 0 ? (
+              {gate.blocked ? (
+                <div className="ax-none ax-gate">Check out <b>{gate.branch}</b> to run actions.{gate.branch && <WorkspacePicker branch={gate.branch} />}</div>
+              ) : actions.length === 0 ? (
                 <div className="ax-none">No actions yet · <a onClick={() => { close(); openSettings('actions') }}>Add one in Settings</a></div>
               ) : (
                 <div className="ax-rows">
@@ -213,7 +217,7 @@ function TargetPane({ action, agent, setAgent, mode, setMode, threadId, setThrea
         </div>
       </div>
       <div className="ax-pf">
-        <span className="ax-thennote">findings attach as proposed comments</span>
+        <span className="ax-thennote">{actionFindings(action) ? 'findings attach as proposed comments' : 'the result stays in the thread'}</span>
         <button className="btn btn-sm btn-primary ax-run" disabled={!runnable} onClick={onRun}>{launching ? 'Opening thread…' : `Run ${action.name}`}</button>
       </div>
     </div>

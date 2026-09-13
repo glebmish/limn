@@ -5,7 +5,6 @@ import { ActionResultCard } from '../src/renderer/components/ActionResultCard'
 import { ActionChips } from '../src/renderer/components/ActionChips'
 import { ChatDrawer } from '../src/renderer/components/ChatDrawer'
 import { useStore, type OpState } from '../src/renderer/store'
-import { FINDING_HARNESS } from '../src/shared/actions'
 import type { ActionRunRef, ChatMessage, ChatThread, Comment } from '../src/shared/types'
 import type { LoadedReview } from '../src/shared/ipc'
 import { initialStateOf } from './helpers/store'
@@ -16,7 +15,7 @@ function seed(patch: Partial<State>): void { Object.assign(initial() as unknown 
 afterEach(() => seed({ loaded: null, ops: {}, chatOpen: false, activeChatId: null }))
 
 const run = (n: number, kind: ActionRunRef['kind'] = 'skill'): ActionRunRef => ({ actionId: 'act', runId: `run-9-${n}`, n, name: kind === 'skill' ? 'Simplify' : 'Rebase onto main', kind })
-const launch = (r: ActionRunRef, text = `/simplify\n\n${FINDING_HARNESS}`): ChatMessage => ({ role: 'user', text, at: '2026-09-08T10:00:00Z', run: r })
+const launch = (r: ActionRunRef, text = '/simplify'): ChatMessage => ({ role: 'user', text, at: '2026-09-08T10:00:00Z', run: r })
 const ended = (runId: string, outcome: 'finished' | 'refused' | 'failed' | 'cancelled', extra: Record<string, unknown> = {}, text = 'Four simplifications, none behavioural.'): ChatMessage =>
   ({ role: 'agent', text, at: '2026-09-08T10:01:12Z', runResult: { runId, outcome, ...extra } })
 const thread = (messages: ChatMessage[], over: Partial<ChatThread> = {}): ChatThread =>
@@ -32,7 +31,7 @@ describe('ActionRunBar', () => {
   it('running: the skill as invoked, the run number, and Cancel', () => {
     const html = renderToStaticMarkup(<ActionRunBar thread={thread([launch(run(1))])} op={live} />)
     expect(html).toContain('class="ax-runbar"')
-    expect(html).toContain('Running <b class="mono">/simplify</b> · run 1 · findings attach as proposed')
+    expect(html).toContain('Running <b class="mono">/simplify</b> · run 1 · collects findings')
     expect(html).toContain('>Cancel</button>')
   })
   it('queued: place, what it is behind, and Don’t wait', () => {
@@ -47,6 +46,9 @@ describe('ActionRunBar', () => {
     expect(html).toContain('class="ax-runbar done"')
     expect(html).toContain('Finished · run 1 · <b>2 findings</b> · 1 m 12 s')
     expect(html).toContain('>Re-run</button>')
+    const receipt = renderToStaticMarkup(<ActionRunBar thread={thread([launch({ ...run(1, 'prompt'), findings: false }, 'Rebase onto main'), ended('run-9-1', 'finished', { delta: { commits: 2, files: 11, dirty: false }, extraction: 'skipped' })])} op={idle} />)
+    expect(receipt).toContain('Finished · run 1 · 2 commits · 11 files · 1 m 12 s')
+    expect(receipt).not.toContain('findings')
     const trusted = renderToStaticMarkup(<ActionRunBar thread={thread([launch(run(1)), ended('run-9-1', 'finished', { availabilityFrom: new Date().toISOString() })])} op={idle} />)
     expect(trusted).toContain('availability from just now')
   })
@@ -72,25 +74,29 @@ describe('ActionResultCard', () => {
   it('counts the run\'s proposals with the bulk pair and Show in diff', () => {
     seed({ loaded: loadedWith([finding('a'), finding('b'), finding('c', 'dismissed')]) })
     const html = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished')])} runId="run-9-1" agentText="report" />)
-    expect(html).toContain('Run finished · <b>3 findings</b> · 2 still proposed · 1 dismissed')
+    expect(html).toContain('Run finished · <b>3 findings · 2 still proposed · 1 dismissed</b>')
     expect(html).toContain('>Accept all 2</button>')
     expect(html).toContain('>Dismiss all</button>')
     expect(html).toContain('Show in diff')
     expect(html).toContain('Re-running replaces proposals you haven’t touched')
   })
-  it('a skill run that ended in prose offers Attach findings and Keep as prose; kept hides the card', () => {
+  it('a report the findings pass could not read offers Attach findings and Keep as prose; kept leaves the plain receipt', () => {
     seed({ loaded: loadedWith([]) })
-    const html = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished')])} runId="run-9-1" agentText="## Review report\n1. Retry backoff" />)
-    expect(html).toContain('The report attached nothing to the code')
+    const html = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished', { extraction: 'failed', delta: { commits: 0, files: 0, dirty: false } })])} runId="run-9-1" agentText="## Review report\n1. Retry backoff" />)
+    expect(html).toContain('Run finished · <b>no findings · branch unchanged</b>')
+    expect(html).toContain('The findings pass could not read this report')
     expect(html).toContain('Attach findings')
     expect(html).toContain('Keep as prose')
-    const kept = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished', { keepProse: true })])} runId="run-9-1" agentText="report" />)
-    expect(kept).toBe('')
+    const kept = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished', { extraction: 'failed', keepProse: true })])} runId="run-9-1" agentText="report" />)
+    expect(kept).toContain('Run finished · <b>no findings</b>')
+    expect(kept).not.toContain('Attach findings')
   })
-  it('a prompt run with no findings shows nothing; a superseded run says so', () => {
+  it('a run that does not collect findings gets a receipt of what moved; a superseded run says so', () => {
     seed({ loaded: loadedWith([]) })
-    const prompt = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1, 'prompt'), 'Explain the churn'), ended('run-9-1', 'finished')])} runId="run-9-1" agentText="It moved." />)
-    expect(prompt).toBe('')
+    const prompt = renderToStaticMarkup(<ActionResultCard thread={thread([launch({ ...run(1, 'prompt'), findings: false }, 'Rebase onto main'), ended('run-9-1', 'finished', { extraction: 'skipped', delta: { commits: 2, files: 11, dirty: true } })])} runId="run-9-1" agentText="Rebased." />)
+    expect(prompt).toContain('Run finished · <b>2 commits · 11 files · uncommitted changes</b>')
+    expect(prompt).not.toContain('findings')
+    expect(prompt).not.toContain('Accept all')
     seed({ loaded: loadedWith([finding('a', 'queued')]) })
     const old = renderToStaticMarkup(<ActionResultCard thread={thread([launch(run(1)), ended('run-9-1', 'finished'), launch(run(2)), ended('run-9-2', 'finished')])} runId="run-9-1" agentText="x" />)
     expect(old).toContain('Superseded by run 2 · 1 you took stayed')
@@ -111,15 +117,15 @@ describe('the finding chip and the run prompt bubble in the drawer', () => {
     // the second finding no longer exists in the review: swept by a re-run
     expect(html).toContain('swept')
   })
-  it('the launching bubble shows the kind glyph, the invocation, the run number and the folded harness; the run bar sits under the head', () => {
+  it('the launching bubble shows the kind glyph, the invocation as sent and the run number — no harness; the run bar sits under the head', () => {
     const t = thread([launch(run(1))])
     seed({ chatOpen: true, activeChatId: 9, loaded: loadedWith([], [t]), ops: { 'op-9': live } })
     const html = renderToStaticMarkup(<ChatDrawer open onClose={() => {}} />)
     expect(html).toContain('class="chat-bubble ax-prompt"')
     expect(html).toContain('<span class="ax-prompt-text">/simplify</span>')
     expect(html).toContain('run 1')
-    expect(html).toContain('+ Limn: report each finding with add_finding')
-    expect(html).toContain('>Show</a>')
+    expect(html).not.toContain('add_finding')
+    expect(html).not.toContain('ax-harness')
     expect(html).toContain('class="ax-runbar"')
     expect(html).toContain('<span class="cd-name">Simplify</span>')
   })

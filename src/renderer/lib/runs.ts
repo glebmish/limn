@@ -1,4 +1,4 @@
-import type { ActionRunRef, ActionRunResult, ChatThread, Comment } from '../../shared/types'
+import type { ActionRunDelta, ActionRunRef, ActionRunResult, ChatThread, Comment } from '../../shared/types'
 import { runFindings } from '../../shared/actions'
 import type { OpState } from '../store/derive'
 
@@ -52,8 +52,8 @@ export function fmtDuration(ms: number): string {
 
 export type RunBarState =
   | { kind: 'queued'; position: number; behind: string }
-  | { kind: 'running'; spelled: string }
-  | { kind: 'finished'; count: number; duration: string; availabilityFrom?: string }
+  | { kind: 'running'; spelled: string; collects: boolean }
+  | { kind: 'finished'; collects: boolean; count: number; delta: ActionRunDelta | null; duration: string; availabilityFrom?: string }
   | { kind: 'refused'; error: string }
   | { kind: 'failed'; error: string }
   | { kind: 'cancelled' }
@@ -68,17 +68,17 @@ export function runBarState(thread: Pick<ChatThread, 'messages'>, op: OpState, c
   const launch = thread.messages[v.launchIndex]
   if (op.running) {
     if (op.queued) return { kind: 'queued', position: op.queued.position, behind: op.queued.behind }
-    return { kind: 'running', spelled: v.run.kind === 'skill' ? launch.text.split('\n')[0] : v.run.name }
+    return { kind: 'running', spelled: v.run.kind === 'skill' ? launch.text.split('\n')[0] : v.run.name, collects: runCollects(v.run) }
   }
   if (!v.result) {
     // no persisted result and no live op: the run ended without a record (a tab that
     // missed the end, a crash) — read it as finished with whatever landed
-    return { kind: 'finished', count: runFindings(comments, v.run.runId).length, duration: '' }
+    return { kind: 'finished', collects: runCollects(v.run), count: runFindings(comments, v.run.runId).length, delta: null, duration: '' }
   }
   switch (v.result.outcome) {
     case 'finished': {
       const ms = v.endedAt ? Date.parse(v.endedAt) - Date.parse(v.startedAt) : NaN
-      return { kind: 'finished', count: runFindings(comments, v.run.runId).length, duration: Number.isNaN(ms) ? '' : fmtDuration(ms), ...(v.result.availabilityFrom ? { availabilityFrom: v.result.availabilityFrom } : {}) }
+      return { kind: 'finished', collects: runCollects(v.run), count: runFindings(comments, v.run.runId).length, delta: v.result.delta ?? null, duration: Number.isNaN(ms) ? '' : fmtDuration(ms), ...(v.result.availabilityFrom ? { availabilityFrom: v.result.availabilityFrom } : {}) }
     }
     case 'refused': return { kind: 'refused', error: v.result.error ?? 'Nothing was sent.' }
     case 'failed': return { kind: 'failed', error: v.result.error ?? 'The run failed.' }
@@ -86,16 +86,40 @@ export function runBarState(thread: Pick<ChatThread, 'messages'>, op: OpState, c
   }
 }
 
+/** A run recorded before the switch existed always collected findings. */
+export function runCollects(run: Pick<ActionRunRef, 'findings'>): boolean {
+  return run.findings ?? true
+}
+
+/** "branch unchanged" / "2 commits · 11 files" / "uncommitted changes" — the
+ *  receipt's branch half; null when the delta could not be measured. */
+export function deltaLabel(delta: ActionRunDelta | null): string | null {
+  if (!delta) return null
+  if (delta.commits === 0 && delta.files === 0 && !delta.dirty) return 'branch unchanged'
+  const parts: string[] = []
+  if (delta.commits > 0) parts.push(`${delta.commits} commit${delta.commits === 1 ? '' : 's'}`)
+  if (delta.files > 0) parts.push(`${delta.files} file${delta.files === 1 ? '' : 's'}`)
+  if (delta.dirty) parts.push('uncommitted changes')
+  return parts.join(' · ')
+}
+
 export type ResultCardState =
-  | { kind: 'findings'; runId: string; open: number; dismissed: number; total: number; first: Comment | null }
-  | { kind: 'report-only'; runId: string }
+  | {
+      kind: 'receipt'; runId: string
+      /** the run collected findings (its count is meaningful, the triage pair shows) */
+      collects: boolean
+      open: number; dismissed: number; total: number; first: Comment | null
+      delta: ActionRunDelta | null
+      /** the findings pass could not read the report (or predates the pass) and the
+       *  run wrote prose: offer the manual Attach findings, unless kept as prose */
+      attachOffer: boolean
+    }
   | { kind: 'superseded'; by: number; kept: number }
 
-/** The card that follows a finished run's last turn (board 14 R1, v3). `findings`
- *  when the run attached anything (its proposals, live); `report-only` for a SKILL
- *  run that attached nothing and wrote a report, unless the reviewer kept it as
- *  prose; `superseded` once a later run of the same action replaced its untouched
- *  proposals. Null for a prompt run with no findings, or a run still going. */
+/** The receipt that follows a finished run's last turn (spec agent-actions-intent
+ *  §2.6): findings when collected, the branch delta always; `superseded` once a
+ *  later run of the same action replaced its untouched proposals. Null for a run
+ *  still going or one that did not finish. */
 export function resultCardState(v: RunView, comments: readonly Comment[], agentText: string): ResultCardState | null {
   if (!v.result || v.result.outcome !== 'finished') return null
   const mine = runFindings(comments, v.run.runId)
@@ -104,11 +128,10 @@ export function resultCardState(v: RunView, comments: readonly Comment[], agentT
     const kept = mine.filter((c) => c.status !== 'proposed' && c.status !== 'dismissed').length + mine.filter((c) => (c.status === 'proposed' || c.status === 'dismissed') && c.replies.length > 0).length
     return { kind: 'superseded', by: v.run.n + 1, kept }
   }
-  if (mine.length > 0) {
-    const open = mine.filter((c) => c.status === 'proposed')
-    const dismissed = mine.filter((c) => c.status === 'dismissed').length
-    return { kind: 'findings', runId: v.run.runId, open: open.length, dismissed, total: mine.length, first: open[0] ?? mine[0] ?? null }
-  }
-  if (v.run.kind === 'skill' && agentText.trim() && !v.result.keepProse) return { kind: 'report-only', runId: v.run.runId }
-  return null
+  const open = mine.filter((c) => c.status === 'proposed')
+  const dismissed = mine.filter((c) => c.status === 'dismissed').length
+  const collects = runCollects(v.run)
+  const passMissed = v.result.extraction === 'failed' || (v.result.extraction === undefined && v.run.kind === 'skill')
+  const attachOffer = collects && mine.length === 0 && passMissed && agentText.trim().length > 0 && !v.result.keepProse
+  return { kind: 'receipt', runId: v.run.runId, collects, open: open.length, dismissed, total: mine.length, first: open[0] ?? mine[0] ?? null, delta: v.result.delta ?? null, attachOffer }
 }

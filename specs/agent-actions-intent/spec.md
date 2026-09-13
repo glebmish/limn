@@ -81,8 +81,9 @@ Chat turns are step 2 only, with the same framing and gate.
 
 - Actions editor: *Collect findings after the run* checkbox; run bar copy says
   *collects findings* only when on; result card = receipt (§2.6) for every finished
-  run, plus the triage pair when findings exist, plus *Attach findings* when
-  extraction failed or was skipped and the run wrote prose.
+  run, plus the triage pair when findings exist, plus *Attach findings* when the
+  run collected findings, the pass failed (or predates the pass) and the run wrote
+  prose. A run that does not collect findings never offers it.
 - Launch bubble: no harness fold; the Attach follow-up is still labelled.
 - Gate line (composer and launcher) as in §2.2.
 

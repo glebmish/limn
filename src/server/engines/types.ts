@@ -59,8 +59,11 @@ export interface ChatTurn {
   context?: ChatContext
   /** when set, the turn gets the limn tool layer (focus/suggest/…). */
   tools?: AgentToolHost
-  /** allow code-editing tools this turn (branch + clean tree preconditions met). */
+  /** allow code-editing tools this turn (the compare branch is checked out). */
   writeEnabled?: boolean
+  /** `message` is the whole prompt (the batch and rebase turns build their own);
+   *  otherwise the engine frames it with the review context and the default posture. */
+  raw?: boolean
   /** op id for this turn — keys the approval registry (`awaitDecision`). */
   opId?: string
   /** the chat's autonomy tier; the adapter maps it via `AcpEngineConfig.modeFor` /
@@ -77,6 +80,26 @@ export interface ChatTurn {
   beforePrompt?: (commands: string[] | null) => Promise<void> | void
   /** how long `beforePrompt` waits for the command list (default 2000 ms). */
   commandsWaitMs?: number
+}
+
+/** The findings pass after an action run (spec agent-actions-intent §4.3): resume the
+ *  run's session and ask for its findings as one JSON list. */
+export interface ExtractRequest {
+  repo: string
+  engineSessionId: string
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  opId?: string
+}
+
+/** One finding as the extraction pass reports it (wire shape, validated). */
+export interface WireFinding {
+  file: string
+  line: number
+  endLine?: number
+  severity: 'risk' | 'note'
+  body: string
+  suggestion?: string
 }
 
 export interface EngineRun<T> {
@@ -96,6 +119,9 @@ export interface ReviewEngine {
   /** result.sessionId is the engine session id (new when seeded, else resumed).
    *  Tool-enabled turns (incl. the unified batch) flow through here via turn.tools. */
   chat(turn: ChatTurn): EngineRun<string>
+  /** The findings pass: structured output on the resumed session, no tools, no edits.
+   *  result.sessionId is the session to keep on the thread (Claude forks on resume). */
+  extractFindings(req: ExtractRequest): EngineRun<WireFinding[]>
 }
 
 /** Async queue bridging push-style SDK callbacks to a pull-style AsyncIterable. */

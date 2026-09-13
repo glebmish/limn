@@ -11,7 +11,8 @@ import { ActionLauncher } from './ActionLauncher'
 import { ActionRunBar } from './ActionRunBar'
 import { ActionResultCard } from './ActionResultCard'
 import { KindGlyph } from './ActionMarks'
-import { FINDING_HARNESS } from '../../shared/actions'
+import { ATTACH_FINDINGS_PROMPT } from '../../shared/actions'
+import { WorkspacePicker } from './WorkspacePicker'
 import { ActionChips } from './ActionChips'
 import { splitPath } from './FileHeader'
 import { ToolCallLog } from './ToolCallLog'
@@ -388,7 +389,8 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
           {gate.blocked && (
             <div className="chat-gate block">
               <I.warn style={{ width: 12, height: 12, color: 'var(--amber)' }} />
-              <span><b>{gate.branch}</b> isn't checked out — check it out in the worktree menu to enable edits.</span>
+              <span>Check out <b>{gate.branch}</b> to chat or run actions.</span>
+              {gate.branch && <WorkspacePicker branch={gate.branch} />}
             </div>
           )}
           {gate.dirtyWarn && (
@@ -429,7 +431,7 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                   // so a Send that can't run leaves the text parked instead of losing it.
                   <button className="btn btn-sm btn-primary" disabled={mode === 'blocked'}
                     title={mode !== 'blocked' ? undefined
-                      : gate.blocked ? `${gate.branch ?? 'The branch'} isn’t checked out — check it out to send this`
+                      : gate.blocked ? `Check out ${gate.branch ?? 'the branch'} to send this`
                       : 'Another chat turn is running — it’ll be sendable when it finishes'}
                     onClick={() => store.flushQueuedTurn(active.id, 'succeeded')}>
                     <I.send style={{ width: 11, height: 11 }} />Send
@@ -537,26 +539,18 @@ const ChatMessage = memo(function ChatMessage({ m, submittedRefs, engine, thread
 })
 
 /** The user bubble that launched an action run (board 14 R1): the skill or prompt
- *  as it was actually sent, plus the harness Limn appended, folded. */
+ *  exactly as it was sent — Limn appends nothing to it any more; the framing is the
+ *  engine's. The manual Attach findings follow-up is labelled as such. */
 function RunPrompt({ m }: { m: ChatMsg }) {
-  const [shown, setShown] = useState(false)
   const run = m.run!
-  const harnessAt = m.text.indexOf(FINDING_HARNESS)
-  const head = harnessAt >= 0 ? m.text.slice(0, harnessAt).trimEnd() : m.text
-  const isAttach = harnessAt < 0 && /add_finding/.test(m.text)
+  const isAttach = m.text === ATTACH_FINDINGS_PROMPT
   return (
     <>
       <div className="ax-prompt-h">
         <KindGlyph kind={run.kind} small />
-        <span className="ax-prompt-text">{isAttach ? 'Attach findings' : head}</span>
+        <span className="ax-prompt-text">{isAttach ? 'Attach findings' : m.text}</span>
         <span className="ax-prompt-run">run {run.n}</span>
       </div>
-      {harnessAt >= 0 && (
-        <div className="ax-harness">
-          {shown ? FINDING_HARNESS : `+ Limn: report each finding with add_finding — file, line, severity.`}
-          <a onClick={() => setShown((v) => !v)}>{shown ? 'Hide' : 'Show'}</a>
-        </div>
-      )}
       {isAttach && <div className="ax-harness">{m.text}</div>}
     </>
   )

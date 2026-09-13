@@ -333,13 +333,14 @@ describe('comment tools (real temp DB)', () => {
     expect(added.text).toBe('dup\n\nSuggestion:\n```\ngross()\n```')
   })
 
-  it('add_finding refuses outside an action run — nothing to source the proposal to', async () => {
+  it('add_finding outside an action run sources the proposal to the thread\'s chat run', async () => {
     const { db, ctx, sessionId } = setup()
     const host = createToolHost(ctx)
-    const { isError, result } = await host.call('add_finding', { file: 'src/a.ts', line: 2, severity: 'note', body: 'x' })
-    expect(isError).toBe(true)
-    expect(result).toContain('action run')
-    expect(loadReviewState(db, sessionId).comments.some((c) => c.id.startsWith('af-'))).toBe(false)
+    const { isError } = await host.call('add_finding', { file: 'src/a.ts', line: 2, severity: 'note', body: 'x' })
+    expect(isError).toBeFalsy()
+    const c = loadReviewState(db, sessionId).comments.find((c) => c.id.startsWith('af-'))!
+    expect(c.status).toBe('proposed')
+    expect(c.source).toEqual({ actionId: 'chat', runId: `chat-${ctx.threadId}`, threadId: ctx.threadId })
   })
 
   it('reply_to_comment appends an agent reply with identity', async () => {

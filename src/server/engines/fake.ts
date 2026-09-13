@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ApprovalRequest, EngineId, Section } from '../../shared/types.js'
-import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest, type ExtractRequest, type WireFinding } from './types.js'
 import type { ParsedReview, ScopedReviewPatch, WireSection } from './schema.js'
 import { awaitDecision } from './approvals.js'
 import { EngineSessionLostError } from './errors.js'
@@ -252,7 +252,9 @@ export class FakeEngine implements ReviewEngine {
     // would leave the turn awaiting forever.
     let releaseChatHold: (() => void) | null = null
     const refine = turn.message.includes('The reviewer answered')
-    const batch = Boolean(turn.tools && (turn.writeEnabled || refine))
+    // the batch and refine turns arrive raw (their own whole prompt); a framed turn
+    // with tools is a chat message or an action run
+    const batch = Boolean(turn.tools && turn.raw)
     const modelTag = turn.model ? ` using **${turn.model}**` : ''
     const chatText = [
       `Looking at your question${modelTag}:`,
@@ -402,5 +404,24 @@ export class FakeEngine implements ReviewEngine {
       return { value: text, sessionId: turn.engineSessionId || `fake-chat-${Date.now()}` }
     })()
     return { events: q.iterable(), result, cancel: () => { releaseChatHold?.(); q.close() } }
+  }
+
+  /** The findings pass: two findings on src/a.ts, or none when the run's prompt
+   *  carried `[no-findings]`; `[extract-fail]` simulates a final parse failure. */
+  extractFindings(req: ExtractRequest): EngineRun<WireFinding[]> {
+    const q = new EventQueue()
+    const prompt = lastChatTurn?.message ?? ''
+    const result = (async (): Promise<{ value: WireFinding[]; sessionId: string }> => {
+      q.push({ type: 'status', text: 'Collecting findings…' })
+      if (prompt.includes('[extract-fail]')) { q.close(); throw new Error('Engine returned non-JSON output (fake)') }
+      const value: WireFinding[] = prompt.includes('[no-findings]') ? [] : [
+        { file: 'src/a.ts', line: 2, severity: 'risk', body: 'round() is skipped on this path.' },
+        { file: 'src/a.ts', line: 3, severity: 'note', body: 'rows.reduce duplicates gross() — call it once.' }
+      ]
+      q.push({ type: 'done' })
+      q.close()
+      return { value, sessionId: req.engineSessionId }
+    })()
+    return { events: q.iterable(), result, cancel: () => q.close() }
   }
 }

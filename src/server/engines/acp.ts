@@ -20,17 +20,19 @@ import { CancelledError, EngineSessionLostError, SkillUnavailableError } from '.
 import { awaitDecision, clearPending } from './approvals.js'
 import { registerTurn } from './mcpHost.js'
 import { engineBinaryStatus } from './binaries.js'
-import { buildReviewPrompt, buildScopedUpdatePrompt, buildChatPrompt, buildSeededChatPrompt } from './prompts.js'
+import { buildReviewPrompt, buildScopedUpdatePrompt, buildChatPrompt, buildSeededChatPrompt, buildExtractFindingsPrompt } from './prompts.js'
 import { parseJson, structuredEpilogue, buildRepairPrompt } from './structured.js'
 import {
   reviewJsonSchema,
   scopedReviewJsonSchema,
+  findingsJsonSchema,
   parseReviewOutput,
   type ParsedReview,
   parseScopedOutput,
+  parseFindingsOutput,
   type ScopedReviewPatch
 } from './schema.js'
-import { EventQueue, type ChatTurn, type EngineRun, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest } from './types.js'
+import { EventQueue, type ChatTurn, type EngineRun, type ExtractRequest, type ReviewEngine, type ReviewRequest, type ScopedUpdateRequest, type WireFinding } from './types.js'
 import type { AgentToolHost } from './tools.js'
 import type { AcpEngineConfig } from './adapters.js'
 import { spawnAdapter } from './adapters.js'
@@ -137,8 +139,9 @@ export class AcpEngine implements ReviewEngine {
   }
 
   chat(turn: ChatTurn): EngineRun<string> {
-    const write = Boolean(turn.writeEnabled)
-    const prompt = write
+    // a raw turn (batch, rebase) is its own whole prompt; everything else — chat
+    // messages and action runs — gets the review framing and the default posture
+    const prompt = turn.raw
       ? turn.message
       : turn.engineSessionId
         ? buildChatPrompt(turn.message, turn.anchor)
@@ -157,6 +160,22 @@ export class AcpEngine implements ReviewEngine {
       beforePrompt: turn.beforePrompt,
       commandsWaitMs: turn.commandsWaitMs,
       parse: (t) => t
+    })
+  }
+
+  extractFindings(req: ExtractRequest): EngineRun<WireFinding[]> {
+    // a generation-style turn: streamed text suppressed, file edits denied by the
+    // ladder, the run's own session resumed so the report is already in context
+    return this.runAcpTurn<WireFinding[]>({
+      repo: req.repo,
+      prompt: buildExtractFindingsPrompt() + '\n' + structuredEpilogue(findingsJsonSchema),
+      engineSessionId: req.engineSessionId,
+      model: req.model,
+      reasoningEffort: req.reasoningEffort,
+      opId: req.opId,
+      generation: true,
+      status: 'Collecting findings…',
+      parse: (t) => parseFindingsOutput(parseJson(t))
     })
   }
 

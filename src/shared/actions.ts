@@ -42,14 +42,11 @@ export const ATTACH_FINDINGS_PROMPT =
 /** `source.actionId` of the proposals a review generation mints (its hotspots). */
 export const REVIEW_ACTION_ID = 'review'
 
-/** The one paragraph Limn appends to every action prompt, skill or free text. It
- *  names the tool and nothing else — it never restricts edits (the thread's execution
- *  mode does that) and never asks for a follow-up turn. */
-export const FINDING_HARNESS =
-  'Limn: for each finding you report, also call the `add_finding` tool (file, line, severity, body) ' +
-  'so it lands on the code as a proposed comment the reviewer can accept or dismiss. ' +
-  'Anchor each one to the exact line in the repository file; use severity "risk" for bugs and ' +
-  'security problems, "note" for everything else.'
+/** Whether an action collects findings after its run: its own switch, else on for a
+ *  skill (skills are how reviews are asked for) and off for a prompt. */
+export function actionFindings(a: Pick<ActionDef, 'kind' | 'findings'>): boolean {
+  return a.findings ?? a.kind === 'skill'
+}
 
 function isActionDef(v: unknown): v is ActionDef {
   if (!v || typeof v !== 'object') return false
@@ -57,21 +54,26 @@ function isActionDef(v: unknown): v is ActionDef {
   return typeof o.id === 'string' && o.id.length > 0
     && (o.kind === 'skill' || o.kind === 'prompt')
     && typeof o.name === 'string' && typeof o.body === 'string'
+    && (o.findings === undefined || typeof o.findings === 'boolean')
 }
 
 /** Parse the stored list. Never throws: garbage yields `[]`, a malformed entry is
- *  dropped, and only the four known fields survive (a stale extra field can't ride
+ *  dropped, and only the known fields survive (a stale extra field can't ride
  *  along into the next save). */
 export function parseActions(json: string | undefined): ActionDef[] {
   if (!json) return []
   let raw: unknown
   try { raw = JSON.parse(json) } catch { return [] }
   if (!Array.isArray(raw)) return []
-  return raw.filter(isActionDef).map(({ id, kind, name, body }) => ({ id, kind, name, body }))
+  return raw.filter(isActionDef).map(pickActionFields)
 }
 
 export function serializeActions(actions: ActionDef[]): string {
-  return JSON.stringify(actions.map(({ id, kind, name, body }) => ({ id, kind, name, body })))
+  return JSON.stringify(actions.map(pickActionFields))
+}
+
+function pickActionFields({ id, kind, name, body, findings }: ActionDef): ActionDef {
+  return { id, kind, name, body, ...(findings === undefined ? {} : { findings }) }
 }
 
 let seq = 0
@@ -90,12 +92,15 @@ export function skillPrompt(engine: EngineId, name: string): string {
   return (engine === 'codex' ? '$' : '/') + bareSkillName(name)
 }
 
-/** The prompt an action run sends: the skill invocation or the verbatim text, then
- *  the finding harness. */
+/** The prompt an action run sends: the skill invocation or the verbatim text — and
+ *  nothing else. The turn's framing (prompts.ts) is the engine's; findings, when the
+ *  action collects them, come from a second structured pass after the run. */
 export function actionPrompt(action: ActionDef, engine: EngineId): string {
-  const head = action.kind === 'skill' ? skillPrompt(engine, action.body) : action.body
-  return `${head}\n\n${FINDING_HARNESS}`
+  return action.kind === 'skill' ? skillPrompt(engine, action.body) : action.body
 }
+
+/** `source.actionId` of proposals a plain chat turn mints with `add_finding`. */
+export const CHAT_ACTION_ID = 'chat'
 
 /** A proposal = an agent finding the reviewer has not taken yet, whether still shown
  *  (`proposed`) or hidden (`dismissed`). */

@@ -26,7 +26,7 @@ import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.
 import { resolveStampTree, stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
-import { createToolHost } from './engines/tools.js'
+import { createToolHost, mintFinding } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { isPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
@@ -42,7 +42,7 @@ import { assertSafeWorktreeName, suggestedWorktreeName } from '../shared/worktre
 import { OperationCoordinator, ThreadBusyError, type OperationOutcome } from './operations.js'
 import { LiveOpRegistry } from './liveOps.js'
 import { EngineSessionLostError, SkillUnavailableError, isCancellation } from './engines/errors.js'
-import { ACTIONS_PREF_KEY, ATTACH_FINDINGS_PROMPT, actionPrompt, isProposal, parseActions, runFindings, skillPrompt, touched, type CommandAvailability } from '../shared/actions.js'
+import { ACTIONS_PREF_KEY, ATTACH_FINDINGS_PROMPT, actionFindings, actionPrompt, isProposal, parseActions, runFindings, skillPrompt, touched, type CommandAvailability } from '../shared/actions.js'
 import { CommandCache, CommandProber, hasSkill, skillNames } from './engines/probe.js'
 import { CLAUDE_ACP_CONFIG, CODEX_ACP_CONFIG } from './engines/adapters.js'
 import { engineLabel } from '../shared/agents.js'
@@ -505,7 +505,7 @@ async function runThreadTurn(opts: {
   // a pruned session rejects this run with the typed EngineSessionLostError.
   const run = engine.chat({
     repo: workdir, engineSessionId: thread.engineSessionId, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort,
-    message, tools, writeEnabled, opId, executionMode: thread.executionMode,
+    message, tools, writeEnabled, raw: true, opId, executionMode: thread.executionMode,
     // re-read per permission request (mid-turn mode changes), as in sendChat.
     currentMode: () => dao.getChatThread(db, threadId)?.executionMode ?? thread.executionMode
   })
@@ -1162,7 +1162,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     const recorder = opRecorder(opId)
     recorder.exclusive = true // one lane per repo: every turn takes it, in queue order
     const doTurn = async (): Promise<void> => {
-      const workdir = await resolveWorkdir(repo, session.pair)
+      // Nothing runs against a branch that is not checked out (spec agent-actions-intent
+      // §2.2): the turn would read and edit whatever branch the primary checkout holds.
+      // The composer and launcher gate this too; this is the backstop for a stale tab.
+      const capability = await writeCapabilityFor(repo, session.pair.compare)
+      if (capability.reason === 'not-checked-out') throw new Error(`Check out ${capability.branch} to chat or run actions`)
+      const workdir = capability.workdir ?? repo
       const state = dao.loadReviewState(db, sid)
       const engine = makeEngine(thread.agent.engine)
       // the limn tool layer for this turn: focus/suggest run live (read-only
@@ -1187,6 +1192,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         message,
         anchor,
         tools,
+        // write-capable whenever the branch is checked out: the agent reads the
+        // intent (the framing says reading is the default), the thread's execution
+        // mode is the approval axis, and a commit compare stays read-only
+        writeEnabled: capability.enabled,
         opId,
         executionMode: thread.executionMode,
         // re-read per permission request: moving the mode selector mid-turn takes
@@ -1214,13 +1223,54 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         if (current && current.messages.length === 1) dao.setThreadTitle(db, threadId, dao.deriveChatTitle(message))
       }
       const from = opts.availabilityFrom?.()
-      const runResult: ActionRunResult | undefined = run ? { runId: run.runId, outcome: 'finished', ...(from ? { availabilityFrom: from } : {}) } : undefined
+      let runResult: ActionRunResult | undefined
+      let keepSession = engineSession
+      if (run) {
+        runResult = { runId: run.runId, outcome: 'finished', ...(from ? { availabilityFrom: from } : {}) }
+        // The findings pass (spec §4.3): the run's own session, asked for its findings
+        // as one JSON list, minted as proposals under the run. Skipped for a run that
+        // does not collect them; a final parse failure leaves the report as prose and
+        // the card offers the manual Attach findings. A cancel here cancels the run.
+        // The attach follow-up (`ATTACH_FINDINGS_PROMPT`) collects via the tool instead.
+        const collects = (run.findings ?? true) && message !== ATTACH_FINDINGS_PROMPT
+        if (!collects) runResult.extraction = 'skipped'
+        else if (!engineSession) runResult.extraction = 'failed'
+        else {
+          operations.throwIfCancelled(opId)
+          const extract = engine.extractFindings({ repo: workdir, engineSessionId: engineSession, model: thread.agent.model, reasoningEffort: thread.agent.reasoningEffort, opId })
+          operations.registerCancel(opId, extract.cancel)
+          const pumpX = pumpEvents(extract.events, recorder.emit)
+          try {
+            const { value: found, sessionId: after } = await extract.result
+            await pumpX
+            if (after) keepSession = after
+            const source = { actionId: run.actionId, runId: run.runId, threadId }
+            for (const f of found) {
+              const comment = await mintFinding({ db, sessionId: sid, repo: workdir, agent: thread.agent, threadId }, source, f)
+              recorder.emit({ type: 'action', action: { kind: 'finding_added', comment } })
+            }
+            runResult.extraction = 'ok'
+          } catch (err) {
+            await pumpX.catch(() => undefined)
+            if (isCancellation(err)) throw err
+            console.error('[runAction] findings pass failed:', err)
+            runResult.extraction = 'failed'
+          }
+        }
+        // the receipt: what moved on the branch during the run
+        if (run.headAtStart && session.pair.compare.kind === 'branch') {
+          try {
+            const d = await driftSummary(repo, session.pair.compare.symbol, run.headAtStart, capability.workdir)
+            runResult.delta = { commits: d.commits, files: d.files, dirty: d.dirty }
+          } catch { /* unmeasurable (a rebase moved the baseline away) — the card says so */ }
+        }
+      }
       dao.addChatMessage(db, threadId, {
         role: 'agent', text: value, at,
         ...(actions.length ? { actions } : {}), ...(toolCalls.length ? { tools: toolCalls } : {}), ...(segments.length ? { segments } : {}),
         ...(runResult ? { runResult } : {})
       })
-      if (engineSession) dao.setThreadEngineSession(db, threadId, engineSession)
+      if (keepSession) dao.setThreadEngineSession(db, threadId, keepSession)
     }
     // Per-thread guard: a thread can host at most one in-flight turn, whatever lane it
     // would take — a concurrent send (second client) fails fast (ThreadBusyError).
@@ -1298,6 +1348,8 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     assertNotMerged(db, sessionId)
     const action = pinnedActions().find((a) => a.id === actionId)
     if (!action) throw new Error(`Unknown action ${actionId} — it may have been removed from Settings`)
+    const capability = await writeCapabilityFor(session.repo, session.pair.compare)
+    if (capability.reason === 'not-checked-out') throw new Error(`Check out ${capability.branch} to run actions`)
     let thread: ChatThread
     if (target.kind === 'new') {
       thread = dao.findActionThread(db, sessionId, actionId)
@@ -1308,7 +1360,12 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       thread = t
     }
     const n = dao.nextRunNumber(db, thread.id)
-    const run: ActionRunRef = { actionId, runId: `run-${thread.id}-${n}`, n, name: action.name, kind: action.kind }
+    // the receipt's baseline: the branch head as the run launches
+    let headAtStart: string | undefined
+    if (session.pair.compare.kind === 'branch') {
+      try { headAtStart = await headSha(session.repo, session.pair.compare.symbol) } catch { /* unresolvable — no delta */ }
+    }
+    const run: ActionRunRef = { actionId, runId: `run-${thread.id}-${n}`, n, name: action.name, kind: action.kind, findings: actionFindings(action), ...(headAtStart ? { headAtStart } : {}) }
     // a re-run replaces the previous run's UNTOUCHED proposals (shown or dismissed);
     // accepted, kept and replied-to ones are the reviewer's now and stay
     for (const c of dao.loadReviewState(db, sessionId).comments) {
