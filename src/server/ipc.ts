@@ -1352,8 +1352,9 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
     if (capability.reason === 'not-checked-out') throw new Error(`Check out ${capability.branch} to run actions`)
     let thread: ChatThread
     if (target.kind === 'new') {
-      thread = dao.findActionThread(db, sessionId, actionId)
-        ?? dao.createChatThread(db, sessionId, { kind: 'user', agent: target.agent, title: action.name, action: { actionId, name: action.name, kind: action.kind } })
+      // every launch from the bolt is a fresh thread — a fresh engine session with no
+      // earlier framing to argue with; Re-run on the run bar targets the thread itself
+      thread = dao.createChatThread(db, sessionId, { kind: 'user', agent: target.agent, title: action.name, action: { actionId, name: action.name, kind: action.kind } })
     } else {
       const t = dao.getChatThread(db, target.threadId)
       if (!t || dao.chatThreadSessionId(db, target.threadId) !== sessionId) throw new Error('chat thread not found in this review')

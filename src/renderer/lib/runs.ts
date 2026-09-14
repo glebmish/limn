@@ -16,25 +16,36 @@ export interface RunView {
   /** the ending agent message's result, null while the run is still going */
   result: ActionRunResult | null
   endedAt: string | null
-  /** a later run of the same action exists in this thread */
+  /** a later run of the same action exists — in this thread or, when `all` is
+   *  given, launched later in another thread of the review */
   superseded: boolean
+  /** the superseding run's number when it is in this thread; null when it lives in
+   *  another thread (its numbering means nothing here) or nothing supersedes */
+  supersededBy: number | null
 }
 
-export function runsOf(thread: Pick<ChatThread, 'messages'>): RunView[] {
+/** The runs launched in `thread`, in order. `all` (every thread of the review) lets a
+ *  later launch of the same action in another thread mark this one superseded — the
+ *  server sweeps an action's untouched proposals on every launch, whichever thread. */
+export function runsOf(thread: Pick<ChatThread, 'messages'>, all: readonly Pick<ChatThread, 'messages'>[] = []): RunView[] {
   const out: RunView[] = []
   thread.messages.forEach((m, i) => {
     if (m.role !== 'user' || !m.run) return
     // the Attach findings follow-up re-uses the run: fold it into the existing view
     const existing = out.find((v) => v.run.runId === m.run!.runId)
     if (existing) { existing.result = null; existing.endedAt = null; return }
-    out.push({ run: m.run, launchIndex: i, startedAt: m.at, result: null, endedAt: null, superseded: false })
+    out.push({ run: m.run, launchIndex: i, startedAt: m.at, result: null, endedAt: null, superseded: false, supersededBy: null })
   })
   thread.messages.forEach((m) => {
     if (m.role !== 'agent' || !m.runResult) return
     const v = out.find((x) => x.run.runId === m.runResult!.runId)
     if (v) { v.result = m.runResult; v.endedAt = m.at }
   })
-  for (const v of out) v.superseded = out.some((o) => o.run.actionId === v.run.actionId && o.run.n > v.run.n)
+  for (const v of out) {
+    const later = out.find((o) => o.run.actionId === v.run.actionId && o.run.n > v.run.n)
+    if (later) { v.superseded = true; v.supersededBy = later.run.n; continue }
+    v.superseded = all.some((t) => t !== thread && t.messages.some((m) => m.role === 'user' && m.run?.actionId === v.run.actionId && m.run.runId !== v.run.runId && m.at > v.startedAt))
+  }
   return out
 }
 
@@ -114,11 +125,12 @@ export type ResultCardState =
        *  run wrote prose: offer the manual Attach findings, unless kept as prose */
       attachOffer: boolean
     }
-  | { kind: 'superseded'; by: number; kept: number }
+  | { kind: 'superseded'; by: number | null; kept: number }
 
 /** The receipt that follows a finished run's last turn (spec agent-actions-intent
  *  §2.6): findings when collected, the branch delta always; `superseded` once a
- *  later run of the same action replaced its untouched proposals. Null for a run
+ *  later run of the same action (here or in another thread) replaced its untouched
+ *  proposals — `by` names the run when it is in this thread. Null for a run
  *  still going or one that did not finish. */
 export function resultCardState(v: RunView, comments: readonly Comment[], agentText: string): ResultCardState | null {
   if (!v.result || v.result.outcome !== 'finished') return null
@@ -126,7 +138,7 @@ export function resultCardState(v: RunView, comments: readonly Comment[], agentT
   if (v.superseded) {
     // proposals the reviewer took (accepted, kept, replied to) survive a re-run
     const kept = mine.filter((c) => c.status !== 'proposed' && c.status !== 'dismissed').length + mine.filter((c) => (c.status === 'proposed' || c.status === 'dismissed') && c.replies.length > 0).length
-    return { kind: 'superseded', by: v.run.n + 1, kept }
+    return { kind: 'superseded', by: v.supersededBy, kept }
   }
   const open = mine.filter((c) => c.status === 'proposed')
   const dismissed = mine.filter((c) => c.status === 'dismissed').length

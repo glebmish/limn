@@ -20,7 +20,8 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
   const state = runBarState(thread, op, comments)
   const v = latestRun(thread)
   if (!state || !v) return null
-  const target = thread.action ? { kind: 'new' as const, agent: thread.agent } : { kind: 'thread' as const, threadId: thread.id }
+  // Re-run is one more turn in THIS thread (a fresh thread is what the bolt launcher does)
+  const target = { kind: 'thread' as const, threadId: thread.id }
   const rerun = (): void => { void runAction(v.run.actionId, target) }
   const other: EngineId = thread.agent.engine === 'codex' ? 'claude' : 'codex'
   switch (state.kind) {
@@ -58,7 +59,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
           <span><b>{state.error.split(' — ')[0]}</b>{state.error.includes(' — ') ? ` — ${state.error.split(' — ').slice(1).join(' — ')}` : ''}</span>
           <button className="btn btn-sm btn-ghost" onClick={() => { if (repo) void refreshCommands(repo, [thread.agent.engine]).then(rerun); else rerun() }}><I.refresh style={{ width: 11, height: 11 }} />Check again</button>
           {!thread.engineSessionId && (
-            <button className="btn btn-sm btn-ghost" onClick={() => { void retargetThread(thread.id, { engine: other }).then(() => runAction(v.run.actionId, { kind: 'new', agent: { engine: other } })) }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => { void retargetThread(thread.id, { engine: other }).then(() => runAction(v.run.actionId, target)) }}>
               Run with {engineLabel(other)} instead
             </button>
           )}

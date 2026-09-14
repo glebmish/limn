@@ -74,7 +74,7 @@ afterEach(() => { releaseFakeHolds(); delete process.env.LIMN_DEMO; delete proce
 
 const findingsOf = (h: Harness, runId: string): Comment[] => loadReviewState(h.db, h.sessionId).comments.filter((c) => c.source?.runId === runId)
 
-describe('runAction — a pinned action runs as a turn in its own thread', () => {
+describe('runAction — every launch is a fresh thread; Re-run is a turn in that thread', () => {
   it('a new-thread run creates the action thread, numbers the run, sends the engine spelling alone, and the findings pass mints its proposals', async () => {
     const h = await setup()
     const out = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }
@@ -128,7 +128,7 @@ describe('runAction — a pinned action runs as a turn in its own thread', () =>
     expect(getChatThread(h.db, broken.threadId)!.messages.at(-1)!.runResult?.extraction).toBe('failed')
   })
 
-  it('a second run reuses the thread, numbers itself 2, and sweeps the first run\'s untouched proposals', async () => {
+  it('a second new-thread launch starts a fresh thread (fresh engine session) and still sweeps the first run\'s untouched proposals', async () => {
     const h = await setup()
     const first = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }
     await settled(h, 'op-1')
@@ -136,15 +136,33 @@ describe('runAction — a pinned action runs as a turn in its own thread', () =>
     // the reviewer accepted one and replied to none of the others
     upsertComment(h.db, h.sessionId, { ...keep, status: 'queued' })
     const second = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'new', agent }, 'op-2') as { threadId: number; runId: string }
-    expect(second.threadId).toBe(first.threadId)
-    expect(second.runId).toBe(`run-${first.threadId}-2`)
+    expect(second.threadId).not.toBe(first.threadId)
+    expect(second.runId).toBe(`run-${second.threadId}-1`)
     // swept at launch, before the new run produces anything
     const ids = loadReviewState(h.db, h.sessionId).comments.map((c) => c.id)
     expect(ids).toContain(keep.id)
     expect(ids).not.toContain(sweep.id)
     await settled(h, 'op-2')
     expect(findingsOf(h, second.runId)).toHaveLength(2)
-    expect(listChatThreads(h.db, h.sessionId).filter((t) => t.action)).toHaveLength(1)
+    const threads = listChatThreads(h.db, h.sessionId).filter((t) => t.action)
+    expect(threads.map((t) => t.action?.actionId)).toEqual([SIMPLIFY.id, SIMPLIFY.id])
+    expect(getChatThread(h.db, first.threadId)!.engineSessionId).not.toBe(getChatThread(h.db, second.threadId)!.engineSessionId)
+  })
+
+  it('Re-run targets the action thread itself: run 2 lands there, keeps the action, and sweeps run 1\'s untouched proposals', async () => {
+    const h = await setup()
+    const first = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }
+    await settled(h, 'op-1')
+    const [sweep] = findingsOf(h, first.runId)
+    const second = await h.handlers.get('runAction')!(h.sessionId, SIMPLIFY.id, { kind: 'thread', threadId: first.threadId }, 'op-2') as { threadId: number; runId: string }
+    expect(second.threadId).toBe(first.threadId)
+    expect(second.runId).toBe(`run-${first.threadId}-2`)
+    expect(loadReviewState(h.db, h.sessionId).comments.map((c) => c.id)).not.toContain(sweep.id)
+    await settled(h, 'op-2')
+    const t = getChatThread(h.db, first.threadId)!
+    expect(t.action?.actionId).toBe(SIMPLIFY.id)
+    expect(t.messages.filter((m) => m.run).map((m) => m.run!.n)).toEqual([1, 2])
+    expect(listChatThreads(h.db, h.sessionId).filter((x) => x.action)).toHaveLength(1)
   })
 
   it('a prompt action sends its text verbatim; without the switch no findings pass runs', async () => {

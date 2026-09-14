@@ -7,16 +7,18 @@ import { deltaLabel, resultCardState, runsOf } from '../lib/runs'
 
 /** The receipt after a run's last turn (spec agent-actions-intent §2.6): the findings
  *  it collected with the bulk pair and a jump to the first, and what moved on the
- *  branch; "superseded by run N" once a re-run replaced its untouched proposals; and,
+ *  branch; "superseded by run N" (or by a later launch in another thread) once a
+ *  re-run replaced its untouched proposals; and,
  *  when the findings pass could not read a report, the manual Attach findings
  *  follow-up and Keep as prose. */
 export function ActionResultCard({ thread, runId, agentText }: { thread: ChatThread; runId: string; agentText: string }) {
   const comments = useStore((s) => s.loaded?.state.comments ?? EMPTY)
+  const chats = useStore((s) => s.loaded?.state.chats ?? EMPTY)
   const ops = useStore((s) => s.ops)
   const triage = useStore((s) => s.triageFindings)
   const attach = useStore((s) => s.attachFindings)
   const keepProse = useStore((s) => s.keepProse)
-  const v = runsOf(thread).find((r) => r.run.runId === runId)
+  const v = runsOf(thread, chats).find((r) => r.run.runId === runId)
   if (!v) return null
   const state = resultCardState(v, comments, agentText)
   if (!state) return null
@@ -24,7 +26,7 @@ export function ActionResultCard({ thread, runId, agentText }: { thread: ChatThr
   if (state.kind === 'superseded') {
     return (
       <div className="ax-result plain" role="status">
-        <div className="ax-rh"><I.refresh />Superseded by run {state.by}{state.kept > 0 ? ` · ${state.kept} you took stayed` : ''}</div>
+        <div className="ax-rh"><I.refresh />Superseded by {state.by != null ? `run ${state.by}` : 'a later run in another thread'}{state.kept > 0 ? ` · ${state.kept} you took stayed` : ''}</div>
       </div>
     )
   }

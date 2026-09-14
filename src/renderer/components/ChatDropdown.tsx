@@ -27,7 +27,7 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
   // the unpersisted "New chat" draft (id < 0) is the active/trigger entry but is
   // never listed in the menu — it appears there only once it has its first message.
   const reviews = chats.filter((c) => c.kind === 'review')
-  // action threads (design board 14: one thread per pinned action) get their own group
+  // action threads (one per launch from the bolt; Re-run stays in its thread) get their own group
   const actionThreads = chats.filter((c) => c.kind === 'user' && c.id >= 0 && c.action)
   const userChats = chats.filter((c) => c.kind === 'user' && c.id >= 0 && !c.action)
 
@@ -73,7 +73,11 @@ export function ChatDropdown({ chats, activeId, onSwitch, onNew, onDelete }: {
 }
 
 export function chatName(c: ChatThread, all: ChatThread[]): string {
-  if (c.action) return c.action.name
+  if (c.action) {
+    // every bolt launch is its own thread, so repeats of one action are numbered in launch order
+    const same = all.filter((x) => x.action?.actionId === c.action!.actionId)
+    return same.length > 1 ? `${c.action.name} · ${same.findIndex((x) => x.id === c.id) + 1}` : c.action.name
+  }
   if (c.kind === 'review') {
     // each generation is its own review session; the latest is current, older ones
     // are kept as history and labelled so they read as past sessions

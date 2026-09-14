@@ -94,3 +94,19 @@ under the run; `findings:false` skips it; receipt delta; not-checked-out refusal
 tools (`add_finding` outside a run), shared (`parseActions` keeps `findings`,
 `actionFindings` defaults), runs-lib (receipt states), settings editor (checkbox),
 launcher and thread (copy).
+
+## 7. Amendment 2026-09-14 — every launch is a fresh thread
+
+Observed: the bolt's *New thread* choice found the action's existing thread and ran
+there, so Codex resumed the session that still carried the old "Do NOT modify" framing
+and refused a rebase the reviewer had explicitly authorised. Board 14's *one thread per
+action* rule is withdrawn:
+
+- `runAction` with `target.kind = 'new'` always creates a thread (fresh engine session);
+  `findActionThread` is gone. *Re-run* and *Run with X instead* on the run bar target the
+  thread itself (`kind: 'thread'`), so a re-run is still one more turn where it started.
+- The sweep stays action-scoped: any launch replaces the action's untouched proposals,
+  whichever thread they came from. A run's card says *Superseded by run N* when the later
+  run is in its thread, *Superseded by a later run in another thread* otherwise
+  (`RunView.supersededBy`, `runsOf(thread, allThreads)`).
+- The selector numbers repeats of one action in launch order (*Rebase onto main · 2*).

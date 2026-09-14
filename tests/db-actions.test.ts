@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/server/db/db'
 import { MIGRATIONS } from '../src/server/db/migrations'
 import {
-  addChatMessage, createChatThread, createSession, findActionThread, getChatThread, nextRunNumber, setRunResult
+  addChatMessage, createChatThread, createSession, getChatThread, nextRunNumber, setRunResult
 } from '../src/server/db/sessions'
 import type { ActionRunRef, RefPair } from '../src/shared/types'
 
@@ -56,13 +56,11 @@ describe('migration 7 — action threads and run metadata', () => {
 })
 
 describe('action threads', () => {
-  it('round-trips the action on a thread and finds it by action id', () => {
+  it('round-trips the action on a thread', () => {
     const s = createSession(db, '/repo', pair, { engine: 'claude' })
     const t = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' }, title: 'Simplify', action: { actionId: 'act-1', name: 'Simplify', kind: 'skill' } })
     expect(t.action).toEqual({ actionId: 'act-1', name: 'Simplify', kind: 'skill' })
     expect(getChatThread(db, t.id)?.action?.actionId).toBe('act-1')
-    expect(findActionThread(db, s.id, 'act-1')?.id).toBe(t.id)
-    expect(findActionThread(db, s.id, 'act-2')).toBeNull()
     // a plain user thread has no action
     const plain = createChatThread(db, s.id, { kind: 'user', agent: { engine: 'claude' } })
     expect(plain.action).toBeUndefined()

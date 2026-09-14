@@ -407,14 +407,6 @@ export function createChatThread(db: DatabaseSync, sessionId: number, t: NewChat
   return getChatThread(db, Number(res.lastInsertRowid))!
 }
 
-/** The one thread a pinned action runs in for this session (spec: one thread per
- *  action, one turn per run), or null before its first run. */
-export function findActionThread(db: DatabaseSync, sessionId: number, actionId: string): ChatThread | null {
-  const rows = db.prepare(`SELECT ${THREAD_COLS} FROM chat_threads WHERE session_id = ? AND action_json IS NOT NULL ORDER BY id`).all(sessionId) as ChatThreadRow[]
-  const hit = rows.find((r) => safeJson<ChatThread['action']>(r.action_json)?.actionId === actionId)
-  return hit ? rowToThread(db, hit) : null
-}
-
 /** The ordinal the next run in this thread gets: one more than the launching user
  *  messages already there (a plain follow-up reply is not a run). */
 export function nextRunNumber(db: DatabaseSync, threadId: number): number {

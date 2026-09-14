@@ -25,6 +25,19 @@ describe('runsOf', () => {
     expect(latestRun({ messages })!.run.n).toBe(2)
     expect(latestRun({ messages: [] })).toBeNull()
   })
+  it('a later launch of the same action in ANOTHER thread supersedes too — with no run number to point at', () => {
+    const mine = { messages: [user(run(1)), agent('run-1-1', 'finished')] }
+    const later = { messages: [user({ ...run(1), runId: 'run-2-1' }, '2026-09-08T12:00:00Z')] }
+    const earlier = { messages: [user({ ...run(1), runId: 'run-0-1' }, '2026-09-08T09:00:00Z'), agent('run-0-1', 'finished')] }
+    const otherAction = { messages: [user({ ...run(1, 'prompt', 'act-b'), runId: 'run-3-1' }, '2026-09-08T12:00:00Z')] }
+    expect(runsOf(mine, [mine, earlier, otherAction])[0].superseded).toBe(false)
+    expect(runsOf(mine, [mine, later])[0].superseded).toBe(true)
+    expect(runsOf(mine, [mine, later])[0].supersededBy).toBeNull()
+    expect(runsOf(later, [mine, later])[0].superseded).toBe(false)
+    // in the same thread the superseding run is named
+    const both = { messages: [user(run(1)), agent('run-1-1', 'finished'), user(run(2), '2026-09-08T11:00:00Z')] }
+    expect(runsOf(both, [both, later])[0].supersededBy).toBe(2)
+  })
 })
 
 describe('runBarState', () => {
@@ -85,6 +98,7 @@ describe('resultCardState', () => {
     const runs = runsOf({ messages: [user(run(1)), agent('run-1-1', 'finished'), user(run(2)), agent('run-1-2', 'finished')] })
     const cs = [finding('a', 'run-1-1', 'queued'), finding('b', 'run-1-1', 'proposed', 1), finding('c', 'run-1-2')]
     expect(resultCardState(runs[0], cs, 'x')).toEqual({ kind: 'superseded', by: 2, kept: 2 })
+    expect(resultCardState({ ...runs[0], supersededBy: null }, cs, 'x')).toEqual({ kind: 'superseded', by: null, kept: 2 })
     expect(resultCardState(runs[1], cs, 'x')).toMatchObject({ kind: 'receipt', total: 1 })
   })
   it('nothing for a run that is not finished', () => {
