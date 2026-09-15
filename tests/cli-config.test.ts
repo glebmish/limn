@@ -109,10 +109,10 @@ describe('runConfig', () => {
   it('a remote set rejection prints the error and returns 1', async () => {
     const io = fakeIo()
     const remote = fakeStore()
-    remote.set = async () => { throw new Error('unknown model "bogus" for codex (gpt-5.5, gpt-5.4, gpt-5.4-mini)') }
+    remote.set = async () => { throw new Error('unknown model "bogus" for codex (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5)') }
     const code = await runConfig({ kind: 'config-set', key: 'agent', value: 'codex' }, io, deps({ probe: async () => health, remote: () => remote }))
     expect(code).toBe(1)
-    expect(io.err_).toEqual(['limn: unknown model "bogus" for codex (gpt-5.5, gpt-5.4, gpt-5.4-mini)'])
+    expect(io.err_).toEqual(['limn: unknown model "bogus" for codex (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5)'])
   })
 
   describe('against a corrupt local db (real localStore, no service running)', () => {

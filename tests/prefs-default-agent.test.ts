@@ -51,9 +51,9 @@ describe('defaultAgent pref', () => {
 
     useStore.getState().setAgent({ engine: 'codex', model: 'gpt-5.5' })
 
-    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-5.4"}' })
+    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-5.6-sol"}' })
     await useStore.getState().loadPrefs()
-    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-5.4' })
+    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-5.6-sol' })
     expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-5.5' })
   })
 

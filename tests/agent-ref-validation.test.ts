@@ -43,7 +43,7 @@ describe('validateAgentRef', () => {
 
   it('rejects a model not offered for the engine', () => {
     expect(validateAgentRef({ engine: 'claude', model: 'gpt-5.5' }))
-      .toEqual({ ok: false, error: 'unknown model "gpt-5.5" for claude (opus, sonnet, haiku)' })
+      .toEqual({ ok: false, error: 'unknown model "gpt-5.5" for claude (fable, opus, sonnet, haiku)' })
   })
 
   it('rejects a reasoningEffort on a model with no effort ladder', () => {
@@ -59,6 +59,13 @@ describe('validateAgentRef', () => {
   it('rejects an effort not in the model ladder', () => {
     expect(validateAgentRef({ engine: 'claude', model: 'opus', reasoningEffort: 'ultra' }))
       .toEqual({ ok: false, error: 'unknown effort "ultra" for opus (low, medium, high, xhigh, max)' })
+    expect(validateAgentRef({ engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'max' }))
+      .toEqual({ ok: false, error: 'unknown effort "max" for gpt-5.5 (low, medium, high, xhigh)' })
+  })
+
+  it('accepts max on the Codex models whose ladder offers it', () => {
+    expect(validateAgentRef({ engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'max' }))
+      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'max' } })
   })
 })
 
@@ -89,8 +96,8 @@ describe('resolveDefaultAgent', () => {
   })
 
   it('falls back to the legacy agent pref when defaultAgent is absent', () => {
-    expect(resolveDefaultAgent({ [LEGACY_AGENT_PREF_KEY]: '{"engine":"codex","model":"gpt-5.4"}' }))
-      .toEqual({ engine: 'codex', model: 'gpt-5.4' })
+    expect(resolveDefaultAgent({ [LEGACY_AGENT_PREF_KEY]: '{"engine":"codex","model":"gpt-5.6-sol"}' }))
+      .toEqual({ engine: 'codex', model: 'gpt-5.6-sol' })
   })
 
   it('prefers legacy agent over an invalid defaultAgent', () => {

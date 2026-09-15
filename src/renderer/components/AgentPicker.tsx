@@ -8,8 +8,8 @@ import { dev } from '../dev'
 
 /** Agent selector: a single trigger that summarizes the agent, opening a
  *  structured popover (engine + auth, model guidance, reasoning effort). Effort
- *  is shown for whichever engine/model declares it — Claude Opus/Sonnet and all
- *  Codex models — and hidden for "Auto" and Haiku. Replaces the old three bare
+ *  is shown for whichever engine/model declares it — Claude Fable/Opus/Sonnet and
+ *  all Codex models — and hidden for "Auto" and Haiku. Replaces the old three bare
  *  <select>s. */
 export function AgentPicker({ value, onChange, disabled, align = 'right', labelledBy }: {
   value: AgentRef
@@ -85,7 +85,7 @@ export function AgentPicker({ value, onChange, disabled, align = 'right', labell
           <div className="ag-div" />
           <div className="ag-sec">Model</div>
           {[{ id: undefined as string | undefined, label: 'Auto', desc: 'Let the CLI pick its default' },
-            ...modelsFor(value.engine).map((m) => ({ id: m.id, label: m.label, desc: m.reasoningEfforts ? 'Supports reasoning effort' : 'Fast · no effort knob' }))
+            ...modelsFor(value.engine).map((m) => ({ id: m.id, label: m.label, desc: m.desc }))
           ].map((m) => {
             const on = (value.model ?? '') === (m.id ?? '')
             return (

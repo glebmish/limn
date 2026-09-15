@@ -130,7 +130,7 @@ Either engine alone is enough — the picker shows what's authenticated. Subscri
 4. Change the **base** with the ref picker (branches, recent commits, or a typed
    SHA / `HEAD~N` / tag); switch the **branch** — and where it's checked out — with the
    branch/worktree picker. Pick an engine — and optionally a model and reasoning effort
-   (Claude Opus/Sonnet `low→max`, Codex GPT-5.x `low→xhigh`; *Auto* uses the engine
+   (Claude Fable/Opus/Sonnet `low→max`, Codex GPT-6/5.6 `low→max`, GPT-5.5 `low→xhigh`; *Auto* uses the engine
    default) — then **Generate guided review**.
 5. **Review**: mark files viewed, mark sections reviewed, comment on any diff line,
    section, agent question, or spec/plan line; **Chat** shares the agent's session.

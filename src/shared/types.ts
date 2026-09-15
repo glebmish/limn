@@ -312,9 +312,9 @@ export interface ExecutionTier {
 
 // ── engines ───────────────────────────────────────────────────
 export type EngineId = 'claude' | 'codex'
-/** Reasoning-effort knob. Both engines accept it now: Codex spans
- *  minimal→xhigh, Claude (Opus/Sonnet) spans low→max. Which values are offered
- *  per model is gated by the catalog's `reasoningEfforts`. */
+/** Reasoning-effort knob. Both engines accept it: Claude (Fable/Opus/Sonnet)
+ *  spans low→max, Codex spans minimal→max (GPT-5.5 stops at xhigh). Which values
+ *  are offered per model is gated by the catalog's `reasoningEfforts`. */
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 /** A selectable agent = an engine + an optional model/effort. `model`
  *  undefined means "Auto" — let the CLI pick its default (today's behavior). */

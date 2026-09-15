@@ -98,10 +98,10 @@ describe('CODEX_ACP_CONFIG', () => {
     expect(CLAUDE_ACP_CONFIG.binaryRequired).toBeUndefined()
   })
 
-  it('configOptions yields model + reasoning_effort, clamping max -> xhigh', () => {
-    expect(CODEX_ACP_CONFIG.configOptions?.({ model: 'gpt-5.5', reasoningEffort: 'max' })).toEqual([
-      { configId: 'model', value: 'gpt-5.5' },
-      { configId: 'reasoning_effort', value: 'xhigh' }
+  it('configOptions yields model + reasoning_effort, passing max through (the catalog gates per model)', () => {
+    expect(CODEX_ACP_CONFIG.configOptions?.({ model: 'gpt-6-astra', reasoningEffort: 'max' })).toEqual([
+      { configId: 'model', value: 'gpt-6-astra' },
+      { configId: 'reasoning_effort', value: 'max' }
     ])
   })
 
@@ -111,12 +111,12 @@ describe('CODEX_ACP_CONFIG', () => {
     expect(CODEX_ACP_CONFIG.configOptions?.({})).toEqual([])
   })
 
-  it('codexEffort clamps minimal -> low, max -> xhigh, passes the rest through', () => {
+  it('codexEffort clamps only minimal -> low; max passes through', () => {
     expect(codexEffort('minimal')).toBe('low')
     expect(codexEffort('low')).toBe('low')
     expect(codexEffort('medium')).toBe('medium')
     expect(codexEffort('high')).toBe('high')
     expect(codexEffort('xhigh')).toBe('xhigh')
-    expect(codexEffort('max')).toBe('xhigh')
+    expect(codexEffort('max')).toBe('max')
   })
 })

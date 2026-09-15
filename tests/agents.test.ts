@@ -3,36 +3,46 @@ import { AGENT_CATALOG, modelsFor, modelOption, defaultAgent, agentLabel } from 
 import type { ReasoningEffort } from '../src/shared/types'
 
 const CLAUDE_LADDER: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_LADDER: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
+const CODEX_MAX: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const CODEX_XHIGH: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 
 describe('agent catalog', () => {
-  it('offers Claude Opus/Sonnet the full low→max effort ladder', () => {
-    expect(modelOption({ engine: 'claude', model: 'opus' })?.reasoningEfforts).toEqual(CLAUDE_LADDER)
-    expect(modelOption({ engine: 'claude', model: 'sonnet' })?.reasoningEfforts).toEqual(CLAUDE_LADDER)
+  it('offers Claude Fable/Opus/Sonnet as CLI aliases with the full low→max ladder', () => {
+    expect(modelsFor('claude').map((m) => m.id)).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
+    for (const id of ['fable', 'opus', 'sonnet']) {
+      expect(modelOption({ engine: 'claude', model: id })?.reasoningEfforts).toEqual(CLAUDE_LADDER)
+    }
   })
 
   it('gives Claude Haiku no effort (the SDK errors on Haiku effort)', () => {
     expect(modelOption({ engine: 'claude', model: 'haiku' })?.reasoningEfforts).toBeUndefined()
   })
 
-  it('serves the current Codex models (gpt-5.5 / gpt-5.4 / gpt-5.4-mini), capped at xhigh', () => {
-    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'])
-    for (const m of modelsFor('codex')) {
-      expect(m.reasoningEfforts).toEqual(CODEX_LADDER)
-      expect(m.reasoningEfforts).not.toContain('max') // max is Claude-only
-    }
+  it('serves the current Codex models, each with the ladder the CLI reports for it', () => {
+    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'])
+    expect(modelOption({ engine: 'codex', model: 'gpt-6-astra' })?.reasoningEfforts).toEqual(CODEX_MAX)
+    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-sol' })?.reasoningEfforts).toEqual(CODEX_MAX)
+    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-terra' })?.reasoningEfforts).toEqual(CODEX_MAX)
+    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-luna' })?.reasoningEfforts).toEqual(CODEX_MAX)
+    expect(modelOption({ engine: 'codex', model: 'gpt-5.5' })?.reasoningEfforts).toEqual(CODEX_XHIGH)
   })
 
-  it('retires the stale gpt-5 / gpt-5-codex slugs', () => {
+  it('retires the stale gpt-5 / gpt-5-codex / gpt-5.4 slugs', () => {
     const codexIds = modelsFor('codex').map((m) => m.id)
-    expect(codexIds).not.toContain('gpt-5')
-    expect(codexIds).not.toContain('gpt-5-codex')
+    for (const stale of ['gpt-5', 'gpt-5-codex', 'gpt-5.4', 'gpt-5.4-mini']) expect(codexIds).not.toContain(stale)
+  })
+
+  it('gives every model a one-line description for the picker', () => {
+    for (const cat of AGENT_CATALOG) {
+      for (const m of cat.models) expect(m.desc, m.id).toMatch(/\S/)
+    }
   })
 
   it('defaults to Auto (no model/effort), preserving prior behavior', () => {
     expect(defaultAgent('claude')).toEqual({ engine: 'claude' })
     expect(agentLabel({ engine: 'claude' })).toBe('Claude · Auto')
-    expect(agentLabel({ engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'xhigh' })).toBe('Codex · GPT-5.5 (xhigh)')
+    expect(agentLabel({ engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'max' })).toBe('Codex · GPT-6 Astra (max)')
+    expect(agentLabel({ engine: 'claude', model: 'fable', reasoningEffort: 'max' })).toBe('Claude · Fable (max)')
   })
 
   it('every catalog effort value is a valid ReasoningEffort', () => {

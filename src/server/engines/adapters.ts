@@ -100,14 +100,13 @@ export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   }
 }
 
-/** Codex's `configOptions` effort mapping: Codex's `reasoning_effort` config option
- *  offers `low/medium/high/xhigh` only — no `minimal`/`max`, so Limn's `minimal`
- *  clamps up to `low` and `max` clamps down to `xhigh`; everything else passes
+/** Codex's `configOptions` effort mapping: Codex's `reasoning_effort` option is
+ *  per model (codex-acp resolves the value against the model's own supported
+ *  list), and the catalog already gates which values each model offers — so only
+ *  the never-offered `minimal` is clamped (up to `low`); `max` and the rest pass
  *  through unchanged. Exported for tests. */
 export function codexEffort(effort: ReasoningEffort): string {
-  if (effort === 'minimal') return 'low'
-  if (effort === 'max') return 'xhigh'
-  return effort
+  return effort === 'minimal' ? 'low' : effort
 }
 
 /** Codex adapter config (spike-confirmed mode ids). Unlike Claude, Codex has no

@@ -5,33 +5,46 @@ import type { AgentRef, EngineId, ReasoningEffort } from './types.js'
 // any schema/IPC change. `model: undefined` ("Auto") means "let the CLI pick its
 // default" — preserving the app's original no-model-selected behavior.
 
-export interface ModelOption { id: string; label: string; reasoningEfforts?: ReasoningEffort[] }
+export interface ModelOption {
+  id: string
+  label: string
+  /** One line for the picker: what the model is for. */
+  desc: string
+  reasoningEfforts?: ReasoningEffort[]
+}
 export interface EngineCatalog { engine: EngineId; label: string; models: ModelOption[] }
 
-// Per-model reasoning ladders. Claude Opus/Sonnet expose low→max via the agent
-// SDK's `effort` option; Haiku does not support effort (the SDK errors), so it
-// declares none. Codex spans low→xhigh ("Extra high"); `minimal` exists in the
-// type but isn't offered in the UI.
+// Per-model reasoning ladders. Claude Fable/Opus/Sonnet expose low→max via the
+// agent SDK's `effort` option; Haiku does not support effort (the SDK errors), so
+// it declares none. Codex ladders come from the CLI's own model catalog
+// (~/.codex/models_cache.json): the GPT-6 / GPT-5.6 generation reaches `max`,
+// GPT-5.5 stops at `xhigh`. `minimal` exists in the type but isn't offered.
 const CLAUDE_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
+const CODEX_EFFORTS_MAX: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const CODEX_EFFORTS_XHIGH: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 
+// Claude ids are Claude Code's model *aliases* — each resolves to the latest
+// model of its tier inside the CLI, so the list never needs a version bump.
 export const AGENT_CATALOG: EngineCatalog[] = [
   {
     engine: 'claude',
     label: 'Claude',
     models: [
-      { id: 'opus', label: 'Opus', reasoningEfforts: CLAUDE_EFFORTS },
-      { id: 'sonnet', label: 'Sonnet', reasoningEfforts: CLAUDE_EFFORTS },
-      { id: 'haiku', label: 'Haiku' }
+      { id: 'fable', label: 'Fable', desc: 'Most capable · deepest reasoning', reasoningEfforts: CLAUDE_EFFORTS },
+      { id: 'opus', label: 'Opus', desc: 'Strong all-round coding model', reasoningEfforts: CLAUDE_EFFORTS },
+      { id: 'sonnet', label: 'Sonnet', desc: 'Balanced speed and depth', reasoningEfforts: CLAUDE_EFFORTS },
+      { id: 'haiku', label: 'Haiku', desc: 'Fast · no effort knob' }
     ]
   },
   {
     engine: 'codex',
     label: 'Codex',
     models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5', reasoningEfforts: CODEX_EFFORTS },
-      { id: 'gpt-5.4', label: 'GPT-5.4', reasoningEfforts: CODEX_EFFORTS },
-      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', reasoningEfforts: CODEX_EFFORTS }
+      { id: 'gpt-6-astra', label: 'GPT-6 Astra', desc: 'Most capable · complex, demanding work', reasoningEfforts: CODEX_EFFORTS_MAX },
+      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', desc: 'Reliable agentic workhorse', reasoningEfforts: CODEX_EFFORTS_MAX },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', desc: 'Balanced everyday coding', reasoningEfforts: CODEX_EFFORTS_MAX },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', desc: 'Fast and affordable', reasoningEfforts: CODEX_EFFORTS_MAX },
+      { id: 'gpt-5.5', label: 'GPT-5.5', desc: 'Previous generation · up to xhigh', reasoningEfforts: CODEX_EFFORTS_XHIGH }
     ]
   }
 ]

@@ -533,14 +533,14 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
 
   it('11. Codex config: model + reasoning_effort applied via setSessionConfigOption (no ANTHROPIC_MODEL env)', async () => {
     const { engine, readRecords } = fakeEngine({ sessionId: 'codex-1', turns: [{ text: 'ok' }] }, CODEX_ACP_CONFIG)
-    const run = engine.chat({ repo: '/r', message: 'go', model: 'gpt-5.5', reasoningEffort: 'max' })
+    const run = engine.chat({ repo: '/r', message: 'go', model: 'gpt-6-astra', reasoningEffort: 'max' })
     await drain(run.events)
     await run.result
     const optionCalls = readRecords().filter((r) => r.event === 'setSessionConfigOption')
     expect(optionCalls).toEqual(
       expect.arrayContaining([
-        { event: 'setSessionConfigOption', configId: 'model', value: 'gpt-5.5' },
-        { event: 'setSessionConfigOption', configId: 'reasoning_effort', value: 'xhigh' } // max clamps to xhigh
+        { event: 'setSessionConfigOption', configId: 'model', value: 'gpt-6-astra' },
+        { event: 'setSessionConfigOption', configId: 'reasoning_effort', value: 'max' } // passes through; the catalog gates per model
       ])
     )
     // Codex has no model spawn env — the fake's env only carries the test-harness keys.

@@ -189,7 +189,7 @@ to auto (not available for <engine>)`. Setting
 `note: effort reset to auto (not available for <model>)`. `set model auto` clears any
 model and effort. An invalid value — an unknown engine, model, or effort, or an
 effort with no model set — is rejected without changing anything, e.g. `limn: unknown
-effort "ultra" for gpt-5.5 (low, medium, high, xhigh)`, printed to stderr with exit
+effort "max" for gpt-5.5 (low, medium, high, xhigh)`, printed to stderr with exit
 code 1.
 
 `limn config` talks to the running service over the same connection the app uses;
