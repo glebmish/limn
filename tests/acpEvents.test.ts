@@ -35,7 +35,7 @@ describe('acpToEvents — text / thought / plan chunks', () => {
   it('maps plan_update (items) to a status event with the entry count', () => {
     const update: SessionUpdate = {
       sessionUpdate: 'plan_update',
-      plan: { type: 'items', id: 'p1', entries: [{ content: 'step', priority: 'low', status: 'pending' }] }
+      plan: { type: 'items', planId: 'p1', entries: [{ content: 'step', priority: 'low', status: 'pending' }] }
     }
     expect(acpToEvents(update)).toEqual([{ type: 'status', text: 'plan: 1 steps' }])
   })
@@ -251,7 +251,7 @@ describe('acpToEvents — ignored discriminators', () => {
     ['usage_update', { sessionUpdate: 'usage_update', used: 0, size: 0 }],
     ['config_option_update', { sessionUpdate: 'config_option_update', configOptions: [] }],
     ['session_info_update', { sessionUpdate: 'session_info_update' }],
-    ['plan_removed', { sessionUpdate: 'plan_removed', id: 'p1' }],
+    ['plan_removed', { sessionUpdate: 'plan_removed', planId: 'p1' }],
     ['user_message_chunk', { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'hi' } }]
   ]
   for (const [name, update] of cases) {
