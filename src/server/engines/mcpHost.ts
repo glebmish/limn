@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { assertAutoAcceptCoverage, LIMN_TOOLS, type AgentToolHost } from './tools.js'
+import { assertAutoAcceptCoverage, type AgentToolHost } from './tools.js'
 
 // The single localhost streamable-HTTP MCP host that serves Limn's tools to every
 // agent. An agent subprocess (every ACP adapter) opens the connection, so we run
@@ -52,11 +52,12 @@ export async function registerTurn(host: AgentToolHost): Promise<{ url: string; 
   // ACP's ladderPolicy allows limn-prefixed tools). Gate registration so no tool
   // reaches that blanket allow unless it's cleared for auto-accept — a new
   // write-capable tool trips this before a turn ever runs.
-  assertAutoAcceptCoverage(LIMN_TOOLS)
+  assertAutoAcceptCoverage(host.tools)
   const port = await ensureServer()
   const token = randomUUID()
   const server = new McpServer({ name: 'limn', version: '0.1.0' })
-  for (const td of LIMN_TOOLS) {
+  // exactly the turn's subset (toolsForTurn): an action run never sees add_comment
+  for (const td of host.tools) {
     server.registerTool(td.name, { description: td.description, inputSchema: td.input }, async (args: unknown) => {
       if (process.env.LIMN_MCP_DEBUG) console.error(`[mcp] tool ${td.name} invoked: ${JSON.stringify(args)}`)
       const { result, isError } = await host.call(td.name, args)

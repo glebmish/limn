@@ -217,11 +217,14 @@ open — and a row your default agent cannot run opens the pane at the reason, w
 Refresh.
 
 Each action runs in its own thread, one turn per run ("Simplify · run 2"). The run
-bar under the drawer head says what is running, and Cancel lives there. Limn
-appends one paragraph to the prompt telling the agent about the `add_finding`
-tool; nothing else is added. A skill run checks the skill against the session's
-own command list before the prompt goes out and refuses, with the engine's words,
-when it is missing.
+bar under the drawer head says what is running, and Cancel lives there. The prompt
+is the skill invocation or your text and nothing else. During the run the agent
+can read the review and the comments already on it, but it cannot post: findings
+are collected from its report in a structured pass once the run ends, so a review
+skill that fans out to subagents still yields one set of proposals, never a
+comment and a proposal for the same spot. A skill run checks the skill against
+the session's own command list before the prompt goes out and refuses, with the
+engine's words, when it is missing.
 
 Findings land on the code as **proposed** comments: a dashed box with a
 `proposed` pill and the severity the agent assigned, a dashed ring in the gutter,

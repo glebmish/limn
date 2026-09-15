@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, type ToolDef, type ToolHostCtx } from '../src/server/engines/tools'
+import { assertAutoAcceptCoverage, AUTO_ACCEPT_TOOL_NAMES, createToolHost, LIMN_TOOLS, limnAllowedToolNames, toolsForTurn, type ToolDef, type ToolHostCtx } from '../src/server/engines/tools'
 import { FakeEngine } from '../src/server/engines/fake'
 import { makeFixtureRepo } from './helpers/fixtureRepo'
 import { openDb } from '../src/server/db/db'
@@ -685,3 +685,31 @@ describe('get_review_progress (real temp DB)', () => {
 
 // commit_changes was removed — the agent commits via git through its own shell,
 // and resolutions are recorded with resolve_comment (covered above).
+
+describe('toolsForTurn — what each kind of turn exposes', () => {
+  it('an action run gets read-only context only: no comment/finding/point/edit tools', () => {
+    expect(toolsForTurn('action').map((t) => t.name).sort()).toEqual(['get_review', 'get_review_progress', 'list_comments'])
+  })
+  it('the attach-findings follow-up adds add_finding and nothing else', () => {
+    expect(toolsForTurn('attach').map((t) => t.name).sort()).toEqual(['add_finding', 'get_review', 'get_review_progress', 'list_comments'])
+  })
+  it('a chat turn keeps the whole catalog', () => {
+    expect(toolsForTurn('chat')).toBe(LIMN_TOOLS)
+  })
+})
+
+describe('createToolHost — a turn-scoped subset', () => {
+  it('exposes its subset and refuses a call outside it without running anything', async () => {
+    const { ctx, events } = makeCtx({ tools: toolsForTurn('action') })
+    const host = createToolHost(ctx)
+    expect(host.tools.map((t) => t.name).sort()).toEqual(['get_review', 'get_review_progress', 'list_comments'])
+    const out = await host.call('add_comment', { anchor: { kind: 'summary' }, text: 'x' })
+    expect(out.isError).toBe(true)
+    expect(out.result).toMatch(/add_comment is not available in this turn/)
+    expect(events).toEqual([])
+    expect(host.collected()).toEqual([])
+  })
+  it('defaults to the whole catalog', () => {
+    expect(createToolHost(makeCtx().ctx).tools).toBe(LIMN_TOOLS)
+  })
+})

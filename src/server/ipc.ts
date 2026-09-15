@@ -26,7 +26,7 @@ import { executeMerge, gatherMergePreflight, markMergedExternal } from './merge.
 import { resolveStampTree, stampAnchor } from './anchorStamp.js'
 import { classify, loadArtifact, normalizeArtifactPath } from './artifacts.js'
 import { makeEngine } from './engines/index.js'
-import { createToolHost, mintFinding } from './engines/tools.js'
+import { createToolHost, mintFinding, toolsForTurn } from './engines/tools.js'
 import { reduceToolCalls, reduceSegments } from '../shared/toolcalls.js'
 import { isPending, resolveDecision } from './engines/approvals.js'
 import { buildBatchPrompt, buildAnswerPrompt, buildRebasePrompt, MAX_UNTRACKED_OFFERED } from './engines/prompts.js'
@@ -1175,7 +1175,10 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
       const tools = createToolHost({
         db, sessionId: sid, threadId, opId, repo: workdir, agent: thread.agent,
         emit: recorder.emit,
-        ...(run ? { run: { actionId: run.actionId, runId: run.runId } } : {})
+        ...(run ? { run: { actionId: run.actionId, runId: run.runId } } : {}),
+        // an action run reads the review but cannot post — its findings come from the
+        // structured pass after the run; only the attach follow-up gets add_finding
+        tools: toolsForTurn(run ? (message === ATTACH_FINDINGS_PROMPT ? 'attach' : 'action') : 'chat')
       })
       // a cancel during the async setup above lands before run.cancel is registered;
       // catch it here (no await before activeOps.set) so the engine never launches.

@@ -447,7 +447,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
 
   it('7. MCP url present: tools turn passes an http mcpServers entry to session/new', async () => {
     const { engine, readRecords } = fakeEngine({ sessionId: 'ch-7', turns: [{ text: 'ok' }] })
-    const host = { call: async () => ({ result: 'ok', isError: false }) }
+    const host = { call: async () => ({ result: 'ok', isError: false }), collected: () => [], tools: [] }
     const run = engine.chat({ repo: '/r', message: 'go', tools: host as never })
     await drain(run.events)
     await run.result

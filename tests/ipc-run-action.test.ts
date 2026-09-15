@@ -299,6 +299,19 @@ describe('attachFindings / setRunFlag', () => {
     expect(msgs[3].runResult).toMatchObject({ runId: out.runId, outcome: 'finished', extraction: 'skipped' })
   })
 
+  it('an action run exposes read-only context only; the attach turn adds add_finding; chat keeps the catalog', async () => {
+    const h = await setup()
+    const out = await h.handlers.get('runAction')!(h.sessionId, CHURN.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }
+    await settled(h, 'op-1')
+    expect(lastFakeChatTurn()!.tools!.tools.map((t) => t.name).sort()).toEqual(['get_review', 'get_review_progress', 'list_comments'])
+    await h.handlers.get('attachFindings')!(out.threadId, out.runId, 'op-2')
+    await settled(h, 'op-2')
+    expect(lastFakeChatTurn()!.tools!.tools.map((t) => t.name).sort()).toEqual(['add_finding', 'get_review', 'get_review_progress', 'list_comments'])
+    await h.handlers.get('sendChat')!(out.threadId, 'plain question', 'op-3')
+    await settled(h, 'op-3')
+    expect(lastFakeChatTurn()!.tools!.tools).toHaveLength(11)
+  })
+
   it('setRunFlag keepProse marks the run result', async () => {
     const h = await setup()
     const out = await h.handlers.get('runAction')!(h.sessionId, CHURN.id, { kind: 'new', agent }, 'op-1') as { threadId: number; runId: string }

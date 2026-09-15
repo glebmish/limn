@@ -33,6 +33,9 @@ export interface ToolHostCtx {
   run?: { actionId: string; runId: string }
   /** push a live engine event to the renderer (an `action` event, here). */
   emit: (event: EngineEvent) => void
+  /** The tools this turn exposes (`toolsForTurn`); the whole catalog when unset. The
+   *  MCP host registers exactly this list, and `call` refuses anything outside it. */
+  tools?: ToolDef[]
 }
 
 export interface ToolCallResult { result: string; isError?: boolean; action?: AgentAction }
@@ -42,6 +45,8 @@ export interface ToolCallResult { result: string; isError?: boolean; action?: Ag
 export interface AgentToolHost {
   call(name: string, args: unknown): Promise<ToolCallResult>
   collected(): AgentAction[]
+  /** the definitions this turn registers with the engine */
+  tools: ToolDef[]
 }
 
 // ── tool input shapes ─────────────────────────────────────────
@@ -547,10 +552,25 @@ export async function mintFinding(
   return comment
 }
 
+/** Which Limn tools a turn exposes. A chat turn gets the catalog. An action run gets
+ *  read-only context only — it can see the review and the proposals already on it, but
+ *  it cannot post: findings come from the structured pass after the run (one path, no
+ *  twins), and a review skill's "leave a comment" reflex has nothing to call. The
+ *  Attach-findings follow-up is the one action turn that writes, through `add_finding`. */
+export type TurnKind = 'chat' | 'action' | 'attach'
+const ACTION_READ_TOOLS: ReadonlySet<string> = new Set(['list_comments', 'get_review', 'get_review_progress'])
+export function toolsForTurn(kind: TurnKind): ToolDef[] {
+  if (kind === 'chat') return LIMN_TOOLS
+  return LIMN_TOOLS.filter((t) => ACTION_READ_TOOLS.has(t.name) || (kind === 'attach' && t.name === 'add_finding'))
+}
+
 export function createToolHost(ctx: ToolHostCtx): AgentToolHost {
   const collected: AgentAction[] = []
+  const tools = ctx.tools ?? LIMN_TOOLS
   return {
+    tools,
     async call(name, args) {
+      if (!tools.some((t) => t.name === name)) return { result: `${name} is not available in this turn`, isError: true }
       const impl = TOOL_IMPLS.find((t) => t.name === name)
       if (!impl) return { result: `Unknown tool: ${name}`, isError: true }
       const parsed = z.object(impl.input).safeParse(args)
