@@ -69,6 +69,14 @@ async function settled(h: Harness, opId: string, timeoutMs = 10000): Promise<OpR
   }
 }
 
+async function waitForHold(h: Harness, opId: string): Promise<void> {
+  const start = Date.now()
+  while (!h.events.some((e) => e.opId === opId && e.event.type === 'status' && e.event.text.startsWith('holding'))) {
+    if (Date.now() - start > 10000) throw new Error(`op ${opId} never reached its hold`)
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
 beforeEach(() => { process.env.LIMN_DEMO = '1'; process.env.LIMN_FAKE_COMMANDS = 'simplify,security-review,compact' })
 afterEach(() => { releaseFakeHolds(); delete process.env.LIMN_DEMO; delete process.env.LIMN_FAKE_COMMANDS })
 
@@ -226,6 +234,27 @@ describe('runAction — every launch is a fresh thread; Re-run is a turn in that
     expect(res.status).toBe('cancelled')
     expect(res.reload).toBe(true)
     expect(getChatThread(h.db, out.threadId)).toBeNull()
+  })
+
+  it('a run that rebases the branch gets a "rewritten" receipt, not counts against a baseline that is no longer an ancestor', async () => {
+    const h = await setup()
+    const out = await h.handlers.get('runAction')!(h.sessionId, REBASE.id, { kind: 'new', agent }, 'op-rw') as { threadId: number; runId: string }
+    const headAtStart = getChatThread(h.db, out.threadId)!.messages[0].run!.headAtStart!
+    await waitForHold(h, 'op-rw')
+    // while the fake is parked on [hold], rewrite the branch: a new base commit on
+    // main, then feature rebased onto it. Same tree, every commit a new SHA.
+    execFileSync('git', ['checkout', '-q', 'main'], { cwd: h.repo })
+    fs.writeFileSync(path.join(h.repo, 'docs/notes.md'), 'notes\n')
+    execFileSync('git', ['add', '-A'], { cwd: h.repo })
+    execFileSync('git', ['commit', '-q', '-m', 'main moves'], { cwd: h.repo })
+    execFileSync('git', ['checkout', '-q', 'feature'], { cwd: h.repo })
+    execFileSync('git', ['rebase', '-q', 'main'], { cwd: h.repo })
+    expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: h.repo }).toString().trim()).not.toBe(headAtStart)
+    releaseFakeHolds()
+    const res = await settled(h, 'op-rw')
+    expect(res.status).toBe('succeeded')
+    const last = getChatThread(h.db, out.threadId)!.messages.at(-1)!
+    expect(last.runResult?.delta).toEqual({ commits: 0, files: 0, dirty: false, rewritten: true })
   })
 
   it('refuses a run and a chat message while the compare branch is not checked out anywhere', async () => {

@@ -1260,9 +1260,18 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         // the receipt: what moved on the branch during the run
         if (run.headAtStart && session.pair.compare.kind === 'branch') {
           try {
-            const d = await driftSummary(repo, session.pair.compare.symbol, run.headAtStart, capability.workdir)
-            runResult.delta = { commits: d.commits, files: d.files, dirty: d.dirty }
-          } catch { /* unmeasurable (a rebase moved the baseline away) — the card says so */ }
+            const branch = session.pair.compare.symbol
+            if (await isAncestor(repo, run.headAtStart, branch)) {
+              const d = await driftSummary(repo, branch, run.headAtStart, capability.workdir)
+              runResult.delta = { commits: d.commits, files: d.files, dirty: d.dirty }
+            } else {
+              // a rebase / reset / amend moved the branch off its launch-time head. The
+              // old commit is still in the object store, so git would happily count
+              // every commit on the new line (and main's) as "new" — say what happened.
+              const dirty = capability.workdir ? await isDirty(capability.workdir) : false
+              runResult.delta = { commits: 0, files: 0, dirty, rewritten: true }
+            }
+          } catch { /* unmeasurable (the baseline SHA is gone) — the card says so */ }
         }
       }
       dao.addChatMessage(db, threadId, {

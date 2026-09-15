@@ -65,6 +65,10 @@ describe('runBarState', () => {
     expect(deltaLabel({ commits: 0, files: 0, dirty: false })).toBe('branch unchanged')
     expect(deltaLabel({ commits: 1, files: 3, dirty: false })).toBe('1 commit · 3 files')
     expect(deltaLabel({ commits: 0, files: 2, dirty: true })).toBe('2 files · uncommitted changes')
+    // a rebase/reset moved the branch off its launch-time baseline: counts against that
+    // baseline would be nonsense, so the label says what happened instead
+    expect(deltaLabel({ commits: 0, files: 0, dirty: false, rewritten: true })).toBe('branch rewritten')
+    expect(deltaLabel({ commits: 0, files: 0, dirty: true, rewritten: true })).toBe('branch rewritten · uncommitted changes')
   })
   it('fmtDuration', () => {
     expect(fmtDuration(42_000)).toBe('42 s')

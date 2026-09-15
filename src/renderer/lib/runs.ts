@@ -102,12 +102,14 @@ export function runCollects(run: Pick<ActionRunRef, 'findings'>): boolean {
   return run.findings ?? true
 }
 
-/** "branch unchanged" / "2 commits · 11 files" / "uncommitted changes" — the
- *  receipt's branch half; null when the delta could not be measured. */
+/** "branch unchanged" / "2 commits · 11 files" / "uncommitted changes" /
+ *  "branch rewritten" — the receipt's branch half; null when the delta could not
+ *  be measured. */
 export function deltaLabel(delta: ActionRunDelta | null): string | null {
   if (!delta) return null
-  if (delta.commits === 0 && delta.files === 0 && !delta.dirty) return 'branch unchanged'
+  if (delta.commits === 0 && delta.files === 0 && !delta.dirty && !delta.rewritten) return 'branch unchanged'
   const parts: string[] = []
+  if (delta.rewritten) parts.push('branch rewritten')
   if (delta.commits > 0) parts.push(`${delta.commits} commit${delta.commits === 1 ? '' : 's'}`)
   if (delta.files > 0) parts.push(`${delta.files} file${delta.files === 1 ? '' : 's'}`)
   if (delta.dirty) parts.push('uncommitted changes')

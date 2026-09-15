@@ -414,7 +414,11 @@ export interface ActionRunRef {
 }
 /** What moved on the branch during a run: commits since `headAtStart`, files touched
  *  (committed + uncommitted), and whether the worktree is dirty at the end. */
-export interface ActionRunDelta { commits: number; files: number; dirty: boolean }
+/** What moved on the branch during a run, measured from its launch-time head.
+ *  `rewritten`: that head is no longer an ancestor of the branch (rebase / reset /
+ *  amend), so commit and file counts against it would be nonsense — they are zero
+ *  and the receipt says "branch rewritten" instead. `dirty` stays meaningful. */
+export interface ActionRunDelta { commits: number; files: number; dirty: boolean; rewritten?: true }
 export type ActionRunOutcome = 'finished' | 'refused' | 'cancelled' | 'failed'
 /** Where a run goes: the action's own thread with this agent (created on the first
  *  run, execution mode auto), or an existing thread with its own agent and mode. */
