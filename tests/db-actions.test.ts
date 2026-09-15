@@ -23,7 +23,7 @@ const run = (n: number): ActionRunRef => ({ actionId: 'act-1', runId: `run-1-${n
 
 describe('migration 7 — action threads and run metadata', () => {
   it('is the newest migration and adds the two columns', () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1].version).toBe(7)
+    expect(MIGRATIONS[MIGRATIONS.length - 1].version).toBe(8)
     const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
     expect(cols('chat_threads')).toContain('action_json')
     expect(cols('chat_messages')).toContain('run_json')
@@ -42,7 +42,7 @@ describe('migration 7 — action threads and run metadata', () => {
     raw.close()
     const { db: upgraded } = openDb(file)
     const v = upgraded.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string }
-    expect(v.value).toBe('7')
+    expect(v.value).toBe('8')
     expect((upgraded.prepare('SELECT status FROM comments WHERE id = ?').get('c1') as { status: string }).status).toBe('resolved')
     const sid = (upgraded.prepare('SELECT session_id FROM comments WHERE id = ?').get('c1') as { session_id: number }).session_id
     upgraded.prepare("INSERT INTO comments (id, session_id, status, json, created_at) VALUES ('c2', ?, 'proposed', '{}', 't')").run(sid)

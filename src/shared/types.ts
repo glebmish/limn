@@ -377,6 +377,11 @@ export type EngineEvent =
  *  or label in the UI (retired: "No artifact format flag" design decision). */
 export type ArtifactFormat = 'superpowers' | 'sdd'
 export interface Artifact { role: 'spec' | 'plan' | 'doc'; format: ArtifactFormat; path: string; title: string; lines: string[] }
+/** A spec/plan in a review's rail and who put it there. `detected` rows follow the
+ *  diff (they leave when their file does); `agent` rows were reported by a
+ *  generation run and stay. Approved or commented rows stay whatever their source. */
+export type ArtifactSource = 'detected' | 'agent'
+export interface ArtifactRef { role: 'spec' | 'plan'; path: string; source: ArtifactSource }
 /** An ordered slice of an agent message: prose, a tool call reference, or an
  *  action reference by index into `ChatMessage.actions`. Preserves the
  *  interleaving the agent emitted so rows/cards render inline at their call site,
@@ -500,7 +505,7 @@ export interface ReviewState {
   /** per-artifact plan/spec approval: path → SHA at approval time */
   artifactApprovals: Record<string, string>;
   latestIteration?: IterationMeta;
-  iterations: IterationMeta[]; artifacts: { role: 'spec' | 'plan'; path: string }[];
+  iterations: IterationMeta[]; artifacts: ArtifactRef[];
   /** Non-fatal load degradations: blobs that failed to parse and were skipped. */
   loadWarnings?: string[];
   /** Terminal merged record — set once the branch landed (or was marked merged).

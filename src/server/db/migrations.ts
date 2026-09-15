@@ -238,5 +238,16 @@ export const MIGRATIONS: Migration[] = [
         ALTER TABLE comments_v7 RENAME TO comments;
       `)
     }
+  },
+  {
+    // The specs/plans rail is reconciled with the current diff on every load instead
+    // of being detected once and cached for good (a rebase or squash that drops a
+    // spec from the diff used to leave it in the rail forever). Reconciling needs to
+    // know which cached rows the AGENT reported — those are kept off-diff, detected
+    // ones are not. Existing rows are all detection's.
+    version: 8,
+    up(db) {
+      db.exec("ALTER TABLE artifacts ADD COLUMN source TEXT NOT NULL DEFAULT 'detected' CHECK (source IN ('detected','agent'))")
+    }
   }
 ]

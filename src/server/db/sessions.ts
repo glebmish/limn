@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type {
+  ArtifactSource,
   ActionRunRef, ActionRunResult, AgentAction, AgentRef, ChatMessage, ChatThread, Comment, CommentAnchor, EngineId, ExecutionMode, Iteration, IterationMeta,
   MergeRecord, MessageSegment, ReasoningEffort, RecentSession, RefPair, RefSide, ReviewAnnotations, ReviewCopyCandidate,
   ReviewState, SessionListItem, SessionMeta, ToolCall, ViewMark
@@ -702,11 +703,11 @@ export function copyGeneratedReview(db: DatabaseSync, sourceSessionId: number, s
   })
 }
 
-export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 'spec' | 'plan'; path: string }[]): void {
+export function setArtifacts(db: DatabaseSync, sessionId: number, refs: { role: 'spec' | 'plan'; path: string; source?: ArtifactSource }[]): void {
   inTx(db, () => {
     db.prepare('DELETE FROM artifacts WHERE session_id = ?').run(sessionId)
     for (const r of refs) {
-      db.prepare('INSERT INTO artifacts (session_id, role, path) VALUES (?, ?, ?)').run(sessionId, r.role, r.path)
+      db.prepare('INSERT INTO artifacts (session_id, role, path, source) VALUES (?, ?, ?, ?)').run(sessionId, r.role, r.path, r.source ?? 'detected')
     }
   })
 }
@@ -804,8 +805,8 @@ export function loadReviewState(db: DatabaseSync, sessionId: number): ReviewStat
     fileExcluded[r.file] = r.excluded === 1
   }
 
-  const artifacts = db.prepare('SELECT role, path FROM artifacts WHERE session_id = ?')
-    .all(sessionId) as { role: 'spec' | 'plan'; path: string }[]
+  const artifacts = db.prepare('SELECT role, path, source FROM artifacts WHERE session_id = ?')
+    .all(sessionId) as { role: 'spec' | 'plan'; path: string; source: ArtifactSource }[]
 
   const artifactApprovals: Record<string, string> = {}
   for (const r of db.prepare('SELECT path, sha FROM artifact_approvals WHERE session_id = ?').all(sessionId) as { path: string; sha: string }[]) {

@@ -105,7 +105,7 @@ describe('sessions DAO', () => {
     expect(st.chats).toHaveLength(1)
     expect(st.chats[0].messages).toEqual([{ role: 'user', text: 'q', at: 'T1' }])
     expect(st.iterations).toEqual([iterMeta(1, 'claude', 'es-1', 'd'.repeat(40), 'T2')])
-    expect(st.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
+    expect(st.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md', source: 'detected' }])
     expect(st.artifactApprovals).toEqual({ 'docs/spec.md': 'd'.repeat(40) })
     expect(st.viewedAt).toEqual({ 'a.ts': { sha: 'd'.repeat(40), hash: 'blob1' } })
     expect(st.agent).toEqual({ engine: 'claude' })
@@ -165,6 +165,15 @@ describe('sessions DAO', () => {
     expect(row.summary).toBe('Derived summary')
     // and the list query (which reads the denormalized title column) reflects it
     expect(listRepoSessions(db, '/repo').find((r) => r.id === s.id)?.title).toBe('Derived title')
+  })
+
+  it('artifacts remember who put them there: detection by default, the agent when it reported the path', () => {
+    const s = createSession(db, '/repo', pair, { engine: 'claude' })
+    setArtifacts(db, s.id, [{ role: 'spec', path: 'specs/a/spec.md' }, { role: 'plan', path: 'specs/b/plan.md', source: 'agent' }])
+    expect(loadReviewState(db, s.id).artifacts).toEqual([
+      { role: 'spec', path: 'specs/a/spec.md', source: 'detected' },
+      { role: 'plan', path: 'specs/b/plan.md', source: 'agent' }
+    ])
   })
 
   it('can clear session and artifact approvals', () => {
@@ -297,7 +306,7 @@ describe('sessions DAO', () => {
 
     copyGeneratedReview(db, source.id, 1, target.id, 'd'.repeat(40))
     const copied = loadReviewState(db, target.id)
-    expect(copied.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md' }])
+    expect(copied.artifacts).toEqual([{ role: 'spec', path: 'docs/spec.md', source: 'detected' }])
     expect(copied.annotations?.title).toBe('Copied title')
     expect(copied.reviewedAtSha).toBe('d'.repeat(40))
     expect(copied.latestIteration?.endSha).toBe('d'.repeat(40))

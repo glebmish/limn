@@ -816,7 +816,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
         const untrackedPaths = new Set(untracked.map((f) => f.path))
         const genDiff = untracked.length ? { ...skeleton, files: [...skeleton.files, ...untracked] } : skeleton
         const state = dao.loadReviewState(db, sessionId)
-        const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path))
+        const artifacts = await loadArtifactsFor(db, sessionId, workdir, compareEff, state, skeleton.files.map((f) => f.path))
         // "Update review": fold the new drift commits into the existing narration
         // instead of re-narrating from scratch. Only meaningful if a review exists.
         // Also the full-update escape hatch a failed scoped attempt falls back to.
@@ -1015,7 +1015,7 @@ export function registerIpc(db: DatabaseSync, bootNotices: string[], t: Transpor
             if (hit && !refs.some((a) => a.path === rel)) {
               try {
                 loadArtifact(workdir, rel, hit.role)
-                refs.push({ role: hit.role, path: rel })
+                refs.push({ role: hit.role, path: rel, source: 'agent' })
               } catch {
                 // unsafe, missing, unreadable, or symlink-escaping artifact path
               }

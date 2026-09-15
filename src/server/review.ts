@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import type { LoadedReview } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, Artifact, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, Artifact, ArtifactRef, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import { approvedShaList, commitBaselines, sinceBasis } from '../shared/sinceBasis.js'
 import {
@@ -13,17 +13,27 @@ import * as dao from './db/sessions.js'
 import { detectArtifacts, loadArtifact } from './artifacts.js'
 import { createReanchorPass, reanchorComments, reanchorFocusTargets, reviewFocusTargets } from './anchor.js'
 
-/** Detect spec/plan artifacts for a review and load their contents. When `persist`
- *  is true and detection had to run (no cached refs), the result is cached to the
- *  session row — the transient (preview) path passes false to stay write-free. */
+/** The review's spec/plan rail: detection against the CURRENT diff, reconciled with
+ *  what the session cached. Detected rows follow the diff — a rebase, squash or
+ *  dropped commit that takes a spec out of the diff takes it off the rail. Cached
+ *  rows the agent reported, the reviewer approved, or that carry comments stay:
+ *  dropping them would strand an approval or a comment thread. When `persist` is
+ *  true the reconciled list replaces the cache (only if it changed); the transient
+ *  (preview) path passes false to stay write-free. */
 export async function loadArtifactsFor(
   db: DatabaseSync, sessionId: number, repo: string, branch: string,
-  refs: { role: 'spec' | 'plan'; path: string }[], changedPaths: string[], persist = true
+  state: Pick<ReviewState, 'artifacts' | 'artifactApprovals' | 'comments'>, changedPaths: string[], persist = true
 ): Promise<Artifact[]> {
-  if (refs.length === 0) {
-    refs = await detectArtifacts(repo, branch, changedPaths)
-    if (refs.length > 0 && persist) dao.setArtifacts(db, sessionId, refs)
-  }
+  const detected: ArtifactRef[] = (await detectArtifacts(repo, branch, changedPaths)).map((d) => ({ role: d.role, path: d.path, source: 'detected' }))
+  const commented = new Set(state.comments.map((c) => c.anchor).filter((a) => a.kind === 'artifact').map((a) => a.path))
+  const kept = state.artifacts.filter((a) =>
+    !detected.some((d) => d.path === a.path) && (a.source === 'agent' || a.path in state.artifactApprovals || commented.has(a.path)))
+  const refs = [...detected, ...kept]
+  const same = refs.length === state.artifacts.length && refs.every((r, i) => {
+    const c = state.artifacts[i]
+    return c.path === r.path && c.role === r.role && c.source === r.source
+  })
+  if (persist && !same) dao.setArtifacts(db, sessionId, refs)
   const out: Artifact[] = []
   for (const r of refs) {
     try { out.push(loadArtifact(repo, r.path, r.role)) } catch { /* artifact file gone — skip */ }
@@ -127,7 +137,7 @@ export async function assembleReview(
       if (await isDirty(wt)) { dirty = true; volatile = await workingTreeDiff(wt) }
     } catch { /* status/diff failure — treat as clean */ }
   }
-  const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state.artifacts, skeleton.files.map((f) => f.path), persist)
+  const artifacts = await loadArtifactsFor(db, session.id, workdir, compareEff, state, skeleton.files.map((f) => f.path), persist)
   const commits = await log(repo, baseEff, compareEff)
   const candidatePositions = new Map<string, number>()
   candidatePositions.set(skeleton.headSha, 0)
