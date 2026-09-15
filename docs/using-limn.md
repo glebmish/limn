@@ -230,8 +230,9 @@ count as unresolved and never enter your batch on their own. Each one offers
 **Accept** (it becomes a queued comment for the agent's next batch), **Keep** (an
 agent note you handle yourself), **Dismiss** (hidden, restorable) and **Reply**
 (stays proposed). With a proposal's box focused, `a`, `k`, `d` and `r` do the
-same. A strip above the diff steps through the newest run's proposals and carries
-Accept all / Dismiss all. Re-running an action replaces the proposals you have not
+same. A strip pinned under the page title steps through the newest run's proposals
+and carries Accept all / Dismiss all; it stays put while each jump scrolls the diff.
+Re-running an action replaces the proposals you have not
 touched; accepted, kept or replied-to ones stay. The hotspots a review generation
 finds are proposals too, from the review run.
 

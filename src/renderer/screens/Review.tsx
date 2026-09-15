@@ -369,11 +369,12 @@ export default function Review() {
                   {verdictButton ?? approveButton}
                   <MergeButton loaded={loaded} />
                 </div>
+                {/* inside the sticky head so the stepper's jump never scrolls it away */}
+                {!merged && <ProposalStrip />}
               </div>
 
               {/* no follow-up / steer / regenerate on a terminal merged record (§7) */}
               {!merged && <GenPanel />}
-              {!merged && <ProposalStrip />}
 
               <ReviewSummary
                 annotations={annotations}

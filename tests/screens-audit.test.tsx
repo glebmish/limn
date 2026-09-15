@@ -250,3 +250,28 @@ describe('review empty state (finding 115)', () => {
     expect(render()).not.toContain('limn-empty')
   })
 })
+
+// The proposal strip lives in the sticky page head so the stepper's jump does not
+// scroll it out of view: a reviewer stepping through proposals keeps ‹ › / Accept all
+// in reach.
+describe('proposal strip placement', () => {
+  it('renders inside the sticky page head, after the title row', () => {
+    seed({ annotated: true })
+    const loaded = initial().loaded!
+    Object.assign(loaded.state as unknown as Record<string, unknown>, {
+      comments: [{
+        id: 'p1', anchor: { kind: 'diff', file: 'src/a.ts', side: 'new', line: 2, hunkRange: '', lineContent: '' },
+        author: 'agent', text: 'f', severity: 'note', status: 'proposed',
+        source: { actionId: 'review', runId: 'review-1' }, replies: [], createdAt: '2026-09-08T10:00:00Z', iteration: 1
+      }]
+    })
+
+    const html = render()
+
+    const strip = html.indexOf('class="ax-triage"')
+    expect(strip).toBeGreaterThan(html.indexOf('class="page-title-row"'))
+    // the generation panel is the first thing after the head, so a strip before it is
+    // inside the head, not in the scrolling flow below
+    expect(strip).toBeLessThan(html.indexOf('class="gen-'))
+  })
+})

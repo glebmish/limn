@@ -907,11 +907,14 @@
 .ax-gnavhint b{font-weight:600;color:var(--ink-2)}
 .eyebrow .ax-proposed-count{color:var(--accent-ink)}
 /* the triage strip above the diff (board 14 T1) */
-.ax-triage{display:flex;align-items:center;gap:9px;margin:14px 30px 0;padding:8px 12px;border:1px dashed var(--accent-line);border-radius:var(--r-md);background:var(--panel);font-size:11.5px;color:var(--ink-2);flex-wrap:wrap}
-.ax-triage b{color:var(--accent-ink);font-weight:700}
+/* the triage strip is the page head's last row (the head is sticky, so the stepper's
+   jump scrolls the diff, never the strip): a thin rule above, the head's paper
+   behind, and the dashed accent kept on the count alone */
+.ax-triage{display:flex;align-items:center;gap:9px;margin:10px -30px 0;padding:6px 30px 0;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-2);flex-wrap:wrap;min-height:26px}
+.ax-triage b{color:var(--accent-ink);font-weight:700;padding:1px 6px;border:1px dashed var(--accent-line);border-radius:var(--r-sm)}
 .ax-triage .grow{flex:1 1 auto}
 .ax-triage a{font-size:11px;font-weight:600;color:var(--accent-ink);cursor:pointer}
-.ax-triage.empty{border-style:solid;border-color:var(--line);color:var(--muted)}
+.ax-triage.empty{color:var(--muted)}
 .ax-run-src{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11px}
 .ax-step{display:inline-flex;align-items:center;gap:4px;font:600 11px var(--mono);color:var(--ink-2)}
 .ax-step-btn{width:22px;height:22px;border-radius:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);cursor:pointer;font:700 14px/1 var(--mono);display:inline-flex;align-items:center;justify-content:center;padding:0}
