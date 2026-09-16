@@ -14,6 +14,7 @@ import { UntrackedGroup } from '../components/UntrackedGroup'
 import { GenPanel } from '../components/GenPanel'
 import { Questions } from '../components/Questions'
 import { ArtifactDoc } from '../components/ArtifactDoc'
+import { OutsideDiffBand } from '../components/OutsideDiffBand'
 import { ChatDrawer } from '../components/ChatDrawer'
 import { MergeButton } from '../components/MergeSheet'
 import { WorkspacePicker } from '../components/WorkspacePicker'
@@ -413,6 +414,9 @@ export default function Review() {
               ))}
               {emptyState}
 
+              {/* comments on files the diff never shows (findings on unchanged code) — after the
+                  narrated sections, before the working-tree band, in both modes */}
+              <OutsideDiffBand />
               {annotations && looseBand}
               {excludedBand}
               <div style={{ height: 40 }}></div>

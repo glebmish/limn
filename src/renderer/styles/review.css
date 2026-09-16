@@ -920,3 +920,16 @@
 .ax-step-btn{width:22px;height:22px;border-radius:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);cursor:pointer;font:700 14px/1 var(--mono);display:inline-flex;align-items:center;justify-content:center;padding:0}
 .ax-step-btn:hover{border-color:var(--accent-line);color:var(--accent-ink);background:var(--accent-soft)}
 .ax-step-n{min-width:52px;text-align:center}
+
+/* ── "Outside this diff" band (OutsideDiffBand): comments on files the diff does not
+   show. Shares the working-tree band chrome (.vol-band) and the diff's file-header
+   look; the snippet is the anchor's stamped context, styled like a read-only diff. */
+.odiff-file{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px;background:var(--panel)}
+.odiff-head{cursor:default}
+.odiff-entry+.odiff-entry{border-top:1px solid var(--line)}
+.odiff-snip{margin:0;padding:6px 0;font-family:var(--mono);font-size:12px;line-height:1.55;overflow-x:auto;background:var(--panel)}
+.odl{display:flex;min-height:1.55em}
+.odl .odn{flex:0 0 46px;text-align:right;padding-right:10px;color:var(--muted);user-select:none}
+.odl .odc{white-space:pre;padding-right:14px}
+.odl.hit{background:var(--accent-soft);box-shadow:inset 3px 0 0 0 var(--accent)}
+.odiff-entry .dthread{border-bottom:0}
