@@ -925,7 +925,7 @@
    show. Shares the working-tree band chrome (.vol-band) and the diff's file-header
    look; the snippet is the anchor's stamped context, styled like a read-only diff. */
 .odiff-file{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px;background:var(--panel)}
-.odiff-head{cursor:default}
+.odiff-head{cursor:default;position:static;top:auto;z-index:auto}
 .odiff-entry+.odiff-entry{border-top:1px solid var(--line)}
 .odiff-snip{margin:0;padding:6px 0;font-family:var(--mono);font-size:12px;line-height:1.55;overflow-x:auto;background:var(--panel)}
 .odl{display:flex;min-height:1.55em}
