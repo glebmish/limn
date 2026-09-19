@@ -43,8 +43,8 @@ export function focusSelectors(a: FocusTarget): string[] {
 
 // ── settle state machine ──────────────────────────────────────
 // A jump cannot be a one-shot scroll. `.gfile-diff` is `content-visibility:auto`
-// with `contain-intrinsic-size: auto 360px`, so every off-screen file body is a
-// 360px placeholder whose rows have NO layout box at all. Offsets read from such a
+// with an estimated `contain-intrinsic-height` (lib/diffHeight.ts), so every off-screen
+// file body is a placeholder whose rows have NO layout box at all. Offsets read from such a
 // row are fiction, and the bodies that lay out as the viewport passes them move
 // everything below. So: re-measure each frame, scroll again while the goal keeps
 // moving, and only flash once the goal has held still for a few frames.

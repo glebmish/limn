@@ -16,6 +16,7 @@ import {
   STEP, foldControls, gapContaining, hunkGaps, revealLines, stepReveal, type Gap, type GapReveal
 } from '../lib/expand'
 import { asAligned, buildFileRows, buildSplitRows, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
+import { estimateDiffHeight } from '../lib/diffHeight'
 import { buildMultiRows, multiGaps } from '../lib/rowsMulti'
 import { api } from '../lib/api'
 import { FlowFrame } from './FlowFrame'
@@ -627,7 +628,12 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   return (
     <>
       {showBody && (
-        <div className={'gfile-diff layout-' + layout} data-cols={layout === 'unified' ? undefined : cols.length + 1}>
+        <div
+          className={'gfile-diff layout-' + layout}
+          data-cols={layout === 'unified' ? undefined : cols.length + 1}
+          // what the skipped body reserves until it first lays out (lib/diffHeight.ts)
+          style={{ containIntrinsicHeight: `auto ${estimateDiffHeight(view, shown.length)}px` }}
+        >
           {f.binary && <div className="nodiff">Binary file — no diff to show.</div>}
           {empty && (
             layout === 'multi' ? <div className="nodiff">No changes at any checkpoint.</div>
