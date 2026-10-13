@@ -18,12 +18,44 @@ Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, 
 - **Security hardening.** `/rpc/*` and `/events` reject cross-site, opaque-Origin and
   userinfo/non-loopback `Host` requests, require `application/json`, cap request bodies
   at 8 MB, and honour `?dev=` screenshot hooks only when the server runs with
-  `LIMN_DEV_HOOKS=1`. Service unit files are written `0600`.
-- **Packaging.** Pure-JS package (≈ 5 MB tarball / ≈ 35 MB installed) with the ACP
-  adapters bundled and no platform binaries; Node ≥ 22.13. Releases are published from
-  CI with npm provenance.
+  `LIMN_DEV_HOOKS=1`. Service unit files are written `0600`. The reviewed repository is
+  treated as untrusted input: Claude sessions load only your own `~/.claude` settings,
+  skills and `CLAUDE.md` (`settingSources: ['user']`), never the repository's
+  `.claude/` settings, skills, commands, `.mcp.json` or `CLAUDE.md`; a turn whose
+  permission mode Limn can't set fails before any prompt instead of running in the
+  adapter's default; generation turns deny every command and file edit the engine asks
+  about; remote images in agent- or branch-authored markdown render as inert text. The
+  package ships no server source maps.
+- **Packaging.** Pure-JS package (≈ 6 MB tarball / ≈ 42 MB installed) with the ACP
+  adapters bundled and no platform binaries; Node `^22.13 || >=23.4`. Releases are
+  published from CI with npm provenance.
+- **Database.** 0.4.0 keeps using the desktop app's database file and migrates it in
+  place to schema v8 the first time it opens it. Don't run 0.1–0.3 against it afterwards:
+  there is no down-migration, and older builds can't load the migrated sessions.
 - **Removed.** The Electron app, its `limn` shell shim (the CLI offers to delete an old
   one), and the desktop notifications.
+
+<!-- CODEX-RO -->
+
+Also new since 0.3:
+
+- **Actions.** Pin a skill or a prompt, run it from the bolt in the chat drawer, and
+  triage its findings as proposed comments (Accept, Keep, Dismiss).
+- **Merge from the review.** A merge sheet with preflight gates, fast-forward / squash /
+  merge strategies, and an agent rebase turn for conflicts.
+- **In-place edits.** Fix a line yourself in the diff, without leaving the review.
+- **Diff sheets.** Split and Multi layouts that put the base, the review checkpoint,
+  your approval or your last file view beside the current code.
+- **Scoped updates.** A small drift updates only the affected sections instead of
+  re-narrating the branch.
+- **Sturdier comment anchors.** Comments are stamped when created and re-anchored by
+  diff mapping and fuzzy context, so they survive rebases and reformatting.
+- **One queue per repository.** Agent tasks wait their turn and say what they are
+  waiting for, instead of being refused.
+- **ACP engines.** Claude and Codex both run through the Agent Client Protocol, via
+  pinned adapters bundled with the package.
+- **CLI.** `limn --generate` and `--print-url` for a review loop driven from your agent,
+  and `limn config` for the default review agent.
 
 Earlier versions (0.1–0.3) were the desktop app; their notes are on the
 [GitHub releases page](https://github.com/glebmish/limn/releases).
