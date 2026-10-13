@@ -65,6 +65,10 @@ export interface ActiveOpSnapshot {
   /** events emitted so far, for a joining tab to replay before it starts consuming
    *  the live stream */
   events: EngineEvent[]
+  /** `events[i]`'s seq in the op's full stream (see OpEventMsg.seq). Needed because the
+   *  replay is not contiguous: it carries parked approvals from before its window and
+   *  drops answered ones. Absent = contiguous, ending at `nextSeq - 1`. */
+  seqs?: number[]
   /** the sequence number the next OpEventMsg for this op will carry (see
    *  OpEventMsg.seq) — a joining tab drops any live `op:event` with `seq < nextSeq`
    *  as already covered by these replayed `events`, deduping the two sources rather

@@ -112,7 +112,13 @@ export class LiveOpRegistry {
       const cut = Math.max(0, op.events.length - SNAPSHOT_TRAILING_EVENTS)
       const replayable = (e: EngineEvent): boolean =>
         e.type !== 'approval_request' || isPending(opId, e.request.id)
-      const carried = op.events.slice(0, cut).filter((e) => e.type === 'approval_request' && replayable(e))
+      // seq = index in the full stream; the replay keeps each event's own seq so a tab
+      // catching up after a gap places it by seq, not by its position in this list
+      const indexed = op.events.map((e, seq) => ({ e, seq }))
+      const picked = [
+        ...indexed.slice(0, cut).filter(({ e }) => e.type === 'approval_request' && replayable(e)),
+        ...indexed.slice(cut).filter(({ e }) => replayable(e))
+      ]
       snapshots.push({
         opId,
         kind: op.kind,
@@ -121,7 +127,8 @@ export class LiveOpRegistry {
         label: op.label,
         ...(op.position != null ? { queued: { position: op.position, behind: op.behind ?? '' } } : {}),
         startedAt: op.startedAt,
-        events: [...carried, ...op.events.slice(cut).filter(replayable)],
+        events: picked.map(({ e }) => e),
+        seqs: picked.map(({ seq }) => seq),
         nextSeq: op.events.length
       })
     }

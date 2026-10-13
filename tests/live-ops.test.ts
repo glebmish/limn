@@ -119,6 +119,7 @@ describe('LiveOpRegistry', () => {
     const [snap] = reg.forSession(1, nonePending)
     expect(snap.events).toEqual([status('before'), status('after')])
     expect(snap.nextSeq).toBe(3) // the drop does NOT move the live-stream watermark
+    expect(snap.seqs).toEqual([0, 2]) // each replayed event keeps its own seq
   })
 
   it('keeps a PENDING approval_request inside the window exactly once', () => {
@@ -145,6 +146,10 @@ describe('LiveOpRegistry', () => {
     expect(snap.events[0]).toEqual(approval('req-old'))
     expect(snap.events.filter((e) => e.type === 'approval_request')).toEqual([approval('req-old')])
     expect(snap.nextSeq).toBe(252)
+    // the carried request keeps seq 0; the window is seqs 52..250 (req-done at 251 dropped)
+    expect(snap.seqs?.[0]).toBe(0)
+    expect(snap.seqs?.slice(1, 3)).toEqual([52, 53])
+    expect(snap.seqs).toHaveLength(snap.events.length)
   })
 
   it('passes opId and requestId to the pending predicate', () => {

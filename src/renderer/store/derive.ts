@@ -230,8 +230,14 @@ export interface GenState {
    *  Set when the op is ADOPTED from a load snapshot — the snapshot replays events the
    *  live subscription may also deliver, so anything below this was already logged and
    *  is dropped. Undefined for an op this tab started itself (it saw the whole stream);
-   *  the first seq-carrying event still starts the tracking. */
+   *  the first seq-carrying event still starts the tracking. A contiguous watermark:
+   *  every seq below it is logged (or was deliberately skipped by a resync). */
   nextSeq?: number
+  /** Seqs above `nextSeq` already logged — live events that arrived past a hole (an
+   *  SSE gap swallowed the ones between). They sit at the END of `log`, in seq order;
+   *  the resync's `reconcileOps` fills the hole in front of them and folds them back
+   *  under the watermark. */
+  aheadSeqs?: number[]
 }
 
 /** Alias: an entry in the per-op `ops` map. Same shape as a single op's state. */

@@ -86,6 +86,33 @@ describe('resync reconciles known ops', () => {
     expect(pendingApprovals(op('op-old')).map((r) => r.id).sort()).toEqual(['req-0', 'req-9'])
   })
 
+  it('replays the gap even when live events arrived before the resync snapshot', async () => {
+    known('op-race', 2) // seq 0,1 seen; 2,3 lost in the gap
+    // the stream reconnects and seq 4,5 arrive live while the load is out
+    useStore.getState().pushOpEvent('op-race', ev(4), 4)
+    useStore.getState().pushOpEvent('op-race', ev(5), 5)
+    expect(op('op-race').nextSeq).toBe(2) // the hole holds the watermark
+    // the snapshot was read after seq 4 went out but before 5
+    loadSession.mockResolvedValueOnce(loadedWith([snap({ opId: 'op-race', events: [ev(0), ev(1), ev(2), ev(3), ev(4)], nextSeq: 5 })]))
+    await useStore.getState().refreshLoaded({ resync: true })
+    expect(op('op-race').log).toEqual([ev(0), ev(1), ev(2), ev(3), ev(4), ev(5)])
+    expect(op('op-race').nextSeq).toBe(6)
+    useStore.getState().pushOpEvent('op-race', ev(5), 5) // still deduped
+    useStore.getState().pushOpEvent('op-race', ev(6), 6)
+    expect(op('op-race').log).toEqual([ev(0), ev(1), ev(2), ev(3), ev(4), ev(5), ev(6)])
+  })
+
+  it('an answered approval missing from the snapshot does not shift the replay', async () => {
+    known('op-ans', 2) // seq 0,1 seen
+    // seq 2 was an approval answered (in another tab) during the gap, so the server
+    // leaves it out of the replay; seq 3,4 are the gap's other events
+    const events = [ev(0), ev(1), ev(3), ev(4)]
+    loadSession.mockResolvedValueOnce(loadedWith([snap({ opId: 'op-ans', events, seqs: [0, 1, 3, 4], nextSeq: 5 })]))
+    await useStore.getState().refreshLoaded({ resync: true })
+    expect(op('op-ans').log).toEqual([ev(0), ev(1), ev(3), ev(4)]) // ev(1) not duplicated
+    expect(op('op-ans').nextSeq).toBe(5)
+  })
+
   it('reports whether the refresh landed, so the caller can retry', async () => {
     loadSession.mockRejectedValueOnce(new Error('down'))
     expect(await useStore.getState().refreshLoaded({ resync: true })).toBe(false)

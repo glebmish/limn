@@ -148,23 +148,40 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
         if (seen || (op.startedAt ?? requestedAt) < requestedAt - RESYNC_GRACE_MS) get().finishOp(opId, 'succeeded')
         continue
       }
-      // The snapshot's events are the trailing window (plus still-parked approvals
-      // older than it) and `nextSeq` counts every event the op ever emitted, so the
-      // gap is the last `s.nextSeq - op.nextSeq` of them. An op that never saw a
-      // sequenced event takes the whole replay only if its log is still empty.
-      const missing = op.nextSeq === undefined ? (op.log.length === 0 ? s.events.length : 0) : s.nextSeq - op.nextSeq
-      const fresh = missing > 0 ? s.events.slice(-missing) : []
+      // Replay by seq, never by count: the snapshot's events are the trailing window
+      // plus parked approvals carried from before it, MINUS answered approvals, so a
+      // count taken off its end can reach one event too far (a duplicate) — and live
+      // events that arrived while this load was out jumped past the gap, so
+      // `s.nextSeq - op.nextSeq` can read as nothing missing. Missing = every snapshot
+      // seq at or above our watermark that we have not logged yet. An op that never
+      // saw a sequenced event takes the whole replay only if its log is still empty.
+      const seqs = s.seqs ?? s.events.map((_, i) => s.nextSeq - s.events.length + i)
+      const ahead = op.aheadSeqs ?? []
+      const from = op.nextSeq ?? (op.log.length === 0 ? 0 : s.nextSeq)
+      // the ahead events are the log's tail (see GenState.aheadSeqs); peel them off so
+      // the gap's events can go in front of them, in seq order
+      const k = Math.min(ahead.length, op.log.length)
+      const head = op.log.slice(0, op.log.length - k)
+      const byseq = new Map<number, EngineEvent>()
+      ahead.slice(ahead.length - k).forEach((q, i) => byseq.set(q, op.log[op.log.length - k + i]))
+      const aheadSet = new Set(ahead)
+      const fresh: EngineEvent[] = []
+      seqs.forEach((q, i) => {
+        if (q < from || aheadSet.has(q)) return
+        fresh.push(s.events[i])
+        byseq.set(q, s.events[i])
+      })
+      const tail = [...byseq.entries()].sort(([a], [b]) => a - b).map(([, e]) => e)
       // every approval the server still holds parked must be on screen exactly once —
-      // including one that sat outside the slice above (carried, or offset by an
-      // answered request the server filters out of the replay)
+      // including one that sat below our watermark (carried from before the window)
       const shown = new Set<string>()
       for (const e of [...op.log, ...fresh]) if (e.type === 'approval_request') shown.add(e.request.id)
       const parked = s.events.filter((e) => e.type === 'approval_request' && !shown.has(e.request.id) && !op.answeredApprovals.has(e.request.id))
-      const freshUnique = fresh.filter((e) => e.type !== 'approval_request' || !op.log.some((l) => l.type === 'approval_request' && l.request.id === e.request.id))
-      let log = op.log
-      for (const e of [...parked, ...freshUnique]) log = appendCapped(log, e, op.answeredApprovals)
-      const nextSeq = Math.max(op.nextSeq ?? 0, s.nextSeq)
-      set({ ops: { ...get().ops, [opId]: { ...op, log, nextSeq, queued: s.queued ?? null } } })
+      const inHead = (e: EngineEvent) => e.type === 'approval_request' && head.some((l) => l.type === 'approval_request' && l.request.id === e.request.id)
+      let log = head
+      for (const e of [...parked, ...tail.filter((e) => !inHead(e))]) log = appendCapped(log, e, op.answeredApprovals)
+      const nextSeq = Math.max(op.nextSeq ?? 0, s.nextSeq, ...ahead.map((q) => q + 1))
+      set({ ops: { ...get().ops, [opId]: { ...op, log, nextSeq, aheadSeqs: undefined, queued: s.queued ?? null } } })
     }
   },
 
@@ -174,11 +191,21 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
     // an event the adoption snapshot already carried — drop it rather than double-log.
     // Never derive the replayed range from the event count: the snapshot's `events` can
     // exceed the window (carried approvals), so `nextSeq` is the only safe watermark.
-    if (seq !== undefined && op.nextSeq !== undefined && seq < op.nextSeq) return
-    const nextSeq = seq !== undefined ? seq + 1 : op.nextSeq
+    if (seq !== undefined && op.nextSeq !== undefined && (seq < op.nextSeq || op.aheadSeqs?.includes(seq))) return
+    let nextSeq = op.nextSeq
+    let aheadSeqs = op.aheadSeqs
+    if (seq !== undefined) {
+      if (nextSeq === undefined || seq === nextSeq) {
+        nextSeq = seq + 1
+      } else {
+        // past a hole: the events between were lost in an SSE gap. Log this one but
+        // keep the watermark at the hole, so the resync replays what is missing.
+        aheadSeqs = [...(aheadSeqs ?? []), seq]
+      }
+    }
     // a lane event moves the op between "waiting in the queue" and "holding the lane"
     const queued = ev.type === 'lane' ? (ev.state === 'queued' ? { position: ev.position ?? 1, behind: ev.behind ?? '' } : null) : op.queued
-    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals), nextSeq, queued } } })
+    set({ ops: { ...get().ops, [opId]: { ...op, log: appendCapped(op.log, ev, op.answeredApprovals), nextSeq, aheadSeqs, queued } } })
   },
 
   setOpLane(opId, exclusive) {

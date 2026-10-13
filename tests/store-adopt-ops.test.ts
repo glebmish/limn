@@ -112,9 +112,13 @@ describe('pushOpEvent sequence filtering', () => {
     useStore.getState().adoptOps([snap({ opId: 'op-seq2', nextSeq: 5 })])
     useStore.getState().pushOpEvent('op-seq2', ev(5), 5)
     expect(op('op-seq2').nextSeq).toBe(6)
-    useStore.getState().pushOpEvent('op-seq2', ev(9), 9) // a gap still advances
+    // past a hole: logged, but the watermark stays at the hole for the resync to fill
+    useStore.getState().pushOpEvent('op-seq2', ev(9), 9)
     expect(op('op-seq2').log).toEqual([ev(5), ev(9)])
-    expect(op('op-seq2').nextSeq).toBe(10)
+    expect(op('op-seq2').nextSeq).toBe(6)
+    expect(op('op-seq2').aheadSeqs).toEqual([9])
+    useStore.getState().pushOpEvent('op-seq2', ev(9), 9) // a repeat of an ahead seq is dropped
+    expect(op('op-seq2').log).toEqual([ev(5), ev(9)])
   })
 
   it('appends an event with no seq (a tab that was present for the whole op)', () => {
