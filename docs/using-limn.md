@@ -317,8 +317,11 @@ someone else, and its files can try to steer the agent that reads them.
   markdown loads only when it is inline (`data:image/…`) or served by Limn itself.
   Anything else renders as text naming the image and its URL, so a prompt-injected
   agent can't send data out through an image request.
-
-<!-- CODEX-RO -->
+- **Codex reads in a read-only sandbox.** Codex runs review generation, and every chat
+  or action turn that can't edit the branch, in a read-only sandbox with network off:
+  its commands can read the repository, but a write or a network call has to ask, and
+  on those turns Limn says no. In **Ask for approval** a chat that can edit runs there
+  too, and each edit waits for you.
 
 ## The service
 
@@ -358,9 +361,21 @@ Limn 0.4.0
 ```
 
 It exits 0 only when the server answers **on loopback** and — for an installed unit —
-the `node` the unit records still exists. Activation is exactly one of **service** (a unit is loaded),
-**foreground** (something answers `/health` but no unit is loaded, e.g. `npx`), or **not
-running**.
+the `node` the unit records still exists. Activation is exactly one of **service** (a unit
+serving this port is loaded), **foreground** (something answers `/health` on this port but
+no unit serves it, e.g. `npx`), or **not running**.
+
+`status` reports the port your shell points at (`LIMN_PORT`, else 5466). When the loaded
+unit serves a different port, it is not this port's activation: the activation line reads
+`foreground, pid <pid>` or `not running`, the unit-only `node`, `restart` and `stop` lines
+are left out (a foreground server shows `stop:        Ctrl-C in its terminal`), and one
+line names the unit's port:
+
+```text
+  service:     launchd agent dev.glebmish.limn serves port 5466, not 5467
+```
+
+On Linux that line reads `systemd --user unit limn serves port …`.
 
 **Upgrading.** `npm i -g @glebmish/limn@latest` swaps the files under the path the unit
 records, but the running process keeps the old code until you restart it:

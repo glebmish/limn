@@ -23,11 +23,12 @@ type LadderDecision = 'allow' | 'deny' | 'ask'
  *  NOT a chat tier — a generation turn has no opId, so an 'ask' could never park
  *  and would silently degrade to deny. Only Limn's own MCP tools are allowed.
  *  Everything else that reaches here is denied, commands included: the engine has
- *  already auto-run what IT deems read-only (claude-agent-acp's read-only bash
- *  under `default`; codex-acp's sandboxed `read-only` mode), so a command request
- *  is one the engine itself wanted a human for — a write, a network call, a Codex
- *  sandbox escalation — and Limn must not second-guess that with a classifier of
- *  its own. `file_change` is denied (the model explores and emits JSON, it does
+ *  already auto-run what IT deems safe (claude-agent-acp's read-only bash under
+ *  `default`; codex-acp's `read-only` mode runs commands in a readOnly sandbox with
+ *  network off — since 2.2.2; 1.7–1.12 used a workspaceWrite sandbox there — so a
+ *  write fails inside the sandbox rather than landing), so a command request is one
+ *  the engine itself wanted a human for — a write, a network call, a Codex sandbox
+ *  escalation — and Limn must not second-guess that with a classifier of its own. `file_change` is denied (the model explores and emits JSON, it does
  *  not edit the tree); non-Limn tool_use is denied. Never 'ask' — there is nobody
  *  to ask. */
 export function generationLadder(req: ApprovalRequest): 'allow' | 'deny' {
@@ -39,8 +40,8 @@ export function generationLadder(req: ApprovalRequest): 'allow' | 'deny' {
  *
  *  By the time a request reaches Limn, the ENGINE has already decided the action
  *  needs a human — claude-agent-acp's CLI auto-allows read-only bash and applies
- *  its own model classifier under native `auto`; codex-acp runs commands sandboxed
- *  under its native `agent` mode and surfaces only escalations. Limn never
+ *  its own model classifier under native `auto`; codex-acp runs commands inside its
+ *  sandbox (`workspace-write` / `agent`) and surfaces only escalations. Limn never
  *  re-classifies what the engine chose to surface: it parks everything on the
  *  reviewer, except the two cases that are Limn's own to decide — its own MCP
  *  tools (always safe, always allowed) and the `full` tier (the reviewer told

@@ -39,8 +39,11 @@ installs the vendored subtree as-is, so a user needs no special flags.
 
 The shipped runtime closure is the two adapter scopes (`@agentclientprotocol/**`,
 `@anthropic-ai/**`), `zod`, and `@modelcontextprotocol/sdk` — the last drags in an
-express/hono tree that dominates the installed footprint (≈ 6 MB tarball, ≈ 42 MB on
-disk). Slimming it is a known follow-up.
+express/hono tree that dominates the installed footprint (≈ 7 MB tarball, ≈ 49 MB on
+disk). Slimming it is a known follow-up. `@agentclientprotocol/sdk` ships twice: Limn and
+claude-agent-acp 0.78.0 use 1.4.0 (claude-agent-acp pins it exactly), while
+codex-acp 2.2.2 asks for `^1.5.0` and gets its own nested copy, which its self-contained
+`dist/index.js` never loads. A claude-agent-acp bump onto the same SDK line removes it.
 
 The adapter entry points resolve from `node_modules` at load. For local debugging,
 `LIMN_CLAUDE_ADAPTER` / `LIMN_CODEX_ADAPTER` override them with an absolute path to an

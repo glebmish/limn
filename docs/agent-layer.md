@@ -156,16 +156,16 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 | Tier | Reviewer sees | claude-agent-acp mode | codex-acp mode |
 | --- | --- | --- | --- |
 | `ask` | Ask for approval | `default` | `read-only` |
-| `edits` | Accept edits | `acceptEdits` | `agent` |
+| `edits` | Accept edits | `acceptEdits` | `workspace-write` |
 | `auto` | Auto mode | native `auto` (→ `acceptEdits` when the session doesn't advertise it) | `agent` |
 | `full` | Full access | `bypassPermissions` (→ `auto`, then `acceptEdits`, when the session doesn't advertise it) | `agent-full-access` |
 | not write-enabled (`writeEnabled` false: a commit compare, a refine turn, every generation turn) | — | `default` + client-side deny | `read-only` |
 
 Claude's `default` mode asks before any file edit, so on a turn that is not write-enabled every edit reaches Limn as a permission request and is denied. Read-only bash still runs inside the engine without asking.
 
-<!-- CODEX-RO -->
+Codex's `read-only` mode runs the turn in a read-only sandbox with network off (codex-acp 2.2.2; 1.7–1.12 used a workspace-write sandbox under that id, so Codex could edit the tree without asking). Commands run and can read the tree; a write or a network call fails inside the sandbox unless Codex asks to escalate, and every file edit asks. On a turn that is not write-enabled Limn denies those requests; under `ask` they wait for the reviewer. Codex's reject option for a file edit (and for a command that offers no "continue without it") is a cancel, so a denial there ends the Codex turn.
 
-Codex has no fourth mode between `read-only` and `agent-full-access`, so `edits` and `auto` land on the same native mode (`agent`) — both park whatever the sandbox surfaces; the tiers are behaviourally identical on that engine.
+`workspace-write` and `agent` share one sandbox (the workspace is writable, network off) and differ in who answers an escalation: the user under `workspace-write`, so `edits` parks it on the reviewer; Codex's own auto-reviewer under `agent`, so `auto` sees only what that reviewer passes up.
 
 The two layers change at different rates: the ladder tier is re-read from the thread at **each** permission request (so a mid-turn tier change applies from the next request on), while this engine-session mode is negotiated **once** at turn start. In practice the only mid-turn transition with live effect is `full` ↔ a lower tier: dropping out of `full` mid-turn makes the ladder start parking subsequent requests again, and rising into `full` mid-turn makes it start auto-allowing them; moving among `ask`/`edits`/`auto` mid-turn changes nothing, since `ladderPolicy` treats those three identically (all `ask`) until the next turn renegotiates the session mode.
 
@@ -181,7 +181,7 @@ The two layers change at different rates: the ladder tier is re-read from the th
 
 **Generation turns use their own policy.** A full review, a scoped update and the findings pass after an action run route permissions through `generationLadder(req)` instead of the tier ladder. It allows only Limn's own MCP tools and denies everything else, commands included. It never parks a request on the reviewer. A command that reaches this point is one the engine itself wanted a human for (a write, a network call, a sandbox escalation), and Limn does not second-guess that with a classifier of its own.
 
-No self-rolled classification: by the time a request reaches Limn, the *engine* has already decided the action needs a human — claude-agent-acp's CLI auto-allows read-only bash and applies its own model classifier under native `auto`; codex-acp runs commands sandboxed under its native `agent` mode and surfaces only escalations (see layer (a) above). Limn never re-classifies what the engine chose to surface — it parks everything on the reviewer below `full`. The only decisions left to Limn's own policy are its own MCP tools (always safe, always allowed — `isLimnTool` → row 1) and the `full` tier (the reviewer told Limn to stop asking, so anything that still reaches here is auto-approved); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`) regardless of tier.
+No self-rolled classification: by the time a request reaches Limn, the *engine* has already decided the action needs a human — claude-agent-acp's CLI auto-allows read-only bash and applies its own model classifier under native `auto`; codex-acp runs commands inside its sandbox and surfaces only escalations (see layer (a) above). Limn never re-classifies what the engine chose to surface — it parks everything on the reviewer below `full`. The only decisions left to Limn's own policy are its own MCP tools (always safe, always allowed — `isLimnTool` → row 1) and the `full` tier (the reviewer told Limn to stop asking, so anything that still reaches here is auto-approved); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`) regardless of tier.
 
 **Approval registry (`approvals.ts`)** — engine-agnostic and reused byte-for-byte. When `ladderPolicy` says `ask`, the turn parks on `awaitDecision(opId, request, emit)`: it emits an `approval_request` event (the renderer shows a blocking card) and returns a promise that settles when the reviewer answers. The answer flows back through the `respondApproval` IPC → `resolveDecision(opId, requestId, decision)`; `allow` → the option whose kind is `allow_once`, `deny` → `reject_once`. `clearPending(opId)` answers everything still parked with the ACP-required `cancelled` outcome on cancel / turn end (no leak). **There is no timeout** — a request waits until answered or cancelled.
 

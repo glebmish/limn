@@ -26,7 +26,7 @@ Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, 
   adapter's default; generation turns deny every command and file edit the engine asks
   about; remote images in agent- or branch-authored markdown render as inert text. The
   package ships no server source maps.
-- **Packaging.** Pure-JS package (≈ 6 MB tarball / ≈ 42 MB installed) with the ACP
+- **Packaging.** Pure-JS package (≈ 7 MB tarball / ≈ 49 MB installed) with the ACP
   adapters bundled and no platform binaries; Node `^22.13 || >=23.4`. Releases are
   published from CI with npm provenance.
 - **Database.** 0.4.0 keeps using the desktop app's database file and migrates it in
@@ -34,8 +34,10 @@ Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, 
   there is no down-migration, and older builds can't load the migrated sessions.
 - **Removed.** The Electron app, its `limn` shell shim (the CLI offers to delete an old
   one), and the desktop notifications.
-
-<!-- CODEX-RO -->
+- **Codex sandbox per tier.** Codex review generation, and chat or action turns that
+  can't edit the branch, run in a read-only sandbox with network off; so does
+  **Ask for approval**, where each edit waits for you. **Accept edits** lets Codex edit
+  the workspace and asks you before anything outside it or any network access.
 
 Also new since 0.3:
 

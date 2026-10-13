@@ -248,8 +248,11 @@ function isMcpToolApproval(req: RequestPermissionRequest): boolean {
   return metas.some((m) => Boolean(m && typeof m === 'object' && (m as Record<string, unknown>).is_mcp_tool_approval === true))
 }
 
-/** codex-acp attaches the raw params it decided to surface as `_meta.codex.params`
- *  on every permission request.
+/** Reads the raw native params as `_meta.codex.params` on a permission request.
+ *  The pinned codex-acp (2.2.2) does not send them: for a non-AIR client its
+ *  permission requests carry no `_meta` beyond the MCP-tool-approval flag (1.12
+ *  sent only `_meta.permission { title, description }`). Kept as a defensive
+ *  reader for an adapter that does; without it the card carries no `detail.reason`.
  *  For a `require_escalated` command, `params.justification` is the model's own
  *  user-facing question for why it needs the escalation — the field Limn
  *  prefers for `detail.reason`. When there's no justification, two other
