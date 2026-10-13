@@ -18,9 +18,13 @@ describe('generationLadder (structured generation turn)', () => {
     expect(generationLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp__limn__focus' } }))).toBe('allow')
     expect(generationLadder(req({ kind: 'tool_use', detail: { toolName: 'mcp.limn.add_comment' } }))).toBe('allow')
   })
-  it('allows commands unconditionally (never asks — no opId to park on)', () => {
-    expect(generationLadder(req({ kind: 'command', detail: { command: 'git log --oneline' } }))).toBe('allow')
-    expect(generationLadder(req({ kind: 'command', detail: { command: 'npm install left-pad' } }))).toBe('allow')
+  it('denies every command that reaches it (the engine already auto-ran what it deems read-only; Limn never classifies)', () => {
+    expect(generationLadder(req({ kind: 'command', detail: { command: 'git log --oneline' } }))).toBe('deny')
+    expect(generationLadder(req({ kind: 'command', detail: { command: 'npm install left-pad' } }))).toBe('deny')
+  })
+  it('denies a Codex sandbox escalation (network / outside-workspace)', () => {
+    expect(generationLadder(req({ engine: 'codex', kind: 'command', detail: { command: 'curl x', reason: 'requests network access' } }))).toBe('deny')
+    expect(generationLadder(req({ engine: 'codex', kind: 'file_change', detail: { files: ['/etc/x'], reason: 'requests write access outside the workspace' } }))).toBe('deny')
   })
   it('denies file_change (generation explores, it does not edit the tree)', () => {
     expect(generationLadder(req({ kind: 'file_change', detail: { files: ['a.ts'] } }))).toBe('deny')

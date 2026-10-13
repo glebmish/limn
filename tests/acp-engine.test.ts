@@ -102,24 +102,42 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(value.annotations.sections[0].id).toBe('a')
   })
 
-  it('2b. generation turn auto-allows a command permission (even an unsafe one), without parking', async () => {
+  it('2b. generation turn auto-DENIES a command permission the engine surfaced (Limn never self-classifies commands), without parking', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'rev-gen-cmd',
       turns: [{
         permission: { toolCallId: 'gc1', title: 'run', kind: 'execute', rawInput: { command: 'npm install left-pad' } },
-        text: JSON.stringify(validReview),
-        rejectedText: 'denied — would fail parsing'
+        text: 'allowed — would fail parsing',
+        rejectedText: JSON.stringify(validReview)
       }]
     })
     const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
     const events = await drain(run.events)
     expect(events.some((e) => e.type === 'approval_request')).toBe(false) // no parking — generation has no opId
     const { value } = await run.result
-    expect(value.annotations.title).toBe('T') // allow branch taken
+    expect(value.annotations.title).toBe('T') // reject branch taken
     const records = readRecords()
-    expect((records.find((r) => r.event === 'permissionOutcome')?.outcome as { optionId?: string })?.optionId).toBe('allow')
+    expect((records.find((r) => r.event === 'permissionOutcome')?.outcome as { optionId?: string })?.optionId).toBe('reject')
     // the session mode is the non-write one, so edits ask instead of auto-applying
     expect(records.find((r) => r.event === 'setSessionMode')?.modeId).toBe('default')
+  })
+
+  it('2b2. a Codex sandbox-escalation request during generation is denied', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'rev-gen-codex-esc',
+      turns: [{
+        permission: {
+          toolCallId: 'esc1', title: 'curl example.com', kind: 'execute', rawInput: { command: 'curl example.com' },
+          meta: { codex: { params: { justification: 'Need network to fetch docs', networkApprovalContext: { host: 'example.com' } } } }
+        },
+        text: 'allowed — would fail parsing',
+        rejectedText: JSON.stringify(validReview)
+      }]
+    }, CODEX_ACP_CONFIG)
+    const run = engine.generateReview({ repo: '/r', branch: 'f', base: 'main', diff: { base: 'main', branch: 'f', files: [], mergeBase: 'a'.repeat(40), headSha: 'b'.repeat(40) }, artifacts: [] })
+    await drain(run.events)
+    expect((await run.result).value.annotations.title).toBe('T')
+    expect((readRecords().find((r) => r.event === 'permissionOutcome')?.outcome as { optionId?: string })?.optionId).toBe('reject')
   })
 
   it('2c. generation turn auto-DENIES a file_change permission', async () => {

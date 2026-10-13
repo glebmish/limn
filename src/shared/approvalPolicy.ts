@@ -21,17 +21,17 @@ type LadderDecision = 'allow' | 'deny' | 'ask'
 
 /** Structured-generation turn (review / scoped update): its own explicit policy,
  *  NOT a chat tier — a generation turn has no opId, so an 'ask' could never park
- *  and would silently degrade to deny. Commands are allowed unconditionally (parity
- *  with the pre-ACP engines, where generation ran Read/Grep/Glob/Bash under the
- *  SDK's permissive mode: the reviewer asked for this run, and it holds the
- *  exclusive lane); `file_change` is denied (the old engines disallowed Edit/Write
- *  during generation — the model explores and emits JSON, it does not edit the
- *  tree); non-Limn tool_use is denied (those tools simply weren't mounted before).
- *  Never 'ask' — there is nobody to ask. */
+ *  and would silently degrade to deny. Only Limn's own MCP tools are allowed.
+ *  Everything else that reaches here is denied, commands included: the engine has
+ *  already auto-run what IT deems read-only (claude-agent-acp's read-only bash
+ *  under `default`; codex-acp's sandboxed `read-only` mode), so a command request
+ *  is one the engine itself wanted a human for — a write, a network call, a Codex
+ *  sandbox escalation — and Limn must not second-guess that with a classifier of
+ *  its own. `file_change` is denied (the model explores and emits JSON, it does
+ *  not edit the tree); non-Limn tool_use is denied. Never 'ask' — there is nobody
+ *  to ask. */
 export function generationLadder(req: ApprovalRequest): 'allow' | 'deny' {
-  if (req.kind === 'command') return 'allow'
-  if (req.kind === 'file_change') return 'deny'
-  return isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
+  return req.kind === 'tool_use' && isLimnTool(req.detail?.toolName) ? 'allow' : 'deny'
 }
 
 /** The one shared decision function that runs on every incoming ACP

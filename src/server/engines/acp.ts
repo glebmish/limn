@@ -91,9 +91,10 @@ interface AcpTurnOptions<T> {
   currentMode?: () => ExecutionMode
   /** structured generation turn (review / scoped update): suppress streamed text
    *  AND route permissions through `generationLadder` — its own explicit policy
-   *  (commands allowed, file changes denied), not a chat tier. The session mode is
-   *  the non-write one (`modeFor(mode, false)`) so file edits surface as permission
-   *  requests for the ladder to deny instead of being engine-auto-accepted. */
+   *  (only Limn tools allowed; surfaced commands and file changes denied), not a
+   *  chat tier. The session mode is the non-write one (`modeFor(mode, false)`) so
+   *  file edits surface as permission requests for the ladder to deny instead of
+   *  being engine-auto-accepted. */
   generation?: boolean
   /** identity for chat; parse∘extract for review/scoped — throws → one repair turn. */
   parse: (text: string) => T
