@@ -92,13 +92,13 @@ const persistUi = async (): Promise<void> => {
 const persistStack = async (): Promise<void> => {
   const id = await useStore.getState().materialize()
   if (id == null) return
-  void api().saveUiState(id, { diffStack: useStore.getState().diffStack })
+  try { await api().saveUiState(id, { diffStack: useStore.getState().diffStack }) } catch (err) { useStore.setState({ error: errText(err) }) }
 }
 
 const persistExcluded = async (): Promise<void> => {
   const id = await useStore.getState().materialize()        // first exclude toggle mints the session
   if (id == null) return
-  void api().saveUiState(id, { fileExcluded: useStore.getState().loaded?.state.fileExcluded ?? {} })
+  try { await api().saveUiState(id, { fileExcluded: useStore.getState().loaded?.state.fileExcluded ?? {} }) } catch (err) { useStore.setState({ error: errText(err) }) }
 }
 
 /** Drop a focus hold when it sits on one of the files just marked viewed — a focus
@@ -197,7 +197,7 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     const viewedAt = { ...get().viewedAt }
     if (next && viewedAt[file.path]) { delete viewedAt[file.path]; touchViewed([file.path]) }
     set({ loaded: { ...loaded, state: { ...loaded.state, fileExcluded } }, viewedAt })
-    persistExcluded()
+    void persistExcluded()
     if (next) void persistUi()
   },
 

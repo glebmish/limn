@@ -5,6 +5,7 @@ import { resolveDefaultAgent, DEFAULT_AGENT_PREF_KEY } from '../../shared/prefs'
 import { ACTIONS_PREF_KEY, parseActions, serializeActions, type CommandAvailability } from '../../shared/actions'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
+import { useStore } from './index'
 import type { PanelKind } from '../lib/panelWidths'
 import { PANELS, PREF_KEYS, parseStoredWidth } from '../lib/panelWidths'
 
@@ -67,6 +68,14 @@ export interface PrefsSlice {
   setPanelWidth(kind: PanelKind, width: number): void
 }
 
+/** Fire-and-forget pref write that still reports a failure in the error strip.
+ *  Promise.resolve: test stubs and older call shapes need not return a promise. */
+function savePref(key: string, value: string): void {
+  Promise.resolve(api().setPref(key, value)).catch((err: unknown) => {
+    useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+  })
+}
+
 export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set, get) => ({
   defaultAgent: defaultAgentFor('claude'),
   agent: defaultAgentFor('claude'),
@@ -124,13 +133,14 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   },
 
   setSidebarView(v) {
-    void api().setPref('sidebarView', JSON.stringify(v))
+    savePref('sidebarView', JSON.stringify(v))
     set({ sidebarView: v })
   },
 
   async setActions(actions) {
     set({ actions })
-    await api().setPref(ACTIONS_PREF_KEY, serializeActions(actions))
+    // callers fire this and forget — report a failed save rather than reject unheard
+    try { await api().setPref(ACTIONS_PREF_KEY, serializeActions(actions)) } catch (err) { set({ error: err instanceof Error ? err.message : String(err) }) }
   },
 
   async loadCommands(repo) {
@@ -165,6 +175,6 @@ export const createPrefsSlice: StateCreator<AppStore, [], [], PrefsSlice> = (set
   setPanelWidth(kind, width) {
     const key = PREF_KEYS[kind]
     set({ [key]: width } as Pick<PrefsSlice, 'sidebarWidth'> | Pick<PrefsSlice, 'chatWidth'>)
-    void api().setPref(key, JSON.stringify(width))
+    savePref(key, JSON.stringify(width))
   }
 })

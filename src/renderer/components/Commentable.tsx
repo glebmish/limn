@@ -69,9 +69,8 @@ export function Commentable({ scope, className, children }: {
           <Composer
             placeholder={`Comment on “${snip(composing.quote)}” — the agent gets it with your next batch…`}
             onCancel={() => setComposing(null)}
-            onSubmit={(text) => {
-              void useStore.getState().addComment({ kind: 'selection', scope, quote: composing.quote, prefix: composing.prefix, suffix: composing.suffix }, text)
-              setComposing(null)
+            onSubmit={async (text) => {
+              if (await useStore.getState().addComment({ kind: 'selection', scope, quote: composing.quote, prefix: composing.prefix, suffix: composing.suffix }, text)) setComposing(null)
             }}
           />
         </div>

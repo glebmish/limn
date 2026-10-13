@@ -165,9 +165,8 @@ export const DiffView = memo(function DiffView({ f }: {
               <Composer
                 placeholder={`Comment on ${name} as a whole — the agent gets it with your next batch…`}
                 onCancel={() => setFileCommenting(false)}
-                onSubmit={(text) => {
-                  void useStore.getState().addComment({ kind: 'file', file: f.path }, text)
-                  setFileCommenting(false)
+                onSubmit={async (text) => {
+                  if (await useStore.getState().addComment({ kind: 'file', file: f.path }, text)) setFileCommenting(false)
                 }}
               />
             )}

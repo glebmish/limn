@@ -534,16 +534,16 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
           <Composer
             placeholder="Leave a comment for the agent…"
             onCancel={() => setComposerAt(null)}
-            onSubmit={(text) => {
+            onSubmit={async (text) => {
               // derive the anchor from the identified row — byte-identical to what
               // the hunk-indexed composer produced, `hunkRange` included: the row
               // model carries its hunk's range for exactly this field, even though
               // nothing renders it any more (#11).
-              void useStore.getState().addComment(
+              const id = await useStore.getState().addComment(
                 { kind: 'diff', file: f.path, side, line: lineNo, hunkRange: r.hunkRange, lineContent: l?.text ?? '' },
                 text
               )
-              setComposerAt(null)
+              if (id) setComposerAt(null)
             }}
           />
         )}

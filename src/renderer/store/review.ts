@@ -2,7 +2,7 @@ import { UNIFIED } from '../../shared/diffStack'
 import { withUserReply } from '../../shared/commentReply'
 import type { StateCreator } from 'zustand'
 import type { LoadedReview } from '../../shared/ipc'
-import type { AgentWriteCapability, Comment, CommentAnchor, DriftSummary } from '../../shared/types'
+import type { AgentWriteCapability, Comment, CommentAnchor, DriftSummary, ReviewState } from '../../shared/types'
 import { refIdentity } from '../../shared/types'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
@@ -41,6 +41,20 @@ function setComments(comments: Comment[]) {
   const loaded = useStore.getState().loaded
   if (!loaded) return
   useStore.setState({ loaded: { ...loaded, state: { ...loaded.state, comments } } })
+}
+
+/** Run one comment write and apply the persisted list. A failure goes to the error
+ *  strip (the callers fire these from composers, so a rejection would otherwise be
+ *  unhandled and silent) and reads back as `false`, so the composer can stay open
+ *  with the reviewer's text instead of closing over a write that never landed. */
+async function writeComments(write: () => Promise<ReviewState>): Promise<boolean> {
+  try {
+    setComments((await write()).comments)
+    return true
+  } catch (err) {
+    useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+    return false
+  }
 }
 
 /** The review-lifecycle domain: the loaded review (transient → materialized), its
@@ -86,18 +100,21 @@ export interface ReviewSlice {
   // action mints the session on first write (materialize) then applies the persisted
   // comment list via the slice-internal setComments apply step.
   /** Queue a new user comment against `anchor`; mints the session on first write.
-   *  Returns the new comment id, or null if the session couldn't be materialized. */
+   *  Returns the new comment id, or null if the session couldn't be materialized or
+   *  the save failed (reported in the error strip — keep the composer's draft). */
   addComment(anchor: CommentAnchor, text: string): Promise<string | null>
-  editComment(comment: Comment, text: string): Promise<void>
-  deleteComment(id: string): Promise<void>
+  /** The remaining comment writes resolve true once persisted; false when the write
+   *  failed (reported in the error strip) so a composer can keep its draft. */
+  editComment(comment: Comment, text: string): Promise<boolean>
+  deleteComment(id: string): Promise<boolean>
   /** Re-queue a resolved comment (reviewer-authored OR agent hotspot): flips
    *  `status` back to 'queued' and persists it — nothing more. This is the ONLY
    *  path a hotspot comment can take into the user's batch, and it is purely a
    *  status flip: it does NOT send/dispatch anything to an agent (spec Decision
    *  19) — the reviewer still clicks "Send now" separately once queued. */
-  requeueComment(comment: Comment): Promise<void>
+  requeueComment(comment: Comment): Promise<boolean>
   /** Continue a thread: append the reviewer's reply and re-queue it for the agent. */
-  replyToComment(comment: Comment, text: string): Promise<void>
+  replyToComment(comment: Comment, text: string): Promise<boolean>
   /** Triage proposals (board 14 v3): accept → queued, keep → resolved note, dismiss →
    *  hidden, restore → proposed. One RPC for one or many. */
   triageFindings(ids: string[], verdict: 'accept' | 'keep' | 'dismiss' | 'restore'): Promise<void>
@@ -331,37 +348,31 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       createdAt: new Date().toISOString(),
       iteration: loaded?.state.latestIteration?.n ?? 0
     }
-    const state = await api().upsertComment(sessionId, comment)
-    setComments(state.comments)
-    return comment.id
+    return (await writeComments(() => api().upsertComment(sessionId, comment))) ? comment.id : null
   },
 
   async editComment(comment, text) {
     const sessionId = await get().materialize()
-    if (sessionId == null) return
-    const state = await api().upsertComment(sessionId, { ...comment, text })
-    setComments(state.comments)
+    if (sessionId == null) return false
+    return writeComments(() => api().upsertComment(sessionId, { ...comment, text }))
   },
 
   async deleteComment(id) {
     const sessionId = await get().materialize()
-    if (sessionId == null) return
-    const state = await api().deleteComment(sessionId, id)
-    setComments(state.comments)
+    if (sessionId == null) return false
+    return writeComments(() => api().deleteComment(sessionId, id))
   },
 
   async requeueComment(comment) {
     const sessionId = await get().materialize()
-    if (sessionId == null) return
-    const state = await api().upsertComment(sessionId, { ...comment, status: 'queued' })
-    setComments(state.comments)
+    if (sessionId == null) return false
+    return writeComments(() => api().upsertComment(sessionId, { ...comment, status: 'queued' }))
   },
 
   async replyToComment(comment, text) {
     const sessionId = await get().materialize()
-    if (sessionId == null) return
-    const state = await api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString()))
-    setComments(state.comments)
+    if (sessionId == null) return false
+    return writeComments(() => api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString())))
   },
 
   async triageFindings(ids, verdict) {

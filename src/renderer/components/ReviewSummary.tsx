@@ -42,7 +42,7 @@ export function ReviewSummary({
             <Composer
               placeholder="Comment on the review title — the agent gets it with your next batch…"
               onCancel={() => setTitleCommenting(false)}
-              onSubmit={(text) => { void useStore.getState().addComment({ kind: 'title' }, text); setTitleCommenting(false) }}
+              onSubmit={async (text) => { if (await useStore.getState().addComment({ kind: 'title' }, text)) setTitleCommenting(false) }}
             />
           )}
         </div>
@@ -63,7 +63,7 @@ export function ReviewSummary({
                 <Composer
                   placeholder="Comment on the overall review summary — the agent gets it with your next batch…"
                   onCancel={() => setSummaryCommenting(false)}
-                  onSubmit={(text) => { void useStore.getState().addComment({ kind: 'summary' }, text); setSummaryCommenting(false) }}
+                  onSubmit={async (text) => { if (await useStore.getState().addComment({ kind: 'summary' }, text)) setSummaryCommenting(false) }}
                 />
               )}
             </div>

@@ -158,23 +158,31 @@ export function Questions() {
     if (!ready || !loaded || threadId == null) return
     setAdding(true)
     void (async () => {
-      const ids: string[] = []
-      for (const row of openRows) {
-        const text = answers[row.question.id]?.trim()
-        if (!text) continue
-        if (row.queued) {
-          if (row.queued.text !== text) await useStore.getState().editComment(row.queued, text)
-          ids.push(row.queued.id)
-        } else {
-          const id = await useStore.getState().addComment({ kind: 'question', questionId: row.question.id }, text)
-          if (id) ids.push(id)
+      // finally: a throw anywhere below must not leave the form stuck on "adding"
+      try {
+        const ids: string[] = []
+        for (const row of openRows) {
+          const text = answers[row.question.id]?.trim()
+          if (!text) continue
+          if (row.queued) {
+            // a failed edit is in the error strip; sending the stale text instead would
+            // answer with something the reviewer already rewrote
+            if (row.queued.text !== text && !(await useStore.getState().editComment(row.queued, text))) continue
+            ids.push(row.queued.id)
+          } else {
+            const id = await useStore.getState().addComment({ kind: 'question', questionId: row.question.id }, text)
+            if (id) ids.push(id)
+          }
         }
+        if (ids.length > 0) {
+          setActiveCommentIds(ids)
+          setSentThreadId(sendAnswers(ids) ?? null)
+        }
+      } catch (err) {
+        useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+      } finally {
+        setAdding(false)
       }
-      if (ids.length > 0) {
-        setActiveCommentIds(ids)
-        setSentThreadId(sendAnswers(ids) ?? null)
-      }
-      setAdding(false)
     })()
   }
 

@@ -178,9 +178,8 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <Composer
               placeholder={`Comment on the “${s.name}” change…`}
               onCancel={() => setCommenting(null)}
-              onSubmit={(text) => {
-                void useStore.getState().addComment({ kind: 'section', sectionId: s.id }, text)
-                setCommenting(null)
+              onSubmit={async (text) => {
+                if (await useStore.getState().addComment({ kind: 'section', sectionId: s.id }, text)) setCommenting(null)
               }}
             />
           )}
@@ -199,9 +198,8 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <Composer
               placeholder={`Comment on the diagram in “${s.name}”…`}
               onCancel={() => setCommenting(null)}
-              onSubmit={(text) => {
-                void useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'diagram' }, text)
-                setCommenting(null)
+              onSubmit={async (text) => {
+                if (await useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'diagram' }, text)) setCommenting(null)
               }}
             />
           )}
@@ -213,9 +211,8 @@ export function SectionView({ s, n, total, files, forceOpen, secRef }: {
             <Composer
               placeholder={`Comment on the “${s.name}” section…`}
               onCancel={() => setCommenting(null)}
-              onSubmit={(text) => {
-                void useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'narration' }, text)
-                setCommenting(null)
+              onSubmit={async (text) => {
+                if (await useStore.getState().addComment({ kind: 'section', sectionId: s.id, part: 'narration' }, text)) setCommenting(null)
               }}
             />
           )}

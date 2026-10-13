@@ -44,6 +44,17 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
   const [replying, setReplying] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [draft, setDraft] = useState(c.text)
+  const [savingEdit, setSavingEdit] = useState(false)
+  // close the editor only once the edit landed — a failed save keeps the typed text
+  const saveEdit = async (): Promise<void> => {
+    if (savingEdit) return
+    setSavingEdit(true)
+    try {
+      if (await useStore.getState().editComment(c, draft)) setEditing(false)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
   const isAgent = c.author === 'agent'
   // a proposal (design board 14 v3): an agent finding the reviewer has not taken —
   // dashed box, `proposed` pill, and a footer that is only Accept · Keep · Dismiss ·
@@ -176,7 +187,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
               autoFocus
             />
             <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
-              <button className="btn btn-sm btn-primary" onClick={() => { void useStore.getState().editComment(c, draft); setEditing(false) }}>Save</button>
+              <button className="btn btn-sm btn-primary" disabled={savingEdit} onClick={() => void saveEdit()}>Save</button>
               <button className="btn btn-sm btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
             </div>
           </div>
@@ -216,7 +227,7 @@ export function InlineThread({ c, locLabel }: { c: Comment; locLabel: string }) 
             submitLabel="Reply"
             hint={proposed ? 'keeps it proposed, marks it touched' : 're-queues this thread for the agent'}
             onCancel={() => setReplying(false)}
-            onSubmit={(text) => { void useStore.getState().replyToComment(c, text); setReplying(false) }}
+            onSubmit={async (text) => { if (await useStore.getState().replyToComment(c, text)) setReplying(false) }}
           />
         )}
         {!merged && !editing && !replying && !isAgent && c.status !== 'sent' && (
@@ -263,10 +274,13 @@ function ReplyButton({ onClick }: { onClick: () => void }) {
 }
 
 /** Inline composer. Every comment it writes is a *queued* one, folded into the next
- *  batch — `kicker`/`submitLabel`/`hint` name the turn it is being written on. */
+ *  batch — `kicker`/`submitLabel`/`hint` name the turn it is being written on.
+ *  `onSubmit` may return a promise: the composer holds the submit while it is pending
+ *  (no double add from a double click or a held ⌘⏎) and keeps its text — the caller
+ *  closes it only once the write landed, so a failed save leaves the draft in place. */
 export function Composer({ placeholder, onSubmit, onCancel, kicker, submitLabel: submitOverride, hint: hintOverride }: {
   placeholder: string
-  onSubmit: (text: string) => void
+  onSubmit: (text: string) => void | Promise<unknown>
   onCancel: () => void
   /** the header's role word ('new comment' by default) */
   kicker?: string
@@ -274,7 +288,18 @@ export function Composer({ placeholder, onSubmit, onCancel, kicker, submitLabel:
   hint?: string
 }) {
   const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
   const submitLabel = submitOverride ?? 'Add comment'
+  const submit = (): void => {
+    const t = text.trim()
+    if (!t || busy) return
+    const pending = onSubmit(t)
+    if (!(pending instanceof Promise)) return
+    setBusy(true)
+    // the caller reports failures itself (the store's error strip); this only frees
+    // the button again — on success the caller has usually unmounted us already
+    void pending.catch(() => {}).finally(() => setBusy(false))
+  }
   const hint = hintOverride ?? 'queues for the agent — nothing is sent yet'
   return (
     <div className="dthread">
@@ -292,13 +317,13 @@ export function Composer({ placeholder, onSubmit, onCancel, kicker, submitLabel:
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && text.trim()) onSubmit(text.trim())
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.repeat) submit()
               if (e.key === 'Escape') onCancel()
             }}
             autoFocus
           />
           <div style={{ display: 'flex', gap: 7, marginTop: 8, alignItems: 'center' }}>
-            <button className="btn btn-sm btn-primary" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
+            <button className="btn btn-sm btn-primary" disabled={!text.trim() || busy} onClick={submit}>
               <I.bubble style={{ width: 12, height: 12 }} />{submitLabel}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={onCancel}>Cancel</button>

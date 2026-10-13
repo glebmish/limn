@@ -163,7 +163,7 @@ export function ReviewSidebar({
                           <Composer
                             placeholder={`Comment on acceptance criterion ${i + 1} — the agent gets it with your next batch…`}
                             onCancel={() => setCommentCriterion(null)}
-                            onSubmit={(text) => { void useStore.getState().addComment({ kind: 'acceptance', index: i }, text); setCommentCriterion(null) }}
+                            onSubmit={async (text) => { if (await useStore.getState().addComment({ kind: 'acceptance', index: i }, text)) setCommentCriterion(null) }}
                           />
                         )}
                       </Fragment>
@@ -190,7 +190,7 @@ export function ReviewSidebar({
                           <Composer
                             placeholder={`Comment on plan step ${st.n} — the agent gets it with your next batch…`}
                             onCancel={() => setCommentStep(null)}
-                            onSubmit={(text) => { void useStore.getState().addComment({ kind: 'plan-step', stepN: st.n }, text); setCommentStep(null) }}
+                            onSubmit={async (text) => { if (await useStore.getState().addComment({ kind: 'plan-step', stepN: st.n }, text)) setCommentStep(null) }}
                           />
                         )}
                       </Fragment>

@@ -56,9 +56,8 @@ function Block({ line, tag: Tag = 'div', className, children }: {
         <Composer
           placeholder={`Comment on this ${art.role} line — the agent gets it with your next batch…`}
           onCancel={() => setComposerLine(null)}
-          onSubmit={(t) => {
-            void useStore.getState().addComment({ kind: 'artifact', path, line, lineContent }, t)
-            setComposerLine(null)
+          onSubmit={async (t) => {
+            if (await useStore.getState().addComment({ kind: 'artifact', path, line, lineContent }, t)) setComposerLine(null)
           }}
         />
       )}
@@ -124,6 +123,9 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
       if (approvedAt) await api().unapproveArtifact(id, path)
       else await api().approveArtifact(id, path)
       void reload()
+    } catch (err) {
+      // the click otherwise rejects unhandled and the checkmark just never changes
+      useStore.setState({ error: err instanceof Error ? err.message : String(err) })
     } finally {
       setApproving(false)
     }
@@ -186,7 +188,7 @@ export function ArtifactDoc({ path, onClose }: { path: string; onClose: () => vo
                       <Composer
                         placeholder={`Comment on plan deviation ${i + 1} — the agent gets it with your next batch…`}
                         onCancel={() => setCommentDeviation(null)}
-                        onSubmit={(t) => { void useStore.getState().addComment({ kind: 'deviation', index: i }, t); setCommentDeviation(null) }}
+                        onSubmit={async (t) => { if (await useStore.getState().addComment({ kind: 'deviation', index: i }, t)) setCommentDeviation(null) }}
                       />
                     )}
                   </Fragment>
