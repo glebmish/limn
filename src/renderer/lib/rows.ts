@@ -308,6 +308,35 @@ export interface AlignedRow {
 
 export type ViewRow = AlignedRow | GapRow
 
+export type RowAnchor = NonNullable<AlignedRow['anchor']>
+
+/** Every (side, line) address a row holds — what thread lookup matches against.
+ *  `anchor` above is the ONE place a new comment goes; this is every place an
+ *  existing one may already sit. A Split row pairing a deletion with an addition
+ *  shows base line 2 AND now line 2; a Unified context row shows both numbers in its
+ *  gutter. A comment or finding made on either side elsewhere (Unified's deletion
+ *  row, an agent anchoring on the old side) must land on the row that shows that
+ *  line, or it renders nowhere.
+ *
+ *  A non-`mid` cell's `l.old` is base space (Multi's base cell and now cell both come
+ *  from base-relative diffs); `l.new` is the tree now only on a `new` cell — a Multi
+ *  base cell's line can come from a checkpoint's diff, whose new side is that
+ *  checkpoint's. Revealed context rows hold none, as before. */
+export function rowAnchors(r: AlignedRow): RowAnchor[] {
+  if (!r.fromHunk) return []
+  const out: RowAnchor[] = []
+  const add = (side: 'old' | 'new', lineNo: number | null): void => {
+    if (lineNo != null && !out.some((a) => a.side === side && a.lineNo === lineNo)) out.push({ side, lineNo })
+  }
+  if (r.anchor) add(r.anchor.side, r.anchor.lineNo)
+  for (const c of r.cells) {
+    if (!c.l || c.side === 'mid') continue
+    add('old', c.l.old)
+    if (c.side === 'new') add('new', c.l.new)
+  }
+  return out
+}
+
 const pad = (side: Cell['side']): Cell => ({ l: null, side, lineNo: null, kind: '' })
 const cellOf = (l: DiffLine, side: Cell['side'], lineNo: number | null, extra: Partial<Cell> = {}): Cell =>
   ({ l, side, lineNo, kind: l.kind, ...extra })

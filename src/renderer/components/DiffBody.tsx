@@ -15,7 +15,7 @@ import { fileEditable, rawOffsetFromDisplayColumn, type DiscardSpan } from '../l
 import {
   STEP, foldControls, gapContaining, hunkGaps, revealLines, stepReveal, type Gap, type GapReveal
 } from '../lib/expand'
-import { asAligned, buildFileRows, buildSplitRows, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
+import { asAligned, buildFileRows, buildSplitRows, rowAnchors, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
 import { estimateDiffHeight } from '../lib/diffHeight'
 import { buildMultiRows, multiGaps } from '../lib/rowsMulti'
 import { api } from '../lib/api'
@@ -378,11 +378,14 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     shown.filter((c) =>
       c.anchor.kind === 'diff' && c.anchor.side === side && c.anchor.line === line && c.status !== 'outdated' && !c.notInDiff
     )
+  /** Every thread on a row, across every (side, line) it holds (`rowAnchors`): a
+   *  Split row pairing base line 2 with now line 2 hosts a comment made on either. */
+  const rowThreads = (r: AlignedRow): Comment[] =>
+    rowAnchors(r).flatMap((a) => threadsFor(a.lineNo, a.side))
   /** The gutter mark for a line with threads (board 14 T1): a solid dot for the
    *  reviewer's own comments, a dashed ring when any proposal sits there. */
-  const commentMark = (anchor: { side: 'new' | 'old'; lineNo: number } | null | undefined): React.ReactNode => {
-    if (!anchor) return null
-    const ts = threadsFor(anchor.lineNo, anchor.side)
+  const commentMark = (r: AlignedRow): React.ReactNode => {
+    const ts = rowThreads(r)
     if (ts.length === 0) return null
     const prop = ts.some((c) => c.status === 'proposed')
     return <span className={'ax-cm' + (prop ? ' prop' : '')} title={prop ? 'A proposed finding on this line' : 'A comment on this line'} aria-hidden />
@@ -485,16 +488,17 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     ) : null
   }
   const afterRow = (r: AlignedRow): React.ReactNode => {
-    if (!r.anchor) return null
-    const { side, lineNo } = r.anchor
-    const threads = threadsFor(lineNo, side)
+    const threads = rowThreads(r)
+    if (!r.anchor && threads.length === 0) return null
+    const side = r.anchor?.side
+    const lineNo = r.anchor?.lineNo
     const l = r.cells.find((c) => c.side === side)?.l
     return (
       <>
         {threads.map((c) => (
-          <InlineThread key={c.id} c={c} locLabel={`on line ${lineNo}`} />
+          <InlineThread key={c.id} c={c} locLabel={`on line ${c.anchor.kind === 'diff' ? c.anchor.line : lineNo}`} />
         ))}
-        {composerAt && composerAt.side === side && composerAt.line === lineNo && (
+        {r.anchor && side && lineNo != null && composerAt && composerAt.side === side && composerAt.line === lineNo && (
           <Composer
             placeholder="Leave a comment for the agent…"
             onCancel={() => setComposerAt(null)}
@@ -532,6 +536,9 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
         <div
           className={'dline ' + kindCls + originCls(l, driftRails) + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
           data-limn-line={`${f.path}:${c.side}:${c.lineNo}`}
+          // a context row shows its base number too: an old-side jump lands here
+          // (lib/focusScroll.ts matches this alias for side 'old')
+          data-limn-line-old={c.side === 'new' && l.old != null ? `${f.path}:old:${l.old}` : undefined}
           onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
         >
           {railTip && (
@@ -540,7 +547,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
             // so an instant bubble fires on every pass toward it
             <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />
           )}
-          {commentMark(r.anchor)}
+          {commentMark(r)}
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
           <CodeLine text={l.text} lang={lang} ranges={c.marks} html={c.html} />
@@ -606,7 +613,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
                 onDoubleClick={isNow && editable && nowL ? (e) => openFrameAt(nowL, e) : undefined}
               >
                 {railTip && <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />}
-                {r.anchor && c.side === r.anchor.side && commentMark(r.anchor)}
+                {(r.anchor ? c.side === r.anchor.side : ci === r.cells.length - 1) && commentMark(r)}
                 <span className="gut"><span>{c.lineNo ?? ''}</span></span>
                 <span className="sign">{c.kind === 'add' ? '+' : c.kind === 'del' || c.deleted ? '−' : ''}</span>
                 {c.l ? <CodeLine text={c.l.text} lang={lang} ranges={c.marks} html={c.html} /> : <span className="code" />}

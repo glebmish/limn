@@ -6,6 +6,14 @@ function attr(v: string): string {
   return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
+/** One diff line's selector. An old-side line also matches the `data-limn-line-old`
+ *  alias a Unified context row carries (DiffBody): that row is addressed by its now
+ *  number, but it shows — and hosts comments on — its base number too. */
+function lineSelector(file: string, side: 'old' | 'new', line: number): string {
+  const k = attr(`${file}:${side}:${line}`)
+  return side === 'old' ? `[data-limn-line="${k}"],[data-limn-line-old="${k}"]` : `[data-limn-line="${k}"]`
+}
+
 /** The `data-limn-*` selector a FocusTarget resolves to inside `.gmain`. The diff
  *  case keys on `file:side:line` only — a jump never needs the anchor's
  *  hunkRange/lineContent. */
@@ -14,7 +22,7 @@ export function limnSelector(a: FocusTarget): string {
     case 'summary': return '[data-limn-summary]'
     case 'section': return `[data-limn-section="${attr(a.sectionId)}"]`
     case 'file': return `[data-limn-file="${attr(a.file)}"]`
-    case 'diff': return `[data-limn-line="${attr(`${a.file}:${a.side}:${a.line}`)}"]`
+    case 'diff': return lineSelector(a.file, a.side, a.line)
   }
 }
 
@@ -37,7 +45,7 @@ export function focusSelectors(a: FocusTarget): string[] {
     ? Math.min(a.endLine, a.line + MAX_FOCUS_LINES - 1)
     : a.line
   const out: string[] = []
-  for (let n = a.line; n <= end; n++) out.push(`[data-limn-line="${attr(`${a.file}:${a.side}:${n}`)}"]`)
+  for (let n = a.line; n <= end; n++) out.push(lineSelector(a.file, a.side, n))
   return out
 }
 

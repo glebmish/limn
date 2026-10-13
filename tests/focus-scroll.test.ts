@@ -48,10 +48,10 @@ describe('focusSelectors', () => {
     expect(focusSelectors(diff({ file: 'a"b.ts' }))).toEqual(['[data-limn-line="a\\"b.ts:new:30"]'])
   })
 
-  it('keeps the old-side line on the old side', () => {
+  it('keeps the old-side line on the old side — its own row, or a context row\'s old alias', () => {
     expect(focusSelectors(diff({ side: 'old', endLine: 31 }))).toEqual([
-      '[data-limn-line="src/sessions.ts:old:30"]',
-      '[data-limn-line="src/sessions.ts:old:31"]'
+      '[data-limn-line="src/sessions.ts:old:30"],[data-limn-line-old="src/sessions.ts:old:30"]',
+      '[data-limn-line="src/sessions.ts:old:31"],[data-limn-line-old="src/sessions.ts:old:31"]'
     ])
   })
 })
