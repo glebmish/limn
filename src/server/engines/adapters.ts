@@ -37,6 +37,13 @@ export interface AcpEngineConfig {
    *  which packaging deliberately excludes — so Codex hard-requires `CODEX_PATH`.
    *  claude-agent-acp discovers `claude` itself, so Claude leaves this unset. */
   binaryRequired?: boolean
+  /** `_meta` sent on EVERY session/new, session/load and session/resume this engine
+   *  opens (turns and the command probe alike). Claude uses it to pin the SDK's
+   *  `settingSources` to the user's own settings: the reviewed repo is untrusted
+   *  input, so its `.claude/settings*.json` (hooks, permission rules, env),
+   *  CLAUDE.md, project skills/commands and project MCP servers must not steer the
+   *  agent that reviews it. */
+  sessionMeta?: Record<string, unknown>
 }
 
 const require_ = createRequire(import.meta.url)
@@ -97,7 +104,10 @@ export const CLAUDE_ACP_CONFIG: AcpEngineConfig = {
   binaryEnv: (): Record<string, string> => {
     const p = claudeBinaryPath()
     return p ? { CLAUDE_CODE_EXECUTABLE: p } : {}
-  }
+  },
+  // claude-agent-acp hard-codes settingSources ["user","project","local"] but spreads
+  // `_meta.claudeCode.options` over it (new, load and resume alike), so this wins.
+  sessionMeta: { claudeCode: { options: { settingSources: ['user'] } } }
 }
 
 /** Codex's `configOptions` effort mapping: Codex's `reasoning_effort` option is

@@ -656,22 +656,74 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     expect(events.some((e) => e.type === 'status' && /mode/i.test(e.text))).toBe(false) // fallback succeeded — no note needed
   })
 
-  it("16. when BOTH the primary and fallback session mode are rejected, the turn still completes with a status note (no silent degradation)", async () => {
+  it('16. when BOTH the primary and fallback session mode are rejected, the turn fails before any prompt (the adapter\'s own default may be repo-picked)', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'chat-mode-retry-both-fail',
       rejectSetSessionMode: ['auto', 'acceptEdits'],
       turns: [{ text: 'ok' }]
     })
     const run = engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
-    const events = await drain(run.events)
-    expect(events.some((e) => e.type === 'error')).toBe(false)
-    const { value } = await run.result
-    expect(value).toBe('ok') // the turn is not failed by a mode-set rejection
-    const modeAttempts = readRecords().filter((r) => r.event === 'setSessionMode').map((r) => r.modeId)
-    expect(modeAttempts).toEqual(['auto', 'acceptEdits'])
-    // forward-compat note, at debug/status level, not a hard turn error.
-    expect(events.some((e) => e.type === 'status' && /mode/i.test(e.text))).toBe(true)
+    const [events, err] = await Promise.all([drain(run.events), run.result.catch((e: Error) => e)])
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toMatch(/session mode/i)
+    expect(events.some((e) => e.type === 'error')).toBe(true)
+    const records = readRecords()
+    expect(records.filter((r) => r.event === 'setSessionMode').map((r) => r.modeId)).toEqual(['auto', 'acceptEdits'])
+    expect(records.map((r) => r.event)).not.toContain('prompt')
   })
+
+  it('16b. a rejected set_mode is fatal on the read-only tier too: a repo-picked acceptEdits default must not stand', async () => {
+    const { engine, readRecords } = fakeEngine({
+      sessionId: 'chat-mode-ro-fail',
+      availableModes: ['default', 'acceptEdits'],
+      currentModeId: 'acceptEdits', // e.g. a committed .claude/settings.local.json defaultMode
+      rejectSetSessionMode: ['default'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go' })
+    const [, err] = await Promise.all([drain(run.events), run.result.catch((e: Error) => e)])
+    expect(err).toBeInstanceOf(Error)
+    expect(readRecords().map((r) => r.event)).not.toContain('prompt')
+  })
+
+  it('16c. a rejected set_mode is harmless when the session already reports the wanted mode', async () => {
+    const { engine } = fakeEngine({
+      sessionId: 'chat-mode-already',
+      availableModes: ['default', 'acceptEdits'],
+      currentModeId: 'default',
+      rejectSetSessionMode: ['default'],
+      turns: [{ text: 'ok' }]
+    })
+    const run = engine.chat({ repo: '/r', message: 'go' })
+    await drain(run.events)
+    expect((await run.result).value).toBe('ok')
+  })
+
+  it('16d. every Claude session is opened with user-only settings (no repo project/local settings)', async () => {
+    const meta = { claudeCode: { options: { settingSources: ['user'] } } }
+    const fresh = fakeEngine({ sessionId: 'claude-new', turns: [{ text: 'ok' }] })
+    let run = fresh.engine.chat({ repo: '/r', message: 'go' })
+    await drain(run.events); await run.result
+    expect(fresh.readRecords().find((r) => r.event === 'newSession')?.meta).toEqual(meta)
+
+    const loaded = fakeEngine({ turns: [{ text: 'ok' }] })
+    run = loaded.engine.chat({ repo: '/r', engineSessionId: 'claude-load', message: 'go' })
+    await drain(run.events); await run.result
+    expect(loaded.readRecords().find((r) => r.event === 'loadSession')?.meta).toEqual(meta)
+
+    const resumed = fakeEngine({ resume: true, turns: [{ text: 'ok' }] })
+    run = resumed.engine.chat({ repo: '/r', engineSessionId: 'claude-resume', message: 'go' })
+    await drain(run.events); await run.result
+    expect(resumed.readRecords().find((r) => r.event === 'resumeSession')?.meta).toEqual(meta)
+  })
+
+  it('16e. Codex sessions carry no Claude settings _meta', async () => {
+    const { engine, readRecords } = fakeEngine({ sessionId: 'codex-new', turns: [{ text: 'ok' }] }, CODEX_ACP_CONFIG)
+    const run = engine.chat({ repo: '/r', message: 'go' })
+    await drain(run.events); await run.result
+    expect(readRecords().find((r) => r.event === 'newSession')?.meta).toBeUndefined()
+  })
+
   it('17. beforePrompt sees the session\'s command list before anything is sent; a throw refuses the turn with no prompt', async () => {
     const { engine, readRecords } = fakeEngine({ turns: [{ text: 'should never stream' }], availableCommands: ['simplify', 'compact'] })
     const seen: (string[] | null)[] = []

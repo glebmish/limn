@@ -345,19 +345,27 @@ export class AcpEngine implements ReviewEngine {
         // `void` (no modes reported) — `modeIdsFrom(undefined)` is `undefined`, same
         // as "unknown", which keeps `modeFor`'s optimistic-then-fallback behaviour.
         let availableModes: string[] | undefined
+        // The mode the session reports it is ALREADY in — consulted only when every
+        // set_mode attempt below is rejected.
+        let currentModeId: string | undefined
+        const meta = this.config.sessionMeta ? { _meta: this.config.sessionMeta } : {}
         if (opts.engineSessionId) {
           if (!canResume && !canLoad) throw new Error(`ACP adapter cannot resume session ${opts.engineSessionId} (no loadSession capability)`)
           try {
-            if (canResume) availableModes = modeIdsFrom((await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers }))?.modes)
-            else availableModes = modeIdsFrom((await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers }))?.modes)
+            const modes = canResume
+              ? (await conn.resumeSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers, ...meta }))?.modes
+              : (await conn.loadSession({ sessionId: opts.engineSessionId, cwd: opts.repo, mcpServers, ...meta }))?.modes
+            availableModes = modeIdsFrom(modes)
+            currentModeId = modes?.currentModeId
           } catch (err) {
             throw new EngineSessionLostError(opts.engineSessionId, err)
           }
           sessionId = opts.engineSessionId
         } else {
-          const fresh = await conn.newSession({ cwd: opts.repo, mcpServers })
+          const fresh = await conn.newSession({ cwd: opts.repo, mcpServers, ...meta })
           sessionId = fresh.sessionId
           availableModes = modeIdsFrom(fresh.modes)
+          currentModeId = fresh.modes?.currentModeId
         }
         replaying = false // post-setup updates are live turn output, not replay
 
@@ -372,10 +380,13 @@ export class AcpEngine implements ReviewEngine {
         // weren't reported, its optimistic guess); on rejection retry ONCE with
         // `modeFor`'s definitively-conservative id (an explicit empty
         // `availableModes` — for claude `auto` that's the spike-measured
-        // `acceptEdits` fallback); if that ALSO fails, note it at status level
-        // instead of failing the turn (session modes are slated for removal from
-        // the protocol, so a permanently-rejecting adapter is forward-compat, not
-        // a bug to crash on).
+        // `acceptEdits` fallback); if that ALSO fails, the turn fails before any
+        // prompt — on EVERY tier, read-only included — unless the session already
+        // reports one of those ids as its current mode. The adapter's own starting
+        // mode is not Limn's to trust: claude-agent-acp derives it from settings
+        // that include the reviewed repo's `.claude/settings.local.json` (whose
+        // `acceptEdits` the SDK's escalation filter lets through), so "continue in
+        // the default" would let the repo pick the mode.
         const primaryModeId = this.config.modeFor(mode, write, availableModes)
         const trySetMode = async (modeId: string): Promise<boolean> => {
           try {
@@ -388,8 +399,9 @@ export class AcpEngine implements ReviewEngine {
         if (!(await trySetMode(primaryModeId))) {
           const fallbackModeId = this.config.modeFor(mode, write, [])
           const recovered = fallbackModeId !== primaryModeId && (await trySetMode(fallbackModeId))
-          if (!recovered) {
-            q.push({ type: 'status', text: `Couldn't set the "${primaryModeId}" session mode — continuing in the adapter's own default.` })
+          const alreadyThere = currentModeId !== undefined && (currentModeId === primaryModeId || currentModeId === fallbackModeId)
+          if (!recovered && !alreadyThere) {
+            throw new Error(`Couldn't set the "${primaryModeId}" session mode${currentModeId ? ` (the agent reports "${currentModeId}")` : ''} — refusing to run in a mode Limn didn't choose.`)
           }
         }
         for (const opt of this.config.configOptions?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? []) {

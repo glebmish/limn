@@ -40,8 +40,10 @@ describe('probeCommands — open a session, read the list, close', () => {
     const cfg = fakeConfig({ turns: [], availableCommands: ['simplify', 'compact'] })
     const res = await probeCommands({ ...cfg, env: () => ({ ...cfg.env!({}), LIMN_FAKE_ACP_OUT: out }) }, '/repo')
     expect(res).toEqual({ names: ['simplify', 'compact'] })
-    const records = fs.readFileSync(out, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { event: string })
+    const records = fs.readFileSync(out, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { event: string; meta?: unknown })
     expect(records.map((r) => r.event)).toEqual(['newSession'])
+    // the probe sees the same (user-only) settings a real Claude turn will
+    expect(records[0].meta).toEqual({ claudeCode: { options: { settingSources: ['user'] } } })
   })
 
   it('an agent that announces nothing yields an empty list, not an error', async () => {

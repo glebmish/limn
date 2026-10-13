@@ -11,7 +11,10 @@ import { killTree } from './acp.js'
 // session opens, the engine announces `available_commands_update` — the skills the
 // reviewer can pin as actions. The probe opens a session, reads that one
 // announcement, and closes: no prompt, no chat thread, no tokens. One record per
-// engine per repo, cached in prefs with a timestamp.
+// engine per repo, cached in prefs with a timestamp. The session is opened with
+// the engine's `sessionMeta`, so for Claude the list holds user-level and
+// user-enabled-plugin skills only — never the reviewed repo's own project skills,
+// which a real turn would not load either.
 //
 // Probe-verified spellings (2026-09-07, this repo): claude-agent-acp lists skills
 // BARE ("simplify", "pr-review-toolkit:review-pr") among ~70 built-ins
@@ -63,7 +66,7 @@ export async function probeCommands(
     ))
     const work = (async (): Promise<{ names: string[] }> => {
       await conn.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } })
-      await conn.newSession({ cwd: repo, mcpServers: [] })
+      await conn.newSession({ cwd: repo, mcpServers: [], ...(config.sessionMeta ? { _meta: config.sessionMeta } : {}) })
       await Promise.race([announced, new Promise<void>((res) => setTimeout(res, timeoutMs))])
       // no announcement inside the wait is a legitimate answer: an empty list
       return { names: names ?? [] }

@@ -20,6 +20,7 @@ import {
   type InitializeResponse,
   type NewSessionResponse,
   type LoadSessionResponse,
+  type ResumeSessionResponse,
   type PromptResponse,
   type SessionUpdate,
   type StopReason,
@@ -78,8 +79,11 @@ export interface FakeScript {
   loadReplayUpdates?: SessionUpdate[]
   /** advertise `modes.availableModes` on the session/new response (T2: proves
    *  `AcpEngine` threads the session's advertised mode ids into `modeFor`). Mapped
-   *  to `{ id, name: id }`; `currentModeId` is the first entry (unused by the test). */
+   *  to `{ id, name: id }`; `currentModeId` is the first entry unless `currentModeId` says otherwise. */
   availableModes?: string[]
+  /** the reported `modes.currentModeId` (default: the first advertised mode) — the
+   *  mode the adapter starts in when no set_mode lands. */
+  currentModeId?: string
   /** mode ids on which `session/set_mode` throws (T2: proves the retry-once-with-
    *  fallback path, not just the bare-catch it replaces). */
   rejectSetSessionMode?: string[]
@@ -159,17 +163,17 @@ class FakeAgent implements Agent {
   }
 
   newSession(params: Parameters<Agent['newSession']>[0]): NewSessionResponse {
-    record({ event: 'newSession', cwd: params.cwd, mcpServers: params.mcpServers })
+    record({ event: 'newSession', cwd: params.cwd, mcpServers: params.mcpServers, meta: params._meta })
     const ids = this.script.availableModes
     this.announceCommands(this.script.sessionId ?? 'fake-new')
     return {
       sessionId: this.script.sessionId ?? 'fake-new',
-      ...(ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {})
+      ...(ids ? { modes: { currentModeId: this.script.currentModeId ?? ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {})
     }
   }
 
   async loadSession(params: Parameters<NonNullable<Agent['loadSession']>>[0]): Promise<LoadSessionResponse> {
-    record({ event: 'loadSession', sessionId: params.sessionId, mcpServers: params.mcpServers })
+    record({ event: 'loadSession', sessionId: params.sessionId, mcpServers: params.mcpServers, meta: params._meta })
     if (this.script.failLoad) throw new Error('fake: cannot load session')
     // Replay history BEFORE responding — the client must suppress these.
     for (const u of this.script.loadReplayUpdates ?? []) {
@@ -180,7 +184,17 @@ class FakeAgent implements Agent {
     // just a freshly-created one).
     const ids = this.script.availableModes
     if (!this.script.noCommandsOnLoad) this.announceCommands(params.sessionId)
-    return ids ? { modes: { currentModeId: ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {}
+    return ids ? { modes: { currentModeId: this.script.currentModeId ?? ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {}
+  }
+
+  /** session/resume: like load, minus the history replay. Only reachable when the
+   *  script advertises `resume`. */
+  resumeSession(params: Parameters<NonNullable<Agent['resumeSession']>>[0]): ResumeSessionResponse {
+    record({ event: 'resumeSession', sessionId: params.sessionId, mcpServers: params.mcpServers, meta: params._meta })
+    if (this.script.failLoad) throw new Error('fake: cannot resume session')
+    const ids = this.script.availableModes
+    if (!this.script.noCommandsOnLoad) this.announceCommands(params.sessionId)
+    return ids ? { modes: { currentModeId: this.script.currentModeId ?? ids[0] ?? 'default', availableModes: ids.map((id) => ({ id, name: id })) } } : {}
   }
 
   setSessionMode(params: Parameters<NonNullable<Agent['setSessionMode']>>[0]): Record<string, never> {
