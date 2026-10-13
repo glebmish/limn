@@ -8,7 +8,8 @@
  * 1/2/4/6).
  *
  * Run:  npx tsx scripts/acp-probe.ts [--engine=claude|codex]   (default: claude)
- * Out:  JSON report to stdout AND scripts/acp-probe-out[-codex].json
+ * Out:  JSON report to stdout AND scripts/acp-probe-out[-codex].json (gitignored:
+ *       it records local paths, session ids and the installed skills)
  *
  * This makes a REAL prompt turn against the user's ~/.claude or ~/.codex
  * credentials, i.e. a real Anthropic/OpenAI API call. If the sandbox blocks

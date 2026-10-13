@@ -62,7 +62,9 @@ disk). Slimming it is a known follow-up.
    ```
    These run against `FakeAcpAgent` (scripted NDJSON ACP over stdio) — no network, no
    creds. A green suite proves the mapper/ladder/config contract still holds.
-3. **Re-probe capabilities** against the *real* new adapter and diff the report:
+3. **Re-probe capabilities** against the *real* new adapter and diff the report against
+   your previous run (the reports are local and gitignored — they carry machine paths and
+   session ids):
    ```
    npx tsx scripts/acp-probe.ts --engine=claude   # → scripts/acp-probe-out.json
    npx tsx scripts/acp-probe.ts --engine=codex    # → scripts/acp-probe-out-codex.json

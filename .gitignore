@@ -27,3 +27,19 @@ docs/superpowers/
 *.sqlite3
 coverage/
 .vitest/
+
+# generated ACP probe reports (scripts/acp-probe.ts) — local paths + session ids
+scripts/acp-probe-out*.json
+
+# local worktrees
+.worktrees/
+
+# credentials / registry auth — use ~/.npmrc or CI secrets
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+credentials.json
+service-account*.json

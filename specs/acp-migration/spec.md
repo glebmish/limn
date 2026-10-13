@@ -18,7 +18,7 @@ agent-acp self-discovers `claude`, so Claude does not.
 
 Grounding pass done 2026-07-01. **Phase-0 spike run 2026-07-02** against the real
 `@agentclientprotocol/claude-agent-acp@0.55.0` adapter + live `~/.claude` creds
-(`scripts/acp-probe.ts`, output `scripts/acp-probe-out.json`). Measured decisions
+(`scripts/acp-probe.ts`, output `scripts/acp-probe-out.json`, local and gitignored). Measured decisions
 below govern implementation; where they contradict the draft body, the spike wins.
 
 ### Resolved decisions (Phase-0 spike, Claude)

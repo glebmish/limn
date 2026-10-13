@@ -8,7 +8,7 @@
     "rootDir": "src",
     "lib": ["ES2022"],
     "types": ["node"],
-    "sourceMap": true
+    "sourceMap": false
   },
   "include": ["src/server", "src/cli", "src/shared"]
 }
