@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import type { LoadedReview } from '../shared/ipc.js'
-import type { AgentRef, AgentWriteCapability, Artifact, ArtifactRef, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
+import type { AgentRef, AgentWriteCapability, Artifact, ArtifactRef, Comment, DiffSkeleton, FileDiff, RefPair, RefSide, ReviewState, SessionMeta } from '../shared/types.js'
 import { effectiveRef, fileEffectivelyExcluded } from '../shared/types.js'
 import { approvedShaList, commitBaselines, sinceBasis } from '../shared/sinceBasis.js'
 import {
@@ -294,6 +294,10 @@ export async function assembleReview(
   // One pass for every anchor family in the review, so they share its per-load git
   // memos (a second pass would re-probe every blob and re-run every diff).
   const pass = createReanchorPass(reanchorCtx, artifacts)
+  // The rows as read, for the compare-and-set write-back below: re-anchoring spends
+  // seconds in git, and the reviewer (or an agent) may edit, triage or delete a
+  // comment meanwhile — this snapshot must never be written over that.
+  const snapshot = persist ? new Map(state.comments.map((c) => [c.id, JSON.stringify(c)])) : null
   await reanchorComments(reanchorCtx, state.comments, artifacts, pass)
   // #18 (narration scope): narration blocks, diagram nodes and frozen `point` stops
   // carry bare FocusTargets with no owning comment. They are stamped at creation and
@@ -301,7 +305,7 @@ export async function assembleReview(
   // (`stale`) and is recomputed from the immutable stamp every load, so unlike
   // comments it needs no write-back.
   await reanchorFocusTargets(pass, reviewFocusTargets(state))
-  if (persist) for (const c of state.comments) dao.upsertComment(db, session.id, c) // persist re-anchoring
+  if (snapshot) state.comments = persistReanchoring(db, session.id, state.comments, snapshot)
   const writeCapability = await writeCapabilityFor(repo, pair.compare)
   // S12 "merged outside Limn": the approved tip is already reachable from the base
   // head of a live branch/branch session. Piggybacks on state loads — never the
@@ -331,6 +335,22 @@ export async function assembleReview(
     activeOps: [],
     ...(mergedExternally ? { mergedExternally: true } : {})
   }
+}
+
+/** Persist this load's re-anchoring, compare-and-set against the rows as they were
+ *  read (`snapshot`, id → json). A comment changed or deleted since then keeps its
+ *  newer row — the re-anchor simply re-runs on the next load — and the returned
+ *  list carries that current row instead (or drops it), so the renderer never acts
+ *  on a ghost or a stale text it would later write back. */
+function persistReanchoring(db: DatabaseSync, sessionId: number, comments: Comment[], snapshot: Map<string, string>): Comment[] {
+  const out: Comment[] = []
+  for (const c of comments) {
+    const before = snapshot.get(c.id)
+    if (before === undefined || JSON.stringify(c) === before || dao.casComment(db, sessionId, c, before)) { out.push(c); continue }
+    const current = dao.getComment(db, sessionId, c.id)
+    if (current) out.push(current)
+  }
+  return out
 }
 
 /** Load a persisted session into a renderer-facing review (with DB-side reconciliation

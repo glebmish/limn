@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../src/server/db/db'
-import { createSession, upsertComment, replaceUiState, updateSessionMeta } from '../src/server/db/sessions'
+import { createSession, upsertComment, deleteComment, loadReviewState, replaceUiState, updateSessionMeta } from '../src/server/db/sessions'
 import { fileViewed } from '../src/renderer/store'
 import { buildLoadedReview, previewReview } from '../src/server/review'
 import { headSha, resolveRefInput } from '../src/server/git'
@@ -130,6 +130,44 @@ describe('comments line up with the merged (rendered) surface while dirty', () =
     const rendered = x.hunks.flatMap((h) => h.lines).find((l) => l.new === (c.anchor as { line: number }).line)
     expect(rendered?.text).toBe('TARGET')
     expect(rendered?.origin).toBe('committed')
+  })
+
+  it('re-anchoring write-back never reverts an edit or resurrects a delete made while the load ran', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-cas-'))
+    git(dir, 'init', '-b', 'main')
+    write(dir, 'src/x.ts', 'L1\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'base')
+    git(dir, 'checkout', '-q', '-b', 'feature')
+    write(dir, 'src/x.ts', 'L1\nA\nB\nC\n')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-m', 'add lines')
+
+    const session = await sessionFor(dir)
+    const mk = (id: string, line: number, lineContent: string): Comment => ({
+      id, anchor: { kind: 'diff', file: 'src/x.ts', side: 'new', line, hunkRange: '@@', lineContent },
+      author: 'user', text: `on ${lineContent}`, status: 'queued', replies: [], createdAt: '2026-01-01T00:00:00Z', iteration: 0
+    })
+    for (const c of [mk('edited', 2, 'A'), mk('deleted', 3, 'B'), mk('untouched', 4, 'C')]) upsertComment(db, session.id, c)
+    // a dirty prepend shifts every anchor, so the load has something to write back
+    write(dir, 'src/x.ts', 'NEW\nL1\nA\nB\nC\n')
+
+    // buildLoadedReview snapshots the comments synchronously, then awaits git: these
+    // writes land between the snapshot and the write-back
+    const loading = buildLoadedReview(db, session)
+    const before = loadReviewState(db, session.id).comments
+    upsertComment(db, session.id, { ...before.find((c) => c.id === 'edited')!, text: 'edited mid-load', status: 'resolved' })
+    deleteComment(db, session.id, 'deleted')
+    const loaded = await loading
+
+    const after = loadReviewState(db, session.id).comments
+    expect(after.map((c) => c.id).sort()).toEqual(['edited', 'untouched'])
+    const edited = after.find((c) => c.id === 'edited')!
+    expect(edited.text).toBe('edited mid-load')
+    expect(edited.status).toBe('resolved')
+    // the untouched comment's re-anchoring still persisted
+    expect((after.find((c) => c.id === 'untouched')!.anchor as { line: number }).line).toBe(5)
+    // and the returned state does not hand the renderer the stale/deleted rows
+    expect(loaded.state.comments.map((c) => c.id).sort()).toEqual(['edited', 'untouched'])
+    expect(loaded.state.comments.find((c) => c.id === 'edited')!.text).toBe('edited mid-load')
   })
 
   it('marks uncommitted edits as changed since approval at the same HEAD', async () => {

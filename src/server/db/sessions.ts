@@ -330,6 +330,22 @@ export function upsertComment(db: DatabaseSync, sessionId: number, c: Comment): 
     .run(c.id, sessionId, c.status, JSON.stringify(c), c.createdAt)
 }
 
+/** Compare-and-set write of a comment the caller derived from `snapshotJson` (the
+ *  row's `json` as the caller read it). Writes only while the row still holds that
+ *  exact snapshot — a concurrent edit, triage or delete in between wins — and never
+ *  inserts, so a deleted row stays deleted. True when the write landed. */
+export function casComment(db: DatabaseSync, sessionId: number, c: Comment, snapshotJson: string): boolean {
+  const res = db.prepare('UPDATE comments SET status = ?, json = ? WHERE session_id = ? AND id = ? AND json = ?')
+    .run(c.status, JSON.stringify(c), sessionId, c.id, snapshotJson)
+  return Number(res.changes) > 0
+}
+
+/** One comment as currently stored, or undefined when the row is gone / unreadable. */
+export function getComment(db: DatabaseSync, sessionId: number, id: string): Comment | undefined {
+  const row = db.prepare('SELECT json FROM comments WHERE session_id = ? AND id = ?').get(sessionId, id) as { json: string } | undefined
+  return row ? safeJson<Comment>(row.json, { kind: 'comment', into: [] }) : undefined
+}
+
 export function deleteComment(db: DatabaseSync, sessionId: number, id: string): void {
   db.prepare('DELETE FROM comments WHERE session_id = ? AND id = ?').run(sessionId, id)
 }
