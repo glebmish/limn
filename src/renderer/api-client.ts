@@ -51,6 +51,25 @@ const REBUILD_DELAY_MS = 2000
 /** true once the page has had a live stream: every open after that closed a gap. */
 let everOpened = false
 
+/** Resync retry backoff: first retry after 1s, doubling, capped. */
+const RESYNC_RETRY_BASE_MS = 1000
+const RESYNC_RETRY_MAX_MS = 30_000
+let resyncAttempt = 0
+let resyncTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Refetch what the page shows after a gap in the push stream. A failed refetch is
+ *  retried with backoff — otherwise an op that finished in the gap keeps spinning,
+ *  and an approval raised in it never shows, until something else happens to reload.
+ *  A fresh open restarts the schedule. */
+function resync(): void {
+  if (resyncTimer) { clearTimeout(resyncTimer); resyncTimer = null }
+  void useStore.getState().refreshLoaded({ resync: true }).then((ok) => {
+    if (ok !== false) { resyncAttempt = 0; return }
+    const delay = Math.min(RESYNC_RETRY_MAX_MS, RESYNC_RETRY_BASE_MS * 2 ** resyncAttempt++)
+    resyncTimer = setTimeout(resync, delay)
+  })
+}
+
 function ensureStream(): void {
   if (source) return
   const es = new EventSource(withToken('/events'))
@@ -67,8 +86,9 @@ function ensureStream(): void {
     // after a failed stream was replaced — sits at the end of a gap, and nothing
     // replays what the server pushed during it: the frames carry no `id:`, so there
     // is no Last-Event-ID replay. Refetching what is on screen is the resync (it
-    // re-adopts the session's live ops), and it is a no-op when nothing is loaded.
-    if (everOpened) void useStore.getState().refreshLoaded()
+    // re-adopts the session's live ops and reconciles the ones this tab already
+    // knows), and it is a no-op when nothing is loaded.
+    if (everOpened) { resyncAttempt = 0; resync() }
     everOpened = true
   }
   es.onerror = () => {

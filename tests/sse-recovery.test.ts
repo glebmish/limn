@@ -109,6 +109,31 @@ describe('SSE stream recovery (finding 111)', () => {
     expect(refreshLoaded).toHaveBeenCalledTimes(1)
   })
 
+  it('asks for a resync, not a plain refresh', async () => {
+    const { refreshLoaded } = await boot()
+    streams[0].open()
+    streams[0].open()
+    expect(refreshLoaded).toHaveBeenCalledWith({ resync: true })
+  })
+
+  it('retries a failed resync with backoff until it lands', async () => {
+    const { refreshLoaded } = await boot()
+    refreshLoaded.mockResolvedValueOnce(false as never).mockResolvedValueOnce(false as never)
+    streams[0].open()
+    streams[0].open()
+    expect(refreshLoaded).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(refreshLoaded).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)       // 1s after the first failure
+    expect(refreshLoaded).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(refreshLoaded).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)       // 2s after the second
+    expect(refreshLoaded).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(60_000)  // the third landed: no more retries
+    expect(refreshLoaded).toHaveBeenCalledTimes(3)
+  })
+
   it('keeps delivering events to subscribers over the rebuilt stream', async () => {
     await boot()
     const seen: unknown[] = []

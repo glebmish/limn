@@ -57,8 +57,9 @@ export interface EditsSlice {
   saveEdit(file: string, edit: FileEdit): Promise<ApplyEditResult | null>
 
   /** Refresh the loaded review in place: reload a persisted session, or re-run the
-   *  transient preview. Never materializes (spec open question 4). */
-  refreshLoaded(): Promise<void>
+   *  transient preview. Never materializes (spec open question 4). `resync` is the
+   *  SSE-gap refetch (see `reload`); resolves false when the refetch failed. */
+  refreshLoaded(opts?: { resync?: boolean }): Promise<boolean>
 }
 
 // The live draft (fix-round-1's data-loss fix) lives here, outside zustand's
@@ -135,10 +136,10 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
     return result
   },
 
-  async refreshLoaded() {
+  async refreshLoaded(opts) {
     const { sessionId, loaded, repo } = get()
-    if (sessionId != null) { await get().reload(); return }
-    if (!loaded || !repo) return
+    if (sessionId != null) return get().reload(opts)
+    if (!loaded || !repo) return true
     const pair = loaded.session.pair
     try {
       const fresh = await api().previewReview(repo, pair.base.symbol, pair.compare.symbol, loaded.session.agent ?? get().agent)
@@ -146,8 +147,10 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
       // `set` leaves it alone, so it survives the swap without a write-back (and a
       // write-back would revert any tick made during the previewReview round trip).
       set({ loaded: fresh, pendingDrift: null })
+      return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
+      return false
     }
   }
 })

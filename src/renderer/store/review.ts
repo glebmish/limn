@@ -93,7 +93,10 @@ export interface ReviewSlice {
    *  base anchor is immutable because generated-review reuse keys off it. */
   setSessionBase(ref: string): Promise<void>
   // review
-  reload(): Promise<void>
+  /** Refetch the loaded session. `resync` marks the refetch that closes an SSE gap:
+   *  it also reconciles the ops this tab already knows (see `reconcileOps`).
+   *  Resolves false when the refetch failed (reported in the error strip). */
+  reload(opts?: { resync?: boolean }): Promise<boolean>
   /** stash (or clear) the drift the watcher reported for the loaded review. */
   setPendingDrift(d: DriftSummary | null, capability?: AgentWriteCapability): void
   // comments (comment ownership ruling): this slice owns all comment mutations. Each
@@ -284,9 +287,9 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     if (repo) await get().openReview(repo, { base: r, compare })
   },
 
-  async reload() {
+  async reload(opts) {
     const { sessionId } = get()
-    if (sessionId == null) return
+    if (sessionId == null) return true
     const prevReviews = (get().loaded?.state.chats ?? []).filter((c) => c.kind === 'review')
     // Same try/catch as this slice's other lifecycle actions. Most callers fire this
     // as `void store.reload()`, so a bare rejection would be an unhandled one: no
@@ -296,6 +299,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     // ticks made while the request is out are newer than its snapshot — see
     // mergeViewedSince; taking the server map wholesale would un-tick them.
     const gen = viewedGeneration()
+    const requestedAt = Date.now()
     try {
       const loaded = await api().loadSession(sessionId)
       const merged = mergeViewedSince(gen, loaded.state.viewedAt, get().viewedAt)
@@ -317,12 +321,15 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       // an op may have started elsewhere while this tab sat idle; known ops are skipped,
       // so this never disturbs a stream this tab is already rendering.
       get().adoptOps(loaded.activeOps ?? [])
+      if (opts?.resync) get().reconcileOps(loaded.activeOps ?? [], requestedAt)
       // the server still holds the pre-merge map (its snapshot, or a save that raced
       // it): write the merged one back so it converges on what the reviewer sees
       if (merged) void saveViewedAt(sessionId, merged)
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
+      return true
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
+      return false
     }
   },
 

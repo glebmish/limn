@@ -30,6 +30,11 @@ export const RESET_REVIEW_SURFACE: Pick<AppStore, 'ops' | 'queuedTurnByThread' |
   seenThreadAt: Object.freeze({}) as Record<number, string>
 })
 
+/** How long a tab-started op may sit unregistered on the server before a resync that
+ *  can't find it may retire it (see `reconcileOps`). Covers the window between the
+ *  renderer's `startOp` and the server's live-op registration (the generate preflight). */
+const RESYNC_GRACE_MS = 30_000
+
 /** How many trailing events an op's log retains — bounds per-event re-render cost. */
 const LOG_CAP = 200
 
@@ -62,6 +67,13 @@ export interface OpsSlice {
    *  (and, for a finished one, resurrect it) — then replays each snapshot's events and
    *  drains anything the bridge parked for it while the load was in flight. */
   adoptOps(snaps: ActiveOpSnapshot[]): void
+  /** The SSE-gap half of adoption (a resync after the push stream reconnected):
+   *  `adoptOps` skips every op this tab already knows, so for those — catch each
+   *  still-live op up on the events it emitted during the gap (approval requests
+   *  above all: their card only ever lived in the dropped stream), and retire each
+   *  running one the server no longer reports, whose op:result the gap swallowed.
+   *  `requestedAt` is when the load went out — see `RESYNC_GRACE_MS`. */
+  reconcileOps(snaps: ActiveOpSnapshot[], requestedAt: number): void
   /** Append a streamed event. `seq` (when the envelope carries one) is checked against
    *  the op's `nextSeq` so an event the adoption snapshot already replayed is dropped
    *  instead of double-logged. */
@@ -110,6 +122,43 @@ export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, ge
       set({ ops: { ...get().ops, [s.opId]: { ...op, log, nextSeq: s.nextSeq, startedAt: Number.isNaN(startedAt) ? op.startedAt : startedAt, queued: s.queued ?? null } } })
       // now that the op exists, replay whatever raced ahead of this load
       drainOrphans(s.opId)
+    }
+  },
+
+  reconcileOps(snaps, requestedAt) {
+    const bySnap = new Map(snaps.map((x) => [x.opId, x]))
+    for (const [opId, op] of Object.entries(get().ops)) {
+      if (!op.running) continue
+      const s = bySnap.get(opId)
+      if (!s) {
+        // Only an op the server demonstrably knew: one that streamed something (or
+        // was adopted from a snapshot), or one old enough that it must have been
+        // registered. A turn this tab started a moment ago may not be registered yet
+        // — the server only lists it once its preflight passes — and retiring it here
+        // would freeze a live stream. The outcome is unknown, so it reads as done
+        // without an error, and a turn parked behind it waits for its Send button
+        // rather than auto-firing into what may have been a failure.
+        const seen = op.nextSeq !== undefined || op.log.length > 0
+        if (seen || (op.startedAt ?? requestedAt) < requestedAt - RESYNC_GRACE_MS) get().finishOp(opId, 'succeeded')
+        continue
+      }
+      // The snapshot's events are the trailing window (plus still-parked approvals
+      // older than it) and `nextSeq` counts every event the op ever emitted, so the
+      // gap is the last `s.nextSeq - op.nextSeq` of them. An op that never saw a
+      // sequenced event takes the whole replay only if its log is still empty.
+      const missing = op.nextSeq === undefined ? (op.log.length === 0 ? s.events.length : 0) : s.nextSeq - op.nextSeq
+      const fresh = missing > 0 ? s.events.slice(-missing) : []
+      // every approval the server still holds parked must be on screen exactly once —
+      // including one that sat outside the slice above (carried, or offset by an
+      // answered request the server filters out of the replay)
+      const shown = new Set<string>()
+      for (const e of [...op.log, ...fresh]) if (e.type === 'approval_request') shown.add(e.request.id)
+      const parked = s.events.filter((e) => e.type === 'approval_request' && !shown.has(e.request.id) && !op.answeredApprovals.has(e.request.id))
+      const freshUnique = fresh.filter((e) => e.type !== 'approval_request' || !op.log.some((l) => l.type === 'approval_request' && l.request.id === e.request.id))
+      let log = op.log
+      for (const e of [...parked, ...freshUnique]) log = appendCapped(log, e, op.answeredApprovals)
+      const nextSeq = Math.max(op.nextSeq ?? 0, s.nextSeq)
+      set({ ops: { ...get().ops, [opId]: { ...op, log, nextSeq, queued: s.queued ?? null } } })
     }
   },
 
