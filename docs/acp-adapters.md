@@ -39,8 +39,12 @@ installs the vendored subtree as-is, so a user needs no special flags.
 
 The shipped runtime closure is the two adapter scopes (`@agentclientprotocol/**`,
 `@anthropic-ai/**`), `zod`, and `@modelcontextprotocol/sdk` — the last drags in an
-express/hono tree that dominates the installed footprint (≈ 4.9 MB tarball, ≈ 35 MB on
+express/hono tree that dominates the installed footprint (≈ 6 MB tarball, ≈ 42 MB on
 disk). Slimming it is a known follow-up.
+
+The adapter entry points resolve from `node_modules` at load. For local debugging,
+`LIMN_CLAUDE_ADAPTER` / `LIMN_CODEX_ADAPTER` override them with an absolute path to an
+adapter's `dist/index.js` (for example a locally built fork).
 
 > ⚠ **Codex hard-requires `CODEX_PATH`.** claude-agent-acp can self-discover `claude`,
 > but codex-acp's only fallback when `CODEX_PATH` is unset is the *bundled*
@@ -55,7 +59,7 @@ disk). Slimming it is a known follow-up.
    Confirm the lockfile moved and, for Claude, that the transitive
    `@anthropic-ai/claude-agent-sdk` version changed as expected.
 2. **Run the engine suite** — the CI gate:
-   ```
+   ```bash
    npx vitest run tests/acp-engine.test.ts tests/acpEvents.test.ts \
      tests/approvalPolicy.test.ts tests/adapters.test.ts tests/structured.test.ts
    npx tsc --noEmit
@@ -65,32 +69,39 @@ disk). Slimming it is a known follow-up.
 3. **Re-probe capabilities** against the *real* new adapter and diff the report against
    your previous run (the reports are local and gitignored — they carry machine paths and
    session ids):
-   ```
+   ```bash
    npx tsx scripts/acp-probe.ts --engine=claude   # → scripts/acp-probe-out.json
    npx tsx scripts/acp-probe.ts --engine=codex    # → scripts/acp-probe-out-codex.json
    ```
    Check the load-bearing facts encoded in `adapters.ts` still hold: negotiated
-   `protocolVersion === 1`, `agentCapabilities.loadSession`, `mcpCapabilities.http`,
+   `protocolVersion === 1`, `agentCapabilities.loadSession` (and
+   `sessionCapabilities.resume`, which Limn prefers when present), `mcpCapabilities.http`,
    and the advertised **mode ids** per tier (`modeFor`). If a mode id was renamed or
    a capability dropped, update `AcpEngineConfig` — that record is the single place
    these live.
 4. **Real-adapter smoke** — one live `chat` turn per engine (needs `~/.claude` /
    `~/.codex` creds + network):
-   ```
+   ```bash
    npx tsx scripts/acp-smoke.ts --engine=claude
    npx tsx scripts/acp-smoke.ts --engine=codex
    ```
 5. **Package + spawn-verify** — pack the package the way release does and confirm the
    adapters still load from the installed, native-binary-stripped layout:
-   ```
+   ```bash
    npm run pack:smoke
    ```
    It builds under a full install, re-installs with `npm ci --omit=optional`, `npm pack`s,
-   asserts the tarball carries no `claude-agent-sdk-*` / `codex-<platform>` directory,
-   installs the tarball into a throwaway prefix with **default** npm flags, and curls
-   `/health`. Then spawn each bundled adapter with plain `node` (`CODEX_PATH` set for
-   codex) and confirm an `initialize` handshake returns `protocolVersion: 1` — i.e. the
-   module graph resolves with the native binaries absent. The adapters live under
+   and asserts the tarball carries no `claude-agent-sdk-*` / `codex-<platform>` directory.
+   It then installs the tarball into a throwaway prefix (`--ignore-scripts`, otherwise
+   default npm flags) and checks nothing platform-specific was fetched, runs
+   `limn --version`, serves on an ephemeral port with a temporary database and checks
+   `/health`, and finally restores the full `node_modules`. It rewrites `node_modules`
+   in place, so don't run it in a checkout whose `node_modules` is shared with another.
+
+   Spawn-verifying the adapters is a by-hand step: spawn each bundled adapter with plain
+   `node` (`CODEX_PATH` set for codex) and confirm an `initialize` handshake returns
+   `protocolVersion: 1`, i.e. the module graph resolves with the native binaries absent.
+   The adapters live under
    `<global node_modules>/@glebmish/limn/node_modules/@agentclientprotocol/…`.
 6. **Manual launch smoke** — `npm i -g` the packed tarball, run `limn`, and exercise
    generate / chat / batch with an approval on each engine (the GUI path the scripts
