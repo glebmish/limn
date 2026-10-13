@@ -2,8 +2,10 @@
 
 ## 0.4.0
 
-Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, then
-`limn` in a repository.
+Limn is now an npm-installable package instead of a desktop app, shipped as a tarball on
+the GitHub Release (not the npm registry):
+`npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz`, then `limn` in a
+repository.
 
 - **Local service + browser UI.** `limn` starts (or reuses) a local server and opens the
   review at `http://limn.localhost:5466` in your default browser. `limn service install`
@@ -27,8 +29,10 @@ Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, 
   about; remote images in agent- or branch-authored markdown render as inert text. The
   package ships no server source maps.
 - **Packaging.** Pure-JS package (≈ 7 MB tarball / ≈ 49 MB installed) with the ACP
-  adapters bundled and no platform binaries; Node `^22.13 || >=23.4`. Releases are
-  published from CI with npm provenance.
+  adapters bundled and no platform binaries; Node `^22.13 || >=23.4`. Not published to the
+  npm registry: CI attaches the checked tarball (`glebmish-limn-<version>.tgz`, a
+  stable-named `limn.tgz`, and `SHA256SUMS`) to the GitHub Release, and npm installs it
+  from the release URL.
 - **Database.** 0.4.0 keeps using the desktop app's database file and migrates it in
   place to schema v8 the first time it opens it. Don't run 0.1–0.3 against it afterwards:
   there is no down-migration, and older builds can't load the migrated sessions.

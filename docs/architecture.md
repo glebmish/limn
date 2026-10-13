@@ -7,8 +7,9 @@ and covers the cross-process topology and event model that neither owns.
 
 ## Overview
 
-Limn is a **local Node service with a browser front end**, distributed on npm as
-`@glebmish/limn`. One process serves a React SPA and answers its calls over HTTP
+Limn is a **local Node service with a browser front end**, distributed as an npm
+package tarball (`@glebmish/limn`) attached to each GitHub Release — not on the npm
+registry. One process serves a React SPA and answers its calls over HTTP
 POST + Server-Sent Events; the `limn` CLI is the same package (`bin/limn.js` →
 `dist/cli`) and either talks to a running service or becomes one. It turns
 `git diff` into an AI-guided review: git is ground truth and the agent only

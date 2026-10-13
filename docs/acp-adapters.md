@@ -32,7 +32,7 @@ Two things are decoupled from the adapter version:
 ## Packaging
 
 `package.json`'s `bundleDependencies` vendors the adapters + their JS SDK glue into the
-npm tarball, built after `npm ci --omit=optional` so the SDKs' native platform binaries
+release tarball, built after `npm ci --omit=optional` so the SDKs' native platform binaries
 (`@anthropic-ai/claude-agent-sdk-*` ≈ 225 MB, `@openai/codex-*` ≈ 242 MB, both declared
 as `optionalDependencies`) are **never shipped and never fetched on install**. npm
 installs the vendored subtree as-is, so a user needs no special flags.

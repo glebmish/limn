@@ -1,12 +1,12 @@
 # Limn
 
 [![CI](https://github.com/glebmish/limn/actions/workflows/ci.yml/badge.svg)](https://github.com/glebmish/limn/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/%40glebmish%2Flimn)](https://www.npmjs.com/package/@glebmish/limn)
+[![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
 [![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
 A local service + browser app for **agentic review of local git branches** that helps you understand the code.
 
-**Quick start:** `npm i -g @glebmish/limn`, then run `limn` inside a git repo. Needs Node 22.13+ and the `claude` or `codex` CLI — see [Prerequisites](#prerequisites).
+**Quick start:** `npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz`, then run `limn` inside a git repo. Needs Node 22.13+ and the `claude` or `codex` CLI — see [Prerequisites](#prerequisites).
 
 ![A 39-file branch under guided review in Limn: the diff grouped into seven logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 3 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
@@ -105,22 +105,39 @@ rather than relying on an API key. Usage is billed to the account the CLI uses.
 ## Install
 
 ```bash
-npm i -g @glebmish/limn
+npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz
 limn
 ```
 
+Limn is not on the npm registry: each release is a tarball attached to its
+[GitHub Release](https://github.com/glebmish/limn/releases), and npm installs it
+straight from that URL. The installed package is still named `@glebmish/limn`.
+
 The first `limn` offers to install Limn as a background service (a LaunchAgent on
 macOS, a `systemd --user` unit on Linux) so **http://limn.localhost:5466** is always
-there; say `n` (or pass `--no-service`) to just run it in the foreground. `npx
-@glebmish/limn` runs it without a global install (answer `n` to skip the service; `y`
-installs the package globally first, then the service).
+there; say `n` (or pass `--no-service`) to just run it in the foreground. To try it
+without a global install:
+
+```bash
+npx https://github.com/glebmish/limn/releases/latest/download/limn.tgz
+```
+
+Answer `n` to skip the service; `y` installs that version globally from its release
+first, then the service.
 
 `*.localhost` resolves to your machine in Chrome,
 Edge, Arc and Firefox with no setup; Safari does not resolve it — use
 `http://127.0.0.1:5466` there.
 
-Pin this release with `npm i -g @glebmish/limn@0.4.0`. To upgrade:
-`npm i -g @glebmish/limn@latest`, then restart the service with the command
+Pin this release:
+
+```bash
+npm i -g https://github.com/glebmish/limn/releases/download/v0.4.0/glebmish-limn-0.4.0.tgz
+```
+
+To upgrade, run
+`npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz` again,
+then restart the service with the command
 `limn service status` prints (`launchctl kickstart -k gui/$UID/dev.glebmish.limn` on
 macOS, `systemctl --user restart limn` on Linux). What changed: [CHANGELOG.md](CHANGELOG.md).
 
@@ -268,9 +285,10 @@ npm run build      # dist/renderer (vite) + dist/{server,cli,shared} (tsc)
 npm run pack:smoke # npm pack → install into a temp prefix → /health, asserting no platform binaries shipped
 ```
 
-Pushing a `v*` tag that matches `package.json` publishes `@glebmish/limn` to npm
-(bundled JS-only adapter closure, no platform binaries) and creates a GitHub Release
-with the tarball.
+Pushing a `v*` tag that matches `package.json` creates a GitHub Release with the
+packed tarball (bundled JS-only adapter closure, no platform binaries) as
+`glebmish-limn-<version>.tgz` and `limn.tgz`, plus `SHA256SUMS`. Nothing is published
+to the npm registry — `package.json` is `"private": true`, so `npm publish` refuses.
 
 Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_PORT` (server port), `LIMN_DB` (SQLite path), `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` (bind somewhere other than loopback — e.g. a Tailscale address — with a required token; the service records them when they are set in the shell that runs `limn service install`). `LIMN_DEV_HOOKS=1` arms the page-level dev hooks below for that server process — the SPA ignores `?dev=` unless the server it was served from set it (the hooks can run agent prompts and file edits, so a crafted link must not be enough); `npm run dev`, `npm run dev:server` and the screenshot scripts set it for you. Page-level dev hooks (read by `scripts/dev-url.mts`, see *Screenshots*): `LIMN_OPEN_SESSION=<id>` (open straight to a saved review), `LIMN_OPEN_HUB=<repo>` (open a repo's saved-review list), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer). Real-engine smoke script: `npx tsx scripts/acp-smoke.ts --engine=claude|codex`.
 

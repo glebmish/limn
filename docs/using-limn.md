@@ -377,11 +377,12 @@ line names the unit's port:
 
 On Linux that line reads `systemd --user unit limn serves port …`.
 
-**Upgrading.** `npm i -g @glebmish/limn@latest` swaps the files under the path the unit
-records, but the running process keeps the old code until you restart it:
+**Upgrading.** Re-running the install command (`npm i -g` with the latest release's
+tarball URL) swaps the files under the path the unit records, but the running process
+keeps the old code until you restart it:
 
 ```bash
-npm i -g @glebmish/limn@latest
+npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz
 launchctl kickstart -k gui/$UID/dev.glebmish.limn   # macOS
 systemctl --user restart limn                        # Linux
 ```
