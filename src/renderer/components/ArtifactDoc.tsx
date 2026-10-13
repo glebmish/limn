@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 import type { Artifact, Comment } from '../../shared/types'
 import { Composer, InlineThread } from './Threads'
 import { Commentable, SelectionThreads } from './Commentable'
-import { MD_PLUGINS, PreBlock, InlineCode, type HastNode } from '../lib/markdown'
+import { MD_PLUGINS, PreBlock, InlineCode, SafeImage, type HastNode } from '../lib/markdown'
 
 /** What a commentable block needs to render, handed down by context rather than
  *  captured in closures: React compares element types by reference, so the
@@ -79,6 +79,7 @@ const BLOCK_COMPONENTS: Components = {
   pre: ({ node }) => <Block line={lineOf(node)}><PreBlock node={node} /></Block>,
   table: ({ node, children }) => <Block line={lineOf(node)}><table className="md-table">{children}</table></Block>,
   code: InlineCode,
+  img: SafeImage,
   a: ({ href, children }) => <a className="md-link" href={href} target="_blank" rel="noreferrer">{children}</a>
 }
 

