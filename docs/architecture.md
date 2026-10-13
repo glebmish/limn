@@ -25,15 +25,16 @@ read live from git, never cached as truth.
   agent catalog (`agents.ts`), and the execution-mode ladder
   (`executionMode.ts`).
 - **`src/server/`** — the service core.
-  `ipc.ts` is the orchestrator (it owns the API handlers, per-repo locking, and
-  the three flows below); `git.ts`/`exec.ts` are the git ground-truth layer;
+  `ipc.ts` is the orchestrator (it owns the API handlers and the agent flows);
+  `operations.ts` is the per-repo task queue every agent task waits in; `git.ts`/`exec.ts` are the git ground-truth layer;
   `review.ts` assembles diff skeletons and "since" marking; `db/` persists the
   review layer; `engines/` drives the AI; `paths.ts` resolves the database and
   log locations; `cliOpen.ts` mints the CLI's one-time open tickets.
-- **`src/server/`** — the HTTP carrier. `http.ts` exports `startServer(opts)`
+- **`src/server/http.ts`, `guard.ts`, `transport.ts`**: the HTTP carrier. `http.ts` exports `startServer(opts)`
   (static SPA + `/rpc/*` + `/events` + `/health`, and it opens the single DB
   handle); `guard.ts` holds the pure host/origin checks so they are testable
-  without a socket (the token comparison itself lives in `http.ts`).
+  without a socket (the token comparison itself lives in `http.ts`); `transport.ts`
+  defines the `Transport` seam the orchestrator speaks.
 - **`src/cli/`** — the `limn` binary: `args.ts` (grammar), `open.ts` (the
   dual-role entry point), `serve.ts` (foreground server), and `service/`
   (launchd / systemd `--user` backends, `status` rendering).
@@ -51,8 +52,9 @@ A single user action — "Generate guided review" — traces through every layer
 
 1. The Review screen calls `api.generate(...)`; `api-client.ts` forwards it as
    `POST /rpc/generate` with the arguments as a JSON array.
-2. `ipc.ts` acquires the per-repo lock, reads the diff from git (`getDiff`) and
-   the existing review state from the DB.
+2. `ipc.ts` takes the repo's place in its task queue (waiting behind any running
+   task), reads the diff from git (`getDiff`) and the existing review state from
+   the DB.
 3. It starts the chosen engine's `generateReview`, which returns an
    `{ events, result, cancel }` triple.
 4. **Dual channel:** `events` are pumped to the renderer as `op:event` for live
@@ -70,8 +72,10 @@ The interactive chat and apply-edits flows follow the same `op:event` /
 Every engine operation returns `{ events, result, cancel }`. `ipc.ts` forwards
 `events` on the `op:event` channel for live UI updates and resolves `result` on
 the `op:result` channel when the operation finishes. `EngineEvent` is a tagged
-union — `status`, `tool`, `text`, `action`, `approval_request`, `done`, `error` —
-so the renderer reduces one event stream regardless of which engine produced it.
+union of eight variants (`status`, `tool`, `text`, `action`, `approval_request`,
+`lane`, `done`, `error`), so the renderer reduces one event stream regardless of
+which engine produced it. `lane` is the server's own: it tells a queued op its
+place in the repo's task queue and when it starts running.
 Approvals (when an execution tier requires a go-ahead) ride this same channel as
 `approval_request` events and are answered back over a dedicated `Api` channel;
 see [agent-layer.md](agent-layer.md) for the approval registry.
@@ -85,11 +89,11 @@ notification), `pickDirectory` (host directory picker) — and one backing
 implements it today:
 
 - **The HTTP service** (`src/server/http.ts`) — `startServer({ port, host, token,
-  staticRoot, dbPath, vanityPort80 })` returns `{ port, url, aliasPort, close() }`.
+  staticRoot, dbPath, devHooks, vanityPort80 })` returns `{ port, url, aliasPort, close() }`.
   `handle` becomes `POST /rpc/<channel>` with a JSON array of arguments;
   `broadcast` becomes one `/events` SSE stream carrying `op:event` /
   `op:result` / `repo:changed` frames; `notify` is a no-op and `pickDirectory`
-  returns `null` (the client prompts for a path). Everything else is the built SPA, served from `dist/renderer` with an
+  returns `null` (the client prompts for a path). Everything else is the built SPA, served from `dist/renderer` (or `$LIMN_WEB_STATIC` when set) with an
   index.html fallback for client-side routes.
 - **`GET /health`** is public and unauthenticated — `{ app, version, pid,
   startedAt, port }`. It is how the CLI decides whether a service is already
@@ -114,14 +118,15 @@ not own, so there is no broadcast for it: `POST /rpc/cli:open` resolves the repo
 root and parks the resulting message under a one-time ticket
 (`src/server/cliOpen.ts`); the CLI opens `http://limn.localhost:5466/?open=<ticket>`
 in a **new** tab; that tab redeems the ticket at boot with the `takeCliOpen`
-channel. Tickets are single-use and expire after 60 s.
+channel. Tickets are single-use and expire after 60 s (10 minutes for
+`--print-url`, whose URL may be opened later or on another machine).
 
 ## CLI and service
 
 `limn` is dual-role — the same command is a client when a service is up and a
 server when it is not:
 
-```
+```text
 limn [DIR] …
   │
   ├─ GET <bind host>:5466/health ─► answers ──► client role
@@ -144,7 +149,8 @@ The background service runs `<node> <…/dist/cli/index.js> service serve
 [--port-80]` from a generated unit — `~/Library/LaunchAgents/dev.glebmish.limn.plist`
 (launchd, `RunAtLoad` + `KeepAlive`, logging to `~/Library/Logs/limn.log`) or
 `~/.config/systemd/user/limn.service` (systemd `--user`, `Restart=always`, appending
-to the same log file, though `limn service logs` reads the journal there). Both record absolute, symlink-resolved paths for `node` and the
+to `$XDG_STATE_HOME/limn/limn.log`, default `~/.local/state/limn/limn.log`, though
+`limn service logs` reads the journal there). Both record absolute, symlink-resolved paths for `node` and the
 entry script, a login-shell `PATH` (so the engines find `git`/`claude`/`codex`),
 and any of `LIMN_PORT` / `LIMN_DB` / `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` that were
 set in the installing shell. There are no `stop`/`restart` subcommands:
