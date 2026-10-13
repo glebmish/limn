@@ -2437,7 +2437,7 @@ git commit -m "refactor: rename src/main to src/server — there is no Electron 
 
 - [ ] **Step 4: Hand-off summary**
 
-Update `specs/README.md`'s browser-pivot row (Task 11 Step 5) if the date changed, and report: branch `13-browser-pivot`, commit list, test count, the exact manual GUI smoke still owed to the user (real `limn service install` on 5466 with the real DB, reboot persistence, Safari note).
+Update `specs/README.md`'s browser-pivot row (Task 11 Step 5) if the date changed, and report: commit list, test count, and the manual checks that need a real machine (real `limn service install` on 5466 with the real DB, reboot persistence, Safari note).
 
 ---
 

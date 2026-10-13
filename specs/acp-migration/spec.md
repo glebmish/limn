@@ -655,8 +655,8 @@ Each phase is a separately mergeable, revertable unit.
 4. **Adapter pin canaries** (new, env-gated `LIMN_LIVE_ENGINE_TESTS=1`, manual/CI-
    nightly): against the real pinned adapters, assert initialize capabilities and mode
    ids match what `AcpEngineConfig` encodes — this is the tripwire for adapter bumps.
-5. **Manual smoke per phase** via the packaged app (rebuild `.app`, screenshot
-   proofs): generation, chat with focus/tour tools, batch with an approval at each
+5. **Manual smoke per phase** via the packaged app, with screenshot
+   proofs: generation, chat with focus/tour tools, batch with an approval at each
    tier on each engine.
 
 ## Risks
@@ -704,7 +704,7 @@ Each phase is a separately mergeable, revertable unit.
    and local; prefer `session/resume` when advertised; per-thread process reuse is the
    escape hatch (OQ 8).
 8. **Packaging growth + signing.** Bundling `codex-acp` pulls `@openai/codex` platform
-   binaries into the .app (tens of MB; unsigned-ship model the app ships unsigned). electron-
+   binaries into the .app (tens of MB; the app ships unsigned). electron-
    builder config must include exactly one platform's binary. *Mitigation:* Phase-3
    packaging pass + `manual-install-verification` before release.
 9. **Silent behavior drift inside adapters** (e.g. claude-agent-acp injects its own

@@ -1,8 +1,8 @@
 # In-place edits — fixing it yourself, in review
 
 Grounded against the code as of `d896f37` (main tip). Behavioral reference:
-Claude Design board `screens/12-inline-edits.html` ("12 ·
-In-place edits") — its live demos are the intended DOM transitions; this spec
+design board `screens/12-inline-edits.html` ("12 · In-place
+edits") — its live demos are the intended DOM transitions; this spec
 restates them as an implementation contract against the real codebase. All
 board deviations from the 2026-08-07 draft (rail ↺ discard, no agent-run
 pause, line-anchored CAS) are **accepted**.

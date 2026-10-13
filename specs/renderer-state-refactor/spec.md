@@ -343,8 +343,8 @@ Extractions (each renders today's exact markup):
     a lint guard. Out of this refactor's scope (Open question 7).
 
 Each step: `tsc --noEmit` + `vitest run` + a manual smoke (open a seeded session,
-toggle viewed, send a chat turn) before commit. Commit per step (
-commit as you go; rebuild the .app with `npm run package` after landing).
+toggle viewed, send a chat turn) before commit. Commit per step; rebuild the .app
+with `npm run package` after landing.
 
 ## Characterization-test plan
 
@@ -414,7 +414,7 @@ way `comments-routing.test.ts` does):
   moved code must preserve clone-before-mutate or React equality breaks.
 - **`window.api` timing on the web build**: the seam must never capture `window.api` at
   module init (it's installed async by `web-api.ts`). The `api()` function form is safe;
-  a `const api = window.api` binding is not. Also a stale open SPA tab
+  a `const api = window.api` binding is not. Also: a stale open SPA tab
   keeps an old bundle — restart serve + hard-reload when smoke-testing web.
 - **Dev screenshot hooks** write raw store shapes (`useStore.setState({ gen: … })`,
   `showArchived`, `activeChat`) — slice renames/moves must keep these field names, and

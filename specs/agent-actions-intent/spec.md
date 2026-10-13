@@ -1,6 +1,6 @@
 # Agent turns: intent by the agent, findings by extraction
 
-**Date:** 2026-09-13 · **Status:** approved in discussion, implementing · **Branch:** `37-action-intent` off `36-actions-triage`
+**Date:** 2026-09-13 · **Status:** approved in discussion, implementing
 
 ## 1. Problem
 
