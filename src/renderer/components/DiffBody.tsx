@@ -15,7 +15,7 @@ import { fileEditable, rawOffsetFromDisplayColumn, type DiscardSpan } from '../l
 import {
   STEP, foldControls, gapContaining, hunkGaps, revealLines, stepReveal, type Gap, type GapReveal
 } from '../lib/expand'
-import { asAligned, buildFileRows, buildSplitRows, rowAnchors, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
+import { asAligned, buildFileRows, buildSplitRows, commentAnchor, rowAnchors, viewAlignedRows, type AlignedRow, type Cell, type GapRow, type Layout, type ViewRow } from '../lib/rows'
 import { estimateDiffHeight } from '../lib/diffHeight'
 import { buildMultiRows, multiGaps } from '../lib/rowsMulti'
 import { api } from '../lib/api'
@@ -169,6 +169,13 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   // its own base→checkpoint slice.
   const mids = useMemo(() => (layout === 'multi' ? cols.slice(1).map((s) => midHunksFor(f, s)) : []), [layout, f, stackKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const hunks = layout === 'multi' ? f.hunks : sliceFor(f, since)
+  // Whose line numbers the old side shows. Every stored side:'old' anchor is base
+  // space (the server stamps it at the merge base); a since-checkpoint slice's old
+  // side is the checkpoint's. There the old side is shown but never addressed — no
+  // commenting, no thread matching, no jump target — or a base comment lands on
+  // whichever checkpoint line shares its number. Multi's old column is the base, and
+  // an untracked file has no old side at all.
+  const oldIsBase = layout === 'multi' || since === 'base' || Boolean(f.untracked)
   const lang = langForPath(f.path)
   const outdated = fileComments.filter((c) => c.status === 'outdated')
   // a dismissed proposal is hidden everywhere until restored (board 14 v3)
@@ -381,7 +388,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   /** Every thread on a row, across every (side, line) it holds (`rowAnchors`): a
    *  Split row pairing base line 2 with now line 2 hosts a comment made on either. */
   const rowThreads = (r: AlignedRow): Comment[] =>
-    rowAnchors(r).flatMap((a) => threadsFor(a.lineNo, a.side))
+    rowAnchors(r, oldIsBase).flatMap((a) => threadsFor(a.lineNo, a.side))
   /** The gutter mark for a line with threads (board 14 T1): a solid dot for the
    *  reviewer's own comments, a dashed ring when any proposal sits there. */
   const commentMark = (r: AlignedRow): React.ReactNode => {
@@ -405,6 +412,18 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     return out
   }, [gaps, reveals, fileLines])
   const view = useMemo(() => viewAlignedRows(rows, revealed, layout, lang), [rows, revealed, layout, lang])
+  /** every (side:line) some rendered row hosts threads for */
+  const hosted = useMemo(() => {
+    const at = new Set<string>()
+    for (const r of view) if (r.type === 'aligned') for (const a of rowAnchors(r, oldIsBase)) at.add(`${a.side}:${a.lineNo}`)
+    return at
+  }, [view, oldIsBase])
+  // Live comments no row here hosts: a since-checkpoint slice shows only part of the
+  // diff (and never base old-side lines), so comments the full diff would show inline
+  // are listed below rather than silently dropped.
+  const outsideView = shown.filter((c) =>
+    c.anchor.kind === 'diff' && c.status !== 'outdated' && !c.notInDiff && !hosted.has(`${c.anchor.side}:${c.anchor.line}`)
+  )
   /** the now-side line of an aligned row, if it has one */
   const nowLine = (r: ViewRow | undefined): DiffLine | null => {
     if (!r || r.type !== 'aligned') return null
@@ -489,16 +508,17 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   }
   const afterRow = (r: AlignedRow): React.ReactNode => {
     const threads = rowThreads(r)
-    if (!r.anchor && threads.length === 0) return null
-    const side = r.anchor?.side
-    const lineNo = r.anchor?.lineNo
+    const anchor = commentAnchor(r, oldIsBase)
+    if (!anchor && threads.length === 0) return null
+    const side = anchor?.side
+    const lineNo = anchor?.lineNo
     const l = r.cells.find((c) => c.side === side)?.l
     return (
       <>
         {threads.map((c) => (
           <InlineThread key={c.id} c={c} locLabel={`on line ${c.anchor.kind === 'diff' ? c.anchor.line : lineNo}`} />
         ))}
-        {r.anchor && side && lineNo != null && composerAt && composerAt.side === side && composerAt.line === lineNo && (
+        {side && lineNo != null && composerAt && composerAt.side === side && composerAt.line === lineNo && (
           <Composer
             placeholder="Leave a comment for the agent…"
             onCancel={() => setComposerAt(null)}
@@ -530,15 +550,16 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
     if (coveredBy(l)) return mountFrame()
     const sliver = frame != null && l.new == null && (coveredBy(nowLine(view[i - 1])) || coveredBy(nowLine(view[i + 1])))
     const railTip = railTipFor(c, driftRails)
+    const anchor = commentAnchor(r, oldIsBase)
     const kindCls = l.kind === 'add' ? 'add' : l.kind === 'del' ? 'del' : ''
     return (
       <Fragment key={r.key}>
         <div
           className={'dline ' + kindCls + originCls(l, driftRails) + (sliver ? ' frame-sliver' : '') + (selected && l.new != null && l.new === selected.line ? ' line-selected' : '')}
-          data-limn-line={`${f.path}:${c.side}:${c.lineNo}`}
+          data-limn-line={c.side === 'old' && !oldIsBase ? undefined : `${f.path}:${c.side}:${c.lineNo}`}
           // a context row shows its base number too: an old-side jump lands here
           // (lib/focusScroll.ts matches this alias for side 'old')
-          data-limn-line-old={c.side === 'new' && l.old != null ? `${f.path}:old:${l.old}` : undefined}
+          data-limn-line-old={oldIsBase && c.side === 'new' && l.old != null ? `${f.path}:old:${l.old}` : undefined}
           onDoubleClick={editable && l.new != null ? (e) => openFrameAt(l, e) : undefined}
         >
           {railTip && (
@@ -551,7 +572,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
           <span className="gut"><span>{l.old ?? ''}</span><span>{l.new ?? ''}</span></span>
           <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
           <CodeLine text={l.text} lang={lang} ranges={c.marks} html={c.html} />
-          {r.anchor && commentButton(r.anchor)}
+          {anchor && commentButton(anchor)}
           {editable && l.new != null && pencil(l)}
           {editable && discardButton(r, l)}
         </div>
@@ -595,6 +616,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
       )
     }
     const nowCell = r.cells[r.cells.length - 1]
+    const anchor = commentAnchor(r, oldIsBase)
     return (
       <Fragment key={r.key}>
         <div className="dline split">
@@ -609,15 +631,15 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
               <div
                 key={ci}
                 className={cls}
-                data-limn-line={c.l && c.side !== 'mid' && c.lineNo != null ? `${f.path}:${c.side}:${c.lineNo}` : undefined}
+                data-limn-line={c.l && c.lineNo != null && (c.side === 'new' || (c.side === 'old' && oldIsBase)) ? `${f.path}:${c.side}:${c.lineNo}` : undefined}
                 onDoubleClick={isNow && editable && nowL ? (e) => openFrameAt(nowL, e) : undefined}
               >
                 {railTip && <Tooltip className="rail-hit" tipClassName="rail-tip" content={railTip} side="right" delay={450} />}
-                {(r.anchor ? c.side === r.anchor.side : ci === r.cells.length - 1) && commentMark(r)}
+                {(anchor ? c.side === anchor.side : ci === r.cells.length - 1) && commentMark(r)}
                 <span className="gut"><span>{c.lineNo ?? ''}</span></span>
                 <span className="sign">{c.kind === 'add' ? '+' : c.kind === 'del' || c.deleted ? '−' : ''}</span>
                 {c.l ? <CodeLine text={c.l.text} lang={lang} ranges={c.marks} html={c.html} /> : <span className="code" />}
-                {r.anchor && c.side === r.anchor.side && c.l && commentButton(r.anchor)}
+                {anchor && c.side === anchor.side && c.l && commentButton(anchor)}
                 {isNow && editable && nowL && pencil(nowL)}
                 {editable && r.anchor && c.side === r.anchor.side && c.l && discardButton(r, c.l)}
               </div>
@@ -659,6 +681,14 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
               {notShown.length} comment{notShown.length > 1 ? 's' : ''} anchored to lines not shown in this diff:
               {notShown.map((c) => (
                 <InlineThread key={c.id} c={c} locLabel="not shown here" />
+              ))}
+            </div>
+          )}
+          {outsideView.length > 0 && (
+            <div className="nodiff" style={{ borderTop: '1px solid var(--line)' }}>
+              {outsideView.length} comment{outsideView.length > 1 ? 's' : ''} on lines outside this view:
+              {outsideView.map((c) => (
+                <InlineThread key={c.id} c={c} locLabel={c.anchor.kind === 'diff' ? `${c.anchor.side === 'old' ? 'base ' : ''}line ${c.anchor.line}` : 'outside this view'} />
               ))}
             </div>
           )}

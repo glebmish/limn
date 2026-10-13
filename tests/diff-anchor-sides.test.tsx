@@ -83,3 +83,60 @@ describe('old-side anchors render in every layout (#11)', () => {
     expect(sels).toEqual(['[data-limn-line="src/a.ts:old:3"],[data-limn-line-old="src/a.ts:old:3"]'])
   })
 })
+
+/** A since-checkpoint slice's old side is the CHECKPOINT's line space, while every
+ *  stored side:'old' anchor is base space (the server stamps it at the merge base).
+ *  The two must never meet: no old-side commenting or matching inside a slice, and
+ *  whatever the slice does not show is listed, not silently dropped. */
+const drifted: FileDiff = {
+  ...file,
+  hunks: [...file.hunks, { range: '@@ -9,2 +10,2 @@', header: '', lines: [
+    { old: 9, new: 10, kind: '', text: 'x' },
+    { old: 10, new: null, kind: 'del', text: 'cp line' },
+    { old: null, new: 11, kind: 'add', text: 'now line' }
+  ] }],
+  // checkpoint → now: its old numbers (1, 2) are the checkpoint's, and collide with base's
+  sinceHunks: [{ range: '@@ -1,2 +10,2 @@', header: '', lines: [
+    { old: 1, new: 10, kind: '', text: 'x' },
+    { old: 2, new: null, kind: 'del', text: 'cp line' },
+    { old: null, new: 11, kind: 'add', text: 'now line' }
+  ] }]
+}
+const SINCE_UNIFIED: Stack = { out: [], against: 'approved' }
+const SINCE_SPLIT: Stack = { out: ['approved'], against: 'base' }
+const sliceComments = [comment('b2', 'old', 2), comment('n2', 'new', 2), comment('n11', 'new', 11)]
+
+describe.each([['Unified', SINCE_UNIFIED], ['Split', SINCE_SPLIT]] as const)('a since-checkpoint slice in %s (#10)', (_name, stack) => {
+  it('offers no old-side address: no comment button on the checkpoint deletion, no old-side jump target', () => {
+    seed(stack, drifted, [])
+    const out = renderToStaticMarkup(<DiffView f={drifted} />)
+    expect(out).toContain('cp line')
+    expect(out).not.toMatch(/data-limn-line(-old)?="src\/a\.ts:old:/)
+    expect(out).not.toContain('aria-label="Comment on line 2"')
+    expect((out.match(/gutter-add/g) ?? []).length).toBe(2) // the context row and the addition
+  })
+
+  it('never shows a base-numbered old-side comment on the checkpoint row that shares its number', () => {
+    seed(stack, drifted, sliceComments)
+    const out = renderToStaticMarkup(<DiffView f={drifted} />)
+    expect(count(out, 'b2')).toBe(1)
+    expect(count(out, 'n2')).toBe(1)
+    expect(count(out, 'n11')).toBe(1)
+    const footer = out.indexOf('outside this view')
+    expect(footer).toBeGreaterThan(-1)
+    expect(out).toContain('2 comments on lines outside this view')
+    // n11 sits inline on its row; b2 and n2 only in the footer
+    expect(out.indexOf('data-comment-id="n11"')).toBeLessThan(footer)
+    expect(out.indexOf('data-comment-id="b2"')).toBeGreaterThan(footer)
+    expect(out.indexOf('data-comment-id="n2"')).toBeGreaterThan(footer)
+  })
+})
+
+describe('the full diff of the same file', () => {
+  it('still hosts base old-side comments inline, with no outside footer', () => {
+    seed(UNIFIED, drifted, sliceComments)
+    const out = renderToStaticMarkup(<DiffView f={drifted} />)
+    expect(out).not.toContain('outside this view')
+    expect(out.indexOf('data-comment-id="b2"')).toBeLessThan(out.indexOf('src/a.ts:new:3'))
+  })
+})

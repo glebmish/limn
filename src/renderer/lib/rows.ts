@@ -310,6 +310,13 @@ export type ViewRow = AlignedRow | GapRow
 
 export type RowAnchor = NonNullable<AlignedRow['anchor']>
 
+/** Where a new comment on this row goes, or null where it cannot go: a row whose
+ *  only anchor is an old-side line in a slice whose old side is not base space (see
+ *  `rowAnchors`) — a comment there would be stamped against unrelated base code. */
+export function commentAnchor(r: AlignedRow, oldIsBase = true): RowAnchor | null {
+  return r.anchor && (oldIsBase || r.anchor.side === 'new') ? r.anchor : null
+}
+
 /** Every (side, line) address a row holds — what thread lookup matches against.
  *  `anchor` above is the ONE place a new comment goes; this is every place an
  *  existing one may already sit. A Split row pairing a deletion with an addition
@@ -321,17 +328,24 @@ export type RowAnchor = NonNullable<AlignedRow['anchor']>
  *  A non-`mid` cell's `l.old` is base space (Multi's base cell and now cell both come
  *  from base-relative diffs); `l.new` is the tree now only on a `new` cell — a Multi
  *  base cell's line can come from a checkpoint's diff, whose new side is that
- *  checkpoint's. Revealed context rows hold none, as before. */
-export function rowAnchors(r: AlignedRow): RowAnchor[] {
+ *  checkpoint's. Revealed context rows hold none, as before.
+ *
+ *  `oldIsBase: false` — a since-checkpoint slice, whose old numbers are the
+ *  CHECKPOINT's while every stored old-side anchor is base space (the server stamps
+ *  side 'old' at the merge base) — drops the old side entirely: there those numbers
+ *  address nothing, and matching them would put a base comment on whatever
+ *  checkpoint line happens to share its number. */
+export function rowAnchors(r: AlignedRow, oldIsBase = true): RowAnchor[] {
   if (!r.fromHunk) return []
   const out: RowAnchor[] = []
   const add = (side: 'old' | 'new', lineNo: number | null): void => {
     if (lineNo != null && !out.some((a) => a.side === side && a.lineNo === lineNo)) out.push({ side, lineNo })
   }
-  if (r.anchor) add(r.anchor.side, r.anchor.lineNo)
+  const own = commentAnchor(r, oldIsBase)
+  if (own) add(own.side, own.lineNo)
   for (const c of r.cells) {
     if (!c.l || c.side === 'mid') continue
-    add('old', c.l.old)
+    if (oldIsBase) add('old', c.l.old)
     if (c.side === 'new') add('new', c.l.new)
   }
   return out
