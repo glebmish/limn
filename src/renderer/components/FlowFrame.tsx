@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
 import { saveChordLabel } from '../lib/platform'
+import { singleFlight } from '../lib/singleFlight'
 import type { FrameDraft, FrameYours } from '../lib/edits'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
@@ -49,19 +50,6 @@ export function frameSaveOutcome(res: ApplyEditResult | null): 'saved' | 'confli
 /** The error strip for a save that never reached the file. */
 export function unsavedMessage(path: string, cause: string | null): string {
   return `${path} was not saved${cause ? ` (${cause})` : ''}. Your text is still in the frame — save again to retry.`
-}
-
-/** Run `run` unless one is already in flight. `busy` is a ref, not state, so two
- *  clicks in the same tick (before a re-render could disable the button) still see
- *  it; `setBusy` mirrors it into state for the disabled/readOnly rendering. */
-export function singleFlight(busy: { current: boolean }, setBusy: (b: boolean) => void, run: () => Promise<void>): Promise<void> {
-  if (busy.current) return Promise.resolve()
-  busy.current = true
-  setBusy(true)
-  return run().finally(() => {
-    busy.current = false
-    setBusy(false)
-  })
 }
 
 /** The single in-place editor (specs/inplace-edits — board 12's "flow frame").

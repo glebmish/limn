@@ -101,13 +101,14 @@ function candidateAge(commitsOld: number): string {
 }
 
 export function GenPanel() {
-  const { loaded, ops, agent } = useStore()
+  const { loaded, ops, agent, generateStarting } = useStore()
   // the review-generation op for this review (scoped to its threads); a generation on
   // another session — or a concurrent chat/batch — never paints its strip here.
   const gen = reviewOp(ops, loaded)
   // any exclusive op (this review's generation, a batch, or an exclusive chat) blocks
   // starting a new generation — a read-only shared chat does not.
-  const busy = anyExclusiveRunning(ops)
+  // …and so does a start still on its way to registering its op (see generateStarting)
+  const busy = anyExclusiveRunning(ops) || generateStarting
   const reviewAgent = loaded?.state.agent ?? agent
   const gate = checkoutGate(loaded)
   const logRef = useRef<HTMLDivElement>(null)

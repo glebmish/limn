@@ -55,6 +55,11 @@ function appendCapped(log: EngineEvent[], ev: EngineEvent, answered: Set<string>
  *  Actions take an explicit opId so two live streams never cross-contaminate. */
 export interface OpsSlice {
   ops: Record<string, OpState>
+  /** a generate is being started — materialize/beginReview/reload are in flight and
+   *  its op is not registered yet, so `anyExclusiveRunning` can't see it. Set
+   *  synchronously by `startGenerateNow` before its first await; Generate buttons
+   *  read it as busy, so a double click can't start a second paid run. */
+  generateStarting: boolean
   /** start an op. Every op takes the repo's single lane (queueing server-side when
    *  another holds it), so `exclusive` defaults to true; main still announces the
    *  lane on every op:event / op:result envelope and `setOpLane` applies it. Evicts
@@ -89,6 +94,7 @@ export interface OpsSlice {
 
 export const createOpsSlice: StateCreator<AppStore, [], [], OpsSlice> = (set, get) => ({
   ops: {},
+  generateStarting: false,
 
   startOp(kind, opId, threadId, exclusive) {
     const isExclusive = exclusive ?? true
@@ -248,11 +254,20 @@ export async function startGenerate(sessionId: number, agent: AgentRef, opId: st
  *  `steer` is an optional one-shot note that focuses the pass; `update` folds new
  *  drift commits into the existing review instead of re-narrating from scratch. */
 export async function startGenerateNow(steer?: string, update?: boolean): Promise<void> {
-  if (anyExclusiveRunning(useStore.getState().ops)) return // an exclusive op is already in flight
-  if (checkoutGate(useStore.getState().loaded).blocked) return
-  const sessionId = await useStore.getState().materialize()
-  if (sessionId == null) return
-  const { loaded, agent } = useStore.getState()
-  if (checkoutGate(loaded).blocked) return
-  await startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
+  const st = useStore.getState()
+  // an exclusive op is already in flight — or a start is, whose op isn't registered
+  // until several awaits from now (the zustand set below is synchronous, so a second
+  // click in the same tick already sees it)
+  if (st.generateStarting || anyExclusiveRunning(st.ops)) return
+  if (checkoutGate(st.loaded).blocked) return
+  useStore.setState({ generateStarting: true })
+  try {
+    const sessionId = await useStore.getState().materialize()
+    if (sessionId == null) return
+    const { loaded, agent } = useStore.getState()
+    if (checkoutGate(loaded).blocked) return
+    await startGenerate(sessionId, loaded?.state.agent ?? agent, newOpId(), steer?.trim() || undefined, update)
+  } finally {
+    useStore.setState({ generateStarting: false })
+  }
 }

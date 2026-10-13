@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 
 ;(globalThis as unknown as { window: unknown }).window = { api: {} }
 
-import { frameSaveOutcome, singleFlight, unsavedMessage } from '../src/renderer/components/FlowFrame'
+import { frameSaveOutcome, unsavedMessage } from '../src/renderer/components/FlowFrame'
+import { singleFlight } from '../src/renderer/lib/singleFlight'
 import type { ApplyEditResult } from '../src/shared/types'
 
 // A transport failure on save (network drop, server restart) used to close the frame

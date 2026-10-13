@@ -157,6 +157,17 @@ describe('GenPanel primary CTAs disable while another exclusive op runs (#108)',
     expect(buttonTag(html, 'Retry generation')).not.toContain('disabled')
   })
 
+  it('Retry generation also disables while a generate is still starting (no op registered yet)', () => {
+    setupCancelled(false)
+    initial().generateStarting = true
+    try {
+      const html = renderToStaticMarkup(<GenPanel />)
+      expect(buttonTag(html, 'Retry generation')).toContain('disabled')
+    } finally {
+      initial().generateStarting = false
+    }
+  })
+
   it('the error-state Retry button also disables while busy (same omission)', () => {
     const gen: OpState = op({ opId: 'gen', kind: 'review', threadId: 3, running: false, outcome: 'failed', error: 'boom' })
     const ops: Record<string, OpState> = { gen, other: op({ opId: 'other', kind: 'chat', threadId: 99, running: true, exclusive: true }) }

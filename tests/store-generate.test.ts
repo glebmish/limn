@@ -13,7 +13,7 @@ const listRepoSessions = vi.fn(async () => [])
   api: { beginReview, generate, loadSession, repoState, listRepoSessions },
 }
 
-import { startGenerate, useStore } from '../src/renderer/store'
+import { startGenerate, startGenerateNow, useStore } from '../src/renderer/store'
 
 const flush = () => new Promise((r) => setTimeout(r))
 const agent = { engine: 'claude' } as unknown as AgentRef
@@ -54,5 +54,35 @@ describe('startGenerate failure handling', () => {
     expect(op.running).toBe(false)
     expect(op.outcome).toBe('failed')
     expect(op.error).toBe('generate: 500')
+  })
+})
+
+describe('startGenerateNow single flight', () => {
+  beforeEach(() => {
+    beginReview.mockReset(); generate.mockReset(); loadSession.mockReset()
+    generate.mockResolvedValue(undefined)
+    loadSession.mockResolvedValue(makeLoaded({ chats: [{ id: 7, kind: 'review', messages: [] }] }))
+    useStore.setState({ sessionId: 1, repo: '/repo', loaded: makeLoaded(), ops: {}, error: null, activeChatId: null, generateStarting: false })
+  })
+
+  it('a double click starts ONE paid run — the guard holds across the pre-startOp awaits', async () => {
+    let release!: (id: number) => void
+    beginReview.mockImplementationOnce(() => new Promise<number>((r) => { release = r }))
+    const first = startGenerateNow()
+    expect(useStore.getState().generateStarting).toBe(true) // set before the first await
+    const second = startGenerateNow()
+    await flush()
+    release(7)
+    await Promise.all([first, second])
+    expect(beginReview).toHaveBeenCalledTimes(1)
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().generateStarting).toBe(false)
+  })
+
+  it('clears the flag when the start fails', async () => {
+    beginReview.mockRejectedValueOnce(new Error('nope'))
+    await startGenerateNow()
+    expect(useStore.getState().generateStarting).toBe(false)
+    expect(useStore.getState().error).toBe('nope')
   })
 })

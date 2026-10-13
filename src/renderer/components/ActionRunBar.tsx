@@ -1,8 +1,10 @@
+import { useRef, useState } from 'react'
 import type { ChatThread, EngineId } from '../../shared/types'
 import { engineLabel } from '../../shared/agents'
 import { I } from '../kit'
 import { useStore, type OpState } from '../store'
 import { deltaLabel, latestRun, runBarState } from '../lib/runs'
+import { singleFlight } from '../lib/singleFlight'
 import { ordinal } from './ChatDrawer'
 
 /** The run bar under the drawer head (design board 14 R1/R3): what is running and
@@ -17,12 +19,21 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
   const runAction = useStore((s) => s.runAction)
   const refreshCommands = useStore((s) => s.refreshCommands)
   const retargetThread = useStore((s) => s.retargetThread)
+  // Re-run / Check again / Run with each start a paid run several awaits before its
+  // op exists (and the bar switches to "running"): hold them while one is starting
+  const startingRef = useRef(false)
+  const [starting, setStarting] = useState(false)
+  const launch = (run: () => Promise<unknown>): void => {
+    singleFlight(startingRef, setStarting, run).catch((err: unknown) => {
+      useStore.setState({ error: err instanceof Error ? err.message : String(err) })
+    })
+  }
   const state = runBarState(thread, op, comments)
   const v = latestRun(thread)
   if (!state || !v) return null
   // Re-run is one more turn in THIS thread (a fresh thread is what the bolt launcher does)
   const target = { kind: 'thread' as const, threadId: thread.id }
-  const rerun = (): void => { void runAction(v.run.actionId, target) }
+  const rerun = (): void => launch(() => runAction(v.run.actionId, target))
   const other: EngineId = thread.agent.engine === 'codex' ? 'claude' : 'codex'
   switch (state.kind) {
     case 'queued':
@@ -49,7 +60,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
             Finished · run {v.run.n}{state.collects && <> · <b>{state.count === 0 ? 'no findings' : `${state.count} finding${state.count === 1 ? '' : 's'}`}</b></>}{deltaLabel(state.delta) ? ` · ${deltaLabel(state.delta)}` : ''}{state.duration ? ` · ${state.duration}` : ''}
             {state.availabilityFrom && <span className="ax-avail-from" title="The resumed session sent no fresh command list, so the run trusted the last probe"> · availability from {ago(state.availabilityFrom)}</span>}
           </span>
-          <button className="btn btn-sm btn-ghost" onClick={rerun} title="Run again — untouched proposals from this run are replaced">Re-run</button>
+          <button className="btn btn-sm btn-ghost" disabled={starting} onClick={rerun} title="Run again — untouched proposals from this run are replaced">Re-run</button>
         </div>
       )
     case 'refused':
@@ -57,9 +68,9 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
         <div className="ax-runbar err" role="alert">
           <I.x className="ic" />
           <span><b>{state.error.split(' — ')[0]}</b>{state.error.includes(' — ') ? ` — ${state.error.split(' — ').slice(1).join(' — ')}` : ''}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => { if (repo) void refreshCommands(repo, [thread.agent.engine]).then(rerun); else rerun() }}><I.refresh style={{ width: 11, height: 11 }} />Check again</button>
+          <button className="btn btn-sm btn-ghost" disabled={starting} onClick={() => launch(async () => { if (repo) await refreshCommands(repo, [thread.agent.engine]); await runAction(v.run.actionId, target) })}><I.refresh style={{ width: 11, height: 11 }} />Check again</button>
           {!thread.engineSessionId && (
-            <button className="btn btn-sm btn-ghost" onClick={() => { void retargetThread(thread.id, { engine: other }).then(() => runAction(v.run.actionId, target)) }}>
+            <button className="btn btn-sm btn-ghost" disabled={starting} onClick={() => launch(async () => { await retargetThread(thread.id, { engine: other }); await runAction(v.run.actionId, target) })}>
               Run with {engineLabel(other)} instead
             </button>
           )}
@@ -70,7 +81,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
         <div className="ax-runbar err" role="alert">
           <I.x className="ic" />
           <span><b>Run {v.run.n} failed.</b> {state.error}</span>
-          <button className="btn btn-sm btn-ghost" onClick={rerun}>Re-run</button>
+          <button className="btn btn-sm btn-ghost" disabled={starting} onClick={rerun}>Re-run</button>
         </div>
       )
     case 'cancelled':
@@ -78,7 +89,7 @@ export function ActionRunBar({ thread, op }: { thread: ChatThread; op: OpState }
         <div className="ax-runbar done" role="status">
           <I.x className="ic" />
           <span>Run {v.run.n} cancelled.</span>
-          <button className="btn btn-sm btn-ghost" onClick={rerun}>Re-run</button>
+          <button className="btn btn-sm btn-ghost" disabled={starting} onClick={rerun}>Re-run</button>
         </div>
       )
   }
