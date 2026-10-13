@@ -1,19 +1,16 @@
 import net from 'node:net'
-import { execSync } from 'node:child_process'
 import { startServer, type RunningServer, type ServerOptions } from '../server/http.js'
 import { defaultDbPath } from '../server/paths.js'
 import { probeHealth } from './health.js'
 import { resolvePort, serviceTarget } from './target.js'
+import { loginShellPath } from './service/index.js'
 import type { Io } from './main.js'
 
 /** GUI/launchd launches don't inherit the login-shell PATH; engines need git/claude/codex. */
 export function bootstrapPath(): void {
-  try {
-    const shell = process.env.SHELL || '/bin/zsh'
-    // stderr is dropped: an interactive rc file's chatter isn't ours to print.
-    const p = execSync(`${shell} -ilc 'echo -n "$PATH"'`, { timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).toString()
-    if (p) process.env.PATH = p
-  } catch { /* keep default PATH */ }
+  // Sentinel-bracketed and validated, so rc-file chatter on stdout (nvm's "Now using
+  // node …") can't fuse onto the first segment; falls back to the current PATH.
+  process.env.PATH = loginShellPath()
 }
 
 export async function classifyBusyPort(port: number): Promise<'limn' | 'other' | 'unavailable' | 'free'> {

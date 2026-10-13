@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Node-version gate before anything that touches node:sqlite is imported.
 const [maj, min] = process.versions.node.split('.').map(Number)
-if (maj < 22 || (maj === 22 && min < 5)) {
-  console.error(`Limn needs Node >= 22.5 (found ${process.versions.node}). Install a newer Node and re-run.`)
+// node:sqlite loads without --experimental-sqlite from 22.13 / 23.4.
+if (maj < 22 || (maj === 22 && min < 13) || (maj === 23 && min < 4)) {
+  console.error(`Limn needs Node >= 22.13 (found ${process.versions.node}). Install a newer Node and re-run.`)
   process.exit(1)
 }
 import('../dist/cli/index.js').catch((err) => {

@@ -86,7 +86,7 @@ macOS, a `systemd --user` unit on Linux) so **http://limn.localhost:5466** is al
 there; say `n` (or pass `--no-service`) to just run it in the foreground. `npx
 @glebmish/limn` runs it once (answer `n` to keep nothing installed).
 
-Requires Node ≥ 22.5 and `git`. `*.localhost` resolves to your machine in Chrome,
+Requires Node ≥ 22.13 and `git`. `*.localhost` resolves to your machine in Chrome,
 Edge, Arc and Firefox with no setup; Safari does not resolve it — use
 `http://127.0.0.1:5466` there.
 
@@ -224,7 +224,7 @@ the Tailscale recipe are in [docs/using-limn.md](docs/using-limn.md).
 
 ## Development
 
-Requires Node 22.5+.
+Requires Node 22.13+.
 
 ```bash
 npm install

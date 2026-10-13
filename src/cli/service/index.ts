@@ -52,7 +52,7 @@ export function extractLoginPath(raw: string, fallback: string): string {
 }
 
 /** launchd/systemd start the service with a bare PATH; engines need git/claude/codex. */
-function loginShellPath(): string {
+export function loginShellPath(): string {
   const fallback = process.env.PATH || '/usr/local/bin:/usr/bin:/bin'
   try {
     const raw = execSync(

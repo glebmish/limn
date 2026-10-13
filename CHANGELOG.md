@@ -20,7 +20,7 @@ Limn is now an npm package instead of a desktop app: `npm i -g @glebmish/limn`, 
   at 8 MB, and honour `?dev=` screenshot hooks only when the server runs with
   `LIMN_DEV_HOOKS=1`. Service unit files are written `0600`.
 - **Packaging.** Pure-JS package (≈ 5 MB tarball / ≈ 35 MB installed) with the ACP
-  adapters bundled and no platform binaries; Node ≥ 22.5. Releases are published from
+  adapters bundled and no platform binaries; Node ≥ 22.13. Releases are published from
   CI with npm provenance.
 - **Removed.** The Electron app, its `limn` shell shim (the CLI offers to delete an old
   one), and the desktop notifications.
