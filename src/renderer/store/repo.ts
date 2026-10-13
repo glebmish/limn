@@ -12,6 +12,8 @@ export async function loadRepoContext(repo: string): Promise<void> {
     const [repoState, repoSessions] = await Promise.all([
       api().repoState(repo), api().listRepoSessions(repo, useStore.getState().showArchived)
     ])
+    // the reviewer switched repos while this was out: it is the old repo's context
+    if (useStore.getState().repo !== repo) return
     useStore.setState({ repoState, repoSessions })
   } catch { /* keep prior context */ }
 }

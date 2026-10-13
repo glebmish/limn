@@ -20,7 +20,8 @@ const loadSession = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
 const saveUiState = vi.fn(async (_id: number, _patch: { viewedAt?: Record<string, ViewMark> }): Promise<void> => {})
 const repoState = vi.fn(async () => ({}))
 const listRepoSessions = vi.fn(async () => [])
-;(globalThis as unknown as { window: unknown }).window = { api: { loadSession, saveUiState, repoState, listRepoSessions } }
+const previewReview = vi.fn(async (): Promise<LoadedReview> => makeLoaded())
+;(globalThis as unknown as { window: unknown }).window = { api: { loadSession, saveUiState, repoState, listRepoSessions, previewReview } }
 
 import { useStore } from '../src/renderer/store'
 
@@ -85,6 +86,82 @@ describe('viewed ticks during an in-flight reload', () => {
     await flush(); await flush()
     const last = saveUiState.mock.calls.at(-1)
     expect(Object.keys(last?.[1].viewedAt ?? {}).sort()).toEqual(['x.ts', 'y.ts'])
+  })
+})
+
+describe('a reload that lands after the reviewer switched sessions', () => {
+  beforeEach(() => {
+    loadSession.mockReset(); saveUiState.mockReset()
+    saveUiState.mockResolvedValue(undefined)
+    useStore.setState({ sessionId: 1, loaded: makeLoaded({ files }), viewedAt: {}, error: null, ops: {} })
+  })
+
+  it('is dropped: no surface swap back to A, and B\'s tick is never written into A', async () => {
+    const aReload = deferred<LoadedReview>()
+    loadSession.mockReturnValueOnce(aReload.promise)
+    const p = useStore.getState().reload()
+    const bLoaded = makeLoaded({ files, viewedAt: {} })
+    loadSession.mockResolvedValueOnce(bLoaded)
+    await useStore.getState().resumeExisting(2)
+    useStore.getState().toggleViewed('x.ts', false) // ticked on B
+    await flush(); await flush()
+    saveUiState.mockClear()
+    aReload.resolve(makeLoaded({ files, viewedAt: { 'z.ts': mark } }))
+    await expect(p).resolves.toBe(true)
+    await flush(); await flush()
+    expect(useStore.getState().sessionId).toBe(2)
+    expect(useStore.getState().loaded).toBe(bLoaded)
+    expect(viewed()).toEqual(['x.ts'])
+    expect(saveUiState.mock.calls.filter(([id]) => id === 1)).toEqual([])
+  })
+
+  it('is dropped after A → B → A: the fresher A load stays', async () => {
+    const stale = deferred<LoadedReview>()
+    loadSession.mockReturnValueOnce(stale.promise)
+    const p = useStore.getState().reload()
+    loadSession.mockResolvedValueOnce(makeLoaded({ files }))
+    await useStore.getState().resumeExisting(2)
+    const fresh = makeLoaded({ files, viewedAt: { 'y.ts': mark } })
+    loadSession.mockResolvedValueOnce(fresh)
+    await useStore.getState().resumeExisting(1)
+    stale.resolve(makeLoaded({ files, viewedAt: {} }))
+    await p
+    expect(useStore.getState().loaded).toBe(fresh)
+    expect(viewed()).toEqual(['y.ts'])
+  })
+
+  it('a tick on another session never merges into this session\'s reload', async () => {
+    // B was ticked earlier (stamped on session 2); back on A, a reload must take
+    // A's server map wholesale — B's stamp is not "newer than" A's snapshot.
+    useStore.setState({ sessionId: 2 })
+    useStore.getState().toggleViewed('x.ts', false)
+    await flush(); await flush()
+    useStore.setState({ sessionId: 1, viewedAt: {} })
+    const d = deferred<LoadedReview>()
+    loadSession.mockReturnValueOnce(d.promise)
+    const p = useStore.getState().reload()
+    useStore.setState({ sessionId: 2 }); useStore.getState().toggleViewed('y.ts', false); useStore.setState({ sessionId: 1, viewedAt: {} })
+    saveUiState.mockClear()
+    d.resolve(makeLoaded({ files, viewedAt: { 'z.ts': mark } }))
+    await p
+    await flush(); await flush()
+    expect(viewed()).toEqual(['z.ts'])
+    expect(saveUiState.mock.calls.filter(([id]) => id === 1)).toEqual([]) // nothing to write back
+  })
+})
+
+describe('a transient refresh that lands after the reviewer moved on', () => {
+  it('is dropped when the review on screen changed', async () => {
+    const shown = makeLoaded({ files })
+    useStore.setState({ sessionId: null, repo: '/r', loaded: shown, error: null })
+    const d = deferred<LoadedReview>()
+    previewReview.mockReturnValueOnce(d.promise)
+    const p = useStore.getState().refreshLoaded()
+    const other = makeLoaded({ files, compare: 'other' })
+    useStore.setState({ repo: '/elsewhere', loaded: other })
+    d.resolve(makeLoaded({ files }))
+    await expect(p).resolves.toBe(true)
+    expect(useStore.getState().loaded).toBe(other)
   })
 })
 

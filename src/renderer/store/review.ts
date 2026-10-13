@@ -27,10 +27,24 @@ let materializing: { key: string; promise: Promise<number | null> } | null = nul
  *  shas — so keying on the symbols alone would call them one review. Re-read when the
  *  flight resolves, so a materialize that lands after the reviewer navigated away can
  *  tell it no longer owns the surface. */
-function reviewKey(repo: string | null, loaded: LoadedReview | null): string | null {
+export function reviewKey(repo: string | null, loaded: LoadedReview | null): string | null {
   if (!repo || !loaded) return null
   const { base, compare } = loaded.session.pair
   return [repo, base.anchorSha, refIdentity(compare)].join('\u0000')
+}
+
+// ── navigation epoch ─────────────────────────────────────────
+// Bumped by every navigation that swaps the review on screen (openReview,
+// resumeExisting). A loader that awaits captures it first and lands its result only
+// if it is unchanged — and the session on screen is still the one it loaded — so a
+// late answer for the review the reviewer already left never swaps the surface back
+// or writes that review's state into the one now shown. Session identity alone misses
+// A → B → A: the older A answer would land over the fresher one.
+let navEpoch = 0
+
+/** True while the screen still shows what a loader captured before its await. */
+function stillOn(epoch: number, sessionId: number | null): boolean {
+  return navEpoch === epoch && useStore.getState().sessionId === sessionId
 }
 
 // The shared apply step for the comment CRUD actions: swap the loaded review's
@@ -43,13 +57,16 @@ function setComments(comments: Comment[]) {
   useStore.setState({ loaded: { ...loaded, state: { ...loaded.state, comments } } })
 }
 
-/** Run one comment write and apply the persisted list. A failure goes to the error
- *  strip (the callers fire these from composers, so a rejection would otherwise be
+/** Run one comment write on `sessionId` and apply the persisted list — unless the
+ *  reviewer moved to another review meanwhile (the write still landed on its own
+ *  session; its list just isn't this screen's). A failure goes to the error strip
+ *  (the callers fire these from composers, so a rejection would otherwise be
  *  unhandled and silent) and reads back as `false`, so the composer can stay open
  *  with the reviewer's text instead of closing over a write that never landed. */
-async function writeComments(write: () => Promise<ReviewState>): Promise<boolean> {
+async function writeComments(sessionId: number, write: () => Promise<ReviewState>): Promise<boolean> {
   try {
-    setComments((await write()).comments)
+    const { comments } = await write()
+    if (useStore.getState().sessionId === sessionId) setComments(comments)
     return true
   } catch (err) {
     useStore.setState({ error: err instanceof Error ? err.message : String(err) })
@@ -137,6 +154,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
   },
 
   async openReview(repoPath, refs, opts) {
+    const epoch = ++navEpoch
     set({ error: null })
     try {
       // ensure repo context (state + session list). openRepo seeds these for the
@@ -159,6 +177,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       }
       // transient: render the diff with no session row; persists on first write
       const loaded = await api().previewReview(repoPath, base, compare, get().agent)
+      if (navEpoch !== epoch) return // a later navigation owns the screen now
       set({
         screen: 'review', sessionId: null, loaded, repo: repoPath,
         branch: loaded.state.branch, base: loaded.state.base,
@@ -173,7 +192,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       })
       void loadRepoContext(repoPath)
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      if (navEpoch === epoch) set({ error: err instanceof Error ? err.message : String(err) })
     }
   },
 
@@ -249,8 +268,10 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
   },
 
   async resumeExisting(sessionId) {
+    const epoch = ++navEpoch
     try {
       const loaded = await api().loadSession(sessionId)
+      if (navEpoch !== epoch) return // a later navigation owns the screen now
       set({
         sessionId, loaded, error: loadWarningStrip(loaded), screen: 'review',
         // `adoptOps` below then rejoins whatever is live on THIS session. Switching
@@ -274,7 +295,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       get().adoptOps(loaded.activeOps ?? [])
       void loadRepoContext(loaded.state.repo)
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      if (navEpoch === epoch) set({ error: err instanceof Error ? err.message : String(err) })
     }
   },
 
@@ -300,9 +321,13 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     // mergeViewedSince; taking the server map wholesale would un-tick them.
     const gen = viewedGeneration()
     const requestedAt = Date.now()
+    const epoch = navEpoch
     try {
       const loaded = await api().loadSession(sessionId)
-      const merged = mergeViewedSince(gen, loaded.state.viewedAt, get().viewedAt)
+      // the reviewer moved to another review while this was out: drop the answer —
+      // no surface swap, and no merged viewed map written back into the session left.
+      if (!stillOn(epoch, sessionId)) return true
+      const merged = mergeViewedSince(gen, sessionId, loaded.state.viewedAt, get().viewedAt)
       const reviews = loaded.state.chats.filter((c) => c.kind === 'review')
       // a regenerate created a new review session: open the NEW (latest) review so it
       // appears and opens in the chat sidebar. (The "switch to current" banner still
@@ -328,6 +353,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
       return true
     } catch (err) {
+      if (!stillOn(epoch, sessionId)) return true // a failure for a review already left
       set({ error: err instanceof Error ? err.message : String(err) })
       return false
     }
@@ -355,31 +381,31 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       createdAt: new Date().toISOString(),
       iteration: loaded?.state.latestIteration?.n ?? 0
     }
-    return (await writeComments(() => api().upsertComment(sessionId, comment))) ? comment.id : null
+    return (await writeComments(sessionId, () => api().upsertComment(sessionId, comment))) ? comment.id : null
   },
 
   async editComment(comment, text) {
     const sessionId = await get().materialize()
     if (sessionId == null) return false
-    return writeComments(() => api().upsertComment(sessionId, { ...comment, text }))
+    return writeComments(sessionId, () => api().upsertComment(sessionId, { ...comment, text }))
   },
 
   async deleteComment(id) {
     const sessionId = await get().materialize()
     if (sessionId == null) return false
-    return writeComments(() => api().deleteComment(sessionId, id))
+    return writeComments(sessionId, () => api().deleteComment(sessionId, id))
   },
 
   async requeueComment(comment) {
     const sessionId = await get().materialize()
     if (sessionId == null) return false
-    return writeComments(() => api().upsertComment(sessionId, { ...comment, status: 'queued' }))
+    return writeComments(sessionId, () => api().upsertComment(sessionId, { ...comment, status: 'queued' }))
   },
 
   async replyToComment(comment, text) {
     const sessionId = await get().materialize()
     if (sessionId == null) return false
-    return writeComments(() => api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString())))
+    return writeComments(sessionId, () => api().upsertComment(sessionId, withUserReply(comment, text, new Date().toISOString())))
   },
 
   async triageFindings(ids, verdict) {
@@ -387,7 +413,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     if (sessionId == null || ids.length === 0) return
     try {
       const state = await api().triageFindings(sessionId, ids, verdict)
-      setComments(state.comments)
+      if (get().sessionId === sessionId) setComments(state.comments)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
     }

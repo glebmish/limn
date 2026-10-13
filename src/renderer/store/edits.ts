@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { fileViewed, renderedFiles } from './derive'
 import { saveViewedAt, touchViewed } from './progress'
+import { reviewKey } from './review'
 
 /** the open flow frame's scope in working-tree (new-side) line numbers.
  *  `caretCol` (raw-text units, only meaningful for `start`'s line) carries the
@@ -141,14 +142,19 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
     if (sessionId != null) return get().reload(opts)
     if (!loaded || !repo) return true
     const pair = loaded.session.pair
+    const key = reviewKey(repo, loaded)
     try {
       const fresh = await api().previewReview(repo, pair.base.symbol, pair.compare.symbol, loaded.session.agent ?? get().agent)
+      // the reviewer moved on (another review, or this one materialized) while the
+      // preview was out: this answer is for a surface no longer shown — drop it.
+      if (get().sessionId != null || reviewKey(get().repo, get().loaded) !== key) return true
       // viewedAt is a sibling of `loaded`, not nested under it — zustand's merging
       // `set` leaves it alone, so it survives the swap without a write-back (and a
       // write-back would revert any tick made during the previewReview round trip).
       set({ loaded: fresh, pendingDrift: null })
       return true
     } catch (err) {
+      if (get().sessionId != null || reviewKey(get().repo, get().loaded) !== key) return true
       set({ error: err instanceof Error ? err.message : String(err) })
       return false
     }

@@ -51,14 +51,18 @@ export function saveViewedAt(id: number, viewedAt: Record<string, ViewMark>): Pr
 // A reload answers with the server's viewed map as of when it was READ; a tick made
 // while it was in flight is not in it. Every local viewed change bumps a generation
 // and stamps the paths it touched, so reload can tell whether — and which — local
-// marks are newer than its snapshot.
+// marks are newer than its snapshot. Stamps are kept per session: a tick on review B
+// is never "newer than" review A's snapshot, even for a path both reviews share.
 let viewedGen = 0
-const touchedAt = new Map<string, number>()
+const touchedAt = new Map<number | null, Map<string, number>>()
 
-/** Record a local change to these paths' viewed marks. */
-export function touchViewed(paths: string[]): void {
+/** Record a local change to these paths' viewed marks on `session` (default: the
+ *  session on screen). */
+export function touchViewed(paths: string[], session: number | null = useStore.getState().sessionId): void {
   viewedGen++
-  for (const p of paths) touchedAt.set(p, viewedGen)
+  let stamps = touchedAt.get(session)
+  if (!stamps) { stamps = new Map(); touchedAt.set(session, stamps) }
+  for (const p of paths) stamps.set(p, viewedGen)
 }
 
 /** The current tick generation — capture it before a reload's request goes out. */
@@ -66,14 +70,15 @@ export function viewedGeneration(): number {
   return viewedGen
 }
 
-/** The viewed map a reload that started at generation `since` should install: the
- *  server's, with every path the reviewer touched since then taken from `local`
- *  (local wins — including an un-tick). `null` when nothing was touched (replace). */
-export function mergeViewedSince(since: number, server: Record<string, ViewMark>, local: Record<string, ViewMark>): Record<string, ViewMark> | null {
-  if (viewedGen === since) return null
+/** The viewed map a reload of `session` that started at generation `since` should
+ *  install: the server's, with every path the reviewer touched on that session since
+ *  then taken from `local` (local wins — including an un-tick). `null` when nothing
+ *  on that session was touched (replace). */
+export function mergeViewedSince(since: number, session: number, server: Record<string, ViewMark>, local: Record<string, ViewMark>): Record<string, ViewMark> | null {
+  const touched = [...(touchedAt.get(session) ?? [])].filter(([, g]) => g > since)
+  if (touched.length === 0) return null
   const out = { ...server }
-  for (const [p, g] of touchedAt) {
-    if (g <= since) continue
+  for (const [p] of touched) {
     if (local[p]) out[p] = local[p]
     else delete out[p]
   }
