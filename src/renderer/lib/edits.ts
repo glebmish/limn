@@ -23,15 +23,32 @@ function commonEdges(a: string[], b: string[]): { prefix: number; suffix: number
  *  `newLines` is free to be longer than `snapshot` (#10 — ⏎ grew the region), shorter
  *  (#8 — a joined row), or **empty** (#8 — the delete gesture passes `typed = []`,
  *  which no textarea value can produce on its own): an empty `newLines` with a
- *  non-empty `snapshot` is a pure deletion, spliced straight out by the server. */
+ *  non-empty `snapshot` is a pure deletion, spliced straight out by the server.
+ *
+ *  A pure insertion (empty core) never goes out with an empty snapshot (#5): that
+ *  matches the empty slice at ANY position, so the server's CAS could not fail — a
+ *  double submit would duplicate the lines, and an agent's insertion above would
+ *  silently shift where these land. One shared neighbour rides along in both
+ *  `snapshot` and `newLines` instead: the line below when there is one (so `start`
+ *  stays the first inserted line), else the line above. Only an empty snapshot (an
+ *  empty file) has no neighbour to carry; the server accepts that only for a file
+ *  that is still empty. */
 export function narrowEdit(start: number, snapshot: string[], typed: string[]): FileEdit | null {
   const { prefix, suffix } = commonEdges(snapshot, typed)
   const core = snapshot.slice(prefix, snapshot.length - suffix)
   const newLines = typed.slice(prefix, typed.length - suffix)
   if (core.length === 0 && newLines.length === 0) return null
+  if (core.length === 0 && suffix > 0) {
+    const below = snapshot[prefix]
+    return { start: start + prefix, end: start + prefix, snapshot: [below], newLines: [...newLines, below] }
+  }
+  if (core.length === 0 && prefix > 0) {
+    const above = snapshot[prefix - 1]
+    return { start: start + prefix - 1, end: start + prefix - 1, snapshot: [above], newLines: [above, ...newLines] }
+  }
   return {
     start: start + prefix,
-    end: start + prefix + core.length - 1, // end < start ⇒ pure insertion before `start`
+    end: start + prefix + core.length - 1, // end < start ⇒ pure insertion before `start` (empty file only)
     snapshot: core,
     newLines
   }
@@ -39,16 +56,19 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
 
 /** Which working-tree line the post-save keyboard selection should land on, given the
  *  edit that was just written and how many lines the file held *before* it. Normally
- *  `edit.start` — the line the user just edited. A deletion has no such line, so the
- *  selection falls on whatever moved up into its place; when the deleted span ran to
- *  the end of the file there is nothing to move up, so it clamps to the new last line.
- *  `null` when the file has no lines left at all (everything was deleted) — there is
- *  nothing to select, and a selection past EOF would leave ⏎ reopening a frame on a
- *  line that does not exist. A no-op (returns `edit.start`) for every save that does
- *  not shrink the file. */
+ *  the line the user just edited: `edit.start`, stepped past a context line that
+ *  `narrowEdit` carried *above* an insertion (#5) — newLines then opens with the
+ *  snapshot's own line. A deletion has no such line, so the selection falls on
+ *  whatever moved up into its place; when the deleted span ran to the end of the
+ *  file there is nothing to move up, so it clamps to the new last line. `null` when
+ *  the file has no lines left at all (everything was deleted) — there is nothing to
+ *  select, and a selection past EOF would leave ⏎ reopening a frame on a line that
+ *  does not exist. A no-op (returns `edit.start`) for every other save that does not
+ *  shrink the file. */
 export function selectionAfterSave(edit: FileEdit, fileLineCount: number): number | null {
   const eof = fileLineCount - edit.snapshot.length + edit.newLines.length
-  const line = Math.min(edit.start, eof)
+  const carriedAbove = edit.snapshot.length === 1 && edit.newLines.length > 1 && edit.newLines[0] === edit.snapshot[0]
+  const line = Math.min(edit.start + (carriedAbove ? 1 : 0), eof)
   return line >= 1 ? line : null
 }
 

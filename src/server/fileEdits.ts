@@ -64,7 +64,8 @@ export function readWorkingFile(workdir: string, rel: string, { readOnly = false
 
 /** Apply one line-anchored edit. The compare-and-swap is against the edited lines
  *  only: `edit.snapshot` must equal the file's current lines start..end, otherwise
- *  the write is refused and the caller gets the file's current content back.
+ *  the write is refused and the caller gets the file's current content back. The
+ *  snapshot is never empty unless the file is (#5).
  *  `edit.newLines` may hold more lines than the span it replaces, fewer, or none at
  *  all — an empty `newLines` splices the anchored lines out of the file (#8).
  *  Writes are atomic (temp file + rename) and preserve the file mode. */
@@ -78,6 +79,12 @@ export async function applyEditToFile(workdir: string, rel: string, edit: FileEd
     return current.reason === 'missing' ? { ok: false, reason: 'conflict', current: [] } : { ok: false, reason: current.reason }
   }
   const { lines, trailingNewline } = current
+  // An empty snapshot matches the empty slice at ANY position, so it has nothing for
+  // the CAS to compare: a double submit would land twice, and an insertion above
+  // made since render would silently shift this one. The editor always carries a
+  // neighbouring line with an insertion (narrowEdit); only a still-empty file —
+  // where there is no neighbour to carry — may take one with an empty snapshot.
+  if (edit.snapshot.length === 0 && lines.length > 0) return { ok: false, reason: 'conflict', current: lines }
   const from = edit.start - 1
   const to = edit.end // slice end is exclusive → lines[from..to-1] = start..end inclusive
   const anchored = from >= 0 && from <= lines.length && to >= from && to <= lines.length

@@ -25,9 +25,22 @@ describe('narrowEdit', () => {
       .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['B'] })
   })
 
-  it('narrows an append at the end to an insertion', () => {
+  // #5: a pure insertion carries one neighbouring shared line in both snapshot and
+  // newLines, so the server's CAS always has a line to compare (an empty snapshot
+  // matches anywhere). The line BELOW is preferred — `start` stays on the first
+  // inserted line; the line above is the fallback when nothing follows.
+  it('narrows an append at the end to an insertion anchored on the line above', () => {
     expect(narrowEdit(10, ['a', 'b'], ['a', 'b', 'c']))
-      .toEqual({ start: 12, end: 11, snapshot: [], newLines: ['c'] })
+      .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['b', 'c'] })
+  })
+
+  it('a mid-region insertion anchors on the shared line below it', () => {
+    expect(narrowEdit(10, ['a', 'b'], ['a', 'x', 'b']))
+      .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['x', 'b'] })
+  })
+
+  it('an empty snapshot (an empty file) stays a bare insertion — there is no line to carry', () => {
+    expect(narrowEdit(1, [], ['first'])).toEqual({ start: 1, end: 0, snapshot: [], newLines: ['first'] })
   })
 
   it('narrows a deletion in the middle', () => {
@@ -39,7 +52,7 @@ describe('narrowEdit', () => {
     // typed grows by one identical line: must become a pure insertion, never a
     // negative span (prefix 2 + suffix 2 would double-count on ['a','a'])
     const e = narrowEdit(1, ['a', 'a'], ['a', 'a', 'a'])
-    expect(e).toEqual({ start: 3, end: 2, snapshot: [], newLines: ['a'] })
+    expect(e).toEqual({ start: 2, end: 2, snapshot: ['a'], newLines: ['a', 'a'] })
   })
 
   // ── #10: a one-line region that grows. ⏎ inserts a newline now, so the typed
@@ -51,12 +64,12 @@ describe('narrowEdit', () => {
 
   it('⏎ at the head of a one-line region is a pure insertion above it', () => {
     expect(narrowEdit(11, ['  return 2'], ['', '  return 2']))
-      .toEqual({ start: 11, end: 10, snapshot: [], newLines: [''] })
+      .toEqual({ start: 11, end: 11, snapshot: ['  return 2'], newLines: ['', '  return 2'] })
   })
 
   it('⏎ at the tail of a one-line region is a pure insertion below it', () => {
     expect(narrowEdit(11, ['  return 2'], ['  return 2', '  // note']))
-      .toEqual({ start: 12, end: 11, snapshot: [], newLines: ['  // note'] })
+      .toEqual({ start: 11, end: 11, snapshot: ['  return 2'], newLines: ['  return 2', '  // note'] })
   })
 
   it('grows a one-line region by several lines at once', () => {
@@ -104,6 +117,10 @@ describe('selectionAfterSave', () => {
     expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['a'], newLines: ['b', 'c'] }, 20)).toBe(5)
     // pure insertion (end = start − 1, empty snapshot)
     expect(selectionAfterSave({ start: 6, end: 5, snapshot: [], newLines: ['new'] }, 20)).toBe(6)
+    // insertion carried below its context line (#5): the inserted line, not the context
+    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['ctx'], newLines: ['ctx', 'new'] }, 20)).toBe(6)
+    // insertion carried above its context line: start already is the inserted line
+    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['ctx'], newLines: ['new', 'ctx'] }, 20)).toBe(5)
   })
 
   it('a deletion mid-file selects the line that moved up into its place (#8)', () => {

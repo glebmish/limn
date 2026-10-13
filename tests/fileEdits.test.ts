@@ -81,13 +81,36 @@ describe('applyEditToFile', () => {
     expect(l).toContain('export const LATE = 99')
   })
 
-  it('inserts before `start` when end = start-1 with an empty snapshot', async () => {
+  it('inserts lines carried with a neighbouring context line (the CAS anchors on it)', async () => {
     const fx = makeFixtureRepo()
+    const before = lines(fx.dir, 'src/a.ts')
     const result = await applyEditToFile(fx.dir, 'src/a.ts', {
-      start: 3, end: 2, snapshot: [], newLines: ['  // inserted']
+      start: 3, end: 3, snapshot: [before[2]], newLines: ['  // inserted', before[2]]
     })
     expect(result.ok).toBe(true)
     expect(lines(fx.dir, 'src/a.ts')[2]).toBe('  // inserted')
+    expect(lines(fx.dir, 'src/a.ts')[3]).toBe(before[2])
+  })
+
+  // #5: an empty snapshot exact-matches the empty slice at ANY position, so the CAS
+  // could never fail — a double submit duplicated the lines, and an agent's insertion
+  // above silently shifted where the reviewer's landed.
+  it('refuses an empty-snapshot insertion into a non-empty file (nothing for the CAS to compare)', async () => {
+    const fx = makeFixtureRepo()
+    const before = fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')
+    const result = await applyEditToFile(fx.dir, 'src/a.ts', {
+      start: 3, end: 2, snapshot: [], newLines: ['  // inserted']
+    })
+    expect(result).toMatchObject({ ok: false, reason: 'conflict' })
+    expect(fs.readFileSync(path.join(fx.dir, 'src/a.ts'), 'utf8')).toBe(before)
+  })
+
+  it('still lets an empty file take its first lines (an empty snapshot is all it has)', async () => {
+    const fx = makeFixtureRepo()
+    fs.writeFileSync(path.join(fx.dir, 'empty.txt'), '')
+    const result = await applyEditToFile(fx.dir, 'empty.txt', { start: 1, end: 0, snapshot: [], newLines: ['first'] })
+    expect(result.ok).toBe(true)
+    expect(fs.readFileSync(path.join(fx.dir, 'empty.txt'), 'utf8')).toBe('first\n')
   })
 
   // ── #10: a region whose *line count* grew. The CAS anchors on the snapshot's
