@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { outsideDiffGroups, snippetLines } from '../src/renderer/lib/outsideDiff'
 // the store first: derive.ts sits in an import cycle that must be entered from its index
 import '../src/renderer/store'
-import { diffFilePaths } from '../src/renderer/store/derive'
+import { diffFilePaths, sourceIsDiffFile } from '../src/renderer/store/derive'
 import type { LoadedReview } from '../src/shared/ipc'
 import type { Comment, CommentAnchor } from '../src/shared/types'
 
@@ -89,5 +89,14 @@ describe('diffFilePaths (#12)', () => {
   })
   it('is empty with nothing loaded', () => {
     expect(diffFilePaths(null).size).toBe(0)
+  })
+  // an acceptance source on an excluded code file still jumps to the diff, never
+  // opens the file as a rendered document
+  it('sourceIsDiffFile keeps excluded files, follows the rendered list, and rejects artifacts', () => {
+    expect(sourceIsDiffFile(loaded(true), 'junk.log')).toBe(true)
+    expect(sourceIsDiffFile(loaded(true), 'src/wt.ts')).toBe(true)
+    expect(sourceIsDiffFile(loaded(true), 'src/reverted.ts')).toBe(false)
+    expect(sourceIsDiffFile(loaded(true), 'docs/spec.md')).toBe(false)
+    expect(sourceIsDiffFile(null, 'src/a.ts')).toBe(false)
   })
 })

@@ -156,6 +156,14 @@ export function diffFilePaths(loaded: LoadedReview | null): Set<string> {
     .map((f) => f.path))
 }
 
+/** Whether an acceptance criterion's `source` path is one of the review's changed
+ *  files (jump to its diff) rather than a detected artifact (open the rendered doc).
+ *  Unlike `diffFilePaths` this keeps excluded files: excluding an untracked file
+ *  moves it to the Untracked group, it does not turn a code file into a document. */
+export function sourceIsDiffFile(loaded: LoadedReview | null, path: string): boolean {
+  return renderedFiles(loaded).some((f) => f.path === path)
+}
+
 function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
   const byPath = new Map(renderedFiles(loaded).map((f) => [f.path, f]))
   return section.files.map((p) => byPath.get(p)).filter((f): f is FileDiff => Boolean(f))
