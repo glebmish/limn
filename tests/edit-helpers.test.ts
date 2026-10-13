@@ -4,7 +4,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 import type { FrameDraft } from '../src/renderer/lib/edits'
 import {
   caretAfterGrowth, discardSpanAt, discardSpansForRun, fileEditable, frameDeletesLines, frameGutter, frameHint,
-  frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn, reapplyCue,
+  firstChangedLine, frameKeyAction, lineColToCaret, narrowEdit, newFrameId, rawOffsetFromDisplayColumn, reapplyCue,
   seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../src/renderer/lib/edits'
 
@@ -25,18 +25,65 @@ describe('narrowEdit', () => {
       .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['B'] })
   })
 
-  // #5: a pure insertion carries one neighbouring shared line in both snapshot and
-  // newLines, so the server's CAS always has a line to compare (an empty snapshot
-  // matches anywhere). The line BELOW is preferred — `start` stays on the first
-  // inserted line; the line above is the fallback when nothing follows.
-  it('narrows an append at the end to an insertion anchored on the line above', () => {
+  // #5: a pure insertion carries shared neighbours in both snapshot and newLines, so
+  // the server's CAS always has lines to compare (an empty snapshot matches anywhere):
+  // the line above when there is one, and lines below until a repeat of the save
+  // would find different lines there.
+  it('narrows an append at the end of the FILE to an insertion anchored on the line above', () => {
     expect(narrowEdit(10, ['a', 'b'], ['a', 'b', 'c']))
       .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['b', 'c'] })
   })
 
-  it('a mid-region insertion anchors on the shared line below it', () => {
+  it('an append at the foot of the region anchors on the file line past it', () => {
+    expect(narrowEdit(10, ['a', 'b'], ['a', 'b', 'c'], ['d', 'e']))
+      .toEqual({ start: 11, end: 12, snapshot: ['b', 'd'], newLines: ['b', 'c', 'd'] })
+  })
+
+  it('a mid-region insertion carries the lines on both sides', () => {
     expect(narrowEdit(10, ['a', 'b'], ['a', 'x', 'b']))
-      .toEqual({ start: 11, end: 11, snapshot: ['b'], newLines: ['x', 'b'] })
+      .toEqual({ start: 10, end: 11, snapshot: ['a', 'b'], newLines: ['a', 'x', 'b'] })
+  })
+
+  it('an insertion at the start of the file carries only the line below', () => {
+    expect(narrowEdit(1, ['a', 'b'], ['x', 'a', 'b']))
+      .toEqual({ start: 1, end: 1, snapshot: ['a'], newLines: ['x', 'a'] })
+  })
+
+  /** Would the same edit, submitted again after it landed, still pass the CAS? */
+  const passesTwice = (file: string[], edit: NonNullable<ReturnType<typeof narrowEdit>>): boolean => {
+    const at = (lines: string[]) => lines.slice(edit.start - 1, edit.end)
+    const applied = [...file.slice(0, edit.start - 1), ...edit.newLines, ...file.slice(edit.end)]
+    return JSON.stringify(at(file)) === JSON.stringify(edit.snapshot) && JSON.stringify(at(applied)) === JSON.stringify(edit.snapshot)
+  }
+
+  it('a carried line equal to the inserted text extends until the CAS can fail', () => {
+    // the reported case: inserting '' after ['a',''] — carrying [''] alone matches
+    // again once the save lands, so a double submit would add a second blank line
+    const file = ['a', '', 'z']
+    const e = narrowEdit(1, ['a', ''], ['a', '', ''], ['z'])!
+    expect(e).toEqual({ start: 2, end: 3, snapshot: ['', 'z'], newLines: ['', '', 'z'] })
+    expect(passesTwice(file, e)).toBe(false)
+  })
+
+  it('extends below past lines that repeat the inserted ones', () => {
+    // inserting 'x' above ['x','x','y']: one or two carried 'x' lines still match
+    // after the insertion pushed them down; the 'y' is what tells them apart
+    const file = ['x', 'x', 'y']
+    const e = narrowEdit(1, ['x', 'x', 'y'], ['x', 'x', 'x', 'y'])!
+    expect(passesTwice(file, e)).toBe(false)
+    expect(e.snapshot.at(-1)).toBe('y')
+  })
+
+  it('a repeat of a mid-file insertion always fails its CAS', () => {
+    const file = ['a', 'b', 'b', 'c']
+    for (const [typed, start, region] of [
+      [['a', 'b', 'b'], 1, ['a', 'b']],
+      [['b', 'b'], 2, ['b']],
+      [['', 'b'], 2, ['b']]
+    ] as [string[], number, string[]][]) {
+      const e = narrowEdit(start, region, typed, file.slice(start - 1 + region.length))!
+      expect(passesTwice(file, e)).toBe(false)
+    }
   })
 
   it('an empty snapshot (an empty file) stays a bare insertion — there is no line to carry', () => {
@@ -117,10 +164,18 @@ describe('selectionAfterSave', () => {
     expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['a'], newLines: ['b', 'c'] }, 20)).toBe(5)
     // pure insertion (end = start − 1, empty snapshot)
     expect(selectionAfterSave({ start: 6, end: 5, snapshot: [], newLines: ['new'] }, 20)).toBe(6)
-    // insertion carried below its context line (#5): the inserted line, not the context
-    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['ctx'], newLines: ['ctx', 'new'] }, 20)).toBe(6)
-    // insertion carried above its context line: start already is the inserted line
-    expect(selectionAfterSave({ start: 5, end: 5, snapshot: ['ctx'], newLines: ['new', 'ctx'] }, 20)).toBe(5)
+    // an insertion carrying a context line above it (#5): the inserted line, from
+    // firstChangedLine — not the context line at `start`
+    expect(selectionAfterSave({ start: 5, end: 6, snapshot: ['ctx', 'b'], newLines: ['ctx', 'new', 'b'] }, 20, 6)).toBe(6)
+  })
+
+  it('firstChangedLine is the first edited or inserted line, past any shared prefix', () => {
+    expect(firstChangedLine(10, ['a', 'b'], ['a', 'x', 'b'])).toBe(11)
+    expect(firstChangedLine(10, ['a', ''], ['a', '', ''])).toBe(12)
+    expect(firstChangedLine(10, ['a'], ['b'])).toBe(10)
+    // agrees with the selection the narrowed edit lands on
+    const e = narrowEdit(10, ['a', 'b'], ['a', 'x', 'b'])!
+    expect(selectionAfterSave(e, 20, firstChangedLine(10, ['a', 'b'], ['a', 'x', 'b']))).toBe(11)
   })
 
   it('a deletion mid-file selects the line that moved up into its place (#8)', () => {

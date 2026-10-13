@@ -8,7 +8,7 @@ import { singleFlight } from '../lib/singleFlight'
 import type { FrameDraft, FrameYours } from '../lib/edits'
 import {
   caretAfterGrowth, frameDeletesLines, frameGutter, frameHint, frameKeyAction, lineColToCaret,
-  narrowEdit, reapplyCue, seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
+  firstChangedLine, narrowEdit, reapplyCue, seedFrameCaret, seedFrameRestore, seedFrameText, selectionAfterSave
 } from '../lib/edits'
 
 /** `frameId` identifies the edit session, not the region — see `EditFrame` in
@@ -186,7 +186,8 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     if (!fileLines) { setEditFrame(null); return }
     const typed = removeLines ? [] : value.split('\n')
     const snapshot = fileLines.slice(frame.start - 1, frame.end)
-    const edit = narrowEdit(frame.start, snapshot, typed)
+    // the lines past the region give an insertion at its foot a line below to anchor on
+    const edit = narrowEdit(frame.start, snapshot, typed, fileLines.slice(frame.end))
     if (!edit) { setEditFrame(null); return } // unchanged save is a cancel
     const res = await saveEdit(f.path, edit)
     // This instance is gone (⌘⏎ then an immediate double-click elsewhere, say): both
@@ -215,7 +216,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
       // ↑/↓ move it, ⏎ re-enters edit, esc clears (handled by DiffBody). A deletion
       // has no edited line; `selectionAfterSave` picks what took its place.
       setEditFrame(null)
-      const line = selectionAfterSave(edit, fileLines.length)
+      const line = selectionAfterSave(edit, fileLines.length, firstChangedLine(frame.start, snapshot, typed))
       useStore.getState().setLineSelect(line == null ? null : { file: f.path, line })
       return
     }

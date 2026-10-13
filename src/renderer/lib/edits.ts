@@ -28,23 +28,36 @@ function commonEdges(a: string[], b: string[]): { prefix: number; suffix: number
  *  A pure insertion (empty core) never goes out with an empty snapshot (#5): that
  *  matches the empty slice at ANY position, so the server's CAS could not fail — a
  *  double submit would duplicate the lines, and an agent's insertion above would
- *  silently shift where these land. One shared neighbour rides along in both
- *  `snapshot` and `newLines` instead: the line below when there is one (so `start`
- *  stays the first inserted line), else the line above. Only an empty snapshot (an
- *  empty file) has no neighbour to carry; the server accepts that only for a file
- *  that is still empty. */
-export function narrowEdit(start: number, snapshot: string[], typed: string[]): FileEdit | null {
+ *  silently shift where these land. Unchanged neighbours ride along in both
+ *  `snapshot` and `newLines` instead: the line above (when the region has one), and
+ *  lines below — from the region, then from `after` (the file's lines past the
+ *  region) — until the carried lines differ from what the insertion would put in
+ *  their place. Only the BELOW lines can make a repeat of the save fail its CAS: the
+ *  lines above sit where they were after the insertion, so an above-only snapshot
+ *  still matches once the save has landed. That is the one case left without a
+ *  double-submit guard — an append at the very end of the file, where nothing
+ *  follows — and the case where the lines below repeat the inserted text all the way
+ *  down. An empty snapshot (an empty file) has no neighbour to carry at all; the
+ *  server accepts that only for a file that is still empty. */
+export function narrowEdit(start: number, snapshot: string[], typed: string[], after: string[] = []): FileEdit | null {
   const { prefix, suffix } = commonEdges(snapshot, typed)
   const core = snapshot.slice(prefix, snapshot.length - suffix)
   const newLines = typed.slice(prefix, typed.length - suffix)
   if (core.length === 0 && newLines.length === 0) return null
-  if (core.length === 0 && suffix > 0) {
-    const below = snapshot[prefix]
-    return { start: start + prefix, end: start + prefix, snapshot: [below], newLines: [...newLines, below] }
-  }
-  if (core.length === 0 && prefix > 0) {
-    const above = snapshot[prefix - 1]
-    return { start: start + prefix - 1, end: start + prefix - 1, snapshot: [above], newLines: [above, ...newLines] }
+  if (core.length === 0 && snapshot.length > 0) {
+    const above = prefix > 0 ? [snapshot[prefix - 1]] : []
+    const below = [...snapshot.slice(prefix), ...after]
+    // grow the carried lines below until a repeat of this save would see different
+    // lines there (the inserted ones pushed them down) — or the file runs out
+    const shifted = [...newLines, ...below]
+    let b = 0
+    while (b < below.length) {
+      b++
+      if (shifted.slice(0, b).some((l, i) => l !== below[i])) break
+    }
+    const carried = below.slice(0, b)
+    const from = start + prefix - above.length
+    return { start: from, end: from + above.length + b - 1, snapshot: [...above, ...carried], newLines: [...above, ...newLines, ...carried] }
   }
   return {
     start: start + prefix,
@@ -54,21 +67,24 @@ export function narrowEdit(start: number, snapshot: string[], typed: string[]): 
   }
 }
 
+/** The first line a save changes — where the post-save selection belongs: the
+ *  first edited or inserted line, never a context line `narrowEdit` carried. */
+export function firstChangedLine(start: number, snapshot: string[], typed: string[]): number {
+  return start + commonEdges(snapshot, typed).prefix
+}
+
 /** Which working-tree line the post-save keyboard selection should land on, given the
- *  edit that was just written and how many lines the file held *before* it. Normally
- *  the line the user just edited: `edit.start`, stepped past a context line that
- *  `narrowEdit` carried *above* an insertion (#5) — newLines then opens with the
- *  snapshot's own line. A deletion has no such line, so the selection falls on
- *  whatever moved up into its place; when the deleted span ran to the end of the
- *  file there is nothing to move up, so it clamps to the new last line. `null` when
- *  the file has no lines left at all (everything was deleted) — there is nothing to
- *  select, and a selection past EOF would leave ⏎ reopening a frame on a line that
- *  does not exist. A no-op (returns `edit.start`) for every other save that does not
- *  shrink the file. */
-export function selectionAfterSave(edit: FileEdit, fileLineCount: number): number | null {
+ *  edit that was just written, how many lines the file held *before* it, and the
+ *  line the save changed first (`firstChangedLine`; defaults to `edit.start`, right
+ *  for any edit that carries no context). A deletion has no edited line, so the
+ *  selection falls on whatever moved up into its place; when the deleted span ran to
+ *  the end of the file there is nothing to move up, so it clamps to the new last
+ *  line. `null` when the file has no lines left at all (everything was deleted) —
+ *  there is nothing to select, and a selection past EOF would leave ⏎ reopening a
+ *  frame on a line that does not exist. */
+export function selectionAfterSave(edit: FileEdit, fileLineCount: number, changedLine: number = edit.start): number | null {
   const eof = fileLineCount - edit.snapshot.length + edit.newLines.length
-  const carriedAbove = edit.snapshot.length === 1 && edit.newLines.length > 1 && edit.newLines[0] === edit.snapshot[0]
-  const line = Math.min(edit.start + (carriedAbove ? 1 : 0), eof)
+  const line = Math.min(changedLine, eof)
   return line >= 1 ? line : null
 }
 
