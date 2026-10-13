@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { outsideDiffGroups, snippetLines } from '../src/renderer/lib/outsideDiff'
+// the store first: derive.ts sits in an import cycle that must be entered from its index
+import '../src/renderer/store'
+import { diffFilePaths } from '../src/renderer/store/derive'
+import type { LoadedReview } from '../src/shared/ipc'
 import type { Comment, CommentAnchor } from '../src/shared/types'
 
 type DiffAnchor = Extract<CommentAnchor, { kind: 'diff' }>
@@ -66,5 +70,24 @@ describe('snippetLines', () => {
   it('falls back to the single anchor line when the anchor carries no context', () => {
     const a = diffAnchor('src/z.ts', 7, { lineContent: 'seven' })
     expect(snippetLines(a)).toEqual([{ n: 7, text: 'seven', hit: true }])
+  })
+})
+
+describe('diffFilePaths (#12)', () => {
+  const f = (path: string, over: Record<string, unknown> = {}) => ({ path, status: 'modified', binary: false, add: 1, del: 0, hunks: [], ...over })
+  const loaded = (dirty: boolean) => ({
+    skeleton: { headSha: 'HEAD', files: [f('src/a.ts'), f('src/reverted.ts')] },
+    merged: [f('src/a.ts'), f('src/wt.ts'), f('junk.log', { untracked: true, status: 'added' })],
+    state: { fileExcluded: { 'junk.log': true }, annotations: null },
+    dirty
+  }) as unknown as LoadedReview
+  it('follows the list the review renders: the merged diff when dirty, minus excluded files', () => {
+    expect([...diffFilePaths(loaded(true))].sort()).toEqual(['src/a.ts', 'src/wt.ts'])
+  })
+  it('is the committed list on a clean tree', () => {
+    expect([...diffFilePaths(loaded(false))].sort()).toEqual(['src/a.ts', 'src/reverted.ts'])
+  })
+  it('is empty with nothing loaded', () => {
+    expect(diffFilePaths(null).size).toBe(0)
   })
 })

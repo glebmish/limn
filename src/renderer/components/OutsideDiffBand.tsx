@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useStore } from '../store'
 import { splitPath } from './FileHeader'
 import { outsideDiffGroups, snippetLines } from '../lib/outsideDiff'
+import { diffFilePaths } from '../store/derive'
 import type { Comment, CommentAnchor } from '../../shared/types'
 import { InlineThread } from './Threads'
 
@@ -15,12 +16,10 @@ import { InlineThread } from './Threads'
  *  the option-B trade against synthesising a real file entry. */
 export function OutsideDiffBand() {
   const loaded = useStore((s) => s.loaded)
-  const comments = loaded?.state.comments
-  const files = loaded?.skeleton.files
   const groups = useMemo(() => {
-    if (!comments || !files) return []
-    return outsideDiffGroups(comments, new Set(files.map((f) => f.path)))
-  }, [comments, files])
+    if (!loaded) return []
+    return outsideDiffGroups(loaded.state.comments, diffFilePaths(loaded))
+  }, [loaded])
   if (groups.length === 0) return null
   const total = groups.reduce((n, g) => n + g.comments.length, 0)
   return (

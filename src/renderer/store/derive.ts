@@ -139,6 +139,23 @@ export function fileIsExcluded(loaded: LoadedReview | null, f: FileDiff): boolea
   return fileEffectivelyExcluded(f, loaded?.state.fileExcluded, Boolean(loaded?.state.annotations), !sectionedPathSet(loaded).has(f.path))
 }
 
+/** The files the review actually shows a diff for — exactly the list Review.tsx
+ *  renders: `renderedFiles` (the merged base→working-tree list while the tree is
+ *  dirty, the committed spine otherwise) minus excluded files, whose group renders no
+ *  comments. Reading the committed list here instead put a worktree-only file's
+ *  comments in the band AND in its own diff (two copies of one `data-comment-id`, a
+ *  jump landing on the band's), and left a committed file the worktree reverted with
+ *  comments shown nowhere. Anything that asks "is this file in the diff?" for
+ *  rendering or jumping asks this. */
+export function diffFilePaths(loaded: LoadedReview | null): Set<string> {
+  // `fileIsExcluded`'s rule, with the sectioned-path set built once for the whole list
+  const sectioned = sectionedPathSet(loaded)
+  const annotated = Boolean(loaded?.state.annotations)
+  return new Set(renderedFiles(loaded)
+    .filter((f) => !fileEffectivelyExcluded(f, loaded?.state.fileExcluded, annotated, !sectioned.has(f.path)))
+    .map((f) => f.path))
+}
+
 function filesForSection(loaded: LoadedReview | null, section: Section): FileDiff[] {
   const byPath = new Map(renderedFiles(loaded).map((f) => [f.path, f]))
   return section.files.map((p) => byPath.get(p)).filter((f): f is FileDiff => Boolean(f))

@@ -7,6 +7,7 @@ import { I, CmtPlus } from '../kit'
 import { sectionDisclosureState, useStore } from '../store'
 import { clickable } from '../lib/clickable'
 import { focusAnchor } from '../lib/focus'
+import { diffFilePaths } from '../store/derive'
 import { FileTree } from './FileTree'
 import { Composer, InlineThread } from './Threads'
 
@@ -101,7 +102,9 @@ export function ReviewSidebar({
   // artifact-path source opens the rendered doc (no per-line scroll target exists
   // there yet, so opening it is the useful thing a click can do).
   const jumpToSource = (source: { path: string; line?: number }): void => {
-    if (loaded.skeleton.files.some((f) => f.path === source.path)) {
+    // the files the review renders a diff for — not the committed list, which a
+    // dirty tree's merged view no longer matches (store/derive.ts)
+    if (diffFilePaths(loaded).has(source.path)) {
       focusAnchor({ kind: 'diff', file: source.path, side: 'new', line: source.line ?? 1, hunkRange: '', lineContent: '' })
     } else {
       useStore.getState().openDoc(source.path)

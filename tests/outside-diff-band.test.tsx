@@ -68,3 +68,36 @@ describe('OutsideDiffBand', () => {
     expect(out.indexOf('src/main/git.ts')).toBeLessThan(out.indexOf('src/main/review.ts'))
   })
 })
+
+describe('OutsideDiffBand against a dirty tree (#12)', () => {
+  const f = (path: string, over: Record<string, unknown> = {}) => ({ path, status: 'modified', binary: false, add: 1, del: 0, hunks: [], ...over })
+  const onFile = (id: string, file: string): Partial<Comment> =>
+    finding({ id, anchor: { kind: 'diff', file, side: 'new', line: 3, hunkRange: '', lineContent: 'x' } })
+  function seedDirty(comments: Partial<Comment>[], committed: unknown[], merged: unknown[], extra: Record<string, unknown> = {}): void {
+    seedLoaded({
+      session: { pair: { base: { symbol: 'main', kind: 'branch' }, compare: { symbol: 'feat', kind: 'branch' } } },
+      skeleton: { headSha: 'HEAD', files: committed },
+      state: { branch: 'feat', comments: comments as Comment[], chats: [], artifactApprovals: {}, annotations: null, ...extra },
+      artifacts: [],
+      dirty: true,
+      merged
+    } as unknown as LoadedReview)
+  }
+
+  it('leaves a worktree-only file to its own diff — never a second copy in the band', () => {
+    seedDirty([onFile('w', 'src/wt-only.ts')], [f('src/main/ipc.ts')], [f('src/main/ipc.ts'), f('src/wt-only.ts')])
+    expect(render()).toBe('')
+  })
+
+  it('lists a committed file the worktree reverted — the rendered diff no longer shows it', () => {
+    seedDirty([onFile('r', 'src/reverted.ts')], [f('src/main/ipc.ts'), f('src/reverted.ts')], [f('src/main/ipc.ts')])
+    const out = render()
+    expect(out).toContain('data-limn-file="src/reverted.ts"')
+    expect(out).toContain('data-comment-id="r"')
+  })
+
+  it('lists a file excluded from the review — its group renders no comments', () => {
+    seedDirty([onFile('x', 'notes.txt')], [f('src/main/ipc.ts')], [f('src/main/ipc.ts'), f('notes.txt', { untracked: true, status: 'added' })], { fileExcluded: { 'notes.txt': true } })
+    expect(render()).toContain('data-comment-id="x"')
+  })
+})
