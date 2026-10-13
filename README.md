@@ -8,7 +8,7 @@ A local service + browser app for **agentic review of local git branches** that 
 
 **Quick start:** `npm i -g @glebmish/limn`, then run `limn` inside a git repo. Needs Node 22.13+ and the `claude` or `codex` CLI — see [Prerequisites](#prerequisites).
 
-![A 27-file branch under guided review in Limn: the diff grouped into logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 2 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
+![A 39-file branch under guided review in Limn: the diff grouped into seven logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 3 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
 
 - **Guided review** — Agent explains what has changed, splits the diff into logical sections and asks clarifying questions.
 - **Agentic tools** — Tools that let the agent navigate for you: jump to the file that builds a database query, walk the auth flow across files.
@@ -20,21 +20,21 @@ A local service + browser app for **agentic review of local git branches** that 
 
 ## What it does
 
-**Narrates the change.** The agent explores callers, tests, and history, then explains how the change actually works — here, a seven-stop tour that follows one value from the UI selector through IPC down to the engine, scrolling the diff to each stop.
+**Narrates the change.** The agent explores callers, tests, and history, then explains how the change actually works — here, an eight-stop tour that follows one diff column from the server's `git diff` through row alignment to the cell on screen, scrolling the diff to each stop.
 
-![The chat drawer showing a seven-stop "propagation tour"; each stop is a file and line, and selecting one jumps the diff to that code.](docs/media/review-tour.webp)
+![The chat drawer showing an eight-stop walkthrough from git to the screen; each stop is a file and line range, and selecting one jumps the diff to that code.](docs/media/review-tour.webp)
 
 **Checks the change against the spec.** Limn auto-discovers specs and plans based on popular conventions and flags where the implementation diverged, criteria by criteria.
 
-![The spec view with a "Where the implementation diverged" callout listing four divergences, beside a list of acceptance criteria tagged DONE or PARTIAL.](docs/media/spec-divergence.png)
+![The spec view with a "Where the implementation diverged" callout listing seven divergences, beside the spec's acceptance criteria tagged DONE or PARTIAL.](docs/media/spec-divergence.png)
 
 **Follows up on comments.** Leave comments on any line, section, or spec point, send them to the agent — it will read callers, run commands, edit files — then report a resolution per comment and commit the changes.
 
-![Queued reviewer comments sent to the agent; the chat drawer streams its tool calls — grep, read, edit — and returns one resolution per comment.](docs/media/apply-loop.webp)
+![Three queued comments sent to the agent with "Send 3 pending comments"; the chat drawer streams its tool calls — shell commands and file edits — and returns one resolution per comment, each naming the commit that fixed it.](docs/media/apply-loop.webp)
 
 **Shows updates as they come.** When new commits land — from the agent or the user — a header pill shows the drift; after reload, diff shows just the delta. Agent can also update the narration based on the new changes.
 
-![A header drift pill showing the branch is a commit behind; after reload the "Since viewed" filter highlights the changed section and a new working-tree file, ready to re-approve.](docs/media/drift-freshness.webp)
+![A commit lands on an approved review and a header drift pill appears; after reload the changed section turns amber, the file's "file view" baseline shows only what changed since it was viewed, and the review is re-approved.](docs/media/drift-freshness.webp)
 
 ## Security & privacy
 
