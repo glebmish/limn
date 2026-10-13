@@ -1,4 +1,4 @@
-# limn
+# Limn
 
 [![CI](https://github.com/glebmish/limn/actions/workflows/ci.yml/badge.svg)](https://github.com/glebmish/limn/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40glebmish%2Flimn)](https://www.npmjs.com/package/@glebmish/limn)
