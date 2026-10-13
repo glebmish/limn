@@ -4,6 +4,7 @@ import { I, ago } from '../kit'
 import { RefPicker } from '../components/RefPicker'
 import { SessionRow } from '../components/SessionRow'
 import { usePopover } from '../lib/usePopover'
+import { globalKeyBlocked, globalKeysSuspended } from '../lib/globalKeys'
 import type { RepoIndexEntry, RepoState } from '../../shared/types'
 
 const tilde = (p: string): string => p.replace(/^\/(?:Users|home)\/[^/]+/, '~')
@@ -130,13 +131,14 @@ export default function RepoHub() {
 
   // keyboard: ↑↓ move the cursor over live rows, ⏎ open the selected review,
   // ⌫ back to repositories, ⌘O open a repository. Skip nav keys while typing in
-  // the filter so ⌫ deletes text rather than navigating away.
+  // the filter so ⌫ deletes text rather than navigating away, on a focused button
+  // (its own ⏎/Space), and while Settings is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const active = document.activeElement
-      const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+      const dialogOpen = useStore.getState().settingsOpen
+      if (globalKeysSuspended(e, dialogOpen)) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void openRepository(); return }
-      if (typing) return
+      if (globalKeyBlocked(e, { dialogOpen })) return
       const list = liveRef.current
       if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(list.length - 1, s + 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)); return }

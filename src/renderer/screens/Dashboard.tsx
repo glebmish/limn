@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from '../store'
 import { I, ago } from '../kit'
 import { usePopover } from '../lib/usePopover'
+import { globalKeyBlocked, globalKeysSuspended } from '../lib/globalKeys'
 import { Tooltip } from '../components/Tooltip'
 import type { RepoIndexEntry, WorktreeInfo } from '../../shared/types'
 
@@ -130,9 +131,15 @@ export default function Dashboard() {
   const openBranch = (path: string, branch: string): void => { void openReview(path, { compare: branch }) }
 
   // keyboard: ↑↓ select, ⏎ open the repo's sessions, ⌘O open a repository,
-  // Esc clears the filter, plain typing focuses it.
+  // Esc clears the filter, plain typing focuses it. Stands down while Settings is
+  // open, for keys already handled, and for keys aimed at another field or a
+  // focused button (only the filter input drives the list).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      const dialogOpen = useStore.getState().settingsOpen
+      if (globalKeysSuspended(e, dialogOpen)) return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void useStore.getState().openRepository(); return }
+      if (globalKeyBlocked(e, { dialogOpen, allow: filterRef.current })) return
       const active = document.activeElement
       const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
       const list = reposRef.current
@@ -145,7 +152,6 @@ export default function Dashboard() {
         if (r) void (r.sessionCount > 0 ? useStore.getState().enterHub(r.path) : useStore.getState().openRepo(r.path))
         return
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); void useStore.getState().openRepository(); return }
       if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) filterRef.current?.focus()
     }
     window.addEventListener('keydown', onKey)
