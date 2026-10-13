@@ -2,14 +2,14 @@
 
 How Limn persists review state: SQLite schema, the session-identity model, migrations, and the data-access layer.
 
-> **Audience:** developers working on the main process. This describes architecture and the invariants you can break, not every function. See the source in `src/server/db/` and the shapes in `src/shared/types.ts`.
+> **Audience:** developers working on the server (`src/server/`). This describes architecture and the invariants you can break, not every function. See the source in `src/server/db/` and the shapes in `src/shared/types.ts`.
 
 ## Overview
 
 All review state — sessions, comments, chat, iterations, approvals, prefs — lives in a single SQLite file. Everything else (diffs, file content, branch SHAs) is read live from git and is **never** persisted; git is ground truth, the DB only stores the *review layer* on top of it.
 
 - **Engine:** Node's built-in `node:sqlite` (`DatabaseSync`). No third-party driver. All access is **synchronous**.
-- **Location:** `<app userData>/limn.db`, opened once at app-ready in `src/server/index.ts` and threaded explicitly into `registerIpc(db, …)`.
+- **Location:** `$LIMN_DB` when set, else `limn/limn.db` under `~/Library/Application Support` (macOS), `$XDG_CONFIG_HOME` or `~/.config` (Linux), or `%APPDATA%` (Windows) (`src/server/paths.ts`). That is the same file the 0.1–0.3 desktop app used. The service opens it once in `startServer` (`src/server/http.ts`) and threads it explicitly into `registerIpc(db, …)`. `limn config` opens it directly when no service is running.
 - **No singleton:** the `db` handle is passed as the first argument to nearly every DAO function. There is no module-level global — this is deliberate, so tests open throwaway temp DBs.
 - **Concurrency model:** WAL mode with a 5 s `busy_timeout`. More than one Limn process can open the same file (an installed service plus a foreground `limn service serve` on another port, say); readers never block, and a writer colliding with another writer waits up to 5 s for the lock before throwing rather than failing instantly. There is no application-level `SQLITE_BUSY` retry loop beyond that wait.
 
@@ -35,7 +35,7 @@ All review state — sessions, comments, chat, iterations, approvals, prefs — 
 Three failure modes are handled **differently**, and the distinctions are load-bearing:
 
 - **Corruption** — if `open()` (steps 1–4) throws *and* `isCorruptionError(err)` matches (an `integrity_check` failure, `SQLITE_NOTADB`, "file is encrypted", "malformed", etc.), the file is renamed aside to `<file>.corrupt-<timestamp>`, the `-wal`/`-shm` sidecars are renamed to sit beside it (they must leave — a stale WAL would poison the fresh db — but the last committed transactions live in the WAL, so the aside copy keeps them), and a fresh DB is created. The backup path is returned as `recoveredFrom` and surfaced to the UI as a boot notice. **This loses data** (recreated empty).
-- **Transient open failure** — if `open()` throws but the error is *not* corruption (lock contention from a concurrent desktop+web open, a permissions error, `SQLITE_BUSY`), it is **rethrown with the file intact**. The recovery path is never taken, so a momentary failure can't drop the user's real database.
+- **Transient open failure** — if `open()` throws but the error is *not* corruption (lock contention from a second Limn process such as the service plus `limn config` or a foreground `limn service serve`, a permissions error, `SQLITE_BUSY`), it is **rethrown with the file intact**. The recovery path is never taken, so a momentary failure can't drop the user's real database.
 - **Migration failure** — if `migrate()` throws, the DB is closed and the error rethrown, leaving the file **intact**.
 
 > ⚠️ The discriminator is `isCorruptionError(err)` (a message match), **not** "which function threw." If you ever change that classifier, be conservative: a false positive routes recoverable errors down the data-losing corruption path. When unsure, rethrow rather than recover.
@@ -44,9 +44,19 @@ Three failure modes are handled **differently**, and the distinctions are load-b
 
 ## Schema
 
-Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it — v2 `sessions.diff_stack`, v3 strips the dropped per-section `verify` key out of every stored annotations blob, v4 drops the dead `sessions.base_ident` generated column, v5 adds `idx_chat_messages_thread`, v6 drops the writer-less `reviewed_sections` table. `meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
+Migration v1 creates the whole schema (the squashed greenfield baseline); later migrations amend it:
 
-> ⚠️ **Migrations are forward-only — v6 is a one-way door.** v6 *drops* `reviewed_sections`, and a pre-v6 Limn's `loadReviewState` `SELECT`s that table unconditionally, so an older build opening a v6 database fails **every** session load. Once the service has started once on 0.4.0, do not downgrade the installed package to an earlier version against the same database — there is no down migration, and the older build will not read what the newer one wrote.
+- v2 adds `sessions.diff_stack`.
+- v3 strips the dropped per-section `verify` key out of every stored annotations blob.
+- v4 drops the dead `sessions.base_ident` generated column.
+- v5 adds `idx_chat_messages_thread`.
+- v6 drops the writer-less `reviewed_sections` table.
+- v7 adds `chat_threads.action_json` and `chat_messages.run_json` (action threads and run metadata), and rebuilds `comments` to widen its `status` check with `proposed` and `dismissed`.
+- v8 adds `artifacts.source` (`detected` | `agent`).
+
+`meta(key, value)` is created separately by `migrate()` itself and holds only `schema_version`.
+
+> ⚠️ **Migrations are forward-only, and the upgrade is a one-way door.** v6 *drops* `reviewed_sections`, which a pre-v6 Limn's `loadReviewState` `SELECT`s unconditionally, so an older build opening a v6+ database fails every session load. 0.4.0 migrates the 0.1–0.3 desktop database in place (to v8) the first time it opens it. After that, do not run an earlier version against the same database: there is no down migration, and the older build will not read what the newer one wrote.
 
 ### Core entity graph
 
@@ -71,12 +81,12 @@ Every child→parent FK is `ON DELETE CASCADE`. Deleting a session drops all of 
 | `prefs` | App key/value (e.g. `engine`). Accessed directly, not via a DAO. |
 | `repos` | `path UNIQUE`, `last_opened_at` (drives recents), `first_commit_sha` (identity hint). |
 | `sessions` | The core table — see below. |
-| `comments` | PK `(session_id, id)`; full `Comment` in the `json` blob; `status` duplicated as a column for `unresolvedCount`. |
-| `chat_threads` | Autoincrement id; parent of `chat_messages`. `kind IN ('review','user')`, `engine`/`model`/`reasoning_effort`/`execution_mode`, `engine_session_id` (resume key), `title`. |
-| `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v1 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v1), `actions_json`, `tools_json`. |
+| `comments` | PK `(session_id, id)`; full `Comment` in the `json` blob; `status` (`queued`, `sent`, `resolved`, `outdated`, `proposed`, `dismissed`) duplicated as a column for `unresolvedCount`. |
+| `chat_threads` | Autoincrement id; parent of `chat_messages`. `kind IN ('review','user')`, `engine`/`model`/`reasoning_effort`/`execution_mode`, `engine_session_id` (resume key), `title`, `action_json` (v7: the pinned action an action thread runs). |
+| `chat_messages` | Autoincrement id (read order); hangs off `chat_threads` (`thread_id`), not the session directly. `role`, `text`, `at`; optional `anchor_json`, `segments_json` (v1 — ordered text↔tool segments for inline tool-call rendering), `comment_refs_json` (v1), `actions_json`, `tools_json`, `run_json` (v7: the action run a message launches or ends). |
 | `iterations` | PK `(session_id, n)`; `engine_session_id` is the **external engine's thread id** used to resume chat; `end_sha`, `summary`, `scope` (v1 — `full` \| `scoped`). |
 | `viewed_files` | PK `(session_id, file)`; per-file "viewed at SHA" markers. |
-| `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')` — spec/plan markdown the review is judged against. |
+| `artifacts` | PK `(session_id, path)`; `role IN ('spec','plan')`, `source IN ('detected','agent')` (v8). The spec/plan markdown the review is judged against; detected rows follow the diff, agent-reported rows are kept off-diff. |
 | `artifact_approvals` | PK `(session_id, path)`; per-artifact approved SHA. |
 | `session_approvals` | PK `(session_id, hash)`; every branch surface explicitly approved for the session. Clean surfaces use `hash = sha`; dirty surfaces use a hash of the commit plus uncommitted working-tree content/status. |
 | `excluded_files` | PK `(session_id, file)`; per-file exclude override for untracked files. `excluded` 1 = hidden from the review, 0 = an explicit keep overriding the auto "orphan untracked file in a narrated review is excluded" default; absent rows fall back to that default. |
@@ -116,7 +126,7 @@ for an exact identity, which is the resume hint used by the default open path.
 
 ### Lifecycle
 
-- **Start vs resume:** resolve both ref inputs → `findSession`; if found, resume; else `createSession`. The renderer asks main for this lookup so branch and commit refs use the same identity logic.
+- **Start vs resume:** resolve both ref inputs → `findSession`; if found, resume; else `createSession`. The renderer asks the server for this lookup so branch and commit refs use the same identity logic.
 - **Start fresh:** pass `fresh` to `startSession`; it skips `findSession` and creates another live session for the same pair. `archiveSession` only soft-deletes a row so it no longer appears in live lists or resume hints.
 - **Reviewed / approved SHAs:** `sessions` carries `reviewed_at_sha` (set on every generate, = diff head) and `approved_sha` (the latest approval baseline pointer). `session_approvals` stores the full set of approved branch surfaces. Clean approvals are keyed by commit SHA; dirty approvals are keyed by a branch surface hash (`HEAD` plus uncommitted working-tree content/status). Reopening or checking out any previously approved surface shows as approved again. If the commit is approved but the dirty surface is not, the approval control shows the uncommitted-change approval affordance. The review's "since approved" baseline is the loaded HEAD when it is in the approved commit set, otherwise `approved_sha ?? reviewed_at_sha`. `viewed_files.sha` does the same per file; `artifact_approvals` per artifact.
 
@@ -137,11 +147,13 @@ Every function takes `db` first. Highlights and contracts:
 - `createSession`, `getSession`, `findSession` (keyed on identity + `archived_at IS NULL`), `archiveSession`, `retargetSession`.
 - `updateSessionMeta(db, id, patch)` — dynamic partial UPDATE; **no-ops on an empty patch and does not bump `updated_at`**. Each field is gated on `!== undefined`, so you **cannot clear a column to NULL** through this API.
 - `upsertComment` / `deleteComment` / `unresolvedCount` (counts `status IN ('queued','sent')`).
-- `addChat`, `addIteration`.
-- **Transactional, replace-semantics** helpers: `resetIterations` (regenerate — wipes stale `n>1` rows so a fix can't resume the wrong engine thread), `setArtifacts`, `replaceUiState` (delete-all-then-reinsert per field — replace, not merge).
+- `createChatThread`, `addChatMessage`.
+- `nextIterationNumber` (a pure `MAX(n)+1` read) and `addIteration`. Iterations are append-only: a regeneration adds a row and never deletes earlier ones.
+- `copyGeneratedReview` — copies one generated iteration (annotations, artifacts, review thread) into another session, in one transaction.
+- **Transactional, replace-semantics** helpers: `setArtifacts`, `replaceUiState` (delete-all-then-reinsert per field — replace, not merge).
 - `loadReviewState(db, id)` — the assembler. Reads one row-set per child table, JSON-parses blobs, maps DB column names back to TS shapes. **Comments are ordered `(created_at, id)`, chat by `id`, iterations by `n`; the set-like tables are read without `ORDER BY`** (fine because they become sets/objects — don't start relying on their row order).
 
 ### Transaction model — sharp edges
 
 - Transactions are raw `db.exec('BEGIN IMMEDIATE'|'COMMIT'|'ROLLBACK')` — `IMMEDIATE` because every one of them writes, and a deferred transaction that reads before writing upgrades its lock mid-flight, which fails without honouring `busy_timeout`. **There is no savepoint / reentrancy support.** The transactional DAOs assume they are top-level — wrapping one inside an outer transaction throws on the nested `BEGIN`.
-- **Guarded JSON parsing — salvages and reports:** every persisted blob (`comments.json`, `sessions.annotations_json`, chat `anchor_json`/`actions_json`/`tools_json`/`segments_json`/`comment_refs_json`, `iterations.annotations_json`) is parsed through `safeJson` in `loadReviewState` and its helpers. A malformed blob is salvaged per its kind (skip the comment/iteration row, drop the chat field, render annotations as not-yet-generated) rather than failing the whole session load; the degradations are summarized into `ReviewState.loadWarnings` and shown in the renderer's dismissible error strip. Stored data is never mutated or deleted on the read path.
+- **Guarded JSON parsing — salvages and reports:** every persisted blob (`comments.json`, `sessions.annotations_json`, chat `anchor_json`/`actions_json`/`tools_json`/`segments_json`/`comment_refs_json`/`run_json`, `chat_threads.action_json`, `iterations.annotations_json`) is parsed through `safeJson` in `loadReviewState` and its helpers. A malformed blob is salvaged per its kind (skip the comment/iteration row, drop the chat field, render annotations as not-yet-generated) rather than failing the whole session load; the degradations are summarized into `ReviewState.loadWarnings` and shown in the renderer's dismissible error strip. Stored data is never mutated or deleted on the read path.
