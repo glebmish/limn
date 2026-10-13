@@ -10,7 +10,7 @@ import('../dist/cli/index.js').catch((err) => {
   // The one failure a user can act on without a stack trace: bin/ exists but dist/
   // was never built (a source checkout) or is gone (a broken install).
   if (err && err.code === 'ERR_MODULE_NOT_FOUND' && /dist[\\/]cli[\\/]index\.js/.test(String(err.message))) {
-    console.error('Limn: dist/ is missing next to bin/. In a source checkout run `npm run build`; for an installed package, reinstall it (npm i -g @glebmish/limn).')
+    console.error('Limn: dist/ is missing next to bin/. In a source checkout run `npm run build`; for an installed package, reinstall it (npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz).')
     process.exit(1)
   }
   console.error(err instanceof Error ? err.stack ?? err.message : String(err))

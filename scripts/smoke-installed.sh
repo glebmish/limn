@@ -6,7 +6,7 @@ out="${2:?out png}"
 
 limn="$(command -v limn || true)"
 if [ -z "$limn" ]; then
-  echo "limn is not installed globally (npm i -g @glebmish/limn); nothing to smoke" >&2
+  echo "limn is not installed globally (npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz); nothing to smoke" >&2
   exit 1
 fi
 

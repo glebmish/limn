@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { decideOpen, isNpxInvocation, serviceQuestion } from '../src/cli/open'
+import { decideOpen, isNpxInvocation, releaseTarballUrl, serviceQuestion } from '../src/cli/open'
+import { APP_VERSION } from '../src/server/http'
 import { interpretAnswer } from '../src/cli/main'
 
 const health = { app: 'limn' as const, version: '0.4.0', pid: 1, startedAt: '', port: 5466 }
@@ -31,16 +32,23 @@ describe('serviceQuestion', () => {
     expect(serviceQuestion({ url: 'http://limn.localhost:5466', npx: false, backend: 'systemd' }))
       .toContain('a systemd --user unit in ~/.config/systemd/user')
   })
-  it('under npx it also offers the global install', () => {
+  it('under npx it also offers the global install of the running version from its GitHub Release', () => {
     const q = serviceQuestion({ url: 'http://limn.localhost:5466', npx: true, backend: 'systemd' })
-    expect(q).toContain('npm i -g @glebmish/limn')
+    expect(q).toContain(`npm i -g https://github.com/glebmish/limn/releases/download/v${APP_VERSION}/glebmish-limn-${APP_VERSION}.tgz`)
     expect(q).toContain('~/.config/systemd/user')
+    // never the registry name — Limn is not published there
+    expect(q).not.toContain('npm i -g @glebmish/limn')
+  })
+  it('the release tarball URL follows the release workflow naming', () => {
+    expect(releaseTarballUrl('0.4.0')).toBe('https://github.com/glebmish/limn/releases/download/v0.4.0/glebmish-limn-0.4.0.tgz')
   })
 })
 
 describe('isNpxInvocation', () => {
   it('detects the npx cache path', () => {
     expect(isNpxInvocation('/Users/x/.npm/_npx/abc123/node_modules/@glebmish/limn/dist/cli/index.js')).toBe(true)
+    // `npx <tarball URL>` lands in the same cache, under the package's own name
+    expect(isNpxInvocation('/Users/x/.npm/_npx/9f8e7d/node_modules/@glebmish/limn/bin/limn.js')).toBe(true)
     expect(isNpxInvocation('/opt/homebrew/lib/node_modules/@glebmish/limn/dist/cli/index.js')).toBe(false)
   })
 })

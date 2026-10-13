@@ -12,7 +12,7 @@ import { isServiceInstalled, installService, serviceBackend } from './service/in
 import { issueCliOpen, type CliOpenArgs, type CliOpenResult } from '../server/cliOpen.js'
 import { rpc, RpcError } from './rpc.js'
 import { tryOpenInCmux } from './cmux.js'
-import type { RunningServer } from '../server/http.js'
+import { APP_VERSION, type RunningServer } from '../server/http.js'
 import type { Io } from './main.js'
 
 export type OpenCommand = Extract<CliCommand, { kind: 'open' }>
@@ -25,8 +25,8 @@ export function decideOpen(i: { health: HealthInfo | null; noService: boolean; i
   return { role: 'server', offerService: i.serviceSupported && i.isTTY && !i.noService && !i.serviceInstalled && !i.declinedBefore }
 }
 
-/** `npx @glebmish/limn` unpacks into a throwaway `_npx` cache — the path is not stable
- *  enough for a service unit, so that first run offers a global install too. */
+/** `npx <release tarball URL>` unpacks into a throwaway `_npx` cache — the path is not
+ *  stable enough for a service unit, so that first run offers a global install too. */
 export function isNpxInvocation(entryPath: string): boolean {
   return /[\\/]_npx[\\/]/.test(entryPath)
 }
@@ -148,24 +148,31 @@ async function offerShimRemoval(io: Io, deps: OpenDeps): Promise<void> {
   }
 }
 
+/** Limn is not on the npm registry: each version ships as a tarball attached to its
+ *  GitHub Release. The npx path installs exactly the version that is running. */
+export function releaseTarballUrl(version: string): string {
+  return `https://github.com/glebmish/limn/releases/download/v${version}/glebmish-limn-${version}.tgz`
+}
+
 /** The service prompt, in the words of the backend that would actually be used. */
 export function serviceQuestion(i: { url: string; npx: boolean; backend: 'launchd' | 'systemd' }): string {
   const where = i.backend === 'launchd'
     ? 'a LaunchAgent in ~/Library/LaunchAgents'
     : 'a systemd --user unit in ~/.config/systemd/user'
   return i.npx
-    ? `Install Limn globally (npm i -g @glebmish/limn) and as a background service (${where}) so ${i.url} is always available?`
+    ? `Install Limn ${APP_VERSION} globally (npm i -g ${releaseTarballUrl(APP_VERSION)}) and as a background service (${where}) so ${i.url} is always available?`
     : `Install Limn as a background service (${where}) so ${i.url} is always available?`
 }
 
 /** Install the service the first time someone runs `limn` with no server up. 0 on success. */
 async function installFromPrompt(port: number, io: Io, deps: OpenDeps, npx: boolean): Promise<number> {
   if (!npx) return deps.install({ port80: false }, io)
-  io.out('installing @glebmish/limn globally…')
+  const tarball = releaseTarballUrl(APP_VERSION)
+  io.out(`installing Limn ${APP_VERSION} globally from ${tarball}…`)
   try {
-    execFileSync('npm', ['i', '-g', '@glebmish/limn'], { stdio: 'inherit' })
+    execFileSync('npm', ['i', '-g', tarball], { stdio: 'inherit' })
   } catch {
-    io.err('npm i -g failed; run it manually, then `limn service install`')
+    io.err(`npm i -g failed; run \`npm i -g ${tarball}\` manually, then \`limn service install\``)
     return 1
   }
   // Hand off to the freshly installed global binary so the unit records its stable path
