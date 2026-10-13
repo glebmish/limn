@@ -7,6 +7,7 @@ import type { LoadedReview } from '../src/shared/ipc'
 
 import { useStore } from '../src/renderer/store'
 import { DiffView } from '../src/renderer/components/DiffView'
+import { lineKeyIgnored } from '../src/renderer/components/DiffBody'
 import { makeLoaded } from './helpers/loaded'
 import { initialStateOf } from './helpers/store'
 
@@ -53,5 +54,24 @@ describe('post-save line selection', () => {
     expect(renderToStaticMarkup(<DiffView f={file} />)).not.toContain('line-selected')
     seed({ sel: { file: 'src/a.ts', line: 2 }, frame: { file: 'src/a.ts', start: 3, end: 3 } })
     expect(renderToStaticMarkup(<DiffView f={file} />)).not.toContain('line-selected')
+  })
+})
+
+describe('the line-selection keys yield to whatever has focus (#8)', () => {
+  // a stand-in for an element: `closest` answers whether it sits inside `inside`
+  const el = (inside: string | null) => ({
+    closest: (sel: string) => (inside != null && sel.split(',').includes(inside) ? {} : null)
+  })
+  it('handles a key pressed on the page itself', () => {
+    expect(lineKeyIgnored({ defaultPrevented: false, target: el(null) })).toBe(false)
+    expect(lineKeyIgnored({ defaultPrevented: false, target: null })).toBe(false)
+  })
+  it('leaves Enter on a focused control to that control — no edit frame opens under it', () => {
+    for (const inside of ['button', 'a', 'input', 'textarea', 'select', '[role=button]', '[role=dialog]', '[contenteditable="true"]']) {
+      expect(lineKeyIgnored({ defaultPrevented: false, target: el(inside) })).toBe(true)
+    }
+  })
+  it('leaves a key someone already handled alone', () => {
+    expect(lineKeyIgnored({ defaultPrevented: true, target: el(null) })).toBe(true)
   })
 })

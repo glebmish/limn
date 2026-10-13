@@ -117,6 +117,19 @@ export async function latchFileRead(
   return r.lines
 }
 
+/** Where focus owns the key: a control (Enter on a focused button must press THAT
+ *  button, not also open an edit frame on the selected line), a text field, a dialog. */
+const KEY_OWNERS = 'button,a,input,textarea,select,[role=button],[role=dialog],[contenteditable="true"]'
+
+/** Whether the post-save line-selection keys (↑/↓/⏎/esc, a document-level listener)
+ *  should leave this keydown alone: someone already handled it, or it was pressed
+ *  inside an element that owns its own keys. */
+export function lineKeyIgnored(e: { defaultPrevented: boolean; target: unknown }): boolean {
+  if (e.defaultPrevented) return true
+  const t = e.target as { closest?: (sel: string) => unknown } | null
+  return Boolean(t && typeof t.closest === 'function' && t.closest(KEY_OWNERS))
+}
+
 /** The origin / drift rail class for a line, shared by the unified row and a cell. */
 function originCls(l: DiffLine | null, driftRails: boolean): string {
   if (!l) return ''
@@ -350,8 +363,7 @@ export function DiffBody({ f, stack, showBody, fileComments, composerAt, setComp
   useEffect(() => {
     if (!selected) return
     const onKey = (e: KeyboardEvent): void => {
-      const t = e.target as HTMLElement | null
-      if (t && t.closest('textarea,input,select,[contenteditable="true"]')) return
+      if (lineKeyIgnored(e)) return
       if (e.key === 'Escape') { e.preventDefault(); setLineSelect(null); return }
       if (e.key === 'Enter') {
         e.preventDefault()
