@@ -1,3 +1,6 @@
+# Limn is NOT published to the npm registry (package.json is `"private": true`, so
+# `npm publish` refuses). A v* tag builds and checks the tarball and attaches it to a
+# GitHub Release; users install it with `npm i -g <release asset URL>`.
 name: Release
 
 on:
@@ -6,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Pack only, do not publish'
+        description: 'Pack only, do not create a GitHub Release'
         type: boolean
         default: true
 
@@ -14,23 +17,21 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Publish @glebmish/limn
+  release:
+    name: GitHub Release with the limn tarball
     permissions:
       contents: write        # GitHub Release
-      id-token: write        # npm provenance
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # No npm cache: this job holds id-token and NPM_TOKEN, so it never restores a
-      # cache another job could have written.
+      # No npm cache: this job holds contents:write, so it never restores a cache
+      # another job could have written.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -51,8 +52,7 @@ jobs:
       # RESTORES a full tree in its exit trap (so a local run leaves vite/vitest
       # working). So the strip has to happen here, after it. rollup's own optional
       # native binary isn't needed any more — the build already ran inside
-      # pack:smoke. `npm publish` further down re-runs the prepack guard against
-      # this stripped tree.
+      # pack:smoke.
       - name: Strip optional platform binaries before packing
         run: npm ci --omit=optional
       - name: Assert the tree carries no platform binaries
@@ -66,29 +66,31 @@ jobs:
             echo "::error::platform binaries in tarball"
             exit 1
           fi
-      # Runs on dry runs too, so a dispatch proves the token before a tag relies on it.
-      - name: Check npm auth
-        run: npm whoami
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Two names for the same bytes: the versioned file (pinnable URL) and a stable
+      # `limn.tgz` so releases/latest/download/limn.tgz always resolves to the newest.
+      - name: Stable name + checksums
+        run: |
+          tgz="glebmish-limn-$(node -p "require('./package.json').version").tgz"
+          test -f "$tgz" || { echo "::error::expected $tgz"; ls -la *.tgz; exit 1; }
+          cp "$tgz" limn.tgz
+          sha256sum "$tgz" limn.tgz > SHA256SUMS
+          cat SHA256SUMS
       - name: Upload tarball (inspection / dry-run)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: limn-npm-tarball
-          path: '*.tgz'
-      # NPM_TOKEN: npm granular access token (read+write, bypass 2FA; "All packages" until
-      # the first publish exists, then narrow to @glebmish/limn). Max 90-day expiry: rotate.
-      # Publishing the checked tarball (not a re-pack) keeps npm, the asserts and the
-      # GitHub Release asset byte-identical.
-      - name: Publish to npm
-        if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
-        run: npm publish ./*.tgz --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          name: limn-tarball
+          path: |
+            *.tgz
+            SHA256SUMS
+      # Attaches the checked tarball itself (not a re-pack), so the asserts above cover
+      # exactly what users download.
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: '*.tgz'
+          files: |
+            glebmish-limn-*.tgz
+            limn.tgz
+            SHA256SUMS
           body_path: ${{ runner.temp }}/release-notes.md
           fail_on_unmatched_files: true
