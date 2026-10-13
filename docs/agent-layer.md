@@ -2,27 +2,29 @@
 
 How Limn drives an AI agent — Claude and Codex, both through the **Agent Client Protocol (ACP)** — to turn a git diff into a structured, narrated review and to apply reviewer comments back to the branch as commits.
 
-> **Audience:** developers working on the main process. This describes the engine abstraction, the single ACP engine + its per-engine adapter configs, the prompt/schema contract, the engine-agnostic tool layer, execution modes & approvals, anchoring, and the three flows. Source lives mainly in `src/server/engines/` (with anchoring in `src/server/anchor.ts` and artifact detection in `src/server/artifacts.ts`) and is orchestrated by `src/server/ipc.ts`.
+> **Audience:** developers working on the server (`src/server/`). This describes the engine abstraction, the single ACP engine and its per-engine adapter configs, the prompt/schema contract, the engine-agnostic tool layer, execution modes and approvals, anchoring, the core flows, and actions. Source lives mainly in `src/server/engines/` (with anchoring in `src/server/anchor.ts` and artifact detection in `src/server/artifacts.ts`) and is orchestrated by `src/server/ipc.ts`.
 
 > **One protocol, two adapters.** Both engines are driven by one `AcpEngine` (`acp.ts`) speaking ACP over stdio to a per-engine **adapter** — a pinned npm package (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`) that translates ACP into each engine's native CLI. Per-engine code is a small `AcpEngineConfig` record (`adapters.ts`): the mode-id mapping, per-turn spawn env, effort config-options, and which native-binary env var to feed. The adapter version *is* the pinned engine version — see [acp-adapters.md](acp-adapters.md).
 
 ## Guiding principle: git is ground truth
 
-The displayed diff is **always** computed from `git diff`, never from the agent. The agent only *annotates* the diff (sections, narration, risk flags, diagrams, spec cross-check) and, on a write-enabled batch turn, *edits and commits* on the branch using its own engine shell (git) — after which the app re-reads git. The agent can never assert what changed or alter what you see. The validation layer enforces this: any agent reference to a file not in the diff is dropped, and every file in the diff is guaranteed coverage.
+The displayed diff is **always** computed from `git diff`, never from the agent. The agent only *annotates* the diff (sections, narration, risk flags, diagrams, spec cross-check) and, on a write-enabled turn, *edits and commits* on the branch using its own engine shell (git) — after which the app re-reads git. The agent can never assert what changed or alter what you see. The validation layer enforces this: any agent reference to a file not in the diff is dropped, and every file in the diff is guaranteed coverage.
 
 ## Engine abstraction
 
-All engines implement one interface (`engines/types.ts`) — just **two methods**:
+All engines implement one interface (`engines/types.ts`) with four methods:
 
 ```ts
 interface ReviewEngine {
   id: EngineId  // 'claude' | 'codex'
-  generateReview(req: ReviewRequest): EngineRun<ReviewAnnotations>
-  chat(turn: ChatTurn): EngineRun<string>  // read-only Q&A OR write batch — tools decide
+  generateReview(req: ReviewRequest): EngineRun<ParsedReview>
+  generateScopedUpdate(req: ScopedUpdateRequest): EngineRun<ScopedReviewPatch>
+  chat(turn: ChatTurn): EngineRun<string>  // chat, action runs, batch and rebase turns
+  extractFindings(req: ExtractRequest): EngineRun<WireFinding[]>  // the findings pass after an action run
 }
 ```
 
-Three product operations map onto these two methods — **generate** (explore the repo and produce structured annotations), **chat** (Q&A next to the diff), and **batch** (apply queued comments: edits + commits). Batch is *not* a separate method: it is `chat()` with `writeEnabled` set, which lets the engine's own shell/edit tools (Bash/Edit/Write — git via bash) act under the execution-mode gate. Limn hosts no write tool of its own; the agent edits files and commits on the branch itself. What the agent can do is decided by the engine/tool policy for the turn. All three return the same dual-channel envelope:
+The product operations map onto these methods: **generate** (explore the repo and produce structured annotations; a small drift can use the scoped update instead), **chat** (conversation next to the diff), **actions** (a pinned skill or prompt, then a findings pass), and **batch** (apply queued comments: edits and commits). Batch is not a separate method. It is `chat()` with `writeEnabled` set, which lets the engine's own shell/edit tools (Bash/Edit/Write, git via bash) act under the execution-mode gate. Limn hosts no write tool of its own; the agent edits files and commits on the branch itself. What the agent can do is decided by the engine/tool policy for the turn. All three return the same dual-channel envelope:
 
 ```ts
 interface EngineRun<T> {
@@ -34,10 +36,10 @@ interface EngineRun<T> {
 
 The two channels run concurrently: `ipc.ts` pumps `events` to the renderer (IPC channel `op:event`) for live progress while awaiting `result` for the terminal payload (the validated `ReviewAnnotations` for generate; the final assistant text for chat/batch).
 
-- **`EngineEvent`** (`shared/types.ts`) is a **7-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect — focus, comment_added, comment_resolved…), `approval_request` (needs reviewer go-ahead), `done`, `error`. Each real engine normalizes its native event stream into this union.
+- **`EngineEvent`** (`shared/types.ts`) is an **8-variant** union: `status`, `tool` (tool-call lifecycle), `text` (streamed assistant text), `action` (a Limn-tool side effect: point, comment_added, finding_added…), `approval_request` (needs reviewer go-ahead), `lane` (the op's place in the repo's task queue: `queued` with a 1-based `position` and the `behind` label, then `running`), `done`, `error`. The ACP event mapper normalizes each adapter's stream into this union; `lane` comes from `ipc.ts`, not from an engine.
 - **`EventQueue`** bridges push-style SDK callbacks to a pull-style `AsyncIterable`. It is **single-consumer** (one FIFO waiter queue) and **drops events pushed after `close()`**. It does not surface errors as rejections — errors travel as an `{type:'error'}` event plus a rejected `result` promise.
 
-**`ChatTurn`** (`engines/types.ts`) is the carrier for both chat and batch. Beyond `repo`/`message`/`anchor`/`model`/`reasoningEffort` it threads the context that distinguishes the two: `engineSessionId` (resume this session, else start fresh + seed from `context`), `tools` (the per-turn `AgentToolHost`), `writeEnabled` (code-editing tools allowed this turn), `opId` (keys the approval registry), and `executionMode` (the autonomy tier).
+**`ChatTurn`** (`engines/types.ts`) is the carrier for both chat and batch. Beyond `repo`/`message`/`anchor`/`model`/`reasoningEffort` it threads the context that distinguishes the two: `engineSessionId` (resume this session, else start fresh and seed from `context`), `tools` (the per-turn `AgentToolHost`), `writeEnabled` (code-editing tools allowed this turn), `opId` (keys the approval registry), and `executionMode` (the autonomy tier).
 
 **Selection** — `makeEngine(id)`:
 
@@ -48,22 +50,23 @@ return id === 'claude' ? new AcpEngine(CLAUDE_ACP_CONFIG) : new AcpEngine(CODEX_
 
 A fresh engine instance is constructed per operation — the same `AcpEngine` class, differing only by its config record. `LIMN_DEMO=1` overrides everything.
 
-**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Read-only chat turns exercise the `focus` + `tour` + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI. `FakeEngine` carries the requested engine id (`new FakeEngine(id)`), so demo mode reports the engine the caller asked for.
+**FakeEngine** is a deterministic engine for contract tests and demo mode — no AI, canned review, and a `chat` that, on a write-enabled batch turn (`turn.tools && turn.writeEnabled`), drives the **real** tool host: it edits a file, commits via `git` through `execGit` (as the real agent does through its own shell), then calls `resolve_comment` per comment id so the actual edit/commit/resolution path runs offline. Tool-enabled turns that are not write-enabled exercise the `point` (single and multi-stop) + `suggest_mark_viewed` action pipe. It covers the full generate→comment→batch→"since" cycle without an AI. `FakeEngine` carries the requested engine id (`new FakeEngine(id)`), so demo mode reports the engine the caller asked for.
 
 ## ACP engine (`acp.ts`)
 
-One `AcpEngine implements ReviewEngine` drives both engines; the only per-engine data is the `AcpEngineConfig` record (`adapters.ts`) selected by `makeEngine`. `generateReview` and `chat` both funnel into one `runAcpTurn`, which owns the whole turn lifecycle:
+One `AcpEngine implements ReviewEngine` drives both engines; the only per-engine data is the `AcpEngineConfig` record (`adapters.ts`) selected by `makeEngine`. All four methods funnel into one `runAcpTurn`, which owns the whole turn lifecycle:
 
 1. **MCP host** — for tool-enabled turns, `registerTurn(host)` opens the per-turn localhost MCP server and yields its `{url, release}` (see *The tool layer*); the url is passed as an ACP `mcpServers: [{type:'http', name:'limn', …}]` entry.
 2. **Preflight + spawn** — when the config marks the native binary **required** (Codex), an unresolved binary fails fast with the `engineBinaryStatus` hint (see *Binary resolution*). Otherwise the adapter is spawned with the service's own Node (`process.execPath`), **one process per turn**, in its own process group so cancel kills the tree. Per-turn spawn env layers on `binaryEnv()` (the native-binary path) and `env(turn)` (e.g. `ANTHROPIC_MODEL`).
 3. **`initialize`** — declines all client capabilities (`fs.readTextFile/writeTextFile: false`, `terminal: false`) so the agent uses its own tools against the worktree, as before. The negotiated protocol version must be `1` — anything else throws an actionable "update Limn" error (spec OQ10).
-4. **Session** — resume via `session/load(engineSessionId)` when the adapter advertises `loadSession`, else `session/new` and treat the turn as seeded. **Replay is suppressed:** every `session/update` before the load response resolves is dropped — that history already lives in Limn's DB.
-5. **`session/set_mode`** — the tier's ACP mode id (`config.modeFor(mode, writeEnabled)`); a method-not-found is swallowed (forward-compat with modes' announced move to config options).
-6. **`session/prompt`** — the built prompt as one text block; `session/update` notifications stream through `acpToEvents` (`acpEvents.ts`) into the `EventQueue`, and `session/request_permission` requests route through `ladderPolicy` (see *Execution modes & approvals*).
+4. **Session.** With an `engineSessionId`, the turn calls `session/resume` when the adapter advertises it (`sessionCapabilities.resume`), else `session/load`. If that call fails, the turn throws `EngineSessionLostError` (surfaced as `ENGINE_SESSION_LOST`, "start a new chat"); it is never silently re-seeded into a fresh session. An adapter that advertises neither fails with a generic error. Without an `engineSessionId` the turn calls `session/new`. **Replay is suppressed:** every `session/update` before the session call resolves is dropped, since that history already lives in Limn's DB.
+   - **Session `_meta` (Claude).** Every `session/new`, `session/load` and `session/resume` carries `_meta.claudeCode.options.settingSources: ['user']` (`CLAUDE_ACP_CONFIG.sessionMeta`; the command probe opens its sessions the same way). The reviewed repo is untrusted input, so its `.claude/settings*.json` (hooks, permission rules, env), project `.claude/skills` and `.claude/commands`, project `.mcp.json` and its `CLAUDE.md` are not loaded. The user's own `~/.claude` settings, skills and `CLAUDE.md` are. One residual: the adapter's own settings manager still reads `<cwd>/.claude/settings*.json` to pick its starting permission mode and model settings. That is why a failed `set_mode` (next step) fails the turn instead of continuing in the adapter's default.
+5. **`session/set_mode`.** Limn sends the tier's ACP mode id (`config.modeFor(mode, writeEnabled, availableModes)`, using the mode ids the session advertised). If the adapter rejects it, Limn retries once with the conservative fallback (`modeFor` with an empty mode list; for Claude `auto` that is `acceptEdits`). If both fail and the session does not already report one of those two ids as its current mode, the turn fails before any prompt is sent, on every tier, read-only included. If the adapter advertises no session modes at all, the mode step is skipped. The per-engine config options (Claude effort; Codex model and effort) follow. Those are advisory: a rejected option id is ignored.
+6. **`session/prompt`** — the built prompt as one text block; `session/update` notifications stream through `acpToEvents` (`acpEvents.ts`) into the `EventQueue`, and `session/request_permission` requests route through `ladderPolicy`, or `generationLadder` on a generation turn (see *Execution modes & approvals*).
 7. **Terminal** — `end_turn` resolves `{value, sessionId}`; `cancelled` settles quietly; `refusal`/`max_*` error. `finally` closes the queue, kills the process group, and `release()`s the MCP turn.
 
 - **Auth** is unchanged and per-engine: `authStatus` reports healthy for Claude if `ANTHROPIC_API_KEY` is set or `~/.claude` exists, for Codex if `OPENAI_API_KEY` or `~/.codex/auth.json` exists. The adapters read those same credential locations.
-- **Sessions** — `engineSessionId` **is** the ACP `sessionId`; no schema change. New session → `session/new` returns it → persisted where the SDK session id / thread id was persisted before. Pre-migration ids (Claude JSONL ids, Codex thread ids) are keyed the same way by the adapters, so they load; on any load failure the turn degrades to a seeded fresh session — history and review context are never lost.
+- **Sessions.** `engineSessionId` is the ACP `sessionId`. `session/new` returns it and Limn stores it on the chat thread (and on the iteration for a generation). Pre-migration ids (Claude JSONL ids, Codex thread ids) are keyed the same way by the adapters, so they resume. A failed resume is not degraded to a fresh session: it raises `ENGINE_SESSION_LOST` and the reviewer starts a new chat (see *Invariants & sharp edges*). The thread's visible history stays in Limn's DB either way.
 - **Event mapping (`acpEvents.ts`)** — one pure `acpToEvents(update): EngineEvent[]` mapper (unit-tested per row) folds ACP `agent_message_chunk` / `agent_thought_chunk` / `plan` / `tool_call` / `tool_call_update` into the same `EngineEvent` union both engines already produced. Sparse `tool_call_update`s fold by `toolCallId`; `current_mode_update` / `available_commands_update` / `usage_update` / `config_option_update` are ignored.
 - **Model & effort** are per-turn config, not turn params — see *Model & reasoning effort*.
 - **Structured output** has no ACP channel, so `generateReview` uses schema-in-prompt + a repair turn — see *Schema & validation*.
@@ -92,16 +95,19 @@ Two kinds of artifact, resolved differently:
 
 ## Prompts (`prompts.ts`)
 
-Plain-string builders. `describeAnchor()` renders each of the 11 `CommentAnchor` kinds (`shared/types.ts`) into prose the agent can act on. Four builders cover every turn:
+Plain-string builders. `describeAnchor()` renders each of the 11 `CommentAnchor` kinds (`shared/types.ts`) into prose the agent can act on. The main builders:
 
 - **`buildReviewPrompt(req)`** — frames the agent as a review guide and instructs an **explore-first** pass (read changed files in full, grep callers/tests, walk `git log base..branch`, read artifacts). It supplies a pre-computed changed-files list (status, ±counts, hunk ranges, merge-base/head SHAs) and an artifact block ("the intent this change is judged against"). The output contract: group **all** files into **2–8 logical sections** (by purpose, not directory; each file in exactly one section), per-section `desc` + plain-language `what`, **risk flags** keyed to exact file + hunk range, an optional **mechanism diagram** (2–5 nodes), `title` + `summary`, a **spec/plan cross-check** (`planMap`: acceptance criteria met/partial/false, plan steps mapped to sections, deviations), and `questions` needing a human decision.
-- **`buildChatPrompt(message, anchor?)`** — the thin conversational wrapper for a **resuming** read-only chat: the message, optional anchor prose, "Do NOT modify any files."
-- **`buildSeededChatPrompt(ctx, message, anchor?)`** — for a **fresh** chat whose agent did *not* produce the review (so there is no engine session to resume). Re-orients the new agent from scratch: branch/base, the review summary so far, full read access, "Do NOT modify any files."
+- **`buildChatPrompt(message, anchor?)`**: the wrapper for a turn that **resumes** a session (chat messages and action runs alike). The message, optional anchor prose, then `DEFAULT_POSTURE` ("Read and explain by default. Change files only when the reviewer explicitly asks for a change; when you do, commit on the branch and say what you committed.") and `CHAT_TOOL_POLICY` (pick one channel per answer: prose, `point`, a comment reply, or one `add_comment`).
+- **`buildSeededChatPrompt(ctx, message, anchor?)`**: for a **fresh** thread whose agent did not produce the review, so there is no engine session to resume. Re-orients the new agent: branch/base, the review summary so far, how to ground itself in git, then the same posture and channel policy.
+- **`buildScopedUpdatePrompt(input)`**: the patch-shaped update over a small since-diff (revised/new/deleted sections plus a `keptSectionIds` handshake), spliced by `splice.ts`.
+- **`buildExtractFindingsPrompt()`**: the findings pass after an action run (see *Actions, findings, rebase & merge*).
+- **`buildRebasePrompt(base, branch, conflictFiles?)`** and **`buildAnswerPrompt(comments, context?)`**: the agent rebase turn from the merge sheet, and the write-disabled refine turn that folds answered intent questions into the narration.
 - **`buildBatchPrompt(comments, steer?, context?)`** — the unified apply turn. Lists each queued comment with its **stable id**, anchor, text, and reply thread, plus an optional reviewer `steer`. Instructs the agent to address each comment by editing the code (or `reply_to_comment` when no change is needed); to **commit its edits itself with git through its own shell** — "stage exactly the files you changed and commit with a short message (`limn: …`)"; and to record each outcome with `resolve_comment` (its `commentId` plus a verdict — `addressed` / `reworked` / `skipped` — and a note), whether or not a code change was needed. It also says to keep existing code style, treat answers to earlier open questions as decisions, and finish with a 2–3 sentence summary. `context` seeds the review framing when the thread has no engine session to resume.
 
 ## Schema & validation
 
-Two layers sit between the SDK and the persisted review. Only the **generate** output is schema-constrained — chat/batch return free text plus tool-driven side effects.
+Two layers sit between the SDK and the persisted review. Only the **generate** output (full or scoped) and the findings pass are schema-constrained. Chat and batch return free text plus tool-driven side effects.
 
 **Wire schema (`schema.ts`)** — Zod schemas distinct from the internal `shared/types.ts` shapes, because of two engine constraints (still valid now that the schema is prompt-embedded rather than passed as an output-format param):
 - Some CLIs **silently drop schemas containing `prefixItems`** → no tuples. Diagram nodes travel as `{label, kind, sub}` objects and are mapped to `[label, kind, sub]` tuples after parse.
@@ -110,10 +116,10 @@ Two layers sit between the SDK and the persisted review. Only the **generate** o
 **Schema-in-prompt + one repair turn (`structured.ts`).** ACP exposes no output-schema channel, so `generateReview` converges on one strategy for both engines: `buildReviewPrompt` appends a `structuredEpilogue(reviewJsonSchema)` ("respond with a single JSON object only, no fences, no prose"); streamed text is suppressed and collected; `parseJson` extracts it (direct `JSON.parse` → strip a ```` ```json ```` fence → balanced-brace slice); `parseReviewOutput` Zod-parses and translates wire→internal (object→tuple, array→record, `null`→`undefined`). On extraction/validation failure there is **one** automatic repair turn — a follow-up `session/prompt` on the same session quoting the Zod issues and asking for corrected JSON — then re-parse. A second failure fails the op (error event + rejected `result`; the ZodError → friendly-message path in `ipc.ts` still applies). This replaces the Claude SDK's native `outputFormat` enforcement and Codex's app-server `outputSchema`; the same `parseJson` net now serves both.
 
 **Reconciliation against git (`validate.ts` → `mergeAnnotations(skeleton, parsed)`)** — the layer that enforces "git is ground truth". It:
-- drops files/flags that reference files not in the diff;
+- drops section files that are not in the diff (or the offered untracked candidates);
 - enforces each file in exactly one section (duplicates: keep first);
 - drops sections left with zero valid files;
-- collects any unassigned diff file into a synthetic **`Other changes`** section — guaranteeing **100% file coverage**;
+- collects any unassigned tracked file into a synthetic **`Other changes`** section, guaranteeing coverage of every committed or staged file (an unsectioned untracked file stays orphan and is auto-excluded);
 - sanitizes `planMap` cross-references to existing section ids.
 
 Returned warnings are surfaced to the UI as `status` events. Note this runs in `ipc.generate`, **not** inside the engine — engines return raw `ReviewAnnotations`; the IPC layer validates.
@@ -124,16 +130,18 @@ Beyond reading the repo (Read/Grep/Glob/Bash), the agent acts on the review thro
 
 | Tool | Effect |
 | --- | --- |
-| `focus` | scroll + highlight a spot; leaves a clickable chip |
-| `tour` | create an interactive multi-stop walkthrough across files, sections, summary, or diff lines |
+| `point` | point the reviewer at one spot (a clickable chip) or 2–8 stops (an interactive walkthrough card) across the summary, sections, files, or diff lines |
 | `suggest_mark_viewed` | propose marking files/sections viewed (reviewer confirms) |
-| `list_comments` / `get_review` | read current DB state (ids, anchors, narration) |
+| `list_comments` / `get_review` | read current DB state (comment ids, anchors, status; title, summary, section narration) |
+| `get_review_progress` | which files are marked viewed (and at which sha), comment counts by status |
 | `add_comment` / `reply_to_comment` | author an agent comment / reply, anchored to diff/file/section/summary |
+| `add_finding` | report one finding as a **proposed** comment anchored to a file and line, with a severity (`risk` / `note`) |
 | `resolve_comment` | resolve a comment (by id) with verdict + note |
-| `edit_review` | amend title / summary / a section's `what`/`desc` in place |
+| `edit_review` | amend the title, the summary, or a section's narration block or behavior contrast in place |
+| `update_plan_status` | flip a `planMap` acceptance criterion's met status, with a note |
 
 - **Each turn registers a subset** (`toolsForTurn`): a chat turn gets the catalog; an action run gets `list_comments` / `get_review` / `get_review_progress` only — it reads the review but cannot post, because its findings come from the structured pass after the run (one path, no twins); the Attach-findings follow-up is the one action turn with `add_finding`. `createToolHost` refuses a call outside the turn's list, and `registerTurn` serves exactly that list.
-- **Hosting is now one path:** `mcpHost.ts` (generalized from the old Codex-only `codexMcp.ts`) runs **one** per-turn localhost streamable-HTTP MCP server reflecting the Zod `input` shapes into JSON Schema, passed to every adapter via the ACP `mcpServers` param. Claude's old in-process `createSdkMcpServer` path is gone — the dual-hosting duplication collapsed to this single host. Both engines see the tools as `mcp__limn__<name>` (or `limn__<name>`, adapter-dependent). Hardening (unguessable UUID path token, DNS-rebinding protection, loopback-only) carries over unchanged.
+- **Hosting is now one path:** `mcpHost.ts` (generalized from the old Codex-only `codexMcp.ts`) runs **one** per-turn localhost streamable-HTTP MCP server reflecting the Zod `input` shapes into JSON Schema, passed to every adapter via the ACP `mcpServers` param. Claude's old in-process `createSdkMcpServer` path is gone — the dual-hosting duplication collapsed to this single host. claude-agent-acp names the tools `mcp__limn__<name>`; codex-acp titles them `mcp.limn.<name>` (`isLimnTool` in `shared/approvalPolicy.ts` accepts both). Hardening (unguessable UUID path token, DNS-rebinding protection, loopback-only) carries over unchanged. Set `LIMN_MCP_DEBUG=1` in the service's environment to log every MCP request and tool invocation to stderr.
 - **The write path is the engine's own:** since Limn has no write tool, the *code-editing* capability is the engine's Bash/Edit/Write tools, gated by the turn's `writeEnabled` + execution mode (see *Execution modes & approvals*). A non-write turn degrades to review/comment-only.
 - **Limn tools auto-allow at the permission layer:** ACP has no tool-allowlist knob, so limn-tool permission requests are auto-allowed by `ladderPolicy` (row 1: `isLimnTool` → `allow`) — the same effect as the old per-engine auto-accept, minus the fragile Codex elicitation-auto-accept workaround, which disappeared with the code that needed it.
 - **Call path:** `createToolHost(ctx).call(name, args)` validates args against the Zod shape at the boundary, runs the handler, and — if it produced an `AgentAction` — emits it live (`type:'action'`) *and* collects it for persistence on the chat message (so chips rebuild on reload). A handler throw becomes `{isError:true}` text, not a crash.
@@ -150,8 +158,12 @@ One product vocabulary — a 4-rung autonomy ladder the reviewer picks per chat 
 | `ask` | Ask for approval | `default` | `read-only` |
 | `edits` | Accept edits | `acceptEdits` | `agent` |
 | `auto` | Auto mode | native `auto` (→ `acceptEdits` when the session doesn't advertise it) | `agent` |
-| `full` | Full access | `bypassPermissions` | `agent-full-access` |
-| read-only chat (`writeEnabled` false) | — | `default` + client-side deny | `read-only` |
+| `full` | Full access | `bypassPermissions` (→ `auto`, then `acceptEdits`, when the session doesn't advertise it) | `agent-full-access` |
+| not write-enabled (`writeEnabled` false: a commit compare, a refine turn, every generation turn) | — | `default` + client-side deny | `read-only` |
+
+Claude's `default` mode asks before any file edit, so on a turn that is not write-enabled every edit reaches Limn as a permission request and is denied. Read-only bash still runs inside the engine without asking.
+
+<!-- CODEX-RO -->
 
 Codex has no fourth mode between `read-only` and `agent-full-access`, so `edits` and `auto` land on the same native mode (`agent`) — both park whatever the sandbox surfaces; the tiers are behaviourally identical on that engine.
 
@@ -167,56 +179,89 @@ The two layers change at different rates: the ladder tier is re-read from the th
 | `full` | allow | allow | allow | allow |
 | any tier, `writeEnabled:false` | allow | **deny** | ask | ask |
 
+**Generation turns use their own policy.** A full review, a scoped update and the findings pass after an action run route permissions through `generationLadder(req)` instead of the tier ladder. It allows only Limn's own MCP tools and denies everything else, commands included. It never parks a request on the reviewer. A command that reaches this point is one the engine itself wanted a human for (a write, a network call, a sandbox escalation), and Limn does not second-guess that with a classifier of its own.
+
 No self-rolled classification: by the time a request reaches Limn, the *engine* has already decided the action needs a human — claude-agent-acp's CLI auto-allows read-only bash and applies its own model classifier under native `auto`; codex-acp runs commands sandboxed under its native `agent` mode and surfaces only escalations (see layer (a) above). Limn never re-classifies what the engine chose to surface — it parks everything on the reviewer below `full`. The only decisions left to Limn's own policy are its own MCP tools (always safe, always allowed — `isLimnTool` → row 1) and the `full` tier (the reviewer told Limn to stop asking, so anything that still reaches here is auto-approved); a read-only turn denies `file_change` outright (replacing the old `disallowedTools:[Edit,Write]`) regardless of tier.
 
 **Approval registry (`approvals.ts`)** — engine-agnostic and reused byte-for-byte. When `ladderPolicy` says `ask`, the turn parks on `awaitDecision(opId, request, emit)`: it emits an `approval_request` event (the renderer shows a blocking card) and returns a promise that settles when the reviewer answers. The answer flows back through the `respondApproval` IPC → `resolveDecision(opId, requestId, decision)`; `allow` → the option whose kind is `allow_once`, `deny` → `reject_once`. `clearPending(opId)` answers everything still parked with the ACP-required `cancelled` outcome on cancel / turn end (no leak). **There is no timeout** — a request waits until answered or cancelled.
 
 ## Anchoring & artifacts
 
-**Anchoring (`anchor.ts`)** keeps **comments** attached to the right lines after the branch moves — it is *not* how narration ties to the diff (that's `section.files` + `flag.hunkRange`, validated above). `reanchorComments(...)` runs on every session load. For diff/artifact anchors it searches the new skeleton for a line whose text **exactly equals** the stored `lineContent` on the correct side and picks the candidate nearest the old line number; no match → `outdated` (and a previously-outdated comment that re-matches is revived). Only `diff` and `artifact` anchors are repositioned; every other kind (`section`, `summary`, `file`, `question`, `plan-step`, `title`, `acceptance`, `deviation`, `selection`) references ids/paths/quoted text and is left untouched.
+**Anchoring (`anchor.ts`)** keeps comments, and the review's own diff targets (narration blocks, diagram nodes, `point` stops), attached to the right lines after the branch moves. `reanchorComments(...)` runs on every session load. Only `diff` and `artifact` anchors are repositioned; every other kind (`section`, `summary`, `file`, `question`, `plan-step`, `title`, `acceptance`, `deviation`, `selection`) references ids, paths or quoted text and is left untouched.
 
-> ⚠️ Matching is **exact-text + nearest-line**, not semantic. Comments can go `outdated` on trivial reformatting, and repeated identical lines (boilerplate) can mis-anchor.
+Anchors are stamped at creation (`anchorStamp.ts`: the compare tip, the file's blob sha, the original line and path) and carry up to three lines of context on each side. A stamped anchor runs a staged pipeline:
 
-**Artifacts (`artifacts.ts`)** are the spec/plan markdown the review is judged against — *not* agent-produced diagrams (mechanism diagrams live inside `ReviewAnnotations` as structured data). `detectArtifacts(...)` heuristically scores `.md` files (strongest signal: a `.md` already in the diff; then spec/design/plan names, conventional `docs/` or `.claude/` locations, and branch/ticket mentions in the file head) and returns the top spec and top plan. They are auto-detected and persisted on first load if the session has none.
+- **Stage 0**: the file's current blob equals the stamped one, so the anchor goes back to its stamped line with no diff call.
+- **Stage 1**: deterministic diff mapping (`mapLine`) from the stamped blob to the current content. If the anchored line itself was rewritten, the comment is flagged as edited and the pipeline falls through.
+- **Stage 2**: fuzzy match of the quoted line plus its context over the whole new content (`fuzzyFind`), seeded with the stage 1 position.
+- **Stage 3**: exact-text match of the stored `lineContent` on the correct side, nearest the old line.
 
-## The three flows
+A legacy anchor (no stamp) runs stage 3 only and is healed forward with a fresh stamp when it matches. A comment that is not located goes `outdated` (a previously outdated one that re-matches is revived), except that resolved, proposed and dismissed comments keep their status and are flagged as outside the diff instead.
 
-### Generate (initial review) — `ipc.generate`
+> ⚠️ Stage 3 is still exact-text + nearest-line. A legacy anchor, or a stamped one whose old blob can't be read, can go `outdated` on reformatting, and repeated identical lines can mis-anchor.
 
-1. Acquire the per-repo lock (`repoLocks`); throws if another op is running for the repo.
-2. Build the diff skeleton (`getDiff`), load review state + artifacts.
-3. `engine.generateReview({ repo, branch, base, diff, artifacts })`.
-4. Pump events; await `result`.
-5. `mergeAnnotations(skeleton, value)` → validated annotations + warnings (emitted as status events).
-6. Persist discovered artifact paths; `updateSessionMeta` (annotations/title/summary, `reviewed_at_sha = head`); `resetIterations` to iteration 1 recording the engine session id + end SHA.
-7. Emit `op:result {kind:'review', reload:true}`; desktop-notify if the window is unfocused.
+**Artifacts (`artifacts.ts`)** are the spec/plan markdown the review is judged against, not agent-produced diagrams (mechanism diagrams live inside `ReviewAnnotations` as structured data). A markdown file counts as an artifact only when its path matches a known convention (`docs/superpowers/specs|plans/*.md`, `specs/<name>/spec.md` / `plan.md` / `tasks.md`). `detectArtifacts(...)` returns every recognized artifact that is part of the diff; when none is, it falls back to the best-scored spec and plan (branch or ticket mentions in the file head). The rail is reconciled with the current diff on every load (`loadArtifactsFor` in `review.ts`): detected rows follow the diff, so a rebase that drops a spec from the diff drops it from the rail. Rows the agent reported (`artifacts.source = 'agent'`, migration 8), and rows the reviewer approved or commented on, stay even when off the diff.
 
-### Chat (read-only Q&A) — `ipc.sendChat`
+## The core flows
 
-1. Acquire the per-repo lock. Build a read-only `createToolHost` (`writeEnabled:false`) bound to `{db, sessionId, threadId, opId, repo, agent, emit}`.
-2. `engine.chat({ engineSessionId, message, anchor, tools, opId, executionMode, context })` — **resume** the thread's engine session if it has one, else **seed** a fresh session from `context` (branch/base/summary).
-3. Pump `text` + `tool` + `action` + `approval_request` events; await the final assistant text.
-4. Persist the agent message with its collected actions & settled tool calls. Emit `op:result {kind:'chat'}`. Finally: release lock, `clearPending(opId)`.
+Every agent task on a repo (a generation, a chat turn, an action run, a batch, a rebase, and the native merge) runs through `OperationCoordinator.run` (`operations.ts`): **one FIFO task queue per repo**. A task that finds the repo busy waits its turn instead of being refused. While it waits, `ipc.ts` emits `{type:'lane', state:'queued', position, behind}` to it (1-based place, label of the running task), then `{type:'lane', state:'running'}` when it takes over. A thread also hosts at most one in-flight turn: a second send on the same thread fails fast with `ThreadBusyError`.
+
+### Generate (review or update) — `ipc.generate`
+
+1. Take the repo's lane (`operations.run`, label "Generating the review" / "Updating the review").
+2. Build the diff skeleton (`getDiff`), add up to 40 untracked files as optional section candidates, load review state, and reconcile the artifact rail.
+3. For an update, decide scoped vs full: a scoped pass needs a prior review whose end SHA is still reachable from head, a small drift, and fewer than the cap of consecutive scoped passes. Otherwise, or when anything in that decision throws, run a full pass.
+4. Run `engine.generateScopedUpdate(...)` (resuming the prior iteration's session on the same engine; retried fresh if that session is lost) or `engine.generateReview(...)`. An unusable scoped patch falls back to one full pass with a status note.
+5. Reconcile: `mergeAnnotations(skeleton, …)` for a full pass, `spliceScopedUpdate(…)` for a scoped one. Warnings become status events. Then stamp the annotations' anchors.
+6. Mint the iteration number (`nextIterationNumber`, a pure `MAX(n)+1` read). A full pass's hotspots become **proposed** agent comments; the previous full pass's untouched hotspot proposals are deleted first, and anything the reviewer engaged with stays.
+7. Keep agent-reported artifact paths that match a known format (`source: 'agent'`).
+8. In one transaction: `addIteration` (append-only; earlier iterations are kept), `updateSessionMeta` (annotations, `reviewed_at_sha = head`), and bind the review thread to the engine session with the agent's turn.
+9. Emit `op:result {kind:'review', reload:true}`.
+
+### Chat — `ipc.sendChat` (shared `chatTurn`)
+
+1. Persist the user message up front, then take the repo's lane.
+2. Check the compare side: if it is a branch that is not checked out anywhere, the turn fails with `Check out <branch> to chat or run actions`. Otherwise the turn is **write-capable whenever the branch is checked out** (`writeEnabled = capability.enabled`); a commit compare stays read-only. The prompt's `DEFAULT_POSTURE` makes reading the default, and the thread's execution mode is the approval axis.
+3. Build the tool host for the turn (`toolsForTurn('chat')`: the full catalog) and call `engine.chat({ engineSessionId, message, anchor, tools, writeEnabled, opId, executionMode, context })`. The turn resumes the thread's engine session if it has one, else seeds a fresh session from `context` (branch/base/summary).
+4. Pump events; persist the agent message with its collected actions, tool calls and segments; store the engine session id on the thread. Emit `op:result {kind:'chat'}`.
 
 ### Batch (apply comments) — `ipc.sendBatch`
 
-Batch is **chat with write tools** — it returns ordinary chat text plus tool side effects, not a separate structured fix result.
+Batch is chat with write tools. It returns ordinary chat text plus tool side effects, not a separate structured fix result.
 
-1. Acquire the per-repo lock. Compute `writeEnabled` from the batch preconditions: the compare side is a **branch** (can't push to a frozen commit), the working tree (the primary repo or its linked worktree) is **clean**, and that worktree is **on that branch**. **When unmet, a normal batch turn throws `Agent edits are unavailable because …` rather than running read-only; only a `refine` turn (answering the agent's intent question) is allowed to run write-disabled.**
+1. Take the repo's lane. Compute write capability: the compare side must be a **branch** that is **checked out** in the primary repo or a linked worktree. A dirty tree does not block: reviewer in-place edits and agent writes share the working tree on purpose. If the branch is not writable, a normal batch turn throws `Agent edits are unavailable because …` instead of running read-only. Only a `refine` turn (answering the agent's intent questions) runs write-disabled.
 2. Mark the selected comments `sent` and persist (a crash leaves a recoverable trail).
-3. Build the tool host (now `writeEnabled`, carrying `engineSessionId` for the commit's iteration) and `buildBatchPrompt(comments, steer, context?)` — `context` only when there's no session to resume.
-4. `engine.chat({ engineSessionId, message: <batch prompt>, tools, writeEnabled, executionMode, … })`. The agent edits files and **commits on the branch using its own engine shell** (running `git add`/`git commit`), and calls `resolve_comment`/`reply_to_comment` per comment id. **The agent commits via git in its shell — the app never commits.**
-5. Reconcile: reload state; **any comment still `sent` (un-addressed) rolls back to `queued`** so it isn't lost. (Resolutions were already written by the `resolve_comment` handler; the commit landed in git directly.)
-6. Emit `op:result {kind:'chat', reload:true}`; notify. Finally: release lock, `clearPending(opId)`.
+3. Build the tool host and `buildBatchPrompt(comments, steer, context?)`, with `context` only when there's no session to resume.
+4. `engine.chat({ engineSessionId, message: <batch prompt>, tools, writeEnabled, executionMode, raw: true, … })`. The agent edits files, **commits on the branch with git in its own shell**, and calls `resolve_comment`/`reply_to_comment` per comment id. The app never commits.
+5. Reconcile: reload state; **any comment still `sent` (un-addressed) rolls back to `queued`** so it isn't lost.
+6. Emit `op:result {kind:'chat', reload:true}`.
 
-After a batch, the next `loadSession` re-diffs against git and tags the new commits as "since you reviewed" — the agent's output is never trusted for what changed.
+After a batch, the next `loadSession` re-diffs against git and tags the new commits as "since you reviewed". The agent's output is never trusted for what changed.
+
+## Actions, findings, rebase & merge
+
+**Actions** (`runAction`) pin agent work to a button: a **skill** the engine already has, or a **prompt** in the reviewer's words. Actions are stored globally in prefs. A launch from the bolt creates a fresh action thread; Re-run, or picking a thread in the launcher, runs inside an existing one. Like chat, it refuses when the compare branch is not checked out. The run is an ordinary `chatTurn` on the repo's lane, with three differences:
+
+- **Tools.** `toolsForTurn('action')` exposes only `list_comments`, `get_review` and `get_review_progress`. The run can read the review but cannot post.
+- **Skill check.** A skill run waits briefly for the session's `available_commands_update` and refuses (`SkillUnavailableError`) before any prompt is sent when the skill is missing. A session that sends no list falls back to the cached probe result.
+- **Findings pass.** After the run, unless the action turned findings off (default: on for a skill, off for a prompt), `engine.extractFindings` resumes the run's own session with `buildExtractFindingsPrompt()` plus the findings JSON schema, under `generationLadder`. Each finding is minted by `mintFinding` as a **proposed** comment. If the pass fails, the report stays as prose and the reviewer can run **Attach findings**, a follow-up turn that gets `add_finding` (`toolsForTurn('attach')`).
+
+A re-run first deletes the action's untouched proposals; accepted, kept and replied-to ones stay. Each run's closing message records a receipt of what moved on the branch since launch, or that the branch was rewritten.
+
+**Command probe** (`engines/probe.ts`, `CommandProber`). When a review opens and a skill action is pinned, Limn spawns each spawnable adapter, opens a session (with the same `sessionMeta`), reads its one `available_commands_update`, and kills it: no prompt, no tokens. Results are cached per engine and repo in prefs and drive the per-engine marks in the launcher and Settings.
+
+**Proposals** are comments with status `proposed` (or `dismissed`). They never count as unresolved and never enter a batch on their own; triage moves them to `queued` (accept), `resolved` (keep), `dismissed`, or back to `proposed` (`triageFindings`). A full generation's hotspots are proposals from the review run (`hotspots.ts`).
+
+**Rebase** (`sendRebase`) is batch-shaped: always write-enabled, on the repo's lane, under the thread's execution mode, with `buildRebasePrompt` and none of the comment bookkeeping. The prompt forbids touching the base branch or pushing.
+
+**Merge** (`merge.ts`) is native git, not an agent turn. `mergePreflight` evaluates the gates (merge-tree conflict probe, dirty base or branch worktree, stale approval, moved base). `mergeExecute` runs inside the repo's lane, re-checks the preflight, and lands the branch: a real merge in the base's worktree when it is checked out, otherwise ref moves guarded by compare-and-swap (`commit-tree` + `update-ref`). It then writes a terminal merged record. `markMerged` records a merge made outside Limn.
 
 ## Invariants & sharp edges
 
-- **Concurrency:** one agent op per repo (`repoLocks`, a `Set<string>`). The watch-mode poller skips a locked repo so the app's own commits don't trigger a spurious reload. `EventQueue` is single-consumer.
-- **Cancellation:** `EngineRun.cancel` → `session/cancel` notification, pending permission requests answered `cancelled`, then the adapter process group is killed after a short grace. **There is no timeout** anywhere — a wedged run, or a parked approval, hangs until the user cancels.
-- **Errors:** propagate as both an `{type:'error'}` event and a rejected `result`. No retry/backoff, including on invalid structured output — one bad parse fails the whole op.
-- **Session resumption assumption:** a chat/batch turn whose thread *has* an `engineSessionId` resumes it (the review's session, from the last iteration). If that session is gone (CLI store pruned) the resume fails, and the turn is classified by its observable shape (session id present + zero text/tool events + failed, not cancelled) and surfaces a distinct `ENGINE_SESSION_LOST` error telling the reviewer to start a new chat; **the thread is never auto-rebound or retried** (its visible history stays intact). A thread that never produced the review has no id and is seeded fresh by design.
-- **Write preconditions are enforced, not degraded:** an un-met batch precondition (dirty tree, wrong branch, fixed-commit compare) makes a normal batch turn **throw** `Agent edits are unavailable because …` rather than silently degrading to read-only. Only a `refine` turn (answering the agent's intent question) runs write-disabled by design.
+- **Concurrency:** one task at a time per repo, the rest queued in order (`OperationCoordinator`). The watch-mode poller checks `operations.repoBusy(repo)` and skips while a task holds the lane, so the app's own commits don't trigger a spurious reload. `EventQueue` is single-consumer.
+- **Cancellation:** `EngineRun.cancel` answers pending permission requests `cancelled`, sends a `session/cancel` notification, and kills the adapter process group. A task cancelled while still queued leaves the queue without running. **There is no timeout** anywhere: a wedged run, or a parked approval, hangs until the user cancels.
+- **Errors:** propagate as both an `{type:'error'}` event and a rejected `result`. Beyond the one repair turn for structured output, there is no retry or backoff.
+- **Session resumption:** a turn whose thread has an `engineSessionId` resumes it. If that session is gone (CLI store pruned), the resume call rejects and the engine throws the typed `EngineSessionLostError`; the turn surfaces `ENGINE_SESSION_LOST`, telling the reviewer to start a new chat. **The thread is never auto-rebound or retried**, and its visible history stays intact. (A scoped update is the one exception: it retries once with a fresh session.) A thread that never produced the review has no id and is seeded fresh by design.
+- **Write preconditions are enforced, not degraded:** a batch or rebase on a compare that is not a checked-out branch **throws** `Agent edits are unavailable because …` instead of silently degrading to read-only. Chat and action runs refuse outright when the branch is not checked out. Only a `refine` turn runs write-disabled by design.
 - **Structured output is best-effort for both engines now:** no engine gets a native output-schema guarantee — the review payload rides prompt-embedded JSON, extracted by `parseJson` with one repair turn (see *Schema & validation*). One retry, then the op fails.
 - **Adapters are pinned, protocol is pinned:** the engine runtime moves only when the adapter `package.json` pin moves (a deliberate bump guarded by tests + canaries); `initialize` hard-fails any adapter not negotiating protocol `1`. See [acp-adapters.md](acp-adapters.md).
