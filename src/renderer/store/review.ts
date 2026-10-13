@@ -10,6 +10,7 @@ import { useStore } from './index'
 import { loadWarningStrip, pickActiveChat } from './derive'
 import { RESET_REVIEW_SURFACE } from './ops'
 import { loadRepoContext } from './repo'
+import { mergeViewedSince, saveViewedAt, viewedGeneration } from './progress'
 
 // in-flight materialize, so concurrent first-writes don't mint duplicate sessions.
 // Module-scope single-flight guard: promoted out of the store factory so it survives
@@ -275,8 +276,12 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
     // banner, no retry, and a surface silently frozen on pre-reload data. On failure
     // the existing `loaded`/`viewedAt` stay put — a dropped connection must not blank
     // the review — and only the error strip changes.
+    // ticks made while the request is out are newer than its snapshot — see
+    // mergeViewedSince; taking the server map wholesale would un-tick them.
+    const gen = viewedGeneration()
     try {
       const loaded = await api().loadSession(sessionId)
+      const merged = mergeViewedSince(gen, loaded.state.viewedAt, get().viewedAt)
       const reviews = loaded.state.chats.filter((c) => c.kind === 'review')
       // a regenerate created a new review session: open the NEW (latest) review so it
       // appears and opens in the chat sidebar. (The "switch to current" banner still
@@ -287,7 +292,7 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       set({
         loaded,
         error: loadWarningStrip(loaded),
-        viewedAt: loaded.state.viewedAt,
+        viewedAt: merged ?? loaded.state.viewedAt,
         activeChatId: regeneratedId ?? pickActiveChat(loaded.state.chats, get().activeChatId),
         pendingDrift: null, // the reload folded any drift in; the watcher re-baselines
         watchStopped: null
@@ -295,6 +300,9 @@ export const createReviewSlice: StateCreator<AppStore, [], [], ReviewSlice> = (s
       // an op may have started elsewhere while this tab sat idle; known ops are skipped,
       // so this never disturbs a stream this tab is already rendering.
       get().adoptOps(loaded.activeOps ?? [])
+      // the server still holds the pre-merge map (its snapshot, or a save that raced
+      // it): write the merged one back so it converges on what the reviewer sees
+      if (merged) void saveViewedAt(sessionId, merged)
       void loadRepoContext(loaded.state.repo) // dirty/worktrees may have changed
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })

@@ -5,6 +5,7 @@ import { newFrameId } from '../lib/edits'
 import { api } from '../lib/api'
 import type { AppStore } from './index'
 import { fileViewed, renderedFiles } from './derive'
+import { saveViewedAt, touchViewed } from './progress'
 
 /** the open flow frame's scope in working-tree (new-side) line numbers.
  *  `caretCol` (raw-text units, only meaningful for `start`'s line) carries the
@@ -124,11 +125,11 @@ export const createEditsSlice: StateCreator<AppStore, [], [], EditsSlice> = (set
     const f = renderedFiles(loaded).find((x) => x.path === file)
     if (f && fileViewed(f, viewedAt, loaded.skeleton.headSha)) {
       const next = { ...viewedAt, [file]: { sha: loaded.skeleton.headSha, hash: result.fileHash } }
+      touchViewed([file])
       set({ viewedAt: next })
-      // persist only when a session exists — an edit alone never mints one
-      if (sessionId != null) {
-        try { await api().saveUiState(sessionId, { viewedAt: next }) } catch { /* refresh re-syncs */ }
-      }
+      // persist only when a session exists — an edit alone never mints one. Through
+      // the shared save queue, so it can't land out of order with a tick's save.
+      if (sessionId != null) await saveViewedAt(sessionId, next)
     }
     await get().refreshLoaded()
     return result

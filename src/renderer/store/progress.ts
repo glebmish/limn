@@ -14,11 +14,76 @@ import { collapseCompletedSections, fileIsExcluded, viewMarkFor } from './derive
 // viewed/exclude mark is always set in state BEFORE these run, so the wholesale
 // `loaded` swap inside materialize() keeps it.
 
+// ── viewed-map saves: one in flight, newest map wins ─────────
+// The server REPLACES the whole viewed map on every save, so two saves that land out
+// of order (two quick ticks over a slow link) would leave the older map on disk and
+// silently un-tick the newer file. One flight at a time; whatever was queued behind it
+// collapses into a single follow-up carrying the newest map. Queued per session, so a
+// tick on the review the reviewer just left still reaches ITS session.
+let viewedFlight: Promise<void> | null = null
+const viewedNext = new Map<number, Record<string, ViewMark>>()
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/** Queue a full viewed-map save for session `id`. Resolves once this map (or a newer
+ *  one queued after it) has been written; a failed save goes to the error strip. */
+export function saveViewedAt(id: number, viewedAt: Record<string, ViewMark>): Promise<void> {
+  viewedNext.set(id, viewedAt)
+  if (viewedFlight) return viewedFlight
+  const flight = (async () => {
+    try {
+      for (let job = viewedNext.entries().next(); !job.done; job = viewedNext.entries().next()) {
+        const [jobId, map] = job.value
+        viewedNext.delete(jobId)
+        try { await api().saveUiState(jobId, { viewedAt: map }) } catch (err) { useStore.setState({ error: errText(err) }) }
+      }
+    } finally {
+      viewedFlight = null
+    }
+  })()
+  viewedFlight = flight
+  return flight
+}
+
+// ── tick bookkeeping for reloads ─────────────────────────────
+// A reload answers with the server's viewed map as of when it was READ; a tick made
+// while it was in flight is not in it. Every local viewed change bumps a generation
+// and stamps the paths it touched, so reload can tell whether — and which — local
+// marks are newer than its snapshot.
+let viewedGen = 0
+const touchedAt = new Map<string, number>()
+
+/** Record a local change to these paths' viewed marks. */
+export function touchViewed(paths: string[]): void {
+  viewedGen++
+  for (const p of paths) touchedAt.set(p, viewedGen)
+}
+
+/** The current tick generation — capture it before a reload's request goes out. */
+export function viewedGeneration(): number {
+  return viewedGen
+}
+
+/** The viewed map a reload that started at generation `since` should install: the
+ *  server's, with every path the reviewer touched since then taken from `local`
+ *  (local wins — including an un-tick). `null` when nothing was touched (replace). */
+export function mergeViewedSince(since: number, server: Record<string, ViewMark>, local: Record<string, ViewMark>): Record<string, ViewMark> | null {
+  if (viewedGen === since) return null
+  const out = { ...server }
+  for (const [p, g] of touchedAt) {
+    if (g <= since) continue
+    if (local[p]) out[p] = local[p]
+    else delete out[p]
+  }
+  return out
+}
+
 const persistUi = async (): Promise<void> => {
   const id = await useStore.getState().materialize()        // first viewed mark mints the session
   if (id == null) return
-  const { viewedAt } = useStore.getState()
-  void api().saveUiState(id, { viewedAt })
+  await saveViewedAt(id, useStore.getState().viewedAt)
 }
 
 /** The review's default stack, remembered with the session (design board 13: "the
@@ -118,8 +183,9 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     const expanded = collapseCompletedSections(get().loaded, viewedAt, get().expanded)
     // the tick ends the focus hold on this file — see releaseHold's doc comment.
     const focusTarget = releaseHold(get().focusTarget, [file])
+    touchViewed([file])
     set({ viewedAt, expanded, focusTarget })
-    persistUi()
+    void persistUi()
   },
 
   toggleExcluded(file) {
@@ -129,10 +195,10 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     const fileExcluded = { ...(loaded.state.fileExcluded ?? {}), [file.path]: next }
     // excluding a file drops any viewed mark it carried — it leaves the review
     const viewedAt = { ...get().viewedAt }
-    if (next && viewedAt[file.path]) delete viewedAt[file.path]
+    if (next && viewedAt[file.path]) { delete viewedAt[file.path]; touchViewed([file.path]) }
     set({ loaded: { ...loaded, state: { ...loaded.state, fileExcluded } }, viewedAt })
     persistExcluded()
-    if (next) persistUi()
+    if (next) void persistUi()
   },
 
   setSectionViewed(sectionId, paths, viewed) {
@@ -147,8 +213,9 @@ export const createProgressSlice: StateCreator<AppStore, [], [], ProgressSlice> 
     if (viewed) expanded.delete(sectionId)
     // same hold-release as toggleViewed — see releaseHold's doc comment.
     const focusTarget = viewed ? releaseHold(get().focusTarget, paths) : get().focusTarget
+    touchViewed(paths)
     set({ viewedAt, expanded, focusTarget })
-    persistUi()
+    void persistUi()
   },
 
   openSection(id) {
