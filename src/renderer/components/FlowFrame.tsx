@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FileDiff } from '../../shared/types'
+import type { ApplyEditResult, FileDiff } from '../../shared/types'
 import { useStore } from '../store'
 import { getEditDraft, setEditDraft } from '../store/edits'
 import { api } from '../lib/api'
@@ -36,6 +36,34 @@ export function aliveEffect(alive: { current: boolean }): () => void {
   return () => { alive.current = false }
 }
 
+/** What a save's result does to the frame. `retry` is a transport failure (the
+ *  request never got an answer): nothing was written, so the frame stays open with
+ *  the typed text and the reviewer saves again — closing would throw away text they
+ *  cannot get back (spec inv 6). `dead` is the file leaving the editable set. */
+export function frameSaveOutcome(res: ApplyEditResult | null): 'saved' | 'conflict' | 'dead' | 'retry' {
+  if (!res) return 'retry'
+  if (res.ok) return 'saved'
+  return res.reason === 'conflict' ? 'conflict' : 'dead'
+}
+
+/** The error strip for a save that never reached the file. */
+export function unsavedMessage(path: string, cause: string | null): string {
+  return `${path} was not saved${cause ? ` (${cause})` : ''}. Your text is still in the frame — save again to retry.`
+}
+
+/** Run `run` unless one is already in flight. `busy` is a ref, not state, so two
+ *  clicks in the same tick (before a re-render could disable the button) still see
+ *  it; `setBusy` mirrors it into state for the disabled/readOnly rendering. */
+export function singleFlight(busy: { current: boolean }, setBusy: (b: boolean) => void, run: () => Promise<void>): Promise<void> {
+  if (busy.current) return Promise.resolve()
+  busy.current = true
+  setBusy(true)
+  return run().finally(() => {
+    busy.current = false
+    setBusy(false)
+  })
+}
+
 /** The single in-place editor (specs/inplace-edits — board 12's "flow frame").
  *  Covers a contiguous run of working-tree lines; arrowing the caret past an edge
  *  admits the neighbouring file line (the growth gesture). ⏎ always makes a new
@@ -58,6 +86,10 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
   const caretRef = useRef<number | null>(null)
   const alive = useRef(true)
   useEffect(() => aliveEffect(alive), [])
+  /** a save round trip is in flight: ✓/⌫/Re-apply are disabled and the text is
+   *  read-only, so a double ✓ or a held ⌘⏎ can't write the same edit twice */
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
 
   /** Persist the live draft under this session's `frameId` (#6 fix-round-1) — a
    *  plain module-level write (store/edits.ts's `setEditDraft`, outside zustand's
@@ -158,7 +190,11 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
    *  narrowed payload has an empty `newLines` and the server splices the region out
    *  of the file. Saving the empty value instead would write a blank line — a
    *  different, also-legitimate outcome, which is why the hint names both. */
-  async function save(value: string, removeLines = false): Promise<void> {
+  function save(value: string, removeLines = false): Promise<void> {
+    return singleFlight(savingRef, (b) => { if (alive.current) setSaving(b) }, () => saveNow(value, removeLines))
+  }
+
+  async function saveNow(value: string, removeLines: boolean): Promise<void> {
     if (!fileLines) { setEditFrame(null); return }
     const typed = removeLines ? [] : value.split('\n')
     const snapshot = fileLines.slice(frame.start - 1, frame.end)
@@ -169,7 +205,12 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     // branches below drive the *global* frame, so a late resolution would close the
     // frame the user just opened — or reopen this dead session on top of it.
     if (!alive.current) return
-    if (!res) { setEditFrame(null); return } // transport error already surfaced
+    if (frameSaveOutcome(res) === 'retry' || !res) {
+      // nothing reached the file: keep the frame, the text and its draft for a retry
+      // (saveEdit already put the cause in the strip; say what it means here)
+      useStore.setState((s) => ({ error: unsavedMessage(f.path, s.error) }))
+      return
+    }
     if (!res.ok && res.reason !== 'conflict') {
       // The file left the editable set while the frame was open (it outgrew the cap,
       // or stopped being text — a generation writing to it is exactly this feature's
@@ -233,7 +274,9 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
     const { key, metaKey, ctrlKey, shiftKey, altKey, repeat } = e
     const action = frameKeyAction({ key, metaKey, ctrlKey, shiftKey, altKey, repeat }, deletesLines)
     if (action === 'cancel') { e.preventDefault(); setEditFrame(null); return }
-    if (action === 'save') { e.preventDefault(); void save(text); return }
+    // a held ⌘⏎ auto-repeats: only the fresh press saves (the in-flight guard in
+    // `save` covers the rest, but a repeat should not even ask)
+    if (action === 'save') { e.preventDefault(); if (!repeat) void save(text); return }
     if (action === 'delete') { e.preventDefault(); void save(text, true); return }
     // plain ⏎ falls through to the textarea: it inserts a newline (#10)
     if (!fileLines) return
@@ -285,9 +328,9 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
         <span className="ff-hint">{frameHint(deletesLines, chip, chord)}</span>
         <span className="grow" />
         {deletesLines && (
-          <button className="ff-btn ff-del" title={`Remove ${chip} from the file (⌫)`} aria-label={`Delete ${chip}`} onClick={() => void save(text, true)}>⌫</button>
+          <button className="ff-btn ff-del" title={`Remove ${chip} from the file (⌫)`} aria-label={`Delete ${chip}`} disabled={saving} onClick={() => void save(text, true)}>⌫</button>
         )}
-        <button className="ff-btn ff-ok" title={`Save (${chord}) — writes the working tree`} aria-label="Save edit" onClick={() => void save(text)}>✓</button>
+        <button className="ff-btn ff-ok" title={`Save (${chord}) — writes the working tree`} aria-label="Save edit" disabled={saving} onClick={() => void save(text)}>✓</button>
         <button className="ff-btn" title="Cancel (esc)" aria-label="Cancel edit" onClick={() => setEditFrame(null)}>✕</button>
       </div>
       {yours != null && cue != null && (
@@ -297,6 +340,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
           <button
             className={`ff-btn${cue.danger ? ' ff-danger' : ' ff-ok'}`}
             title={cue.title}
+            disabled={saving}
             onClick={() => { const y = yours; setYours(null); setText(y.text); draft(y.text, null, { yours: null }); void save(y.text, y.removes.length > 0) }}
           >Re-apply</button>
         </div>
@@ -312,6 +356,7 @@ export function FlowFrame({ f, frame }: { f: FileDiff; frame: FrameScope }) {
           value={text}
           spellCheck={false}
           disabled={fileLines == null}
+          readOnly={saving}
           aria-label={`Edit ${f.path}, ${chip}`}
           onChange={(e) => { setText(e.target.value); draft(e.target.value, e.target.selectionStart) }}
           onKeyDown={onKeyDown}
