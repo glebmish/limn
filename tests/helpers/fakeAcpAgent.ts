@@ -7,7 +7,8 @@
 // Only the `FakeScript` types are shared (via `import type`). The `main()` at the
 // bottom is guarded so importing the module for its types never starts an agent.
 //
-// Runs directly under `node fakeAcpAgent.ts` (Node 24 strips the type annotations) —
+// Runs directly under `node fakeAcpAgent.ts` (Node ≥22.18 strips the type annotations;
+// tests/setup/localhost-resolver.ts adds the flag on older 22.x) —
 // exactly how `spawnAdapter` launches the real adapter's `dist/index.js`.
 import { Readable, Writable } from 'node:stream'
 import { appendFileSync } from 'node:fs'

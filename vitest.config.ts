@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.{ts,tsx}'],
     passWithNoTests: true,
-    testTimeout: 20000
+    testTimeout: 20000,
+    setupFiles: ['tests/setup/localhost-resolver.ts']
   }
 })
