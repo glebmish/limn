@@ -33,6 +33,11 @@
     "prepack": "scripts/assert-no-platform-binaries.sh"
   },
   "license": "MIT",
+  "keywords": ["code-review", "git", "claude", "codex", "agent", "acp", "cli", "diff", "review"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.78.0",

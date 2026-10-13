@@ -22,22 +22,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      # No npm cache: this job holds id-token and NPM_TOKEN, so it never restores a
+      # cache another job could have written.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
-      - name: Install dependencies
-        run: npm ci
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG="$(node -p "require('./package.json').version")"
           test "$TAG" = "$PKG" || { echo "::error::tag $TAG != package.json version $PKG"; exit 1; }
+      - name: Release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          awk -v h="## ${GITHUB_REF_NAME#v}" '$0==h{f=1;next} /^## /&&f{exit} f' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md" || { echo "::error::no CHANGELOG section for ${GITHUB_REF_NAME}"; exit 1; }
+      - name: Install dependencies
+        run: npm ci
       - name: Build + pack smoke
         run: npm run pack:smoke
       # `npm pack` below bundles whatever is on disk in node_modules for the
@@ -60,16 +66,23 @@ jobs:
             echo "::error::platform binaries in tarball"
             exit 1
           fi
+      # Runs on dry runs too, so a dispatch proves the token before a tag relies on it.
+      - name: Check npm auth
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Upload tarball (inspection / dry-run)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: limn-npm-tarball
           path: '*.tgz'
-      # NPM_TOKEN: an npm automation token for @glebmish; with npm trusted publishing
-      # configured for this repo the env line can be dropped.
+      # NPM_TOKEN: npm granular access token (read+write, bypass 2FA; "All packages" until
+      # the first publish exists, then narrow to @glebmish/limn). Max 90-day expiry: rotate.
+      # Publishing the checked tarball (not a re-pack) keeps npm, the asserts and the
+      # GitHub Release asset byte-identical.
       - name: Publish to npm
         if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
-        run: npm publish --access public --provenance
+        run: npm publish ./*.tgz --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub Release
@@ -77,5 +90,5 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: '*.tgz'
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           fail_on_unmatched_files: true
