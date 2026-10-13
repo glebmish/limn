@@ -1,6 +1,6 @@
 # Browser Pivot Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Historical implementation plan (2026-08-30), kept as written. Steps use checkbox (`- [ ]`) syntax; paths and versions reflect the code at the time.
 
 **Goal:** Remove the Electron shell and ship Limn as `@glebmish/limn` on npm — a local Node HTTP/SSE service serving the existing React SPA at `http://limn.localhost:5466`, with a `limn` CLI that opens reviews and manages an always-on LaunchAgent / systemd user service.
 
