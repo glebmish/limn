@@ -163,13 +163,13 @@ describe('probeEngineVersion', () => {
     expect(info.version).toBe('0.98.0')
     expect(info.warning).toBeDefined()
     expect(info.warning).toContain('0.98.0')
-    expect(info.warning).toContain('0.135.0')
+    expect(info.warning).toContain('0.160.1')
   })
 
   it('does not warn when codex is exactly at the floor', async () => {
     onPath('codex')
-    setVersionSpawnForTests(async () => 'codex-cli 0.135.0')
-    expect(await probeEngineVersion('codex')).toEqual({ version: '0.135.0' })
+    setVersionSpawnForTests(async () => 'codex-cli 0.160.1')
+    expect(await probeEngineVersion('codex')).toEqual({ version: '0.160.1' })
   })
 
   it('does not warn when codex is above the floor', async () => {

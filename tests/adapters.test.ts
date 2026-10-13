@@ -68,9 +68,9 @@ describe('CLAUDE_ACP_CONFIG', () => {
 })
 
 describe('CODEX_ACP_CONFIG', () => {
-  it('modeFor maps the tier x write matrix to read-only/agent/agent-full-access', () => {
+  it('modeFor maps the tier x write matrix to read-only/workspace-write/agent/agent-full-access', () => {
     expect(CODEX_ACP_CONFIG.modeFor('ask', true)).toBe('read-only')
-    expect(CODEX_ACP_CONFIG.modeFor('edits', true)).toBe('agent')
+    expect(CODEX_ACP_CONFIG.modeFor('edits', true)).toBe('workspace-write')
     expect(CODEX_ACP_CONFIG.modeFor('auto', true)).toBe('agent')
     expect(CODEX_ACP_CONFIG.modeFor('full', true)).toBe('agent-full-access')
     // no write -> read-only regardless of tier
@@ -78,7 +78,7 @@ describe('CODEX_ACP_CONFIG', () => {
     expect(CODEX_ACP_CONFIG.modeFor('full', false)).toBe('read-only')
   })
 
-  it('modeFor ignores availableModes (codex has no distinct native "auto" mode id)', () => {
+  it('modeFor ignores availableModes (the pinned codex-acp always advertises all four modes)', () => {
     expect(CODEX_ACP_CONFIG.modeFor('auto', true, ['read-only', 'agent'])).toBe('agent')
     expect(CODEX_ACP_CONFIG.modeFor('auto', true, [])).toBe('agent')
     expect(CODEX_ACP_CONFIG.modeFor('auto', true, undefined)).toBe('agent')

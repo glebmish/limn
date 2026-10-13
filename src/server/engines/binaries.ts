@@ -121,7 +121,7 @@ export interface EngineVersionInfo { version?: string; warning?: string }
 /* Codex CLI floor — the lowest version verified with the codex-acp adapter. Older
    CLIs may authenticate successfully but fail later when the adapter drives them,
    so surface this as an auth/settings hint instead of waiting for an opaque turn failure. */
-const CODEX_APP_SERVER_MIN_VERSION = '0.135.0'
+const CODEX_APP_SERVER_MIN_VERSION = '0.160.1'
 
 const execFileAsync = promisify(execFile)
 

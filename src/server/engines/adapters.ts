@@ -128,10 +128,18 @@ export function codexEffort(effort: ReasoningEffort): string {
 export const CODEX_ACP_CONFIG: AcpEngineConfig = {
   id: 'codex',
   adapterEntry: resolveAdapterEntry('@agentclientprotocol/codex-acp', process.env.LIMN_CODEX_ADAPTER),
-  // availableModes is ignored: codex-acp has no distinct native "auto" mode id —
-  // 'agent' (workspace-write sandbox + on-request) already IS the native auto.
+  // codex-acp 2.2.2's four modes, one per tier (availableModes is ignored: the pinned
+  // adapter always advertises all four):
+  //   read-only         readOnly sandbox, no network; on-request, escalations go to the user
+  //   workspace-write   workspaceWrite sandbox, no network; on-request, escalations go to the user
+  //   agent             workspaceWrite sandbox, no network; on-request, escalations go to
+  //                     Codex's own auto-reviewer — the native "auto"
+  //   agent-full-access dangerFullAccess sandbox; never asks
+  // So a turn that is not write-enabled (generation, refine, commit compare) and the
+  // `ask` tier run where the sandbox itself refuses writes — each edit reaches Limn as a
+  // permission request (denied when not write-enabled, parked under `ask`).
   modeFor: (mode, writeEnabled) =>
-    !writeEnabled ? 'read-only' : ({ ask: 'read-only', edits: 'agent', auto: 'agent', full: 'agent-full-access' }[mode] ?? 'read-only'),
+    !writeEnabled ? 'read-only' : ({ ask: 'read-only', edits: 'workspace-write', auto: 'agent', full: 'agent-full-access' }[mode] ?? 'read-only'),
   configOptions: (t) => [
     ...(t.model ? [{ configId: 'model', value: t.model }] : []),
     ...(t.reasoningEffort ? [{ configId: 'reasoning_effort', value: codexEffort(t.reasoningEffort) }] : [])
