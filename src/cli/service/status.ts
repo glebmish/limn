@@ -30,7 +30,10 @@ function uptime(startedAt: string): string {
 export function renderStatus(m: StatusModel): { lines: string[]; exitCode: number } {
   const L: string[] = [`Limn ${m.version}`]
   const a = m.activation
-  const svc = a && a.loaded ? a : null
+  // a unit serving another port is not what answers here (LIMN_PORT points this shell
+  // elsewhere): report this port on its own, and name the unit's port below
+  const svc = a && a.loaded && a.port === m.port ? a : null
+  const elsewhere = a && a.loaded && a.port !== m.port ? a : null
   const running = Boolean(m.health)
   if (m.unsupported) {
     L.push('  activation:  background service not supported on this platform — run `limn service serve`')
@@ -43,6 +46,10 @@ export function renderStatus(m: StatusModel): { lines: string[]; exitCode: numbe
     L.push(`  activation:  foreground, pid ${m.health!.pid}`)
   } else {
     L.push('  activation:  not running — `limn service install` (always-on) or `limn service serve` (foreground)')
+  }
+  if (elsewhere) {
+    const unit = m.manager === 'systemd' ? 'systemd --user unit limn' : 'launchd agent dev.glebmish.limn'
+    L.push(`  service:     ${unit} serves port ${elsewhere.port}, not ${m.port}`)
   }
   // On loopback the browser address (limn.localhost) and the dialable one differ, so
   // show both; under LIMN_WEB_HOST they are the same host and one is enough.

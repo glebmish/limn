@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { Activation, Exec, ServiceBackend, UnitSpec } from './types.js'
+import { unitPort, type Activation, type Exec, type ServiceBackend, type UnitSpec } from './types.js'
 
 export const UNIT = 'limn'
 
@@ -90,10 +90,12 @@ export const systemd: ServiceBackend = {
     // ExecStart's first token is now a quoted argv entry (see quoteArg) that may
     // itself contain spaces, so match a balanced "…" run before falling back to a
     // bare non-whitespace token (an unquoted unit from an older install).
-    const execStartToken = /^ExecStart=("(?:\\.|[^"\\])*"|\S+)/m.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? ''
+    const unit = fs.readFileSync(file, 'utf8')
+    const execStartToken = /^ExecStart=("(?:\\.|[^"\\])*"|\S+)/m.exec(unit)?.[1] ?? ''
+    const port = unitPort(/^Environment="LIMN_PORT=([^"]*)"/m.exec(unit)?.[1])
     const nodePath = unquoteArg(execStartToken)
     let nodeOk = false
     try { fs.accessSync(nodePath, fs.constants.X_OK); nodeOk = true } catch { /* missing */ }
-    return { kind: 'service', loaded: true, running: active, pid, unitPath: file, nodePath, nodeOk, restartCmd: `systemctl --user restart ${UNIT}`, stopCmd: `systemctl --user stop ${UNIT}` }
+    return { kind: 'service', loaded: true, running: active, pid, port, unitPath: file, nodePath, nodeOk, restartCmd: `systemctl --user restart ${UNIT}`, stopCmd: `systemctl --user stop ${UNIT}` }
   }
 }

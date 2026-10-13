@@ -44,6 +44,26 @@ describe('parseLaunchctlPrint', () => {
 describe('launchd install', () => {
   // The unit carries LIMN_WEB_TOKEN, so it must not be world-readable. A temp HOME
   // keeps this out of the developer's real ~/Library/LaunchAgents.
+  it('activation() reports the port the unit pins, else the default', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-home-'))
+    const saved = process.env.HOME
+    process.env.HOME = home
+    try {
+      const run = async (): Promise<{ code: number; stdout: string; stderr: string }> => ({ code: 0, stdout: '\tstate = running\n\tpid = 9\n', stderr: '' })
+      const logFile = path.join(home, 'Library', 'Logs', 'limn.log')
+      await launchd.install({ ...spec, home, logFile, extraEnv: { LIMN_PORT: '5477' } }, run)
+      let a = await launchd.activation(run)
+      expect(a.loaded && a.port).toBe(5477)
+      await launchd.install({ ...spec, home, logFile }, run)
+      a = await launchd.activation(run)
+      expect(a.loaded && a.port).toBe(5466)
+    } finally {
+      if (saved === undefined) delete process.env.HOME
+      else process.env.HOME = saved
+      fs.rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   it('writes the unit 0600, and repairs the mode of an existing 0644 one', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'limn-home-'))
     const saved = process.env.HOME

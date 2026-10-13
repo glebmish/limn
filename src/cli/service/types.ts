@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { DEFAULT_PORT } from '../../server/http.js'
 
 export interface UnitSpec {
   nodePath: string
@@ -11,7 +12,8 @@ export interface UnitSpec {
 }
 
 export type Activation =
-  | { kind: 'service'; loaded: true; running: boolean; pid: number | null; unitPath: string; nodePath: string; nodeOk: boolean; restartCmd: string; stopCmd: string }
+  /** `port`: the port the unit serves — the LIMN_PORT it pins, else the default. */
+  | { kind: 'service'; loaded: true; running: boolean; pid: number | null; port: number; unitPath: string; nodePath: string; nodeOk: boolean; restartCmd: string; stopCmd: string }
   | { kind: 'service'; loaded: false; unitPath: string }
 
 export interface ServiceBackend {
@@ -32,3 +34,10 @@ export const execAsync: Exec = (cmd, args) => new Promise((resolve) => {
     resolve({ code, stdout: String(stdout), stderr: String(stderr) })
   })
 })
+
+/** The port a unit serves, from the LIMN_PORT value its env pins (`pinned` — the
+ *  captured value, or undefined when the unit pins none): the default port then. */
+export function unitPort(pinned: string | undefined): number {
+  const n = pinned === undefined ? NaN : Number(pinned)
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_PORT
+}

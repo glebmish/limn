@@ -100,7 +100,11 @@ describe('systemd install', () => {
       const showRun = async (): Promise<{ code: number; stdout: string; stderr: string }> => ({ code: 0, stdout: 'ActiveState=active\nMainPID=123\n', stderr: '' })
       const a = await systemd.activation(showRun)
       expect(a.loaded).toBe(true)
-      if (a.loaded) { expect(a.nodePath).toBe(nodePath); expect(a.nodeOk).toBe(true) }
+      if (a.loaded) { expect(a.nodePath).toBe(nodePath); expect(a.nodeOk).toBe(true); expect(a.port).toBe(5466) }
+      // a unit pinning LIMN_PORT reports that port
+      await systemd.install({ ...spec, nodePath, logFile: path.join(cfg, 'limn.log'), extraEnv: { LIMN_PORT: '5477' } }, installRun)
+      const pinned = await systemd.activation(showRun)
+      expect(pinned.loaded && pinned.port).toBe(5477)
     } finally {
       if (saved === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = saved

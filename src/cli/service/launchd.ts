@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { Activation, Exec, ServiceBackend, UnitSpec } from './types.js'
+import { unitPort, type Activation, type Exec, type ServiceBackend, type UnitSpec } from './types.js'
 
 export const LABEL = 'dev.glebmish.limn'
 const uid = (): number => os.userInfo().uid
@@ -89,10 +89,12 @@ export const launchd: ServiceBackend = {
     const res = await run('launchctl', ['print', target()])
     if (res.code !== 0) return { kind: 'service', loaded: false, unitPath: file }
     const { pid, running } = parseLaunchctlPrint(res.stdout)
-    let nodePath = ''
-    try { nodePath = /<array>\s*<string>([^<]+)<\/string>/.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? '' } catch { /* unit missing */ }
+    let unit = ''
+    try { unit = fs.readFileSync(file, 'utf8') } catch { /* unit missing */ }
+    const nodePath = /<array>\s*<string>([^<]+)<\/string>/.exec(unit)?.[1] ?? ''
+    const port = unitPort(/<key>LIMN_PORT<\/key>\s*<string>([^<]*)<\/string>/.exec(unit)?.[1])
     let nodeOk = false
     try { fs.accessSync(nodePath, fs.constants.X_OK); nodeOk = true } catch { /* missing */ }
-    return { kind: 'service', loaded: true, running, pid, unitPath: file, nodePath, nodeOk, restartCmd: `launchctl kickstart -k ${target()}`, stopCmd: `launchctl bootout ${target()}` }
+    return { kind: 'service', loaded: true, running, pid, port, unitPath: file, nodePath, nodeOk, restartCmd: `launchctl kickstart -k ${target()}`, stopCmd: `launchctl bootout ${target()}` }
   }
 }
