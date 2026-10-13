@@ -3,8 +3,8 @@
 Behaviors that shape a review without being obvious from the buttons alone: which
 untracked files are covered, which review opens when you reopen a repo, how a dirty
 working tree is shown and approved, how the review panes are resized, and which agent
-a new review starts with — plus the background service that serves it all, and the
-one browser caveat.
+a new review starts with, what the agent reads from the repository, plus the
+background service that serves it all, and the one browser caveat.
 
 > **Audience:** reviewers using the app. This is the how-it-behaves companion to the
 > README "Using it" section — for the architecture behind these features see
@@ -81,10 +81,11 @@ underneath it. Approve a clean commit and then edit files, and the approve contr
 **"Committed changes approved"** with a **"new uncommitted changes"** nudge until you
 approve the dirty surface too.
 
-One limit worth stating: the agent **cannot apply comments to a dirty tree**. Sending
-queued comments requires a clean working tree on the checked-out compare branch; if that
-precondition is unmet, the agent run reports that edits are unavailable rather than
-silently answering read-only.
+A dirty tree does not stop the agent. Sending queued comments needs the compare branch
+checked out (in the repository or one of its worktrees); uncommitted changes are fine,
+and the chat drawer warns that the agent's edits will mix with them. If the branch is
+not checked out, the run reports that edits are unavailable rather than silently
+answering read-only.
 
 ## Sheets: what a diff shows beside current
 
@@ -200,7 +201,11 @@ if none is running, it reads and writes the SQLite database file directly.
 An action pins agent work to a button. There are two kinds: a **skill** the agent
 already has installed (`/simplify`, `/security-review`, a Codex `$skill`) and a
 **prompt** in your own words ("Rebase this branch onto main and resolve conflicts").
-Limn never installs or ships skills; it only asks each engine what it has.
+Limn never installs or ships skills; it only asks each engine what it has. For
+Claude that means your user-level skills, commands and enabled plugins (under
+`~/.claude`). Skills or commands that exist only in the reviewed repository's own
+`.claude/skills` or `.claude/commands` are not loaded, so Limn won't find them (see
+[What the agent reads from the repository](#what-the-agent-reads-from-the-repository)).
 
 Pin actions from **Settings → Actions**. A skill action takes the bare skill name
 (`simplify`, `pr-review-toolkit:review-pr`); the editor offers the names Limn has
@@ -218,7 +223,9 @@ Refresh.
 
 Each action runs in its own thread, one turn per run ("Simplify · run 2"). The run
 bar under the drawer head says what is running, and Cancel lives there. The prompt
-is the skill invocation or your text and nothing else. During the run the agent
+is the skill invocation or your text, followed by the same short framing every chat
+message carries: read and explain by default, change files only when asked, and
+commit any change on the branch. During the run the agent
 can read the review and the comments already on it, but it cannot post: findings
 are collected from its report in a structured pass once the run ends, so a review
 skill that fans out to subagents still yields one set of proposals, never a
@@ -291,11 +298,34 @@ fails to open, Limn falls back to the system browser and prints `note: cmux pane
 failed (<reason>) — opened in the browser`. `--print-url` wins over cmux — it always
 just prints the URL.
 
+## What the agent reads from the repository
+
+Limn treats the repository under review as untrusted input: the branch may come from
+someone else, and its files can try to steer the agent that reads them.
+
+- **Claude loads only your own configuration.** Every Claude session Limn opens loads
+  your user settings, skills and `CLAUDE.md` from `~/.claude`, and nothing from the
+  repository: not its `.claude/settings*.json` (hooks, permission rules, environment),
+  its `.claude/skills` or `.claude/commands`, its `.mcp.json` servers, or its
+  `CLAUDE.md`. If Limn can't put a Claude session into the permission mode your
+  execution mode asks for, the turn fails before anything is sent instead of running in
+  whatever mode the adapter picked.
+- **Generation runs no surfaced commands.** While a review is generated (or updated, or
+  findings are collected after an action), Limn allows only its own review tools. Any
+  command or file edit the engine asks permission for is denied, never queued for you.
+- **Remote images are not loaded.** An image in agent-written or branch-authored
+  markdown loads only when it is inline (`data:image/…`) or served by Limn itself.
+  Anything else renders as text naming the image and its URL, so a prompt-injected
+  agent can't send data out through an image request.
+
+<!-- CODEX-RO -->
+
 ## The service
 
 Limn is a local Node server plus a browser tab. The first `limn` offers to install that
 server as a background service so `http://limn.localhost:5466` is always there; you can
-do it later — or repair it — with `limn service install`.
+do it later, or repair it, with `limn service install`. `limn --no-service` skips the
+offer: with no service running, it serves this session in the foreground.
 
 ```bash
 limn service install [--port-80]  # write + load the unit, start it, wait for /health
@@ -316,7 +346,7 @@ works there.
 
 `limn service status` is the one command to reach for when something is off:
 
-```
+```text
 Limn 0.4.0
   activation:  launchd agent dev.glebmish.limn — loaded, RunAtLoad+KeepAlive, running
   server:      http://limn.localhost:5466  (127.0.0.1:5466)  pid 4211  up 3d 2h
