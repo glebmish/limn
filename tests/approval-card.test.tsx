@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ApprovalCard } from '../src/renderer/components/ApprovalCard'
+import { APPROVAL_ARM_MS, ApprovalCard } from '../src/renderer/components/ApprovalCard'
 import type { ApprovalRequest } from '../src/shared/types'
 
 // #15: the approval card gave no context beyond the tool kind — no path, no
@@ -188,5 +188,33 @@ describe('ApprovalCard — defensive no-payload fallback', () => {
     const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} />)
     expect(out).toContain('Edit')
     expect(out).not.toContain('Show diff')
+  })
+})
+
+// #7: answering a request drops it from the queue synchronously and the next one
+// renders in the same spot, so a double-click on Approve answered a request the
+// reviewer never saw. The card (keyed by request id in ChatDrawer) mounts with
+// Approve/Deny disabled for a short beat; Stop turn is never held back.
+describe('ApprovalCard — arming beat after mount (#7)', () => {
+  const request: ApprovalRequest = { id: 'r2', engine: 'claude', kind: 'command', summary: 'Run ls' }
+  function buttonTag(html: string, text: string): string {
+    const at = html.indexOf(text)
+    if (at < 0) throw new Error(`button text not found: ${text}`)
+    const start = html.lastIndexOf('<button', at)
+    return html.slice(start, html.indexOf('>', start))
+  }
+
+  it('Approve and Deny start disabled by default; Stop turn does not', () => {
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={2} onDecide={noop} onStop={noop} />)
+    expect(APPROVAL_ARM_MS).toBeGreaterThanOrEqual(300)
+    expect(buttonTag(out, 'Approve')).toContain('disabled')
+    expect(buttonTag(out, 'Deny')).toContain('disabled')
+    expect(buttonTag(out, 'Stop turn')).not.toContain('disabled')
+  })
+
+  it('armDelayMs=0 renders the buttons armed', () => {
+    const out = renderToStaticMarkup(<ApprovalCard request={request} index={0} total={1} onDecide={noop} onStop={noop} armDelayMs={0} />)
+    expect(buttonTag(out, 'Approve')).not.toContain('disabled')
+    expect(buttonTag(out, 'Deny')).not.toContain('disabled')
   })
 })

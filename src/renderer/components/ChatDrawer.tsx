@@ -334,11 +334,14 @@ export function ChatDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
           {pending.length > 0 && op.opId != null ? (
             // full card on the active thread — Approve/Deny/Stop route to this op
+            // keyed by request id: the next request mounts a fresh (briefly unarmed)
+            // card, and the decision carries the id this card rendered (#7)
             <ApprovalCard
+              key={pending[0].id}
               request={pending[0]}
               index={0}
               total={pending.length}
-              onDecide={(d) => store.respondApproval(op.opId!, pending[0].id, d)}
+              onDecide={(d, requestId) => store.respondApproval(op.opId!, requestId, d)}
               onStop={() => store.cancelOp(op.opId!)}
             />
           ) : otherApprovalThread != null && (

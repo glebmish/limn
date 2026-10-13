@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { I } from '../kit'
 import { clickable } from '../lib/clickable'
 import type { ApprovalDecision, ApprovalRequest } from '../../shared/types'
@@ -8,19 +8,42 @@ import type { ApprovalDecision, ApprovalRequest } from '../../shared/types'
  *  #15: the reviewer needs the path (always shown, when the payload carries one)
  *  plus a collapsed-by-default diff preview — approve/deny is uninformed consent
  *  otherwise. Defensive throughout: a request with no `detail` at all (e.g. a
- *  degraded turn with no opId) still renders the summary/kind it always has. */
-export function ApprovalCard({ request, index, total, onDecide, onStop, initialOpen = false }: {
+ *  degraded turn with no opId) still renders the summary/kind it always has.
+ *
+ *  The caller keys the card by request id, so every new request mounts a fresh
+ *  card. Approve/Deny stay disabled for `armDelayMs` after mount: answering one
+ *  request drops it from the queue synchronously and the next one renders in the
+ *  same spot, so without the beat a double-click would answer a request the
+ *  reviewer never saw. A card also answers at most once. */
+export const APPROVAL_ARM_MS = 450
+
+export function ApprovalCard({ request, index, total, onDecide, onStop, initialOpen = false, armDelayMs = APPROVAL_ARM_MS }: {
   request: ApprovalRequest
   index: number
   total: number
-  onDecide: (d: ApprovalDecision) => void
+  /** Receives the id of the request this card rendered — never re-read the queue at click time. */
+  onDecide: (d: ApprovalDecision, requestId: string) => void
   onStop: () => void
   /** Test seam only — lets renderToStaticMarkup-based tests pin the expanded
    *  diff body without simulating a click (no jsdom/@testing-library in this
    *  repo). Not used by any production caller; defaults to collapsed. */
   initialOpen?: boolean
+  /** How long Approve/Deny stay disabled after the card mounts (0 = armed at once). */
+  armDelayMs?: number
 }) {
   const [diffOpen, setDiffOpen] = useState(initialOpen)
+  const [armed, setArmed] = useState(armDelayMs <= 0)
+  const decided = useRef(false)
+  useEffect(() => {
+    if (armDelayMs <= 0) return
+    const t = setTimeout(() => setArmed(true), armDelayMs)
+    return () => clearTimeout(t)
+  }, [armDelayMs])
+  const decide = (d: ApprovalDecision): void => {
+    if (!armed || decided.current) return
+    decided.current = true
+    onDecide(d, request.id)
+  }
   const files = request.detail?.files
   const diffs = request.detail?.diffs ?? []
   return (
@@ -74,10 +97,10 @@ export function ApprovalCard({ request, index, total, onDecide, onStop, initialO
         </div>
       )}
       <div className="ac-actions">
-        <button className="btn btn-primary btn-sm" onClick={() => onDecide('allow')}>
+        <button className="btn btn-primary btn-sm" disabled={!armed} onClick={() => decide('allow')}>
           <I.check style={{ width: 12, height: 12 }} />Approve
         </button>
-        <button className="btn btn-sm ac-deny" onClick={() => onDecide('deny')}>
+        <button className="btn btn-sm ac-deny" disabled={!armed} onClick={() => decide('deny')}>
           <I.x style={{ width: 11, height: 11 }} />Deny
         </button>
         <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={onStop}>Stop turn</button>
