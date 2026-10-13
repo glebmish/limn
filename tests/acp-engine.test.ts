@@ -105,6 +105,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
   it('2b. generation turn auto-DENIES a command permission the engine surfaced (Limn never self-classifies commands), without parking', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'rev-gen-cmd',
+      availableModes: ['default', 'acceptEdits'],
       turns: [{
         permission: { toolCallId: 'gc1', title: 'run', kind: 'execute', rawInput: { command: 'npm install left-pad' } },
         text: 'allowed — would fail parsing',
@@ -659,8 +660,9 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
   it('15. a rejected setSessionMode retries once with the tier\'s fallback id, and the turn still completes', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'chat-mode-retry',
-      // no availableModes advertised -> modeFor optimistically tries 'auto'; the fake
-      // rejects it, so acp.ts must retry with modeFor's fallback ('acceptEdits').
+      // 'auto' is advertised, so modeFor picks it; the fake rejects it anyway, so
+      // acp.ts must retry with modeFor's fallback ('acceptEdits').
+      availableModes: ['default', 'acceptEdits', 'auto'],
       rejectSetSessionMode: ['auto'],
       turns: [{ text: 'ok' }]
     })
@@ -677,6 +679,7 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
   it('16. when BOTH the primary and fallback session mode are rejected, the turn fails before any prompt (the adapter\'s own default may be repo-picked)', async () => {
     const { engine, readRecords } = fakeEngine({
       sessionId: 'chat-mode-retry-both-fail',
+      availableModes: ['default', 'acceptEdits', 'auto'],
       rejectSetSessionMode: ['auto', 'acceptEdits'],
       turns: [{ text: 'ok' }]
     })
@@ -715,6 +718,31 @@ describe('AcpEngine e2e against FakeAcpAgent', () => {
     const run = engine.chat({ repo: '/r', message: 'go' })
     await drain(run.events)
     expect((await run.result).value).toBe('ok')
+  })
+
+  it('16c2. an adapter that advertises NO session modes is not asked to set one, fresh or resumed', async () => {
+    // no `modes` on session/new or session/load: set_mode is skipped instead of
+    // failing every turn (the fake would reject every id if it were asked)
+    const reject = ['default', 'acceptEdits', 'auto', 'bypassPermissions']
+    const fresh = fakeEngine({ sessionId: 'no-modes', rejectSetSessionMode: reject, turns: [{ text: 'ok' }] })
+    let run = fresh.engine.chat({ repo: '/r', message: 'go', writeEnabled: true, executionMode: 'auto' })
+    await drain(run.events)
+    expect((await run.result).value).toBe('ok')
+    expect(fresh.readRecords().map((r) => r.event)).not.toContain('setSessionMode')
+
+    const loaded = fakeEngine({ loadSession: true, rejectSetSessionMode: reject, turns: [{ text: 'ok' }] })
+    run = loaded.engine.chat({ repo: '/r', engineSessionId: 'no-modes-load', message: 'go' })
+    await drain(run.events)
+    expect((await run.result).value).toBe('ok')
+    expect(loaded.readRecords().map((r) => r.event)).not.toContain('setSessionMode')
+  })
+
+  it('16c3. an EMPTY advertised mode list is still advertised: a rejected set_mode stays fatal', async () => {
+    const { engine, readRecords } = fakeEngine({ sessionId: 'empty-modes', availableModes: [], currentModeId: 'acceptEdits', rejectSetSessionMode: ['default'], turns: [{ text: 'ok' }] })
+    const run = engine.chat({ repo: '/r', message: 'go' })
+    const [, err] = await Promise.all([drain(run.events), run.result.catch((e: Error) => e)])
+    expect(err).toBeInstanceOf(Error)
+    expect(readRecords().map((r) => r.event)).not.toContain('prompt')
   })
 
   it('16d. every Claude session is opened with user-only settings (no repo project/local settings)', async () => {

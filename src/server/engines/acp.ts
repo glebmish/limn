@@ -343,8 +343,8 @@ export class AcpEngine implements ReviewEngine {
         // The session's advertised mode ids (when the adapter returns them) so
         // `modeFor` can pick the engine's native `auto` only when it is actually on
         // offer, instead of guessing (spec §D3 addendum). `loadSession` may resolve
-        // `void` (no modes reported) — `modeIdsFrom(undefined)` is `undefined`, same
-        // as "unknown", which keeps `modeFor`'s optimistic-then-fallback behaviour.
+        // `void` (no modes reported) — `modeIdsFrom(undefined)` is `undefined`: the
+        // adapter offers no session modes, and step (f) skips set_mode.
         let availableModes: string[] | undefined
         // The mode the session reports it is ALREADY in — consulted only when every
         // set_mode attempt below is rejected.
@@ -370,39 +370,47 @@ export class AcpEngine implements ReviewEngine {
         }
         replaying = false // post-setup updates are live turn output, not replay
 
-        // (f) set mode + config options (best-effort; swallow method-not-found / no-ops).
-        // Negotiated ONCE, from the START-TIME tier, and never re-negotiated mid-turn
-        // (no respawn, no second set_mode) — see the requestPermission comment for
-        // what a mid-turn tier change can and cannot reach.
+        // (f) set the session mode (fatal when it can't be set — below), then the config
+        // options (best-effort; unknown ids are swallowed). The mode is negotiated ONCE,
+        // from the START-TIME tier, and never re-negotiated mid-turn (no respawn, no
+        // second set_mode) — see the requestPermission comment for what a mid-turn tier
+        // change can and cannot reach.
         //
         // A rejected/unavailable mode id must not silently degrade the tier (no
         // self-rolled classification, no bare-catch either): try the id `modeFor`
-        // picks from the session's advertised `availableModes` (or, when those
-        // weren't reported, its optimistic guess); on rejection retry ONCE with
-        // `modeFor`'s definitively-conservative id (an explicit empty
-        // `availableModes` — for claude `auto` that's the spike-measured
-        // `acceptEdits` fallback); if that ALSO fails, the turn fails before any
-        // prompt — on EVERY tier, read-only included — unless the session already
-        // reports one of those ids as its current mode. The adapter's own starting
-        // mode is not Limn's to trust: claude-agent-acp derives it from settings
-        // that include the reviewed repo's `.claude/settings.local.json` (whose
-        // `acceptEdits` the SDK's escalation filter lets through), so "continue in
-        // the default" would let the repo pick the mode.
-        const primaryModeId = this.config.modeFor(mode, write, availableModes)
-        const trySetMode = async (modeId: string): Promise<boolean> => {
-          try {
-            await conn!.setSessionMode({ sessionId, modeId })
-            return true
-          } catch {
-            return false
+        // picks from the session's advertised `availableModes`; on rejection retry ONCE
+        // with `modeFor`'s definitively-conservative id (an explicit empty
+        // `availableModes` — for claude `auto` that's the spike-measured `acceptEdits`
+        // fallback); if that ALSO fails, the turn fails before any prompt — on EVERY
+        // tier, read-only included — unless the session already reports one of those
+        // ids as its current mode. The adapter's own starting mode is not Limn's to
+        // trust: claude-agent-acp derives it from settings that include the reviewed
+        // repo's `.claude/settings.local.json` (whose `acceptEdits` the SDK's
+        // escalation filter lets through), so "continue in the default" would let the
+        // repo pick the mode.
+        //
+        // The one exception: an adapter that advertises NO modes at all (no `modes` on
+        // session/new, load or resume) has no session modes to set, so set_mode is
+        // skipped rather than failing every turn on a method it never offered. Both
+        // bundled adapters always advertise their modes, so for them the fatal rule
+        // above is the only path.
+        if (availableModes !== undefined) {
+          const primaryModeId = this.config.modeFor(mode, write, availableModes)
+          const trySetMode = async (modeId: string): Promise<boolean> => {
+            try {
+              await conn!.setSessionMode({ sessionId, modeId })
+              return true
+            } catch {
+              return false
+            }
           }
-        }
-        if (!(await trySetMode(primaryModeId))) {
-          const fallbackModeId = this.config.modeFor(mode, write, [])
-          const recovered = fallbackModeId !== primaryModeId && (await trySetMode(fallbackModeId))
-          const alreadyThere = currentModeId !== undefined && (currentModeId === primaryModeId || currentModeId === fallbackModeId)
-          if (!recovered && !alreadyThere) {
-            throw new Error(`Couldn't set the "${primaryModeId}" session mode${currentModeId ? ` (the agent reports "${currentModeId}")` : ''} — refusing to run in a mode Limn didn't choose.`)
+          if (!(await trySetMode(primaryModeId))) {
+            const fallbackModeId = this.config.modeFor(mode, write, [])
+            const recovered = fallbackModeId !== primaryModeId && (await trySetMode(fallbackModeId))
+            const alreadyThere = currentModeId !== undefined && (currentModeId === primaryModeId || currentModeId === fallbackModeId)
+            if (!recovered && !alreadyThere) {
+              throw new Error(`Couldn't set the "${primaryModeId}" session mode${currentModeId ? ` (the agent reports "${currentModeId}")` : ''} — refusing to run in a mode Limn didn't choose.`)
+            }
           }
         }
         for (const opt of this.config.configOptions?.({ model: opts.model, reasoningEffort: opts.reasoningEffort }) ?? []) {

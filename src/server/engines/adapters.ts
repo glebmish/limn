@@ -15,9 +15,10 @@ export interface AcpEngineConfig {
    *  `availableModes` (the session's advertised mode ids, when known) lets an
    *  engine pick its native `auto` only when the session actually offers it
    *  (Claude's `auto` is gated on `modelInfo.supportsAutoMode` and rejects an
-   *  unlisted mode id outright); omitted (`undefined`) means "unknown" and the
-   *  implementation optimistically tries the native id, trusting `acp.ts`'s
-   *  retry-once-with-fallback to correct a rejection. */
+   *  unlisted mode id outright); an empty list asks for the conservative fallback
+   *  `acp.ts` retries with once. `acp.ts` never passes `undefined` — a session that
+   *  advertises no modes skips set_mode — but an implementation treats it as
+   *  "unknown" and picks the native id. */
   modeFor: (mode: ExecutionMode, writeEnabled: boolean, availableModes?: string[]) => string
   /** per-turn spawn env (e.g. `ANTHROPIC_MODEL`); one process per turn makes it exact. */
   env?: (turn: { model?: string; reasoningEffort?: ReasoningEffort }) => Record<string, string>
