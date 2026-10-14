@@ -4,11 +4,11 @@
 [![Release](https://img.shields.io/github/v/release/glebmish/limn)](https://github.com/glebmish/limn/releases/latest)
 [![License](https://img.shields.io/github/license/glebmish/limn)](LICENSE)
 
-A local service + browser app for **agentic review of local git branches** that helps you understand the code.
+**Review what your coding agent wrote before you push or merge.** Limn opens a local git branch in your browser, has Claude or Codex explain the change section by section, and lets you comment on any line and send the comments back to the agent to fix.
 
 **Quick start:** `npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz`, then run `limn` inside a git repo. Needs Node 22.13+ and the `claude` or `codex` CLI — see [Prerequisites](#prerequisites).
 
-![A 39-file branch under guided review in Limn: the diff grouped into seven logical sections with per-section narration in the sidebar, a plain-language summary of what the branch does, and an "Agent needs 3 decisions" panel where the agent asks the reviewer to make a call before it proceeds.](docs/media/hero-review-question.png)
+![A 39-file branch under guided review in Limn: the sidebar groups the diff into logical sections, each with a short narration of what it changes; the main pane shows the diff of one file with an agent finding pinned to a line, explaining a bug and queued to send back to the agent.](docs/media/hero-review-question.png)
 
 - **Guided review** — Agent explains what has changed, splits the diff into logical sections and asks clarifying questions.
 - **Agentic tools** — Tools that let the agent navigate for you: jump to the file that builds a database query, walk the auth flow across files.
@@ -162,9 +162,6 @@ If it doesn't start:
   is installed, so after installing a CLI into a new directory, re-run
   `limn service install`.
 
-Coming from the desktop app: delete `Limn.app`; your reviews are in the same database
-and `limn` offers to remove the old shell shim it installed.
-
 ## Using it
 
 1. **Open a repository** (*Open repository…*) by typing its path — Limn adds it to the
@@ -179,15 +176,14 @@ and `limn` offers to remove the old shell shim it installed.
 4. Change the **base** with the ref picker (branches, recent commits, or a typed
    SHA / `HEAD~N` / tag); switch the **branch** — and where it's checked out — with the
    branch/worktree picker. Pick an engine — and optionally a model and reasoning effort
-   (Claude Fable/Opus/Sonnet `low→max`, Codex GPT-6/5.6 `low→max`, GPT-5.5 `low→xhigh`; *Auto* uses the engine
-   default) — then **Generate guided review**.
+   (*Auto* uses the engine default) — then **Generate guided review**.
 5. **Review**: mark files viewed, mark sections reviewed, comment on any diff line,
    section, agent question, or spec/plan line; **Chat** shares the agent's session.
    The **Sessions** button opens the repo hub with every saved review for the repo.
 6. **Send N pending comments** (chat drawer) — the agent edits, commits on your branch
    when it's checked out, and reports a resolution per comment. **Approve** records the reviewed SHA.
 
-Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a header fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since the review's baseline" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks. A file's columns are a stack of **sheets** pulled from the diff's left edge: read it unified against any checkpoint, pull one sheet for a side-by-side view, or pull the base and a checkpoint to see what the review already covered and what moved after it, each change attributed; a ✓ spreads one file's stack to the whole review. Unchanged lines fold and open 20 at a time, in any view.
+Limn **watches the branch** — when commits land from outside (e.g. a Claude Code session in a terminal), a header fetch pill shows the drift and lets you reload when ready. After reload, "changed since viewed" / "changed since the review's baseline" rails highlight what moved. Diffs are syntax-highlighted with word-level change marks. Each file can be read three ways from the controls at its left edge: unified against any earlier checkpoint, side by side, or in three columns (base, a checkpoint, and now) that show what the review already covered and what changed after it. The ✓ there applies one file's choice to every file in the review. Unchanged lines fold and open 20 at a time, in any view.
 
 ### The address bar
 
@@ -211,7 +207,7 @@ local tool, so those links only mean anything on the machine that has the repo.
 ### The `limn` command
 
 The CLI ships with the package. If the service is running it opens there; otherwise it
-starts a server for you.
+starts a server for you. `limn open [DIR] …` is the same command spelled out.
 
 ```bash
 limn                                 # review the current branch of the repo you're in
@@ -235,7 +231,7 @@ limn --generate --print-url          # print the review URL instead of opening a
 | `--agent NAME` | Override the review agent (`claude` or `codex`) for this generation only. Needs `--generate`. |
 | `--model NAME` | Override the model for this generation only. Needs `--generate`. |
 | `--effort LEVEL` | Override the reasoning effort for this generation only. Needs `--generate` and a model. |
-| `--print-url` | Print the page URL on stdout instead of opening a browser (or a cmux pane). |
+| `--print-url` | Print the page URL on stdout instead of opening a browser. |
 
 ```bash
 limn service serve [--port N] [--port-80]   # foreground server (default 5466)
@@ -290,7 +286,20 @@ packed tarball (bundled JS-only adapter closure, no platform binaries) as
 `glebmish-limn-<version>.tgz` and `limn.tgz`, plus `SHA256SUMS`. Nothing is published
 to the npm registry — `package.json` is `"private": true`, so `npm publish` refuses.
 
-Useful dev env vars: `LIMN_DEMO=1` (deterministic fake engine), `LIMN_PORT` (server port), `LIMN_DB` (SQLite path), `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` (bind somewhere other than loopback — e.g. a Tailscale address — with a required token; the service records them when they are set in the shell that runs `limn service install`). `LIMN_DEV_HOOKS=1` arms the page-level dev hooks below for that server process — the SPA ignores `?dev=` unless the server it was served from set it (the hooks can run agent prompts and file edits, so a crafted link must not be enough); `npm run dev`, `npm run dev:server` and the screenshot scripts set it for you. Page-level dev hooks (read by `scripts/dev-url.mts`, see *Screenshots*): `LIMN_OPEN_SESSION=<id>` (open straight to a saved review), `LIMN_OPEN_HUB=<repo>` (open a repo's saved-review list), `LIMN_FLOW=generate|chat` (auto-run a flow / open the chat drawer). Real-engine smoke script: `npx tsx scripts/acp-smoke.ts --engine=claude|codex`.
+Useful dev env vars:
+
+| Variable | Effect |
+| --- | --- |
+| `LIMN_DEMO=1` | Deterministic fake engine instead of Claude/Codex. |
+| `LIMN_PORT` | Server port. |
+| `LIMN_DB` | SQLite database path. |
+| `LIMN_WEB_HOST` / `LIMN_WEB_TOKEN` | Bind somewhere other than loopback (e.g. a Tailscale address); the token is required. `limn service install` records them when they are set in its shell. |
+| `LIMN_DEV_HOOKS=1` | Lets the page honour `?dev=` hooks. Off by default, because the hooks can run agent prompts and file edits and a crafted link must not be enough; `npm run dev`, `npm run dev:server` and the screenshot scripts set it. |
+
+The `?dev=` hooks themselves are built by `scripts/dev-url.mts` from `LIMN_OPEN_SESSION=<id>`
+(open a saved review), `LIMN_OPEN_HUB=<repo>` (open a repo's saved-review list) and
+`LIMN_FLOW=generate|chat` (run generation or open the chat drawer). Real-engine smoke
+test: `npx tsx scripts/acp-smoke.ts --engine=claude|codex`.
 
 **Screenshots:** `scripts/shot.sh <out.png> [LIMN_* hooks]` seeds a fixture repo + db, serves it on an ephemeral port, and captures the page with headless Chrome over CDP (`CHROME_BIN` overrides the binary). The hooks — `LIMN_ACTIVE_CHAT=<id>` (activate a chat), `LIMN_OPEN_PICKER=1` (open the agent popover), `LIMN_OPEN_CHATLIST=1` (open the chat dropdown), … — travel to the page as `?dev=<json>` built by `scripts/dev-url.mts` (the script starts its server with `LIMN_DEV_HOOKS=1`).
 
