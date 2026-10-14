@@ -132,7 +132,7 @@ Edge, Arc and Firefox with no setup; Safari does not resolve it — use
 Pin this release:
 
 ```bash
-npm i -g https://github.com/glebmish/limn/releases/download/v0.4.0/glebmish-limn-0.4.0.tgz
+npm i -g https://github.com/glebmish/limn/releases/download/v0.5.0/glebmish-limn-0.5.0.tgz
 ```
 
 To upgrade, run

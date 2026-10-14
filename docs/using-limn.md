@@ -350,7 +350,7 @@ works there.
 `limn service status` is the one command to reach for when something is off:
 
 ```text
-Limn 0.4.0
+Limn 0.5.0
   activation:  launchd agent dev.glebmish.limn — loaded, RunAtLoad+KeepAlive, running
   server:      http://limn.localhost:5466  (127.0.0.1:5466)  pid 4211  up 3d 2h
   node:        /opt/homebrew/bin/node — matches unit

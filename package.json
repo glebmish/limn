@@ -1,7 +1,7 @@
 {
   "name": "@glebmish/limn",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Agentic local branch review — guided code review backed by Claude or Codex, served to your browser",
   "repository": {
     "type": "git",

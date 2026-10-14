@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+Install or upgrade:
+`npm i -g https://github.com/glebmish/limn/releases/latest/download/limn.tgz`, then
+restart the service if you run one (`limn service status` prints the command).
+
+- **Current Codex models.** The Codex picker offers GPT-6 Astra, GPT-6.1 Sol and
+  GPT-6 Luna, each with reasoning effort `low → max`. The GPT-5.x models are gone
+  from the picker; reviews and chats already pinned to one keep using it.
+- **Claude models** are unchanged: Fable, Opus, Sonnet and Haiku are Claude Code's
+  aliases and already resolve to the latest model of each tier.
+- **Default agent survives a retired model.** A default review agent whose model has
+  left the list now falls back to the same engine on Auto, instead of switching to
+  Claude.
+- **README.** Says who Limn is for, shows a diff in the hero image, and drops the
+  insider shorthand.
+
 ## 0.4.0
 
 Limn is now an npm-installable package instead of a desktop app, shipped as a tarball on
