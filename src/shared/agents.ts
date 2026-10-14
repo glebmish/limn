@@ -17,11 +17,11 @@ export interface EngineCatalog { engine: EngineId; label: string; models: ModelO
 // Per-model reasoning ladders. Claude Fable/Opus/Sonnet expose low→max via the
 // agent SDK's `effort` option; Haiku does not support effort (the SDK errors), so
 // it declares none. Codex ladders come from the CLI's own model catalog
-// (~/.codex/models_cache.json): the GPT-6 / GPT-5.6 generation reaches `max`,
-// GPT-5.5 stops at `xhigh`. `minimal` exists in the type but isn't offered.
+// (~/.codex/models_cache.json): the GPT-6 generation reaches `max` (Astra and Sol
+// also list `ultra`, which Limn does not offer). `minimal` exists in the type but
+// isn't offered.
 const CLAUDE_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_EFFORTS_MAX: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_EFFORTS_XHIGH: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
+const CODEX_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // Claude ids are Claude Code's model *aliases* — each resolves to the latest
 // model of its tier inside the CLI, so the list never needs a version bump.
@@ -40,11 +40,9 @@ export const AGENT_CATALOG: EngineCatalog[] = [
     engine: 'codex',
     label: 'Codex',
     models: [
-      { id: 'gpt-6-astra', label: 'GPT-6 Astra', desc: 'Most capable · complex, demanding work', reasoningEfforts: CODEX_EFFORTS_MAX },
-      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', desc: 'Reliable agentic workhorse', reasoningEfforts: CODEX_EFFORTS_MAX },
-      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', desc: 'Balanced everyday coding', reasoningEfforts: CODEX_EFFORTS_MAX },
-      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', desc: 'Fast and affordable', reasoningEfforts: CODEX_EFFORTS_MAX },
-      { id: 'gpt-5.5', label: 'GPT-5.5', desc: 'Previous generation · up to xhigh', reasoningEfforts: CODEX_EFFORTS_XHIGH }
+      { id: 'gpt-6-astra', label: 'GPT-6 Astra', desc: 'Most capable · complex, demanding work', reasoningEfforts: CODEX_EFFORTS },
+      { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', desc: 'Latest workhorse for coding', reasoningEfforts: CODEX_EFFORTS },
+      { id: 'gpt-6-luna', label: 'GPT-6 Luna', desc: 'Fast and affordable', reasoningEfforts: CODEX_EFFORTS }
     ]
   }
 ]

@@ -12,7 +12,7 @@ const pair: RefPair = {
   base: { kind: 'branch', symbol: 'main', anchorSha: 'a'.repeat(40) },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: 'b'.repeat(40) }
 }
-const agent: AgentRef = { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'low' }
+const agent: AgentRef = { engine: 'codex', model: 'gpt-6-luna', reasoningEffort: 'low' }
 
 function setup(): {
   db: ReturnType<typeof openDb>['db']

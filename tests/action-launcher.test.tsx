@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe('ActionLauncher — the list pane', () => {
   it('names the default agent in the head and renders a row per pinned action', () => {
-    seed({ actions: [SIMPLIFY, REBASE], defaultAgent: { engine: 'codex', model: 'gpt-5.5' }, loaded: loadedWith([]), commands: { '/r/acme': [avail('claude'), avail('codex', { names: ['$simplify'] })] } })
+    seed({ actions: [SIMPLIFY, REBASE], defaultAgent: { engine: 'codex', model: 'gpt-6-luna' }, loaded: loadedWith([]), commands: { '/r/acme': [avail('claude'), avail('codex', { names: ['$simplify'] })] } })
     const html = renderToStaticMarkup(<ActionLauncher />)
     expect(html).toContain('class="ax-bolt on"')
     expect(html).toContain('runs with')

@@ -83,7 +83,7 @@ describe('cli:open --generate', () => {
 
     const result = await issueCliOpen({
       dir: fx.dir, base: 'main', compare: 'feature', fresh: true,
-      generate: true, agent: { engine: 'codex', model: 'gpt-5.5' }
+      generate: true, agent: { engine: 'codex', model: 'gpt-6-luna' }
     })
 
     expect(result.path).toBe('/review/7')
@@ -92,7 +92,7 @@ describe('cli:open --generate', () => {
     expect(seen).toEqual([{
       // repoRoot returns git's realpath (/private/var vs /var on macOS)
       repo: fs.realpathSync(fx.dir), base: 'main', compare: 'feature', fresh: true,
-      agent: { engine: 'codex', model: 'gpt-5.5' }
+      agent: { engine: 'codex', model: 'gpt-6-luna' }
     }])
   })
 

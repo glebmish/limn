@@ -106,7 +106,7 @@ describe('CODEX_ACP_CONFIG', () => {
   })
 
   it('configOptions omits an option when its turn value is unset', () => {
-    expect(CODEX_ACP_CONFIG.configOptions?.({ model: 'gpt-5.5' })).toEqual([{ configId: 'model', value: 'gpt-5.5' }])
+    expect(CODEX_ACP_CONFIG.configOptions?.({ model: 'gpt-6-luna' })).toEqual([{ configId: 'model', value: 'gpt-6-luna' }])
     expect(CODEX_ACP_CONFIG.configOptions?.({ reasoningEffort: 'high' })).toEqual([{ configId: 'reasoning_effort', value: 'high' }])
     expect(CODEX_ACP_CONFIG.configOptions?.({})).toEqual([])
   })

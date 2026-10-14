@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const agent: AgentRef = { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'low' }
+const agent: AgentRef = { engine: 'codex', model: 'gpt-6-luna', reasoningEffort: 'low' }
 
 interface Harness {
   db: ReturnType<typeof openDb>['db']

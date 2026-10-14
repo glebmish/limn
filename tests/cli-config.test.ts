@@ -65,16 +65,16 @@ describe('runConfig', () => {
 
   it('list prints three aligned lines', async () => {
     const io = fakeIo()
-    const store = fakeStore({ defaultAgent: JSON.stringify({ engine: 'codex', model: 'gpt-5.5' }) })
+    const store = fakeStore({ defaultAgent: JSON.stringify({ engine: 'codex', model: 'gpt-6-luna' }) })
     await runConfig({ kind: 'config-list' }, io, deps({ local: () => store }))
-    expect(io.out_).toEqual(['agent   codex\nmodel   gpt-5.5\neffort  auto'])
+    expect(io.out_).toEqual(['agent   codex\nmodel   gpt-6-luna\neffort  auto'])
   })
 
   it('get prints the bare value', async () => {
     const io = fakeIo()
-    const store = fakeStore({ defaultAgent: JSON.stringify({ engine: 'codex', model: 'gpt-5.5' }) })
+    const store = fakeStore({ defaultAgent: JSON.stringify({ engine: 'codex', model: 'gpt-6-luna' }) })
     await runConfig({ kind: 'config-get', key: 'model' }, io, deps({ local: () => store }))
-    expect(io.out_).toEqual(['gpt-5.5'])
+    expect(io.out_).toEqual(['gpt-6-luna'])
   })
 
   it('set writes the normalised JSON pref and re-prints the list', async () => {
@@ -109,10 +109,10 @@ describe('runConfig', () => {
   it('a remote set rejection prints the error and returns 1', async () => {
     const io = fakeIo()
     const remote = fakeStore()
-    remote.set = async () => { throw new Error('unknown model "bogus" for codex (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5)') }
+    remote.set = async () => { throw new Error('unknown model "bogus" for codex (gpt-6-astra, gpt-6.1-sol, gpt-6-luna)') }
     const code = await runConfig({ kind: 'config-set', key: 'agent', value: 'codex' }, io, deps({ probe: async () => health, remote: () => remote }))
     expect(code).toBe(1)
-    expect(io.err_).toEqual(['limn: unknown model "bogus" for codex (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5)'])
+    expect(io.err_).toEqual(['limn: unknown model "bogus" for codex (gpt-6-astra, gpt-6.1-sol, gpt-6-luna)'])
   })
 
   describe('against a corrupt local db (real localStore, no service running)', () => {

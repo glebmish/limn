@@ -4,7 +4,6 @@ import type { ReasoningEffort } from '../src/shared/types'
 
 const CLAUDE_LADDER: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const CODEX_MAX: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
-const CODEX_XHIGH: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh']
 
 describe('agent catalog', () => {
   it('offers Claude Fable/Opus/Sonnet as CLI aliases with the full low→max ladder', () => {
@@ -19,12 +18,8 @@ describe('agent catalog', () => {
   })
 
   it('serves the current Codex models, each with the ladder the CLI reports for it', () => {
-    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'])
-    expect(modelOption({ engine: 'codex', model: 'gpt-6-astra' })?.reasoningEfforts).toEqual(CODEX_MAX)
-    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-sol' })?.reasoningEfforts).toEqual(CODEX_MAX)
-    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-terra' })?.reasoningEfforts).toEqual(CODEX_MAX)
-    expect(modelOption({ engine: 'codex', model: 'gpt-5.6-luna' })?.reasoningEfforts).toEqual(CODEX_MAX)
-    expect(modelOption({ engine: 'codex', model: 'gpt-5.5' })?.reasoningEfforts).toEqual(CODEX_XHIGH)
+    expect(modelsFor('codex').map((m) => m.id)).toEqual(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna'])
+    for (const m of modelsFor('codex')) expect(m.reasoningEfforts).toEqual(CODEX_MAX)
   })
 
   it('retires the stale gpt-5 / gpt-5-codex / gpt-5.4 slugs', () => {

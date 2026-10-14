@@ -12,7 +12,7 @@ import type { AgentRef, Comment, RefPair } from '../src/shared/types'
 import type { OpEventMsg, OpResultMsg } from '../src/shared/ipc'
 import type { Transport } from '../src/server/transport'
 
-const agent: AgentRef = { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'low' }
+const agent: AgentRef = { engine: 'codex', model: 'gpt-6-luna', reasoningEffort: 'low' }
 
 interface Harness {
   db: ReturnType<typeof openDb>['db']

@@ -152,8 +152,8 @@ addChatMessage(db, reviewChat.id, {
   ]
 })
 
-// second chat: switched to Codex · gpt-5.5 (high) and asked a security question
-setThreadAgent(db, userChat.id, { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'high' })
+// second chat: switched to Codex · gpt-6.1-sol (high) and asked a security question
+setThreadAgent(db, userChat.id, { engine: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'high' })
 setThreadEngineSession(db, userChat.id, 'codex-thread-1')
 addChatMessage(db, userChat.id, { role: 'user', text: 'Do a quick security pass on the new branch.', at: 'now' })
 addChatMessage(db, userChat.id, {
@@ -317,7 +317,7 @@ if (process.env.LIMN_SEED_ACTIONS === '1') {
 const s2 = createSession(db, fx.dir, {
   base: { kind: 'commit', symbol: 'HEAD~1', anchorSha: fx.shas.firstFeature },
   compare: { kind: 'branch', symbol: 'feature', anchorSha: compare.sha }
-}, { engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'high' })
+}, { engine: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'high' })
 updateSessionMeta(db, s2.id, { annotations: { title: 'Incremental pass since last commit', summary: '', sections: [], questions: [] } })
 const s3 = createSession(db, fx.dir, {
   base: { kind: 'branch', symbol: 'main', anchorSha: base.sha },

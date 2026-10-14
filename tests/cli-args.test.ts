@@ -65,8 +65,8 @@ describe('parseArgs', () => {
   it('--generate flags generation; --agent/--model/--effort build an AgentOverride', () => {
     expect(parseArgs(['--generate'], cwd)).toMatchObject({ kind: 'open', generate: true })
     expect(parseArgs(['--generate'], cwd)).not.toHaveProperty('agent')
-    expect(parseArgs(['--generate', '--agent', 'codex', '--model', 'gpt-5.5', '--effort', 'high'], cwd))
-      .toMatchObject({ kind: 'open', generate: true, agent: { engine: 'codex', model: 'gpt-5.5', effort: 'high' } })
+    expect(parseArgs(['--generate', '--agent', 'codex', '--model', 'gpt-6-luna', '--effort', 'high'], cwd))
+      .toMatchObject({ kind: 'open', generate: true, agent: { engine: 'codex', model: 'gpt-6-luna', effort: 'high' } })
   })
   it('--print-url sets printUrl', () => {
     expect(parseArgs(['--print-url'], cwd)).toMatchObject({ kind: 'open', printUrl: true })

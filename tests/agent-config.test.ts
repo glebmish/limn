@@ -24,7 +24,7 @@ describe('applyConfigChange', () => {
   })
 
   it('model -> a valid model on the current engine', () => {
-    expect(applyConfigChange({ engine: 'codex' }, 'model', 'gpt-5.5')).toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-5.5' } })
+    expect(applyConfigChange({ engine: 'codex' }, 'model', 'gpt-6-luna')).toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-6-luna' } })
   })
 
   it('model -> auto clears model and effort', () => {

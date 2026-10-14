@@ -17,10 +17,10 @@ beforeEach(() => {
 
 describe('defaultAgent pref', () => {
   it('loadPrefs hydrates defaultAgent and seeds agent from a valid defaultAgent pref', async () => {
-    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-5.5"}' })
+    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-6-luna"}' })
     await useStore.getState().loadPrefs()
-    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-5.5' })
-    expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-5.5' })
+    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-6-luna' })
+    expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-6-luna' })
   })
 
   it('loadPrefs falls back to the legacy agent pref and does not write it back', async () => {
@@ -49,12 +49,12 @@ describe('defaultAgent pref', () => {
     await useStore.getState().loadPrefs()
     expect(useStore.getState().agent).toEqual({ engine: 'claude' })
 
-    useStore.getState().setAgent({ engine: 'codex', model: 'gpt-5.5' })
+    useStore.getState().setAgent({ engine: 'codex', model: 'gpt-6-luna' })
 
-    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-5.6-sol"}' })
+    getPrefs.mockResolvedValueOnce({ defaultAgent: '{"engine":"codex","model":"gpt-6.1-sol"}' })
     await useStore.getState().loadPrefs()
-    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-5.6-sol' })
-    expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-5.5' })
+    expect(useStore.getState().defaultAgent).toEqual({ engine: 'codex', model: 'gpt-6.1-sol' })
+    expect(useStore.getState().agent).toEqual({ engine: 'codex', model: 'gpt-6-luna' })
   })
 
   it('setDefaultAgent rejects with the server message and leaves state unchanged on failure', async () => {

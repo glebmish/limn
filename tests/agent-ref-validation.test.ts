@@ -8,8 +8,8 @@ describe('validateAgentRef', () => {
   })
 
   it('accepts a valid engine+model', () => {
-    expect(validateAgentRef({ engine: 'codex', model: 'gpt-5.5' }))
-      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-5.5' } })
+    expect(validateAgentRef({ engine: 'codex', model: 'gpt-6-luna' }))
+      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-6-luna' } })
   })
 
   it('accepts a valid engine+model+reasoningEffort', () => {
@@ -42,8 +42,8 @@ describe('validateAgentRef', () => {
   })
 
   it('rejects a model not offered for the engine', () => {
-    expect(validateAgentRef({ engine: 'claude', model: 'gpt-5.5' }))
-      .toEqual({ ok: false, error: 'unknown model "gpt-5.5" for claude (fable, opus, sonnet, haiku)' })
+    expect(validateAgentRef({ engine: 'claude', model: 'gpt-6-luna' }))
+      .toEqual({ ok: false, error: 'unknown model "gpt-6-luna" for claude (fable, opus, sonnet, haiku)' })
   })
 
   it('rejects a reasoningEffort on a model with no effort ladder', () => {
@@ -59,8 +59,8 @@ describe('validateAgentRef', () => {
   it('rejects an effort not in the model ladder', () => {
     expect(validateAgentRef({ engine: 'claude', model: 'opus', reasoningEffort: 'ultra' }))
       .toEqual({ ok: false, error: 'unknown effort "ultra" for opus (low, medium, high, xhigh, max)' })
-    expect(validateAgentRef({ engine: 'codex', model: 'gpt-5.5', reasoningEffort: 'max' }))
-      .toEqual({ ok: false, error: 'unknown effort "max" for gpt-5.5 (low, medium, high, xhigh)' })
+    expect(validateAgentRef({ engine: 'codex', model: 'gpt-6-astra', reasoningEffort: 'ultra' }))
+      .toEqual({ ok: false, error: 'unknown effort "ultra" for gpt-6-astra (low, medium, high, xhigh, max)' })
   })
 
   it('accepts max on the Codex models whose ladder offers it', () => {
@@ -71,8 +71,8 @@ describe('validateAgentRef', () => {
 
 describe('validateAgentRefJson', () => {
   it('accepts valid JSON, returning a normalised agent', () => {
-    expect(validateAgentRefJson('{"engine":"codex","model":"gpt-5.5"}'))
-      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-5.5' } })
+    expect(validateAgentRefJson('{"engine":"codex","model":"gpt-6-luna"}'))
+      .toEqual({ ok: true, agent: { engine: 'codex', model: 'gpt-6-luna' } })
   })
 
   it('rejects invalid JSON with a single guard message', () => {
@@ -96,8 +96,8 @@ describe('resolveDefaultAgent', () => {
   })
 
   it('falls back to the legacy agent pref when defaultAgent is absent', () => {
-    expect(resolveDefaultAgent({ [LEGACY_AGENT_PREF_KEY]: '{"engine":"codex","model":"gpt-5.6-sol"}' }))
-      .toEqual({ engine: 'codex', model: 'gpt-5.6-sol' })
+    expect(resolveDefaultAgent({ [LEGACY_AGENT_PREF_KEY]: '{"engine":"codex","model":"gpt-6.1-sol"}' }))
+      .toEqual({ engine: 'codex', model: 'gpt-6.1-sol' })
   })
 
   it('prefers legacy agent over an invalid defaultAgent', () => {
@@ -107,6 +107,11 @@ describe('resolveDefaultAgent', () => {
 
   it('falls back to defaultAgent(claude) when defaultAgent is invalid and there is no legacy pref', () => {
     expect(resolveDefaultAgent({ [DEFAULT_AGENT_PREF_KEY]: '{"engine":"nope"}' })).toEqual({ engine: 'claude' })
+  })
+
+  it('keeps the engine, on Auto, when the stored model has left the catalog', () => {
+    expect(resolveDefaultAgent({ [DEFAULT_AGENT_PREF_KEY]: '{"engine":"codex","model":"gpt-5.6-sol","reasoningEffort":"high"}' }))
+      .toEqual({ engine: 'codex' })
   })
 
   it('never throws on garbage input', () => {
